@@ -1,0 +1,188 @@
+// Tests for src/icon-render.js — pure JS helpers, runs in Node.
+
+const assert = require('assert');
+const { truncatePathsForTaskbar, extractPathsAndUrls } = require('../src/icon-render');
+
+let testsPassed = 0;
+let testsFailed = 0;
+
+function test(name, fn) {
+  try { fn(); testsPassed++; console.log(`  ✓ ${name}`); }
+  catch (err) {
+    testsFailed++;
+    console.log(`  ✗ ${name}`);
+    console.log(`      ${err.message}`);
+  }
+}
+
+console.log('icon-render');
+
+// ---- truncatePathsForTaskbar — URLs ----
+
+test('URL with path → ellipsis plus last two chars', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Review https://github.com/owner/repo/issues/42'),
+    'Review …42'
+  );
+});
+
+test('Multiple URLs each shortened independently', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Compare https://a.com/x/y and https://b.org/z'),
+    'Compare …y and …z'
+  );
+});
+
+test('URL without path drops scheme and suffix', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Visit https://example.com'),
+    'Visit example'
+  );
+});
+
+test('URL with bare trailing slash drops scheme, suffix, and slash', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Visit https://example.com/'),
+    'Visit example'
+  );
+});
+
+test('http (no s) URL also keeps last two path chars', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Check http://localhost:8080/api/foo'),
+    'Check …oo'
+  );
+});
+
+test('Subdomain URL with path keeps last two path chars', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Read https://docs.github.com/foo/bar'),
+    'Read …ar'
+  );
+});
+
+test('GitHub PR URL keeps tail of PR number', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Review https://github.com/owner/repo/pull/1234'),
+    'Review …34'
+  );
+});
+
+// ---- truncatePathsForTaskbar — file paths ----
+
+test('Deep unix path → filename stem', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Edit /home/yunxin/agent-term/src/main.js'),
+    'Edit main'
+  );
+});
+
+test('Filename extension stripped', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Open /usr/local/lib/python3/foo.py for me'),
+    'Open foo for me'
+  );
+});
+
+test('Tilde path → filename stem', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Look at ~/projects/foo/bar.py'),
+    'Look at bar'
+  );
+});
+
+test('Relative path with directory → filename stem', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Fix src/renderer/main.js'),
+    'Fix main'
+  );
+});
+
+test('Short absolute path keeps only basename', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Fix /etc/hosts'),
+    'Fix hosts'
+  );
+});
+
+test('Directory with trailing slash keeps basename and slash', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('cd /usr/local/bin/'),
+    'cd bin/'
+  );
+});
+
+test('Path at start of string is shortened', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('/home/yunxin/agent-term/file.txt'),
+    'file'
+  );
+});
+
+test('Filename without extension still preserved', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('chmod /home/yunxin/scripts/Makefile'),
+    'chmod Makefile'
+  );
+});
+
+// ---- truncatePathsForTaskbar — no-ops and mixed ----
+
+test('Plain prompt with no URL or path is untouched', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Fix the auth bug in login.py'),
+    'Fix the auth bug in login.py'
+  );
+});
+
+test('URL and path in same prompt', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('See https://docs.foo/guide/intro and /home/me/agent-term/src/x.js'),
+    'See …ro and x'
+  );
+});
+
+test('Slash inside a URL is not double-shortened', () => {
+  // URL shortening runs before path shortening and leaves no slash behind.
+  assert.strictEqual(
+    truncatePathsForTaskbar('Read https://github.com/foo/bar.md'),
+    'Read …ar'
+  );
+});
+
+test('@ file mention drops marker, scope, and extension', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Read @ai/jenkins-api-guide.md'),
+    'Read jenkins-api-guide'
+  );
+});
+
+test('extractPathsAndUrls keeps original refs while compacting display', () => {
+  const result = extractPathsAndUrls('See https://github.com/y/x and @ai/guide.md and /tmp/work/main.js');
+  assert.strictEqual(result.text, 'See …x and guide and main');
+  assert.deepStrictEqual(result.refs, [
+    { kind: 'url', full: 'https://github.com/y/x' },
+    { kind: 'path', full: '/tmp/work/main.js' },
+    { kind: 'mention', full: '@ai/guide.md' },
+  ]);
+});
+
+test('Dotfile basename is preserved', () => {
+  assert.strictEqual(
+    truncatePathsForTaskbar('Edit /home/me/project/.env'),
+    'Edit .env'
+  );
+});
+
+test('Empty / null / non-string input normalised to empty string', () => {
+  // Call sites concatenate the result into rendered strings (chrome bar,
+  // thumbnail card), so non-string passthrough would produce literal
+  // "null" / "undefined" / "42" in the UI. Normalise to '' instead.
+  assert.strictEqual(truncatePathsForTaskbar(''), '');
+  assert.strictEqual(truncatePathsForTaskbar(null), '');
+  assert.strictEqual(truncatePathsForTaskbar(undefined), '');
+  assert.strictEqual(truncatePathsForTaskbar(42), '');
+});
+
+console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
+process.exit(testsFailed > 0 ? 1 : 0);

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.idea/
+*.node
+*.pdb
+*.zip
+.DS_Store
+__pycache__/
+release/
+build/launcher.exe
+.claude/settings.local.json
+# Personal Claude Code config (Bash allowlist, enabled plugins) — kept local so
+# it isn't published in this public repo, where a committed permission allowlist
+# is both personal-workflow clutter and a needless auto-run trust surface.
+.claude/settings.json
+src/build-info.json
+icon-preview/

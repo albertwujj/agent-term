@@ -1,0 +1,475 @@
+// Tests for src/sessions-log.js — uses a temp directory as the userDataDir.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const assert = require('assert');
+const log = require('../src/sessions-log');
+
+let testsPassed = 0, testsFailed = 0;
+let tmpDir = null;
+const FROZEN_BOOT = 1700000000000;
+
+function freshDir() {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-sessions-test-'));
+  return tmpDir;
+}
+
+function cleanup() {
+  if (tmpDir) {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    tmpDir = null;
+  }
+}
+
+function test(name, fn) {
+  freshDir();
+  try {
+    fn(tmpDir);
+    testsPassed++;
+    console.log(`  ✓ ${name}`);
+  } catch (err) {
+    testsFailed++;
+    console.log(`  ✗ ${name}`);
+    console.log(`      ${err.message}`);
+    if (err.stack) console.log(err.stack.split('\n').slice(1, 4).join('\n'));
+  } finally {
+    cleanup();
+  }
+}
+
+console.log('sessions-log');
+
+// ---- log basics ----
+
+test('appendEvent + readLog round-trips', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 24 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  const events = log.readLog(dir);
+  assert.strictEqual(events.length, 2);
+  assert.strictEqual(events[0].e, 'started');
+  assert.strictEqual(events[0].id, 1);
+  assert.ok(typeof events[0].t === 'number');
+});
+
+test('listSessions folds events by id', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Old title' });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'New title' });   // overrides
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Fix the auth bug' });
+  log.appendEvent(dir, { e: 'started', id: 2, hue: 24 });
+
+  const sessions = log.listSessions(dir);
+  assert.strictEqual(sessions.length, 2);
+  const s1 = sessions.find(s => s.id === 1);
+  assert.strictEqual(s1.cli, 'claude');
+  assert.strictEqual(s1.title, 'New title');         // newer overrides older
+  assert.strictEqual(s1.prompt, 'Fix the auth bug');
+  assert.strictEqual(s1.closedAt, null);
+});
+
+test('closed event marks session closed', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'closed',  id: 1 });
+  const s = log.listSessions(dir).find(x => x.id === 1);
+  assert.ok(s.closedAt > 0);
+});
+
+test('listSessions folds initial:true title into s.initialTitle', (dir) => {
+  // First title is just the CLI banner — not marked initial.
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Investigate timeout in worker pool' });
+  // Meaningful summary title arrives inside the grace window, flagged initial.
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Investigate timeout', initial: true });
+  // Later titles drift; s.title follows them but initialTitle stays.
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Looking at the locking code' });
+
+  const s = log.listSessions(dir).find(x => x.id === 1);
+  assert.strictEqual(s.initialTitle, 'Investigate timeout');   // first initial wins
+  assert.strictEqual(s.title, 'Looking at the locking code');  // s.title still last-wins
+});
+
+test('listSessions: only first initial:true wins (subsequent ignored)', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'First subject', initial: true });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Bogus second initial', initial: true });
+  const s = log.listSessions(dir).find(x => x.id === 1);
+  assert.strictEqual(s.initialTitle, 'First subject');
+});
+
+test('listSessions: no initial-flagged title leaves initialTitle null', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Drifting title' });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Another' });
+  const s = log.listSessions(dir).find(x => x.id === 1);
+  assert.strictEqual(s.initialTitle, null);
+  assert.strictEqual(s.title, 'Another');
+});
+
+test('readLog handles malformed lines without crashing', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1 });
+  // Inject garbage manually
+  fs.appendFileSync(path.join(dir, 'sessions.jsonl'), 'not json\n{"e":"closed","id":1}\n');
+  const events = log.readLog(dir);
+  // started + closed pass; "not json" line is silently dropped
+  assert.strictEqual(events.length, 2);
+});
+
+test('listSessions on empty/missing log returns []', (dir) => {
+  assert.deepStrictEqual(log.listSessions(dir), []);
+});
+
+// ---- active files ----
+
+test('writeActiveFile + readActiveFile round-trips', (dir) => {
+  log.writeActiveFile(dir, 7, { pid: 12345, bootTime: FROZEN_BOOT });
+  const r = log.readActiveFile(dir, 7);
+  assert.deepStrictEqual(r, { pid: 12345, bootTime: FROZEN_BOOT });
+});
+
+test('deleteActiveFile removes the file', (dir) => {
+  log.writeActiveFile(dir, 7, { pid: 1, bootTime: FROZEN_BOOT });
+  log.deleteActiveFile(dir, 7);
+  assert.strictEqual(log.readActiveFile(dir, 7), null);
+});
+
+test('isSessionActive: stale bootTime is not active', () => {
+  const rec = { pid: process.pid, bootTime: FROZEN_BOOT };
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT + 60_000 }), false);
+});
+
+test('isSessionActive: matching boot + live pid is active', () => {
+  const rec = { pid: process.pid, bootTime: FROZEN_BOOT };
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT }), true);
+});
+
+test('isSessionActive: matching boot + dead pid is not active', () => {
+  // PID 1 is init/launchd which is alive — pick something almost guaranteed dead.
+  // Using a very high pid that won't exist on a developer machine.
+  const rec = { pid: 999999, bootTime: FROZEN_BOOT };
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT }), false);
+});
+
+test('gcActiveFiles cleans up stale entries', (dir) => {
+  // alive (this process) + stale (from previous boot) + dead-pid
+  log.writeActiveFile(dir, 1, { pid: process.pid, bootTime: FROZEN_BOOT });
+  log.writeActiveFile(dir, 2, { pid: process.pid, bootTime: FROZEN_BOOT - 60_000 });
+  log.writeActiveFile(dir, 3, { pid: 999999,      bootTime: FROZEN_BOOT });
+  log.gcActiveFiles(dir, { bootTime: FROZEN_BOOT });
+  assert.deepStrictEqual(log.listActiveIds(dir).sort(), [1]);
+});
+
+// ---- pending recovery ----
+
+test('initPendingRecoveryIfNeeded picks up orphans on first init', (dir) => {
+  // Two sessions: one with full chain (started+cli+prompt, no closed),
+  // one closed cleanly. Only the first should be pending.
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Investigate the timeout' });
+  log.appendEvent(dir, { e: 'started', id: 2, hue: 24 });
+  log.appendEvent(dir, { e: 'cli',     id: 2, cli: 'codex' });
+  log.appendEvent(dir, { e: 'prompt',  id: 2, prompt: 'Refactor middleware' });
+  log.appendEvent(dir, { e: 'closed',  id: 2 });
+
+  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
+  assert.strictEqual(snap.bootTime, FROZEN_BOOT);
+  assert.deepStrictEqual(snap.pendingIds, [1]);
+});
+
+test('initPendingRecoveryIfNeeded: active sessions are excluded', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Long enough prompt now' });
+  log.writeActiveFile(dir, 1, { pid: process.pid, bootTime: FROZEN_BOOT });
+
+  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
+  assert.deepStrictEqual(snap.pendingIds, []);
+});
+
+test('initPendingRecoveryIfNeeded: shell-only sessions (no cli) excluded', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1 });
+  // No cli, no prompt — shell-only
+  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
+  assert.deepStrictEqual(snap.pendingIds, []);
+});
+
+test('initPendingRecoveryIfNeeded: same boot returns existing snapshot unchanged', (dir) => {
+  log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT, pendingIds: [99] });
+  // No log entries at all; existing snapshot should be returned intact.
+  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
+  assert.deepStrictEqual(snap.pendingIds, [99]);
+});
+
+test('initPendingRecoveryIfNeeded: different boot recomputes', (dir) => {
+  log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT - 60_000, pendingIds: [99] });
+  log.appendEvent(dir, { e: 'started', id: 7 });
+  log.appendEvent(dir, { e: 'cli',     id: 7, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 7, prompt: 'New session prompt' });
+  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
+  assert.strictEqual(snap.bootTime, FROZEN_BOOT);
+  assert.deepStrictEqual(snap.pendingIds, [7]);
+});
+
+test('removeFromPendingRecovery decrements the set', (dir) => {
+  log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT, pendingIds: [1, 2, 3] });
+  log.removeFromPendingRecovery(dir, 2);
+  const snap = log.readPendingRecovery(dir);
+  assert.deepStrictEqual(snap.pendingIds, [1, 3]);
+});
+
+test('removeFromPendingRecovery on missing id is a no-op', (dir) => {
+  log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT, pendingIds: [1, 2, 3] });
+  log.removeFromPendingRecovery(dir, 99);
+  assert.deepStrictEqual(log.readPendingRecovery(dir).pendingIds, [1, 2, 3]);
+});
+
+// ---- public picker queries ----
+
+test('autoRecoveryList returns full session objects, newest first', (dir) => {
+  // Two pending, one closed. Manually order timestamps so id 2 is newer.
+  log.appendEvent(dir, { e: 'started', id: 1 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Fix the auth bug now' });
+  // sleep one ms to ensure ordering
+  const wait = Date.now() + 2; while (Date.now() < wait) {}
+  log.appendEvent(dir, { e: 'started', id: 2 });
+  log.appendEvent(dir, { e: 'cli',     id: 2, cli: 'codex' });
+  log.appendEvent(dir, { e: 'prompt',  id: 2, prompt: 'Investigate the timeout' });
+
+  const list = log.autoRecoveryList(dir, { bootTime: FROZEN_BOOT });
+  assert.strictEqual(list.length, 2);
+  assert.strictEqual(list[0].id, 2);   // newer first
+  assert.strictEqual(list[1].id, 1);
+  assert.strictEqual(list[0].cli, 'codex');
+});
+
+test('menuList includes closed and active with isActive flag', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Fix the auth bug now' });
+  log.appendEvent(dir, { e: 'closed',  id: 1 });
+
+  log.appendEvent(dir, { e: 'started', id: 2 });
+  log.appendEvent(dir, { e: 'cli',     id: 2, cli: 'codex' });
+  log.appendEvent(dir, { e: 'prompt',  id: 2, prompt: 'Investigate the timeout' });
+  log.writeActiveFile(dir, 2, { pid: process.pid, bootTime: FROZEN_BOOT });
+
+  const list = log.menuList(dir, { bootTime: FROZEN_BOOT });
+  assert.strictEqual(list.length, 2);
+  const s1 = list.find(s => s.id === 1);
+  const s2 = list.find(s => s.id === 2);
+  assert.strictEqual(s1.isActive, false);
+  assert.strictEqual(s2.isActive, true);
+});
+
+test('menuList excludes sessions without a captured prompt', (dir) => {
+  // Opening claude and exiting without typing — has cli + title but no prompt.
+  // "Start new claude session" already covers fresh launches; resume is for
+  // sessions with content.
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: '✳ Claude Code' });
+  log.appendEvent(dir, { e: 'closed',  id: 1 });
+
+  const list = log.menuList(dir, { bootTime: FROZEN_BOOT });
+  assert.strictEqual(list.length, 0);
+});
+
+test('menuList excludes sessions without a recorded cli (shell-only / non-CLI)', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'agent-term' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'this should not show' });
+  log.appendEvent(dir, { e: 'closed',  id: 1 });
+
+  const list = log.menuList(dir, { bootTime: FROZEN_BOOT });
+  assert.strictEqual(list.length, 0);
+});
+
+test('menuList drops sessions older than the 4-week window', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Old prompt long enough' });
+  // Manually rewrite the file with very old timestamps (60 days > the 28-day window)
+  const file = path.join(dir, 'sessions.jsonl');
+  const old = Date.now() - 60 * 24 * 60 * 60 * 1000;
+  const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => {
+    const ev = JSON.parse(l);
+    ev.t = old;
+    return JSON.stringify(ev);
+  }).join('\n') + '\n';
+  fs.writeFileSync(file, lines);
+
+  const list = log.menuList(dir, { bootTime: FROZEN_BOOT });
+  assert.strictEqual(list.length, 0);
+});
+
+// ---- compaction ----
+
+test('compactSessionsLog drops events older than the window', (dir) => {
+  // Two old events + two recent ones; only recent should survive.
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'closed',  id: 1 });
+  log.appendEvent(dir, { e: 'started', id: 2, hue: 24 });
+  log.appendEvent(dir, { e: 'closed',  id: 2 });
+
+  // Backdate the first session's events to 60 days ago.
+  const file = path.join(dir, 'sessions.jsonl');
+  const old = Date.now() - 60 * 24 * 60 * 60 * 1000;
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map(l => {
+    const ev = JSON.parse(l);
+    if (ev.id === 1) ev.t = old;
+    return JSON.stringify(ev);
+  }).join('\n') + '\n';
+  fs.writeFileSync(file, lines);
+
+  const dropped = log.compactSessionsLog(dir);
+  assert.strictEqual(dropped, 2);
+  const remaining = log.readLog(dir);
+  assert.strictEqual(remaining.length, 2);
+  assert.ok(remaining.every(ev => ev.id === 2));
+});
+
+test('compactSessionsLog is a no-op when nothing exceeds the window', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'closed',  id: 1 });
+  const before = fs.readFileSync(path.join(dir, 'sessions.jsonl'), 'utf8');
+  const dropped = log.compactSessionsLog(dir);
+  assert.strictEqual(dropped, 0);
+  const after = fs.readFileSync(path.join(dir, 'sessions.jsonl'), 'utf8');
+  assert.strictEqual(after, before);
+});
+
+test('compactSessionsLog with empty log returns 0', (dir) => {
+  const dropped = log.compactSessionsLog(dir);
+  assert.strictEqual(dropped, 0);
+});
+
+test('compactSessionsLog respects custom maxAgeMs override', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  // Backdate to 2 hours ago.
+  const file = path.join(dir, 'sessions.jsonl');
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map(l => {
+    const ev = JSON.parse(l);
+    ev.t = Date.now() - 2 * 60 * 60 * 1000;
+    return JSON.stringify(ev);
+  }).join('\n') + '\n';
+  fs.writeFileSync(file, lines);
+
+  // 1-hour window drops the 2-hour-old event.
+  const dropped = log.compactSessionsLog(dir, { maxAgeMs: 60 * 60 * 1000 });
+  assert.strictEqual(dropped, 1);
+  assert.strictEqual(log.readLog(dir).length, 0);
+});
+
+test('currentBootTime is stable within a process', () => {
+  const a = log.currentBootTime();
+  const b = log.currentBootTime();
+  assert.strictEqual(a, b);   // rounded to nearest minute
+});
+
+// ---- getRecentPromptsForSession ----
+
+test('getRecentPromptsForSession returns chronological prompt events for a session', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 24 });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'First prompt for the session' });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Some title' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Second prompt later on' });
+  log.appendEvent(dir, { e: 'prompt',  id: 2, prompt: 'A different session prompt' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Third prompt much later' });
+
+  const prompts = log.getRecentPromptsForSession(dir, 1);
+  assert.strictEqual(prompts.length, 3);
+  assert.deepStrictEqual(prompts.map(p => p.prompt), [
+    'First prompt for the session',
+    'Second prompt later on',
+    'Third prompt much later',
+  ]);
+});
+
+test('getRecentPromptsForSession caps by total chars, dropping oldest', (dir) => {
+  log.appendEvent(dir, { e: 'prompt', id: 1, prompt: 'a'.repeat(100) });
+  log.appendEvent(dir, { e: 'prompt', id: 1, prompt: 'b'.repeat(100) });
+  log.appendEvent(dir, { e: 'prompt', id: 1, prompt: 'c'.repeat(100) });
+
+  const prompts = log.getRecentPromptsForSession(dir, 1, { maxChars: 250 });
+  // Total before cap = 300; after dropping oldest (a's) = 200, fits under 250.
+  assert.deepStrictEqual(prompts.map(p => p.prompt[0]), ['b', 'c']);
+});
+
+test('getRecentPromptsForSession returns empty list when no prompts logged', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  assert.deepStrictEqual(log.getRecentPromptsForSession(dir, 1), []);
+});
+
+test('getRecentPromptsForSession keeps newest entry even if it alone exceeds the cap', (dir) => {
+  log.appendEvent(dir, { e: 'prompt', id: 1, prompt: 'a'.repeat(100) });
+  log.appendEvent(dir, { e: 'prompt', id: 1, prompt: 'huge' + 'b'.repeat(1000) });
+
+  const prompts = log.getRecentPromptsForSession(dir, 1, { maxChars: 50 });
+  // Cap can't drop everything — keep the newest no matter what.
+  assert.strictEqual(prompts.length, 1);
+  assert.ok(prompts[0].prompt.startsWith('huge'));
+});
+
+// ---- searchHiddenPromptMatches ----
+
+test('searchHiddenPromptMatches excludes the visible first prompt', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 24 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'billing webhook first prompt' });
+
+  const matches = log.searchHiddenPromptMatches(dir, 'billing webhook');
+  assert.deepStrictEqual(matches, []);
+});
+
+test('searchHiddenPromptMatches returns follow-up prompt matches grouped by session', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 24 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Investigate checkout retries' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'webhook retries fail for billing after 409' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'retry billing webhook from dead-letter queue' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'billing only follow up' });
+
+  const matches = log.searchHiddenPromptMatches(dir, 'billing webhook');
+  assert.strictEqual(matches.length, 1);
+  assert.strictEqual(matches[0].id, 1);
+  assert.strictEqual(matches[0].matchCount, 2);
+  assert.deepStrictEqual(matches[0].matches.map(m => m.text), [
+    'webhook retries fail for billing after 409',
+    'retry billing webhook from dead-letter queue',
+  ]);
+});
+
+test('searchHiddenPromptMatches requires all words within the same hidden prompt', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 24 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Initial prompt for this session' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'billing investigation follow up' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'webhook retry follow up' });
+
+  const matches = log.searchHiddenPromptMatches(dir, 'billing webhook');
+  assert.deepStrictEqual(matches, []);
+});
+
+test('searchHiddenPromptMatches counts each matching hidden prompt once', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 24 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Initial prompt for this session' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'billing webhook then billing webhook again' });
+
+  const matches = log.searchHiddenPromptMatches(dir, 'billing webhook');
+  assert.strictEqual(matches.length, 1);
+  assert.strictEqual(matches[0].matchCount, 1);
+  assert.deepStrictEqual(
+    matches[0].matches[0].ranges.map(r => matches[0].matches[0].text.slice(r.start, r.end)),
+    ['billing', 'webhook', 'billing', 'webhook'],
+  );
+});
+
+console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
+process.exit(testsFailed > 0 ? 1 : 0);

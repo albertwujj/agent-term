@@ -1,0 +1,84 @@
+{
+  "name": "agent-term",
+  "version": "0.1.14",
+  "description": "Terminal for Claude Code with intelligent clickable spans",
+  "main": "src/main.js",
+  "scripts": {
+    "build": "node scripts/build-runtime.js",
+    "build:preload": "esbuild src/web-viewer-preload.js --bundle --outfile=dist/web-viewer-preload.js --platform=node --format=cjs --external:electron",
+    "build:launcher": "node scripts/build-launcher.js",
+    "postinstall": "node scripts/fix-pty-perms.js",
+    "demo:alt": "node scripts/alt-screen-demo.js",
+    "start": "npm run build && electron .",
+    "test": "node test/patterns.test.js && node test/navigation.test.js && node test/caret-shortcut.test.js && node test/viewer-shortcut.test.js && node test/viewer-selector.test.js && node test/viewer-history.test.js && node test/search-ui-state.test.js && node test/prompt-capture.test.js && node test/sessions-log.test.js && node test/window-cap.test.js && node test/relaunch.test.js && node test/runtime-build.test.js && node test/runbook-resolution.test.js && node test/hue-assign.test.js && node test/icon-render.test.js && node test/ai-title.test.js && node test/resume-hint.test.js && node test/sessions-picker.test.js && node test/url-open.test.js && node test/terminal-annotations.test.js && node test/image-attachment.test.js && node test/terminal-decoration-press.test.js && node test/viewer-band.test.js && node test/markdown-viewer-palette.test.js && node test/markdown-render.test.js && node test/markdown-change-diff.test.js && node test/markdown-search.test.js && node test/markdown-viewer-landing.test.js && node test/markdown-editing.test.js && node test/integration.test.js && node test/stream-encoder.test.js",
+    "test:unit": "node test/patterns.test.js && node test/navigation.test.js && node test/caret-shortcut.test.js && node test/viewer-shortcut.test.js && node test/viewer-selector.test.js && node test/viewer-history.test.js && node test/search-ui-state.test.js && node test/prompt-capture.test.js && node test/sessions-log.test.js && node test/window-cap.test.js && node test/relaunch.test.js && node test/runtime-build.test.js && node test/runbook-resolution.test.js && node test/hue-assign.test.js && node test/icon-render.test.js && node test/ai-title.test.js && node test/resume-hint.test.js && node test/sessions-picker.test.js && node test/url-open.test.js && node test/terminal-annotations.test.js && node test/image-attachment.test.js && node test/terminal-decoration-press.test.js && node test/viewer-band.test.js && node test/markdown-viewer-palette.test.js && node test/markdown-render.test.js && node test/markdown-change-diff.test.js && node test/markdown-search.test.js && node test/markdown-viewer-landing.test.js && node test/markdown-editing.test.js",
+    "test:navigation": "node test/navigation.test.js",
+    "test:integration": "node test/integration.test.js",
+    "test:remote-input-integration": "node test/remote-input-integration.test.js",
+    "test:context": "node test/file-context.test.js",
+    "test:e2e": "npm run build && node test/e2e/freeze-focus.mjs && node test/e2e/capture-select-comment.mjs && node test/e2e/resume-hint-viewer-open.mjs && node test/e2e/image-attachment-click.mjs",
+    "test:all": "npm test && npm run test:context",
+    "rebuild": "electron-rebuild -f -w node-pty",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && npm run build:launcher && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.yunxin.agent-term",
+    "productName": "AgentTerm",
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "dist/**/*",
+      "tools/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**",
+      "tools/**"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "artifactName": "${productName}-${version}-setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}.${ext}",
+      "unpackDirName": true
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "include": "build/installer.nsh"
+    }
+  },
+  "dependencies": {
+    "@leeoniya/ufuzzy": "^1.0.19",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0",
+    "koffi": "^2.16.2",
+    "markdown-it": "^14.2.0",
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^26.7.0",
+    "electron-rebuild": "^3.2.9",
+    "esbuild": "^0.24.0",
+    "jsdom": "^27.0.1",
+    "playwright-core": "^1.61.1"
+  }
+}

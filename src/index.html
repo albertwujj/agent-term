@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>agent-term</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background: #0c0c0c;
+      color-scheme: dark;
+      -webkit-font-smoothing: antialiased;
+    }
+    #terminal {
+      /* On Windows, titleBarOverlay reserves the chrome-bar height above the
+         renderer body, so the body starts below the bar — terminal fills
+         100%. On macOS dev, the chrome bar mounts inside the body and sets
+         --at-chrome-height; the terminal offsets by that amount so the bar
+         doesn't overlap the first row of the terminal.
+         --at-chrome-bottom-gap adds breathing room below the 1px hue
+         divider so the divider reads as a chrome separator rather than
+         the topmost xterm row. Set by chrome-bar.js. */
+      height: calc(100% - var(--at-chrome-height, 0px) - var(--at-chrome-bottom-gap, 0px));
+      width: 100%;
+      margin-top: calc(var(--at-chrome-height, 0px) + var(--at-chrome-bottom-gap, 0px));
+    }
+    /* Thin scrollbar like Windows Terminal */
+    .xterm-viewport::-webkit-scrollbar {
+      width: 4px;
+    }
+    .xterm-viewport::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .xterm-viewport::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 4px;
+    }
+    .xterm-viewport:hover::-webkit-scrollbar {
+      width: 10px;
+    }
+    .xterm-viewport:hover::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.4);
+    }
+    .xterm-viewport::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.5);
+    }
+    /* Search bar */
+    #search-bar {
+      position: fixed;
+      top: calc(env(titlebar-area-y, 0px) + env(titlebar-area-height, 42px) + 8px);
+      right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 20px);
+      z-index: 9999;
+      background: #252526;
+      border: 1px solid #3c3c3c;
+      border-radius: 4px;
+      padding: 4px 6px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-family: sans-serif;
+      font-size: 13px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+      max-width: calc(env(titlebar-area-width, 100vw) - 40px);
+      -webkit-app-region: no-drag;
+      pointer-events: auto;
+    }
+    #search-bar * {
+      -webkit-app-region: no-drag;
+    }
+    #search-input {
+      background: #3c3c3c;
+      border: 1px solid #555;
+      border-radius: 2px;
+      color: #ccc;
+      padding: 3px 6px;
+      font-size: 13px;
+      font-family: inherit;
+      width: 200px;
+      min-width: 80px;
+      flex: 1 1 200px;
+      outline: none;
+    }
+    #search-input:focus {
+      border-color: #007acc;
+    }
+    #search-count {
+      color: #888;
+      font-size: 12px;
+      min-width: 50px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    #search-bar button {
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      color: #ccc;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 2px 5px;
+      line-height: 1;
+    }
+    #search-bar button:hover {
+      background: #464647;
+      border-color: #555;
+    }
+  </style>
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
+</head>
+<body>
+  <div id="search-bar" style="display: none;">
+    <input id="search-input" type="text" placeholder="Find..." spellcheck="false" autocomplete="off" />
+    <span id="search-count"></span>
+    <button id="search-prev" type="button" title="Previous match (Shift+Enter)">&#x25B2;</button>
+    <button id="search-next" type="button" title="Next match (Enter)">&#x25BC;</button>
+    <button id="search-close" type="button" title="Close (Escape)">&#x2715;</button>
+  </div>
+  <div id="terminal"></div>
+  <script src="../dist/renderer.js"></script>
+</body>
+</html>
