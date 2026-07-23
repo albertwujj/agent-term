@@ -87,15 +87,16 @@ function diffMergedParts(oldText, newText) {
   };
 }
 
-// Entry keys split by whether they mutate: ⌫/Delete and every printable char
-// — Space included — apply immediately (the keystroke IS the edit; Space
-// only reaches dispatch with a block deliberately targeted, since untargeted
-// Space page-flips, and a no-op entry read as "space didn't work"). Enter
-// and arrows enter the editor without inserting.
+// Entry keys split by whether they mutate: ⌫/Delete, every printable char —
+// Space included — and Enter (a line break at the click caret) apply
+// immediately: the keystroke IS the edit, and each only reaches dispatch
+// with a block deliberately targeted (untargeted Space page-flips). A no-op
+// entry read as "the key didn't work". Arrows enter the editor without
+// inserting.
 function isMutatingEntryKey(event) {
   const k = event.key;
-  if (k === 'Backspace' || k === 'Delete') return true;
-  if (k === 'Enter' || k.startsWith('Arrow')) return false;
+  if (k === 'Backspace' || k === 'Delete' || k === 'Enter') return true;
+  if (k.startsWith('Arrow')) return false;
   return [...k].length === 1;
 }
 
@@ -1032,6 +1033,20 @@ function ensureStyles() {
       text-decoration-thickness: 2px;
       text-underline-offset: 2px;
       text-decoration-color: rgba(100, 116, 139, 0.7);
+      /* a sealed insertion may carry a "\n" break; typed ins text is
+         space-normalized, so pre-wrap exposes nothing else */
+      white-space: pre-wrap;
+    }
+    /* An inserted line break in prose: a break atom carrying a real "\n".
+       Its own pre-wrap renders the break while the block stays collapsed;
+       the pilcrow makes the break visible and struck-able (⌫ removes it as
+       one unit). Code blocks carry raw newlines instead — <pre> is already
+       honest. */
+    .md-viewer-body ins.md-pending-break { white-space: pre-wrap; }
+    .md-viewer-body ins.md-pending-break::before {
+      content: '¶';
+      color: rgba(217, 119, 6, 0.55);
+      font-size: 0.82em;
     }
     /* The revealed edit affordance: the same bubble chrome as .md-comment-card,
        so a revealed edit reads like an open comment. Holds the shared composer
@@ -3786,8 +3801,9 @@ function createMarkdownViewer({
     return clone.innerHTML;
   }
 
-  // structural inputs are blocked. Enter sends; clicking away commits; Esc
-  // reverts. A line break belongs in a text box (the note/comment), not here.
+  // structural inputs are blocked. A first-key Enter breaks the line at the
+  // click caret; while editing, Enter sends and Shift+Enter breaks; clicking
+  // away commits; Esc reverts.
   function openRenderedEditor(target, range, blockSource, entryEvent, clickCaret) {
     const origRendered = getSearchableTextNodes(target).text;
     target.contentEditable = 'true';
@@ -3858,7 +3874,8 @@ function createMarkdownViewer({
       const live = sel.getRangeAt(0);
       if (target.contains(live.startContainer) && target.contains(live.endContainer)) {
         strikeInBlock(target, live.cloneRange(), 'after');
-        if (k !== 'Backspace' && k !== 'Delete') insertMarkedInBlock(k);
+        if (k === 'Enter') insertLineBreakInBlock();
+        else if (k !== 'Backspace' && k !== 'Delete') insertMarkedInBlock(k);
         return;
       }
     }
@@ -3875,6 +3892,9 @@ function createMarkdownViewer({
       else setCaretWithin(target, 0);
     } else if (k === 'Delete') {
       const r = createTextRangeWithin(target, caret, caret + 1); if (r) strikeInBlock(target, r, 'after');
+    } else if (k === 'Enter') {
+      setCaretWithin(target, caret);
+      insertLineBreakInBlock();
     } else {
       setCaretWithin(target, caret);
       insertMarkedInBlock(k);
@@ -4649,21 +4669,37 @@ function createMarkdownViewer({
     line.append(text);
   }
 
-  // A hard line break — Shift+Enter, code blocks only. Typed text normalizes
-  // whitespace to single spaces; a deliberate break keeps a real "\n", marked as
-  // an insertion. Honest only in a <pre>: it is pre-wrap in every view, so the
-  // break the user sees live is the break the sealed block shows and the same
-  // "\n" overlayToEnvelope hands the agent inside <ins>. Prose collapses it to a
-  // space, which is why it stays refused there.
+  // A hard line break, in any block — Shift+Enter while editing, or Enter as
+  // the first key on a clicked block. Typed text normalizes whitespace to
+  // single spaces; a deliberate break keeps a real "\n" inside an insertion
+  // mark, so the envelope hands the agent the break exactly where it was made.
+  // In a <pre> the "\n" shows as-is (whitespace is honest there). In prose it
+  // rides a dedicated break atom (ins.md-pending-break) whose own pre-wrap
+  // renders the break while the block stays collapsed, with a pilcrow making
+  // it visible and struck-able. What the new line BECOMES in markdown source
+  // (heading, paragraph, list item, continuation) is the agent's call — the
+  // break's position is the user's, its form is not (md/user-intent.md).
   function insertLineBreakInBlock() {
     const s = editSel(); if (!s || !s.rangeCount) return;
     const range = s.getRangeAt(0);
     range.deleteContents();
-    const host = markWrapping(range.startContainer, 'ins.md-pending-ins');
     const tn = document.createTextNode('\n');
-    if (host) { range.insertNode(tn); }
-    else { const el = document.createElement('ins'); el.className = 'md-pending-ins'; el.appendChild(tn); range.insertNode(el); }
-    collapseCaret(tn, tn.length);
+    if (markWrapping(range.startContainer, 'pre')) {
+      const host = markWrapping(range.startContainer, 'ins.md-pending-ins');
+      if (host) { range.insertNode(tn); }
+      else { const el = document.createElement('ins'); el.className = 'md-pending-ins'; el.appendChild(tn); range.insertNode(el); }
+      collapseCaret(tn, tn.length);
+      return;
+    }
+    // Always a fresh atom, even mid-insertion (a nested ins is fine — the
+    // envelope reads the outer mark's textContent), so the pilcrow/pre-wrap
+    // styling stays scoped to the break itself. Caret lands after the atom:
+    // the next typed char must join the surrounding run, not the atom.
+    const el = document.createElement('ins');
+    el.className = 'md-pending-ins md-pending-break';
+    el.appendChild(tn);
+    range.insertNode(el);
+    collapseCaret(el, 'after');
   }
 
   function isCodeSurface(el) {
@@ -5550,11 +5586,12 @@ function createMarkdownViewer({
       }
     }
     // An open block editor owns the keyboard on its own surface: Enter sends
-    // (like a comment) and the rich-text shortcuts are swallowed (they would
-    // inject markup into the document). Shift+Enter never sends — a real line
-    // break lives in a text box, not the in-place surface. Keys typed in the
-    // edit's note composer fall through to it — it owns Enter (send) and
-    // Shift+Enter (newline) itself. Every edit is on the rendered surface now.
+    // (like a comment and like ⌘↩ — the common finishing keystroke), and
+    // Shift+Enter breaks the line in any block (the chat-input split; a
+    // first-key Enter on a targeted block also breaks, via the entry path).
+    // Rich-text shortcuts are swallowed (they would inject markup into the
+    // document). Keys typed in the edit's note composer fall through to it —
+    // it owns Enter (send) and Shift+Enter (newline) itself.
     if (state.editing) {
       const surface = state.editing.el;
       if (!surface || !surface.isConnected) {
@@ -5568,17 +5605,12 @@ function createMarkdownViewer({
           event.preventDefault();
           commitBlockEditor();
           sendEditBatch();
-        } else if (inSurface && event.key === 'Enter' && event.shiftKey && isCodeSurface(surface)) {
-          // Markdown's one real text area: a break here is content.
+        } else if (inSurface && event.key === 'Enter' && event.shiftKey) {
           event.preventDefault();
           insertLineBreakInBlock();
         } else if (inSurface && (event.metaKey || event.ctrlKey) && /^[biu]$/i.test(event.key)) {
           event.preventDefault();
         }
-        // Shift+Enter on the surface falls through: it never sends (beforeinput
-        // blocks the structural line break), so the editor just stays open. A
-        // real newline belongs in a text box (the note/comment), where what you
-        // see is what's sent.
         return;
       }
     }

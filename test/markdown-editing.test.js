@@ -7,9 +7,11 @@
 //  - committing decorates the block in place — wrapped paragraphs and
 //    headings included — never duplicating it
 //  - write-back preserves untouched soft-wrap points and the heading marker
-//  - Enter commits a rendered edit; Esc reverts; undo dissolves the batch
-//  - ⌘↩ sends: the [Edit] envelope carries <del>/<ins>, the disk is NOT
-//    written (an edit is a comment), unconsumed edits render sent (slate)
+//  - Enter sends a rendered edit (entry Enter starts it with a break atom;
+//    Shift+Enter breaks while editing); Esc reverts; undo dissolves the batch
+//  - ⌘↩ sends: the [Edit] envelope carries <del>/<ins> (a break rides as a
+//    real "\n" inside <ins>), the disk is NOT written (an edit is a
+//    comment), unconsumed edits render sent (slate)
 //  - agent changes get the green bar; it ages one level per user send.
 // This exists because a strip refactor once crashed the whole pending render
 // pass (pending edits lost all presentation) and no test noticed.
@@ -552,30 +554,38 @@ async function run() {
     check('preflight ack still writes nothing', writes.length === writesBefore);
   }
 
-  // --- Enter on the edit surface sends (like a comment and like Cmd+Enter);
-  //     Shift+Enter never sends (a line break belongs in a text box) ---
+  // --- Line breaks in prose: a first-key Enter starts the edit with a break
+  //     atom at the caret; Shift+Enter breaks while editing; plain Enter
+  //     still sends (like a comment and like ⌘↩). ---
   {
     preflightResult = { runbook: '/fake/agent-threads/md/user-intent.md' };
     const sentBefore = sentBatches.length;
     const fcBefore = focusTerminalCalls;
     clickBlock('A spare paragraph');
     await sleep(5);
-    key({ key: 'Backspace' }); // opens the in-place editor on the active block
-    await sleep(5);
+    key({ key: 'Enter' }); // entry Enter: opens the editor AND breaks the line
+    await sleep(10);
     const el = editing();
-    check('the spare block opens for editing', !!el);
-    el.textContent = 'A spare paragraph, revised for the send check.';
-    // Shift+Enter never sends on the in-place surface — the editor stays open.
+    check('entry enter opens the editor', !!el);
+    check('entry enter does not send', sentBatches.length === sentBefore, sentBatches.length - sentBefore);
+    const atom = el && el.querySelector('ins.md-pending-break');
+    check('entry enter inserts a break atom carrying a real newline', !!atom && atom.textContent === '\n');
+    // Shift+Enter breaks again mid-edit — prose included, no longer code-only.
     el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Enter', shiftKey: true }));
     await sleep(10);
+    check('shift+enter breaks the line while editing', el.querySelectorAll('ins.md-pending-break').length === 2);
     check('shift+enter does not send', sentBatches.length === sentBefore, sentBatches.length - sentBefore);
-    check('shift+enter keeps the editor open', !!editing());
-    // Plain Enter: commits and sends, exactly like Cmd+Enter.
+    // Plain Enter: commits and sends, exactly like Cmd+Enter; the envelope
+    // hands the agent the break inside <ins> (the agent decides what the new
+    // line becomes in source).
     el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
     await sleep(30);
     check('enter sends the edit', sentBatches.length === sentBefore + 1, sentBatches.length - sentBefore);
     check('enter seals the sent block', !!primary().querySelector('p.md-sealed') && !editing());
     check('enter hands the keyboard back to the terminal', focusTerminalCalls > fcBefore);
+    const breakBodies = (sentBatches[sentBatches.length - 1].threads || []).map((t) => t.body || '');
+    check('the envelope carries the break inside <ins>',
+      breakBodies.some((b) => /<ins>[^<]*\n[^<]*<\/ins>/.test(b)), breakBodies);
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);
