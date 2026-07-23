@@ -46,11 +46,13 @@ function isPlainCommentKey(event) {
     && !event.isComposing;
 }
 
-// The first-key dispatch (md-editing-design.md): letters comment; every other
-// unmodified key edits at the caret. "Letter" = any Unicode letter; IME
-// composition never dispatches; modifier chords pass through.
+// The first-key dispatch (md-editing-design.md): lowercase letters comment;
+// every other unmodified key edits at the caret. Capitals count as edits — a
+// rewrite starts sentence-case, a quick aside doesn't. "Lowercase" = any
+// Unicode lowercase letter; IME composition never dispatches; modifier
+// chords pass through.
 function isCommentEntryKey(event) {
-  return isPlainCommentKey(event) && /\p{L}/u.test(event.key);
+  return isPlainCommentKey(event) && /\p{Ll}/u.test(event.key);
 }
 
 function isEditEntryKey(event) {
@@ -58,7 +60,7 @@ function isEditEntryKey(event) {
   const k = event.key;
   if (k === 'Backspace' || k === 'Delete' || k === 'Enter'
     || k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') return true;
-  return typeof k === 'string' && [...k].length === 1 && !/\p{L}/u.test(k);
+  return typeof k === 'string' && [...k].length === 1 && !/\p{Ll}/u.test(k);
 }
 
 // Merged word-diff of one line pair via common prefix/suffix trim: the middle
@@ -85,13 +87,15 @@ function diffMergedParts(oldText, newText) {
   };
 }
 
-// Entry keys split by whether they mutate: ⌫/Delete and digits/punctuation
-// apply immediately (high-intent); Enter, Space, and arrows enter the editor
-// without inserting (a stray must not mutate).
+// Entry keys split by whether they mutate: ⌫/Delete and every printable char
+// — Space included — apply immediately (the keystroke IS the edit; Space
+// only reaches dispatch with a block deliberately targeted, since untargeted
+// Space page-flips, and a no-op entry read as "space didn't work"). Enter
+// and arrows enter the editor without inserting.
 function isMutatingEntryKey(event) {
   const k = event.key;
   if (k === 'Backspace' || k === 'Delete') return true;
-  if (k === 'Enter' || k === ' ' || k.startsWith('Arrow')) return false;
+  if (k === 'Enter' || k.startsWith('Arrow')) return false;
   return [...k].length === 1;
 }
 
@@ -2287,13 +2291,26 @@ function createMarkdownViewer({
     return rects[rects.length - 1] || (range.getBoundingClientRect ? range.getBoundingClientRect() : null);
   }
 
+  // DOM position → offset in the SAME filtered text space getTextPositionWithin
+  // and createTextRangeWithin map back from (getSearchableTextNodes: struck del
+  // decorations and chrome like the code-copy button are excluded). Counting raw
+  // DOM text here instead shifted every caret and selection highlight left on a
+  // block already carrying marks. A position inside excluded text lands at the
+  // boundary before it.
   function getTextOffsetWithin(root, container, offset) {
     if (!root || !container) return 0;
     try {
-      const range = document.createRange();
-      range.selectNodeContents(root);
-      range.setEnd(container, offset);
-      return range.toString().length;
+      const point = document.createRange();
+      point.setStart(container, offset);
+      point.collapse(true);
+      let count = 0;
+      for (const segment of getSearchableTextNodes(root).nodes) {
+        const value = String(segment.node.nodeValue || '');
+        if (segment.node === container) return count + Math.max(0, Math.min(offset, value.length));
+        if (point.comparePoint(segment.node, value.length) > 0) break;
+        count += value.length;
+      }
+      return count;
     } catch {
       return 0;
     }
@@ -3011,6 +3028,10 @@ function createMarkdownViewer({
       }
     }
 
+    // A selection supersedes any earlier click point: if the selection has
+    // collapsed by the time an edit key lands, the entry must not inherit a
+    // stale caret from a previous click.
+    state.pendingClickCaret = null;
     setActiveTarget(selection.target, { selection });
     return true;
   }
@@ -3831,11 +3852,13 @@ function createMarkdownViewer({
     const k = entryEvent ? entryEvent.key : '';
     const sel = window.getSelection && window.getSelection();
     // The entry keystroke strikes/inserts in place, exactly like every keystroke
-    // after it — a selection + ⌫ strikes the whole selection.
-    if ((k === 'Backspace' || k === 'Delete') && sel && sel.rangeCount && !sel.getRangeAt(0).collapsed) {
+    // after it — with a live selection, ⌫/Delete strikes the whole selection and
+    // a printable key types over it (strike + insert).
+    if (entryEvent && isMutatingEntryKey(entryEvent) && sel && sel.rangeCount && !sel.getRangeAt(0).collapsed) {
       const live = sel.getRangeAt(0);
       if (target.contains(live.startContainer) && target.contains(live.endContainer)) {
         strikeInBlock(target, live.cloneRange(), 'after');
+        if (k !== 'Backspace' && k !== 'Delete') insertMarkedInBlock(k);
         return;
       }
     }
@@ -5221,8 +5244,14 @@ function createMarkdownViewer({
         state.pendingClickCaret = getTextOffsetWithin(target, range.startContainer, range.startOffset);
       }
     } catch {}
+    // Hit-test miss (image, padding edge): the entry default is the block's
+    // end, so hold that explicitly and let the caret below show it — an
+    // invisible default reads as a caret that could be anywhere.
+    if (state.pendingClickCaret == null) {
+      state.pendingClickCaret = getSearchableTextNodes(target).text.length;
+    }
     setActiveTarget(target);
-    if (state.pendingClickCaret != null) showEditCaret(target, state.pendingClickCaret);
+    showEditCaret(target, state.pendingClickCaret);
   }
 
   // A blinking caret at the held click position — an empty span (no text, so
@@ -5285,7 +5314,7 @@ function createMarkdownViewer({
     hideHint();
     const hint = document.createElement('div');
     hint.className = `md-comment-hint${selection ? ' floating' : ''}`;
-    hint.textContent = 'Type to comment · other keys edit';
+    hint.textContent = 'a–z comments · other keys edit';
     if (selection) {
       document.body.appendChild(hint);
       positionSelectionHint(hint, selection);
