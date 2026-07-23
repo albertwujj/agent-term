@@ -8,7 +8,7 @@ set -euo pipefail
 #   ./scripts/release.sh --patch-plugin /path/to/intellij-navigator-frontend-1.0.6.zip [tag]
 # Requires: gh CLI, npm, node
 
-REPO="yunxin/agent-term"
+REPO="albertwujj/agent-term"
 cd "$(git rev-parse --show-toplevel)"
 
 CURRENT_VERSION=$(node -p "require('./package.json').version")
