@@ -677,7 +677,9 @@ function ensureStyles() {
     /* Amber says one thing only: this needs you. A thread still awaiting the
        agent asks nothing of the user, so it stays as quiet as a resolved one. */
     .md-thread-card.needs-user { border-left-color: #d97706; }
-    .md-thread-card.waiting { border-left-color: #94a3b8; }
+    /* A waiting card only exists expanded-for-reading (the rest state is the
+       one-line row below); clicking it folds back, so the whole card affords. */
+    .md-thread-card.waiting { border-left-color: #94a3b8; cursor: pointer; }
     /* Resolved = finished, no turn. Grey, so the one card blocked on you keeps
        the only colored border on the block. */
     .md-thread-card.resolved {
@@ -687,7 +689,8 @@ function ensureStyles() {
     /* Progress, localized: while the agent is working (the renderer sets
        body.agent-working from live PTY output — the CLI's own spinner keeps it
        live through the turn), the open comments it hasn't answered breathe their
-       accent. A low-profile "being worked on" cue that shows only when something
+       accent — the resting waiting row, or the card when clicked open.
+       A low-profile "being worked on" cue that shows only when something
        is actually pending: it clears when the agent replies (the card re-renders
        without .waiting) or when output goes quiet (the class drops). The swing
        is wide (slate-400 to slate-800, plus an edge line at peak): a 2px border
@@ -697,7 +700,8 @@ function ensureStyles() {
       0%, 100% { border-left-color: #94a3b8; box-shadow: -1.5px 0 0 rgba(30, 41, 59, 0); }
       50%      { border-left-color: #1e293b; box-shadow: -1.5px 0 0 rgba(30, 41, 59, 0.5); }
     }
-    body.agent-working .md-thread-card.waiting {
+    body.agent-working .md-thread-card.waiting,
+    body.agent-working .md-thread-waiting-line {
       animation: md-thread-working 1.6s ease-in-out infinite;
     }
     /* Sent edits awaiting the agent pulse the same way, so edit and comment read
@@ -787,6 +791,7 @@ function ensureStyles() {
        Text truncates to the line via .md-anno-text. */
     .md-thread-resolved-summary,
     .md-thread-resolved-line,
+    .md-thread-waiting-line,
     .md-pending-note-mark,
     .md-queued-comment-mark {
       display: flex;
@@ -816,6 +821,7 @@ function ensureStyles() {
     .md-anno-meta { flex: none; color: #94a3b8; font-size: 0.92em; }
     .md-thread-resolved-summary:hover,
     .md-thread-resolved-line:hover,
+    .md-thread-waiting-line:hover,
     .md-pending-note-mark:hover,
     .md-queued-comment-mark:hover {
       color: #334155;
@@ -1112,7 +1118,7 @@ function createMarkdownViewer({
     threadRenderPending: false,
     threadReply: null,
     resolvedExpanded: new Set(), // block anchorIds whose resolved history is unfolded to lines
-    expandedThreads: new Set(), // thread ids opened from a resolved line into a full card
+    expandedThreads: new Set(), // thread ids opened from a resolved/waiting line into a full card
     editing: null, // open block-editor session
     editCaret: null, // blinking caret span at the held click position
     expandedHunkKey: null, // anchorId of the pending edit whose action strip is open
@@ -3872,6 +3878,11 @@ function createMarkdownViewer({
     holder.className = 'md-pending-strip md-editing-strip';
     holder.addEventListener('mousedown', (event) => event.stopPropagation());
     const sendShortcut = platform === 'darwin' ? '⌘↩' : 'Ctrl↩';
+    // Send flushes the whole batch — this edit plus everything queued — so the
+    // label counts when that is more than one (the comment composer's grammar).
+    // A revisited block is already in blockOverlays; a fresh edit is not yet.
+    const batchCount = state.queuedComments.length + state.blockOverlays.size
+      + (state.blockOverlays.has(session.anchorId) ? 0 : 1);
     const composer = createComposer({
       placeholder: 'Note for the agent about this edit...',
       seed: session.note || '',
@@ -3879,7 +3890,7 @@ function createMarkdownViewer({
       onInput: () => { autoGrowTextarea(composer.textarea); session.note = composer.textarea.value; },
       actions: [
         { label: 'Undo', onClick: () => revertBlockEditor() },
-        { label: 'Send', shortcut: sendShortcut, primary: true, onClick: () => { commitBlockEditor(); sendEditBatch(); } },
+        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: sendShortcut, primary: true, onClick: () => { commitBlockEditor(); sendEditBatch(); } },
       ],
     });
     // Buttons must not steal focus from the editor (that blur would commit
@@ -4169,6 +4180,8 @@ function createMarkdownViewer({
     holder.addEventListener('mousedown', (event) => event.stopPropagation());
     holder.addEventListener('click', (event) => event.stopPropagation());
     const sendShortcut = platform === 'darwin' ? '⌘↩' : 'Ctrl↩';
+    // This overlay is already in the batch; count everything Send will flush.
+    const batchCount = state.queuedComments.length + state.blockOverlays.size;
     const composer = createComposer({
       placeholder: 'Note for the agent about this edit...',
       seed: note || '',
@@ -4180,7 +4193,7 @@ function createMarkdownViewer({
       },
       actions: [
         { label: 'Undo', onClick: () => undoOverlay(anchorId) },
-        { label: 'Send', shortcut: sendShortcut, primary: true, onClick: () => sendEditBatch() },
+        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: sendShortcut, primary: true, onClick: () => sendEditBatch() },
       ],
     });
     holder.appendChild(composer.root);
@@ -4365,7 +4378,7 @@ function createMarkdownViewer({
   // --- Thread layer (sidecar store → inline cards/disclosure lines; the
   // contract is ~/agent-threads/contract.md) ---
 
-  const THREAD_FLOW_SELECTOR = '.md-thread-card, .md-thread-resolved-summary, .md-thread-resolved-line';
+  const THREAD_FLOW_SELECTOR = '.md-thread-card, .md-thread-resolved-summary, .md-thread-resolved-line, .md-thread-waiting-line';
   // Resolved threads with no anchor left pile at the article end under one count.
   const ORPHAN_THREAD_KEY = '__orphan__';
 
@@ -4649,22 +4662,69 @@ function createMarkdownViewer({
     return line;
   }
 
+  // A sent thread awaiting the agent is locked — the turn is the agent's and
+  // there is nothing here to act on — so it rests as the same one-line row a
+  // queued draft collapses to, rather than restating words you just wrote.
+  // Click reads it back (opens the full card; the card folds again on click).
+  // The working pulse rides this row while the agent runs.
+  function buildWaitingThreadLine(thread) {
+    const line = document.createElement('div');
+    line.className = 'md-thread-waiting-line';
+    fillThreadHook(line, thread);
+    line.title = 'Waiting for the agent — click to open';
+    line.addEventListener('mousedown', (event) => event.stopPropagation());
+    line.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      state.expandedThreads.add(thread.id);
+      layoutSpread();
+    });
+    return line;
+  }
+
+  // An open thread's flow element: blocked-on-you renders the full card (it is
+  // the worklist — folding it would hide the one thing that needs the user);
+  // awaiting-the-agent rests as a one-line row until clicked open.
+  function buildOpenThreadElement(thread, lost, opts) {
+    if (threadNeedsUser(thread) || state.expandedThreads.has(thread.id)) {
+      return buildThreadCard(thread, lost, opts);
+    }
+    return buildWaitingThreadLine(thread);
+  }
+
   function buildThreadCard(thread, lost, { skipEnvelope = false } = {}) {
     const card = document.createElement('div');
     // Turn-color is for OPEN threads only — it says who owes the next move.
     // Resolved is finished business with no turn at all, so it stays grey; if it
     // wore the same green as a thread blocked on you, the one card that needs
     // you would be camouflaged by the ones that don't.
+    const waiting = thread.status !== 'resolved' && !threadNeedsUser(thread);
     card.className = `md-thread-card ${thread.status === 'resolved'
       ? 'resolved'
-      : (threadNeedsUser(thread) ? 'needs-user' : 'waiting')}`;
+      : (waiting ? 'waiting' : 'needs-user')}`;
     card.addEventListener('mousedown', (event) => event.stopPropagation());
     card.addEventListener('dblclick', (event) => event.stopPropagation());
+    // A waiting card is the read-back state of its resting row, so its whole
+    // surface folds back on click. Guarded: buttons and the reply composer
+    // keep their clicks, and a text-selection drag is reading, not folding.
+    if (waiting) {
+      card.addEventListener('click', (event) => {
+        if (event.target.closest && event.target.closest('button, .md-thread-reply')) return;
+        const sel = window.getSelection && window.getSelection();
+        if (sel && sel.rangeCount && !sel.isCollapsed) return;
+        if (state.threadReply && state.threadReply.threadId === thread.id) return;
+        event.preventDefault();
+        event.stopPropagation();
+        state.expandedThreads.delete(thread.id);
+        layoutSpread();
+      });
+    }
 
     // No title (the first message IS the title), no `read` pill (that state is
-    // gone — only blocked-or-done can be acted on), and no per-thread fold: an
-    // open card is blocking the agent, so folding it would hide the one thing
-    // that needs the user. Resolved cards fold via their block's count line.
+    // gone — only blocked-or-done can be acted on), and no fold control on a
+    // needs-user card: it is blocking the agent, so folding it would hide the
+    // one thing that needs the user. Resolved cards fold via their block's
+    // count line; waiting cards fold on click (above).
     // The head exists only to carry a lost-anchor warning.
     if (lost) {
       const head = document.createElement('div');
@@ -4794,7 +4854,7 @@ function createMarkdownViewer({
               // the note itself, so no separate note row either.
               if ((thread.messages || []).some((m) => m.author === 'agent')) {
                 insertCommentFlowElementAfterTarget(target,
-                  buildThreadCard(thread, false, { skipEnvelope: true }));
+                  buildOpenThreadElement(thread, false, { skipEnvelope: true }));
                 continue;
               }
               // Awaiting the agent: the seal alone represents the edit; a note
@@ -4819,22 +4879,22 @@ function createMarkdownViewer({
             target.replaceWith(box);
             if ((thread.messages || []).some((m) => m.author === 'agent')) {
               box.insertAdjacentElement('afterend',
-                buildThreadCard(thread, false, { skipEnvelope: true }));
+                buildOpenThreadElement(thread, false, { skipEnvelope: true }));
             } else {
               box.classList.add('md-await-agent'); // awaiting — pulse like a waiting comment
             }
             continue;
           }
-          // Open threads render in full — the agent is blocked and this is the
-          // user's worklist. Resolved ones are held back and emitted below as a
-          // single count per block.
+          // Open threads blocked on the user render in full — that is the
+          // user's worklist; ones awaiting the agent rest as a line. Resolved
+          // ones are held back and emitted below as a single count per block.
           if (isThreadResolved(thread)) {
             const key = (target && getAnchorIdForTarget(target)) || ORPHAN_THREAD_KEY;
             if (!resolvedByBlock.has(key)) resolvedByBlock.set(key, { target, threads: [] });
             resolvedByBlock.get(key).threads.push(thread);
             continue;
           }
-          const el = buildThreadCard(thread, !target);
+          const el = buildOpenThreadElement(thread, !target);
           if (target) insertCommentFlowElementAfterTarget(target, el);
           else article.appendChild(el);
         }
@@ -4920,8 +4980,10 @@ function createMarkdownViewer({
         return;
       }
       state.threadReply = null; // its holder vanishes in the re-render
-      // No need to force it open: replying reopens the thread to `open`
-      // (main.js), and open threads always render in full.
+      // Replying reopens the thread to `open` (main.js) with the turn handed
+      // back to the agent — the same just-sent state as a fresh comment, so it
+      // rests as the waiting line rather than staying expanded.
+      state.expandedThreads.delete(thread.id);
       adoptThreadStore(result.data);
       layoutSpread();
       if (typeof showToast === 'function') showToast('Reply sent');

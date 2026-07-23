@@ -11,6 +11,12 @@
 // Self-contained on purpose: requires only `electron` so it loads under the
 // default sandbox with no bundling. No-op on any non-review page (remote
 // Gerrit etc.), so it's safe as the partition-wide webview preload.
+//
+// Divergence from the md viewer's thread layer, deferred to the planned
+// unification (review adopts the md model): there, a sent thread awaiting the
+// agent rests as a one-line row (click to open), and batch Send buttons count
+// what they flush ("Send all (n)"). This viewer has no unsent queue — comments
+// hit the store on submit — so neither maps cleanly; port both with the model.
 
 const { ipcRenderer } = require('electron');
 const { normWS, nearestHeading, toast, createComposer, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
