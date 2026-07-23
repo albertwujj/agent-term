@@ -581,10 +581,6 @@ function ensureStyles() {
     body:has(.vb-md.open.vb-full) .md-comment-hint.floating {
       background-color: #e5eaf0;
     }
-    .md-comment-hint-spacer {
-      margin: 6px 0 8px;
-      pointer-events: none;
-    }
     .md-comment-card {
       margin: 8px 0 12px;
       padding: 9px 10px;
@@ -3166,7 +3162,7 @@ function createMarkdownViewer({
 
   function hideHint() {
     if (state.hint) {
-      try { if (state.hint.counterpartSpacer) state.hint.counterpartSpacer.remove(); } catch {}
+      try { if (state.hint.counterpart) state.hint.counterpart.remove(); } catch {}
       state.hint.remove();
       state.hint = null;
       syncSecondaryPane();
@@ -5274,19 +5270,28 @@ function createMarkdownViewer({
 
   function showHint(target, { selection = null } = {}) {
     hideHint();
-    const hint = document.createElement('div');
-    hint.className = `md-comment-hint${selection ? ' floating' : ''}`;
-    hint.textContent = 'a–z comments · other keys edit';
+    const build = () => {
+      const el = document.createElement('div');
+      el.className = `md-comment-hint${selection ? ' floating' : ''}`;
+      el.textContent = 'a–z comments · other keys edit';
+      return el;
+    };
+    const hint = build();
     if (selection) {
       document.body.appendChild(hint);
       positionSelectionHint(hint, selection);
     } else {
-      const counterpartSpacer = createFlowPlaceholderForTarget(target, 'md-comment-hint-spacer');
+      // Real content in BOTH articles (the queued-mark idiom: the two copies
+      // are each other's height spacer). A block at the page fold clips the
+      // slot after it on the clicked page; that same slot is the top of the
+      // other page, so the counterpart copy is the one the reader sees. A
+      // one-sided hint with an empty spacer showed a blank slot there instead.
       insertCommentFlowElementAfterTarget(target, hint);
-      hint.counterpartSpacer = counterpartSpacer;
+      const counterpart = getCounterpartAnchorElement(target);
+      hint.counterpart = counterpart ? build() : null;
+      if (hint.counterpart) insertCommentFlowElementAfterTarget(counterpart, hint.counterpart);
     }
     state.hint = hint;
-    if (!selection && hint.counterpartSpacer) hint.counterpartSpacer.style.height = `${hint.offsetHeight}px`;
     syncSecondaryPane();
   }
 
