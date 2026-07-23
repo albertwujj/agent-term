@@ -329,39 +329,10 @@ function ensureStyles() {
       border-radius: 6px;
       transition: background-color 200ms ease;
     }
-    /* Copy affordance on a code block: top-right, revealed on hover/focus. It
-       sits inside the <pre> but out of the code text — copy reads the <code>
-       child and getSearchableTextNodes drops it, so search/anchoring never see
-       it. Its own handlers stop propagation, so it won't open the block editor. */
     /* The copy-text bar button is a glyph + word ("⧉ text"), not a single icon —
        widen it past the ✕'s fixed 22px (a two-class selector so it beats the base
        .vb-btn width). */
     .vb-btn.md-copy-body { width: auto; padding: 0 9px; }
-    .md-copy-btn {
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      padding: 2px 9px;
-      font: 11px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: #3f4a5a;
-      background: rgba(255, 255, 255, 0.72);
-      border: 1px solid #b7bec8;
-      border-radius: 5px;
-      cursor: pointer;
-      opacity: 0;
-      transition: opacity 140ms ease, background-color 140ms ease, color 140ms ease, border-color 140ms ease;
-    }
-    .md-viewer-body pre:hover .md-copy-btn,
-    .md-copy-btn:focus-visible { opacity: 1; }
-    .md-copy-btn:hover { background: #ffffff; }
-    /* Editing a code block: its chrome steps out of the way. */
-    .md-rendered-editing .md-copy-btn { display: none; }
-    .md-copy-btn.md-copied {
-      opacity: 1;
-      color: #1b7a44;
-      border-color: #8fceac;
-      background: #eaf6ef;
-    }
     .md-viewer-body pre code {
       background: transparent;
       border-radius: 0;
@@ -2004,8 +1975,6 @@ function createMarkdownViewer({
         // Struck "deleted" decorations are not document text (searching,
         // anchoring, and offsets must see only the real content).
         if (parent.closest && parent.closest('del.md-pending-del, del.md-sent-del')) return filter.FILTER_REJECT;
-        // The code-block copy button is chrome, not document text.
-        if (parent.closest && parent.closest('.md-copy-btn')) return filter.FILTER_REJECT;
         return filter.FILTER_ACCEPT;
       },
     });
@@ -2308,10 +2277,9 @@ function createMarkdownViewer({
 
   // DOM position → offset in the SAME filtered text space getTextPositionWithin
   // and createTextRangeWithin map back from (getSearchableTextNodes: struck del
-  // decorations and chrome like the code-copy button are excluded). Counting raw
-  // DOM text here instead shifted every caret and selection highlight left on a
-  // block already carrying marks. A position inside excluded text lands at the
-  // boundary before it.
+  // decorations are excluded). Counting raw DOM text here instead shifted every
+  // caret and selection highlight left on a block already carrying marks. A
+  // position inside excluded text lands at the boundary before it.
   function getTextOffsetWithin(root, container, offset) {
     if (!root || !container) return 0;
     try {
@@ -3114,43 +3082,6 @@ function createMarkdownViewer({
     syncSecondaryPane();
   }
 
-  // A hover-revealed Copy button per code block, added to a freshly-rendered
-  // pane. It lives inside the <pre> but out of the code: the copy reads the
-  // <code> child, and getSearchableTextNodes drops .md-copy-btn so it never
-  // enters search/anchoring. Its mousedown/click stop propagation so a click
-  // copies rather than opening the block's comment/edit editor. The secondary
-  // pane is a visual duplicate, so its buttons stay out of the tab order.
-  function decorateCodeBlocks(root, { tabbable = true } = {}) {
-    if (!root || !root.querySelectorAll) return;
-    for (const pre of root.querySelectorAll('pre')) {
-      if (!pre.querySelector('code') || pre.querySelector(':scope > .md-copy-btn')) continue;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'md-copy-btn';
-      btn.contentEditable = 'false';
-      btn.setAttribute('aria-label', 'Copy code');
-      if (!tabbable) btn.tabIndex = -1;
-      btn.textContent = 'Copy';
-      btn.addEventListener('mousedown', (event) => { event.preventDefault(); event.stopPropagation(); });
-      btn.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); copyCodeBlock(pre, btn); });
-      pre.appendChild(btn);
-    }
-  }
-
-  function copyCodeBlock(pre, btn) {
-    const code = pre.querySelector('code');
-    const text = code ? code.textContent : '';
-    const flash = (label, ok) => {
-      btn.textContent = label;
-      btn.classList.toggle('md-copied', ok);
-      clearTimeout(btn._copyTimer);
-      btn._copyTimer = setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('md-copied'); }, 1400);
-    };
-    Promise.resolve()
-      .then(() => navigator.clipboard.writeText(text))
-      .then(() => flash('Copied', true), () => flash('Copy failed', false));
-  }
-
   function layoutSpread() {
     if (
       !state.article
@@ -3171,8 +3102,6 @@ function createMarkdownViewer({
     // re-layout doesn't collapse images to zero and shove content out of view.
     reserveCachedImageHeights(state.article);
     reserveCachedImageHeights(state.secondaryArticle);
-    decorateCodeBlocks(state.article);
-    decorateCodeBlocks(state.secondaryArticle, { tabbable: false });
     updateBottomSpacer();
     for (const id of landingIds) {
       for (const target of getAnchorElementsById(id)) target.classList.add('md-landing-target');
@@ -3791,9 +3720,6 @@ function createMarkdownViewer({
     clone.removeAttribute('contenteditable');
     clone.classList.remove('md-rendered-editing');
     clone.querySelectorAll('br').forEach((b) => b.remove());
-    // The code-block Copy button lives inside its <pre>, which IS the editable
-    // block — strip it or "Copy" lands in the envelope sent to the agent.
-    clone.querySelectorAll('.md-copy-btn').forEach((b) => b.remove());
     const SHOW_TEXT = (window.NodeFilter && window.NodeFilter.SHOW_TEXT) || 4;
     const walk = document.createTreeWalker(clone, SHOW_TEXT, null);
     let n; while ((n = walk.nextNode())) n.nodeValue = n.nodeValue.replace(/\u00a0/g, " ");
