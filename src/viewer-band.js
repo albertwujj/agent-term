@@ -409,7 +409,10 @@ function createViewerBand({
   if (escToHide) {
     document.addEventListener('keydown', (event) => {
       // Esc rolls up (reversible) when shown; collapsed/closed it's left for the CLI.
+      // An open modal (viewer selector, path chooser, session picker) owns Esc —
+      // this capture listener fires before the modal's own handlers ever could.
       if (event.key === 'Escape' && state === 'open') {
+        if (document.querySelector('.at-modal-overlay')) return;
         event.preventDefault();
         event.stopPropagation();
         hide();

@@ -66,7 +66,9 @@ function createPicker({
 
   // ---- DOM ----
   const overlay = document.createElement('div');
-  overlay.className = 'at-picker-overlay';
+  // at-modal-overlay: document-level Esc handlers (viewer-band's esc-to-hide,
+  // the md viewer's keydown) yield while the picker is up.
+  overlay.className = 'at-picker-overlay at-modal-overlay';
   overlay.innerHTML = `
     <div class="at-picker-modal" role="dialog" aria-modal="true">
       <div class="at-picker-header">Resume or start a session</div>

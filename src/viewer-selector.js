@@ -62,7 +62,9 @@ function createViewerSelector({
 
   // ---- DOM ----
   const overlay = document.createElement('div');
-  overlay.className = 'at-vsel-overlay';
+  // at-modal-overlay marks the modal for document-level Esc handlers to yield
+  // (viewer-band's esc-to-hide, the md viewer's keydown) — the modal owns Esc.
+  overlay.className = 'at-vsel-overlay at-modal-overlay';
   overlay.innerHTML = `
     <div class="at-vsel-modal" role="dialog" aria-modal="true">
       <div class="at-vsel-header">Open a viewer</div>
@@ -242,38 +244,42 @@ function injectStyles() {
   if (stylesInjected) return;
   stylesInjected = true;
   const style = document.createElement('style');
+  // Chrome-grey palette, keyed to the viewer band's bar/buttons (#45484e /
+  // #5a5d63 over the light page): the selector is transient app chrome, not
+  // page content, so it wears the chrome greys and looks the same whether it
+  // floats over the black terminal or an open light viewer.
   style.textContent = `
 .at-vsel-overlay {
   position: fixed; inset: 0; z-index: 10000;
-  background: rgba(0,0,0,0.85);
+  background: rgba(0,0,0,0.55);
   display: flex; align-items: flex-start; justify-content: center;
   padding-top: 8vh;
   font: 13px "Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace;
 }
 .at-vsel-modal {
-  background: #0c0c0c;
-  border: 1px solid #2a2a2a;
+  background: #26292e;
+  border: 1px solid #45484e;
   border-radius: 8px;
   width: min(720px, 92vw);
   max-height: 70vh;
   display: flex; flex-direction: column;
-  color: #cccccc;
-  box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  color: #d0d5db;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
   overflow: hidden;
 }
 .at-vsel-header {
   padding: 12px 16px 6px;
   font-size: 13px;
-  color: #a0a0a0;
+  color: #9aa1a9;
   letter-spacing: 0.02em;
 }
 .at-vsel-input {
   margin: 0 12px 8px;
   padding: 8px 10px;
-  background: #181818;
-  border: 1px solid #2a2a2a;
+  background: #17191d;
+  border: 1px solid #3a3d43;
   border-radius: 4px;
-  color: #e6e6e6;
+  color: #e6e9ed;
   font: inherit;
   outline: none;
 }
@@ -288,15 +294,15 @@ function injectStyles() {
 .at-vsel-divider {
   padding: 12px 12px 6px;
   font-size: 11px;
-  color: #707070;
+  color: #8a9098;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 .at-vsel-divider code {
-  background: #181818;
+  background: #33363c;
   padding: 1px 6px;
   border-radius: 3px;
-  color: #d8d8d8;
+  color: #d0d5db;
   text-transform: none;
 }
 .at-vsel-row {
@@ -307,7 +313,7 @@ function injectStyles() {
   user-select: none;
 }
 .at-vsel-row:hover {
-  background: #181818;
+  background: #2f3238;
 }
 .at-vsel-row-selected {
   background: #1f3556;
@@ -324,7 +330,7 @@ function injectStyles() {
 .at-vsel-key {
   flex: 1 1 auto; min-width: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  color: #f0f0f0;
+  color: #eceff3;
 }
 .at-vsel-open-badge {
   background: #1d3a1d;
@@ -337,7 +343,7 @@ function injectStyles() {
 .at-vsel-tag {
   flex: 0 0 auto;
   font-size: 11px;
-  color: #707070;
+  color: #8a9098;
 }
 .at-vsel-match {
   background: rgba(255, 213, 88, 0.22);
@@ -346,12 +352,12 @@ function injectStyles() {
   padding: 0 1px;
 }
 .at-vsel-footer {
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid #3a3d43;
   padding: 8px 14px;
   display: flex; gap: 16px;
   font-size: 11px;
-  color: #808080;
-  background: #0a0a0a;
+  color: #9aa1a9;
+  background: #202329;
 }
   `;
   document.head.appendChild(style);

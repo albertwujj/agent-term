@@ -253,6 +253,13 @@ await test('arrow navigation wraps around the visible rows', () => {
   selector.destroy();
 });
 
+await test('overlay carries the modal marker document-level Esc handlers yield to', () => {
+  const selector = createViewerSelector({ entries: ENTRIES, onPick: () => {} });
+  const overlay = document.querySelector('.at-vsel-overlay');
+  assert.ok(overlay.classList.contains('at-modal-overlay'));
+  selector.destroy();
+});
+
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
 if (testsFailed > 0) process.exit(1);
 

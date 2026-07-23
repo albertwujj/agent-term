@@ -5466,6 +5466,9 @@ function createMarkdownViewer({
 
   function handleDocumentKeydown(event) {
     if (!state.shell || !band.isOpen()) return;
+    // An open modal (viewer selector, path chooser, session picker) sits above
+    // the viewer and owns the keyboard.
+    if (document.querySelector('.at-modal-overlay')) return;
     if (isFindShortcut(event, platform)) {
       event.preventDefault();
       event.stopPropagation();

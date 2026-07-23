@@ -3567,14 +3567,18 @@ function showNavigationFeedback(filePath, line, result) {
 // pick, click, or Esc / click-away to dismiss. The focused input is also what
 // keeps keystrokes off the terminal: while it holds focus xterm's hidden
 // textarea does not, so no capture-phase key-stealing is needed. Same top-center
-// placement and palette as the toast family. Resolves to the picked path or null.
+// placement as the toast family; chrome-grey palette matching the viewer
+// selector — app chrome over either backdrop. Resolves to the picked path or null.
 function showPathChooser(choices) {
   return new Promise((resolve) => {
     const panel = document.createElement('div');
+    // at-modal-overlay: document-level Esc handlers (viewer-band, md viewer)
+    // yield to an open modal.
+    panel.className = 'at-modal-overlay';
     panel.style.cssText = `
       position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
-      background: #252526; color: #cccccc; border: 1px solid #454545;
-      border-radius: 8px; z-index: 9999; box-shadow: 0 8px 28px rgba(0,0,0,.38);
+      background: #26292e; color: #d0d5db; border: 1px solid #45484e;
+      border-radius: 8px; z-index: 9999; box-shadow: 0 8px 28px rgba(0,0,0,.5);
       padding: 6px; width: min(640px, 80vw); box-sizing: border-box;
       font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;`;
 
@@ -3584,8 +3588,8 @@ function showPathChooser(choices) {
     input.spellcheck = false;
     input.placeholder = 'Filter…';
     input.style.cssText = `display: block; width: 100%; box-sizing: border-box;
-      margin: 2px 0 6px; padding: 5px 8px; background: #181818; color: #e6e6e6;
-      border: 1px solid #3a3a3a; border-radius: 4px; outline: none; font: inherit;`;
+      margin: 2px 0 6px; padding: 5px 8px; background: #17191d; color: #e6e9ed;
+      border: 1px solid #3a3d43; border-radius: 4px; outline: none; font: inherit;`;
     panel.appendChild(input);
 
     const listEl = document.createElement('div');
@@ -3646,7 +3650,7 @@ function showPathChooser(choices) {
       return frag;
     }
     function applySel() {
-      rows.forEach((r, i) => { r.style.background = i === selected ? '#04395e' : ''; });
+      rows.forEach((r, i) => { r.style.background = i === selected ? '#1f3556' : ''; });
       if (rows[selected]) rows[selected].scrollIntoView({ block: 'nearest' });
     }
     function select(i) { selected = i; applySel(); }

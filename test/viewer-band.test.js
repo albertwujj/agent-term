@@ -47,4 +47,22 @@ assert.ok(shell.classList.contains('open'));
 assert.ok(!shell.classList.contains('vb-full'));
 assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
 
+// Esc rolls up an open band — but yields while a modal overlay is up, so the
+// modal (viewer selector, path chooser, session picker) can close itself.
+const pressEsc = () => document.dispatchEvent(new window.KeyboardEvent('keydown', {
+  key: 'Escape',
+  bubbles: true,
+  cancelable: true,
+}));
+
+const modal = document.createElement('div');
+modal.className = 'at-modal-overlay';
+document.body.appendChild(modal);
+pressEsc();
+assert.ok(shell.classList.contains('open'), 'Esc must not hide the band under a modal');
+
+modal.remove();
+pressEsc();
+assert.ok(shell.classList.contains('hidden'), 'Esc hides the band once the modal is gone');
+
 console.log('viewer-band test passed');
