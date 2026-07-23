@@ -51,8 +51,10 @@ When the agent finishes, it prepares your review: it hands you the parts that ne
 
 ![the review loop: comment on a line, the agent fixes it and replies, the review re-renders in place](assets/review-loop.gif)
 
-## Not just code
-None of this is code-specific. Point an agent at a writing project (essays, notes, research, docs) and the same review-and-comment loop works: your materials are organized as a repo the agent uses as needed and edits for you, and the markdown viewer shows its changes live in the rendered view. You stay in the reading view and comment inline, never touching raw markdown or switching edit/preview modes.
+## Write with it
+Point an agent at a writing project (essays, notes, research, docs) and the same loop works: your materials are organized as a repo the agent uses as needed and edits for you, and the markdown viewer shows its changes live in the rendered view. Comment on any passage, or edit the rendered text directly, starting new lines anywhere; edits reach the agent as suggestions, and it decides what each new line becomes in the source (a heading, a list item, a paragraph). You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
+
+![the write loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list](assets/doc-edit-loop.gif)
 
 ## Make it yours
 Everything here is modular and agent-sized: the terminal is 18k lines of plain JS (MIT), and the IDE plugin, phone viewer, and review spec are each their own small repo. Take the piece you want and make it your own. Share what you build, and pull in what others make.
