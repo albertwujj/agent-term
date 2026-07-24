@@ -1547,6 +1547,21 @@ function createWindow() {
     } catch {}
   });
 
+  // index.html IS the app: the shell never navigates and never opens a window of
+  // its own. So anything that tries is a link — an md-viewer link, a stray anchor,
+  // a dropped file — and left alone it would replace the terminal with that page,
+  // session and all, with no back button to return. http(s) goes to the browser
+  // (same destination as the md viewer's own link clicks); anything else is dropped
+  // with a log. Neither hook fires for the app's own loadFile, which is programmatic.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openInSystemBrowser(url, 'app window popup');
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (navEvent, targetUrl) => {
+    navEvent.preventDefault();
+    openInSystemBrowser(targetUrl, 'app window navigation');
+  });
+
   // Intercept caret shortcuts here and send IPC to the renderer to trigger the action directly.
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (shouldShowCaretDiagnosticsShortcut(input, process.platform)) {
@@ -2278,6 +2293,19 @@ ipcMain.handle('open-url', async (event, url) => {
     await shell.openExternal(url);
   }
 });
+
+// Hand a link to the real browser. The one exit the app offers a link it won't
+// render itself — so it stays http(s) only: any other scheme would be asking the
+// OS to launch a handler on a URL that came from a remote page, and is dropped
+// with a log instead.
+function openInSystemBrowser(rawUrl, source) {
+  if (!/^https?:\/\//i.test(rawUrl || '')) {
+    log(`[links] ${source}: dropped non-http url ${rawUrl}`);
+    return;
+  }
+  log(`[links] ${source} → system browser: ${rawUrl}`);
+  shell.openExternal(rawUrl).catch((e) => log(`[links] openExternal failed: ${e && e.message}`));
+}
 
 // --- Resource file helpers (WSL path resolution) ---
 
@@ -3798,6 +3826,17 @@ function normalizeViewerContentType() {
 
 app.on('web-contents-created', (event, contents) => {
   if (contents.getType() !== 'webview') return;
+  // A link asking for a new window (target=_blank, window.open) used to get a bare
+  // BrowserWindow: our icon and title, no address bar, no back button — a remote page
+  // wearing the app's face. A login form there is one nobody can verify, which is
+  // reason enough on its own. Popups go to the system browser instead, where the URL
+  // is visible and the password manager works. A second band isn't the alternative:
+  // the viewer shows one page at a time by design, and the popup's opener is usually
+  // an auth flow that wants a real browser anyway.
+  contents.setWindowOpenHandler(({ url }) => {
+    openInSystemBrowser(url, 'viewer popup');
+    return { action: 'deny' };
+  });
   // Forcing nativeTheme dark (for the terminal UI) also makes embedded pages
   // report prefers-color-scheme: dark. Emulate the real OS preference on the
   // guest so pages look like a normal browser — without lightening the terminal.

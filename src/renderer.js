@@ -3456,6 +3456,7 @@ function getMarkdownViewer() {
       writeMarkdownFile: (payload) => window.pty.mdWriteFile(payload),
       showToast,
       openURL: (url) => window.pty.openURL(url),
+      openDocPath: (filePath) => openMarkdownDocLink(filePath),
       openSearchBar: (scope) => openSearchBar(scope),
       closeSearchBar: () => {
         if (searchState.scope === 'markdown') closeSearchBar();
@@ -3478,6 +3479,28 @@ function getMarkdownViewer() {
     });
   }
   return markdownViewer;
+}
+
+// A link in an md doc naming another file. It lands where the same path lands
+// when clicked in the terminal: .md in this viewer, .html in the web viewer,
+// anything else with the OS. No chooser on the way — the path was resolved
+// against the doc's own directory, so it is already absolute and unambiguous.
+// Recording it as a viewer entry makes Ctrl+Shift+O the way back to the doc you
+// followed the link from.
+async function openMarkdownDocLink(filePath) {
+  if (isMarkdownDocumentPath(filePath)) {
+    const opened = await getMarkdownViewer().open({ filePath });
+    if (opened) recordViewer('md', filePath);
+    return;
+  }
+  if (isHtmlDocumentPath(filePath)) {
+    const res = await window.pty.resolveFileUrl(filePath);
+    if (res && res.success && res.url) openUrlFromTerminal(res.url, 'md-link', false);
+    else showToast(`Couldn't locate ${filePath}`);
+    return;
+  }
+  const osOpen = await openResourceChoosing(filePath);
+  if (!osOpen || (!osOpen.success && !osOpen.dismissed)) showToast(`Couldn't open ${filePath}`);
 }
 
 // Show navigation result feedback

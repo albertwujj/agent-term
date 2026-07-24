@@ -9,6 +9,7 @@ const {
   getLineDiffOpcodes,
 } = require('./markdown-change-diff');
 const { isFindShortcut } = require('./search-shortcut');
+const { classifyMarkdownLink } = require('./md-link-target');
 const { createViewerBand } = require('./viewer-band');
 const { createComposer, isPasteCommentShortcut } = require('./comment-ui');
 
@@ -356,9 +357,13 @@ function ensureStyles() {
       font-weight: 600;
       transition: background-color 200ms ease;
     }
+    /* The I-beam over link text is the honest cursor here: a plain click puts a
+       caret in the block to comment or edit, and only ctrl/cmd/alt+click follows
+       the link. Colour and the hover underline still mark it as one. */
     .md-viewer-body a {
       color: #1d4ed8;
       text-decoration: none;
+      cursor: text;
     }
     .md-viewer-body a:hover {
       text-decoration: underline;
@@ -1080,6 +1085,7 @@ function createMarkdownViewer({
   addMarkdownThreadMessage,
   showToast,
   openURL,
+  openDocPath,
   getTerminalMetrics,
   focusTerminal,
   openSearchBar,
@@ -5137,18 +5143,53 @@ function createMarkdownViewer({
     return true;
   }
 
+  // Ctrl/Cmd/Alt — the same modifiers that escalate a clicked URL out of the
+  // terminal's embedded viewer and into the browser.
+  function isFollowModifier(event) {
+    return !!(event && (event.ctrlKey || event.metaKey || event.altKey));
+  }
+
+  // Where a clicked link goes. A web URL leaves for the browser; a path opens the
+  // file it names, which for another .md is this same viewer showing that doc.
+  // Everything else is swallowed — the app shell must never navigate.
+  function followLink(link) {
+    const target = classifyMarkdownLink(link.getAttribute('href') || '', state.resolvedPath || state.filePath);
+    if (target.kind === 'external') {
+      if (typeof openURL === 'function') openURL(target.url);
+      return;
+    }
+    if (target.kind !== 'path' || typeof openDocPath !== 'function') return;
+    // Opening another doc resets the viewer, and queued comments, an open card and
+    // a pending edit batch all belong to the doc they were written against — the
+    // same reason a pending batch freezes auto-refresh. Unsent work outranks an
+    // incidental click on a link, so say so instead of dropping it.
+    if (hasBlockingMarkdownRefreshState()) {
+      if (typeof showToast === 'function') showToast('Send or discard your changes to follow that link');
+      return;
+    }
+    openDocPath(target.path);
+  }
+
   function handleArticleClick(event) {
+    // A link in the article never navigates on its own: index.html is the whole
+    // app, and a browser-style navigation would take the terminal with it. What
+    // the click means is decided below.
     const link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
-    if (link) {
-      const href = link.getAttribute('href') || '';
-      if (/^https?:\/\//i.test(href) && typeof openURL === 'function') {
-        event.preventDefault();
-        openURL(href);
-      }
+    if (link) event.preventDefault();
+
+    if (state.editing) return; // caret moves natively inside the editable block
+    // The plain click belongs to the doc, not to the link. Every word here is
+    // something to comment on or rewrite, link text included — and arming a block
+    // costs nothing (a caret and a hint, cleared by the next click elsewhere)
+    // while following a link swaps the doc out or leaves the app. So the cheap
+    // reversible act keeps the bare click and the disruptive one takes a
+    // modifier, the same ctrl/cmd/alt escalation a clicked URL takes in the
+    // terminal. The block hint names it whenever a link is under the caret.
+    if (link && isFollowModifier(event)) {
+      followLink(link);
       return;
     }
 
-    if (state.editing) return; // caret moves natively inside the editable block
     // Pending marks are the handle for the edit's actions: clicking struck or
     // inserted text expands the strip; any other click folds it back.
     const pendingMark = event.target && event.target.closest
@@ -5208,7 +5249,7 @@ function createMarkdownViewer({
     if (state.pendingClickCaret == null) {
       state.pendingClickCaret = getSearchableTextNodes(target).text.length;
     }
-    setActiveTarget(target);
+    setActiveTarget(target, { link });
     showEditCaret(target, state.pendingClickCaret);
   }
 
@@ -5253,7 +5294,7 @@ function createMarkdownViewer({
     clearActiveTarget();
   }
 
-  function setActiveTarget(target, { selection = null } = {}) {
+  function setActiveTarget(target, { selection = null, link = null } = {}) {
     if (!target) return;
     clearActiveTarget();
     clearLandingTarget();
@@ -5263,17 +5304,22 @@ function createMarkdownViewer({
     state.activeTargetPane = selection && selection.pane
       ? selection.pane
       : (isInSecondaryPane(target) ? 'right' : 'left');
-    showHint(target, { selection });
+    showHint(target, { selection, link });
     updateSelectionHighlights();
     try { state.shell.focus({ preventScroll: true }); } catch {}
   }
 
-  function showHint(target, { selection = null } = {}) {
+  // Clicking link text arms the block like any other text, so the hint is where
+  // the link says it is still a link — named only when you actually landed on
+  // one, so it never nags on ordinary prose.
+  const FOLLOW_HINT = platform === 'darwin' ? ' · ⌘click follows' : ' · ctrl+click follows';
+
+  function showHint(target, { selection = null, link = null } = {}) {
     hideHint();
     const build = () => {
       const el = document.createElement('div');
       el.className = `md-comment-hint${selection ? ' floating' : ''}`;
-      el.textContent = 'a–z comments · other keys edit';
+      el.textContent = 'a–z comments · other keys edit' + (link ? FOLLOW_HINT : '');
       return el;
     };
     const hint = build();

@@ -167,6 +167,10 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onNavigateHistory
     view.className = 'web-viewer-view';
     // Persistent partition → log in to Gerrit/SSO once; cookies survive teardown.
     view.setAttribute('partition', 'persist:webviewer');
+    // Keep allowpopups: it's what routes a target=_blank / window.open through
+    // main's window-open handler, which denies the window and sends the URL to the
+    // system browser. Without it Chromium blocks the popup before that handler
+    // runs, and the click dies silently.
     view.setAttribute('allowpopups', '');
 
     view.addEventListener('did-navigate', () => { band.setTitle(safeUrl()); refreshNav(); });

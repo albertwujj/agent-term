@@ -41,6 +41,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
   ready(function () {
     bindHostShortcuts(); // Host shortcuts work on any viewer page, including remote pages.
     if (!document.body || !document.body.dataset || !document.body.dataset.review) return;
+    bindExternalLinks(); // review page only — a remote page keeps normal in-place browsing
     // Strip query AND fragment before deriving the store URL: the page's own
     // nav links leave a #fragment on the URL, and a later reload re-runs this
     // preload against it — matching on the bare .html keeps the overlay alive.
@@ -67,6 +68,27 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       ipcRenderer.invoke('rv-regenerate', { kind: btn.getAttribute('data-rv-regen') || 'refresh' });
     });
   });
+
+  // A review is a document the app rendered, not a site you're browsing: an http
+  // link in it (a rendered markdown preview, a commit-message URL) belongs in the
+  // browser, the same place the md viewer sends its links. Navigating in place
+  // would swap the review — comments, gutters and all — for a web page.
+  //
+  // Commenting owns the plain click here too: double-clicking a block is how you
+  // comment on it, and a first click that followed a link would take the page out
+  // from under the second. So a bare click on link text does nothing and ctrl/cmd/
+  // alt+click follows, matching the md viewer. The page's own #fragment nav is
+  // untouched.
+  function bindExternalLinks() {
+    document.addEventListener('click', function (e) {
+      const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (!a) return;
+      const href = a.getAttribute('href') || '';
+      if (!/^https?:\/\//i.test(href)) return;
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey || e.altKey) ipcRenderer.invoke('open-url', href);
+    });
+  }
 
   function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 
