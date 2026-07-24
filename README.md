@@ -6,7 +6,7 @@
 
 Use with any CLI coding agent (Claude Code, Codex, etc). 
 
-Coding agents chose the terminal for a reason: nothing is more flexible, and everything composes with it. But the terminal never caught up to what the agent became. Everything an agent prints (a diff, a plan, a claim, a link) is dead text you can read but not act on. And once you're running several, each is an identical tab outside and a wall of text inside, with no telling which you meant to get back to. AgentTerm keeps the foundation and closes those gaps: act on what the agent prints, review what it built until it's right, find the right session, steer it mid-run. Where that takes conventions that don't exist yet, it defines them as open protocols: the agent prints a `review://` link, and the review opens right in the terminal.
+Coding agents chose the terminal for a reason: nothing is more flexible, and everything composes with it. But the terminal never caught up to what the agent became. Everything an agent prints (a diff, a plan, a claim, a link) is dead text you can read but not act on. And once you're running several, each is an identical tab outside and a wall of text inside, with no telling which you meant to get back to. AgentTerm keeps the foundation and breaks through the ceiling: act on what the agent prints, review what it built until it's right, find the right session, steer it mid-run. Where that takes conventions that don't exist yet, it defines them as open protocols: the agent prints a `review://` link, and the review opens right in the terminal.
 
 **Point at anything the agent shows you** (a line of terminal output, or a diff) and say what you want; the agent makes the change.
 
@@ -25,14 +25,6 @@ Add the companion viewer (**[agent-stream-hub](https://github.com/albertwujj/age
   &nbsp;
   <img src="assets/phone-session.jpg" width="235" alt="open a live session and reply by voice or text">
 </p>
-
-## Confirm what the agent tells you
-Agents explain themselves by quoting `file:line` and symbols. Click any reference the agent mentions (not just files it edited) and your IDE jumps to that exact line so you can verify the claim. It works with URLs too.
-
-![click a reference → your IDE jumps to that exact line](assets/click-to-ide.gif)
-
-## Look without breaking it
-Your IDE editor stays **read-only by default**, so you don't have to worry about a stray keystroke. (Flip a setting on the rare occasion you want to edit directly.)
 
 ## Plus the quality-of-life stuff
 Paste images and drag-drop files straight into a prompt · fuzzy-search the whole scrollback · click a resource path (`.png`, `.pdf`, `.csv`, …) to open it in your OS default app · right-click to quote a selection into the prompt. `Ctrl+K` / `Cmd+K` inserts your IDE's current location into the prompt.
@@ -55,6 +47,14 @@ When the agent finishes, it prepares your review: it hands you the parts that ne
 Point an agent at a writing project (essays, notes, research, docs) and the same loop works: your materials are organized as a repo the agent uses as needed and edits for you, and the markdown viewer shows its changes live in the rendered view. Comment on any passage, or edit the rendered text directly, starting new lines anywhere; edits reach the agent as suggestions, and it decides what each new line becomes in the source (a heading, a list item, a paragraph). You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
 
 ![the write loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list](assets/doc-edit-loop.gif)
+
+## Confirm what the agent tells you
+Agents explain themselves by quoting `file:line` and symbols. Click any reference the agent mentions (not just files it edited) and your IDE jumps to that exact line so you can verify the claim. It works with URLs too.
+
+![click a reference → your IDE jumps to that exact line](assets/click-to-ide.gif)
+
+## Look without breaking it
+Your IDE editor stays **read-only by default**, so you don't have to worry about a stray keystroke. (Flip a setting on the rare occasion you want to edit directly.)
 
 ## Make it yours
 Everything here is modular and agent-sized: the terminal is 18k lines of plain JS (MIT), and the IDE plugin, phone viewer, and review spec are each their own small repo. Take the piece you want and make it your own. Share what you build, and pull in what others make.
