@@ -9,6 +9,7 @@ const log = require('../src/sessions-log');
 let testsPassed = 0, testsFailed = 0;
 let tmpDir = null;
 const FROZEN_BOOT = 1700000000000;
+const FROZEN_GUI = 'ws:123:Mon Jan  1 00:00:00 2026';
 
 function freshDir() {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-sessions-test-'));
@@ -153,12 +154,39 @@ test('isSessionActive: matching boot + dead pid is not active', () => {
   assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT }), false);
 });
 
+// ---- compositor-session guard (macOS WindowServer crash leaves a live pid
+// whose window is gone; see src/gui-session.js) ----
+
+test('isSessionActive: matching guiSession + live pid is active', () => {
+  const rec = { pid: process.pid, bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI };
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI }), true);
+});
+
+test('isSessionActive: stale guiSession is not active even with a live pid', () => {
+  const rec = { pid: process.pid, bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI };
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT, guiSession: 'ws:99:later' }), false);
+});
+
+test('isSessionActive: unstamped record falls through to the pid check', () => {
+  // Written by an older build — never reap on a comparison we cannot make.
+  const rec = { pid: process.pid, bootTime: FROZEN_BOOT };
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI }), true);
+});
+
+test('isSessionActive: unstamped platform ignores the record stamp', () => {
+  // Windows/Linux: currentGuiSession() is null, so liveness stays pid + boot.
+  const rec = { pid: process.pid, bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI };
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT, guiSession: null }), true);
+});
+
 test('gcActiveFiles cleans up stale entries', (dir) => {
-  // alive (this process) + stale (from previous boot) + dead-pid
-  log.writeActiveFile(dir, 1, { pid: process.pid, bootTime: FROZEN_BOOT });
+  // alive (this process) + stale (from previous boot) + dead-pid + live pid
+  // whose window died with a previous compositor session
+  log.writeActiveFile(dir, 1, { pid: process.pid, bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI });
   log.writeActiveFile(dir, 2, { pid: process.pid, bootTime: FROZEN_BOOT - 60_000 });
   log.writeActiveFile(dir, 3, { pid: 999999,      bootTime: FROZEN_BOOT });
-  log.gcActiveFiles(dir, { bootTime: FROZEN_BOOT });
+  log.writeActiveFile(dir, 4, { pid: process.pid, bootTime: FROZEN_BOOT, guiSession: 'ws:1:earlier' });
+  log.gcActiveFiles(dir, { bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI });
   assert.deepStrictEqual(log.listActiveIds(dir).sort(), [1]);
 });
 

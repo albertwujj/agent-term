@@ -82,7 +82,7 @@ function listLiveRecords(userDataDir, opts = {}) {
   const out = [];
   for (const id of ids) {
     const file = sessionsLog.readActiveFile(userDataDir, id);
-    if (!sessionsLog.isSessionActive(file, { bootTime })) continue;
+    if (!sessionsLog.isSessionActive(file, { bootTime, guiSession: opts.guiSession })) continue;
     out.push({ id, file });
   }
   return out;

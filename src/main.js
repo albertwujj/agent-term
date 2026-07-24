@@ -22,6 +22,7 @@ const { createPromptCapture } = require('./prompt-capture');
 const promptThumbnail = require('./prompt-thumbnail');
 const dwm = require('./dwm-thumbnail');
 const sessionsLog = require('./sessions-log');
+const guiSession = require('./gui-session');
 const branchWatch = require('./branch-watch'); // pure work-branch/lock decision logic
 const jobWatch = require('./job-watch'); // pure background-job monitor logic (job-events.md)
 const {
@@ -316,13 +317,23 @@ function userComposing(now = Date.now()) {
 let lastInputByte = '';
 // Window-cap state: hidden flag, last user input time (any keystroke from
 // the renderer), the periodic refresh timer for active-file timestamps,
-// the cap-control file watcher teardown function, and the idle-close timer.
+// the cap-control file watcher teardown function, and the once-a-minute
+// health timer (ghost check + idle close).
 let windowHidden = false;
 let lastInputTime = Date.now();
 let lastPromptTime = 0;
 let activityRefreshInterval = null;
 let capControlWatcherTeardown = null;
-let idleCloseInterval = null;
+let healthCheckInterval = null;
+// The compositor session our window was created in, resolved once and then
+// frozen. Freezing is the point: if WindowServer restarts under us the window
+// is gone and this process is a ghost, so re-reading would let it re-certify
+// itself as live. Null off macOS — see src/gui-session.js.
+let ownGuiSession;
+function getOwnGuiSession() {
+  if (ownGuiSession === undefined) ownGuiSession = guiSession.currentGuiSession();
+  return ownGuiSession;
+}
 
 function readAndIncrementCounter() {
   const dir = app.getPath('userData');
@@ -975,6 +986,7 @@ function assignSessionIdentity() {
     sessionsLog.writeActiveFile(userDataDir, sessionIndex, {
       pid: process.pid,
       bootTime: sessionsLog.currentBootTime(),
+      guiSession: getOwnGuiSession(),
       hue,
       lastInputAt: lastInputTime,
       lastWorkingAt: lastPtyOutputTime,
@@ -1135,6 +1147,7 @@ function resumeFromSession(picked) {
     sessionsLog.writeActiveFile(userDataDir, picked.id, {
       pid: process.pid,
       bootTime: sessionsLog.currentBootTime(),
+      guiSession: getOwnGuiSession(),
       lastInputAt: lastInputTime,
       lastWorkingAt: lastPtyOutputTime,
       lastPromptAt: lastPromptTime,
@@ -1264,6 +1277,9 @@ function copyChromeBarPrompt() {
 // on hide/show transitions.
 function refreshActivityTimestamps(extra = {}) {
   if (sessionIndex === null || !activeFileWritten) return;
+  // No window means there is no live session to advertise to the cap or the
+  // picker; keeping the record warm would only make it look reachable.
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   const userDataDir = app.getPath('userData');
   sessionsLog.updateActiveFile(userDataDir, sessionIndex, {
     lastInputAt: lastInputTime,
@@ -1314,12 +1330,35 @@ function checkIdleClose() {
   }
 }
 
+// A compositor-session change means every window on the machine was destroyed.
+// Electron does not reliably deliver 'closed' for that (a macOS WindowServer
+// crash takes the NSWindow down behind Chromium's back), so this process can
+// keep running headless: no window, no dock icon, no way for the user to reach
+// it — while its active file still advertises the session. Exit instead. The
+// event log keeps the session resumable from the picker.
+function checkGuiSessionAlive() {
+  const own = getOwnGuiSession();
+  if (!own) return;                              // unstamped platform — nothing to compare
+  const current = guiSession.currentGuiSession();
+  if (!current || current === own) return;       // unknown never reaps
+  log('[main] compositor session changed — this window is gone; exiting');
+  writeClosedSessionEvent();
+  app.quit();
+  // The window is already unusable, so a quit that stalls on it must not
+  // leave the process (and its PTY) running for the rest of the boot.
+  setTimeout(() => app.exit(0), 5000);
+}
+
 function startCapTimers() {
   if (!activityRefreshInterval) {
     activityRefreshInterval = setInterval(refreshActivityTimestamps, windowCap.ACTIVITY_REFRESH_MS);
   }
-  if (!idleCloseInterval) {
-    idleCloseInterval = setInterval(checkIdleClose, 60 * 1000);   // check once a minute; close at 4h
+  if (!healthCheckInterval) {
+    // Once a minute: ghost check (exit immediately), idle close (at 4h).
+    healthCheckInterval = setInterval(() => {
+      checkGuiSessionAlive();
+      checkIdleClose();
+    }, 60 * 1000);
   }
 }
 
@@ -1395,7 +1434,7 @@ function writeClosedSessionEvent() {
   // the session-closed transition.
   if (capControlWatcherTeardown) { try { capControlWatcherTeardown(); } catch {} capControlWatcherTeardown = null; }
   if (activityRefreshInterval) { clearInterval(activityRefreshInterval); activityRefreshInterval = null; }
-  if (idleCloseInterval) { clearInterval(idleCloseInterval); idleCloseInterval = null; }
+  if (healthCheckInterval) { clearInterval(healthCheckInterval); healthCheckInterval = null; }
 }
 
 function getShell() {

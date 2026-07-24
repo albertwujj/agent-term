@@ -41,6 +41,7 @@ const {
   textMatchesSearchTerms,
   findAllTermRanges,
 } = require('./search-terms');
+const { currentGuiSession } = require('./gui-session');
 
 const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks (display + compaction window)
 
@@ -160,6 +161,7 @@ function activeFilePath(userDataDir, id) {
 // active/<id>.json schema (open for extensions):
 //   pid           process id of the window (required for liveness check)
 //   bootTime      OS boot time when this record was written (cross-boot pid reuse guard)
+//   guiSession    compositor-session stamp (macOS only; see src/gui-session.js)
 //   hiddenAt      timestamp when the window was setSkipTaskbar(true), or null/missing
 //   lastInputAt   timestamp of the most recent user keystroke into this window
 //   lastWorkingAt timestamp of the most recent PTY output (proxy for "AI working")
@@ -209,11 +211,21 @@ function listActiveIds(userDataDir) {
 }
 
 // `record` is the result of readActiveFile (may be null). Returns true iff the
-// recorded process is still alive AND was created during the current boot.
+// recorded process is still alive, was created during the current boot, and
+// its window still belongs to the live compositor session.
+//
+// The compositor guard is what catches a window that died out from under a
+// surviving process (macOS WindowServer crash): the pid is alive and nothing
+// rebooted, so pid + bootTime alone would call that ghost active forever. It
+// is only decisive when both sides are stamped — an unstamped record (written
+// by an older build) or an unstamped platform (Windows, Linux; see
+// src/gui-session.js) falls through to the pid check unchanged.
 function isSessionActive(record, opts = {}) {
   const bootTime = opts.bootTime || currentBootTime();
   if (!record || typeof record.pid !== 'number') return false;
   if (record.bootTime !== bootTime) return false;
+  const guiSession = (opts.guiSession !== undefined) ? opts.guiSession : currentGuiSession();
+  if (guiSession && record.guiSession && record.guiSession !== guiSession) return false;
   try { process.kill(record.pid, 0); return true; }
   catch (e) { return e && e.code === 'EPERM'; }   // EPERM means process exists but signal denied
 }
@@ -262,7 +274,7 @@ function initPendingRecoveryIfNeeded(userDataDir, opts = {}) {
     if (s.closedAt) continue;
     if (!s.cli || !s.prompt) continue;
     const rec = readActiveFile(userDataDir, s.id);
-    if (isSessionActive(rec, { bootTime })) continue;
+    if (isSessionActive(rec, { bootTime, guiSession: opts.guiSession })) continue;
     pendingIds.push(s.id);
   }
   const snapshot = { bootTime, pendingIds };
@@ -452,7 +464,7 @@ function menuList(userDataDir, opts = {}) {
     if (!s.cli || !s.prompt) continue;
     if (s.lastEventAt < cutoff) continue;
     const rec = readActiveFile(userDataDir, s.id);
-    const isActive = isSessionActive(rec, { bootTime });
+    const isActive = isSessionActive(rec, { bootTime, guiSession: opts.guiSession });
     out.push({ ...s, isActive });
   }
   out.sort((a, b) => b.lastEventAt - a.lastEventAt);
