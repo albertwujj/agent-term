@@ -86,20 +86,42 @@ async function main() {
     const decos = await page.evaluate(() => Array.from(document.querySelectorAll('.xterm-decoration'))
       .map((el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })
       .filter((r) => r.w > 0 && r.h > 0 && r.x < 200).sort((a, b) => a.y - b.y));
-    check('both path segments underlined', decos.length === 2, `(got ${decos.length})`);
+    check('both path segments are decorated as one target', decos.length === 2, `(got ${decos.length})`);
+
+    // The band renders an image itself, so looking at one is a built-in viewer
+    // and keeps the plain click. A modifier still means the OS default app, the
+    // same escalation every other handoff sits on — and it is the path that
+    // proves reassembly, since it carries the whole stitched path to main.
+    const MOD_KEY = process.platform === 'darwin' ? 'Meta' : 'Control';
+    const bandOpen = () => page.evaluate(() => !!document.querySelector('.vb-shell.vb-web.open'));
+    const closeBand = async () => {
+      const close = page.locator('.vb-shell.vb-web .vb-close');
+      if (await close.count()) { await close.click(); await sleep(500); }
+    };
 
     for (let i = 0; i < decos.length; i++) {
       await resetCapture();
       const d = decos[i];
       const cx = d.x + d.w / 2, cy = d.y + d.h / 2;
+
       await page.mouse.move(cx, cy);
-      await sleep(120);
+      await sleep(150);
       const cursor = await page.evaluate(() => { const el = document.querySelector('.xterm-screen'); return el && getComputedStyle(el).cursor; });
       check(`segment ${i} shows a pointer cursor`, cursor === 'pointer', `(cursor ${cursor})`);
+
       await page.mouse.click(cx, cy);
-      await sleep(400);
+      await page.waitForSelector('.vb-shell.vb-web.open', { timeout: 10_000 }).catch(() => {});
+      check(`a click on segment ${i} opens the image in the band`, await bandOpen());
+      check(`and hands it to no other application`, (await captured()) === null, `\n     got: ${await captured()}`);
+      await closeBand();
+
+      await resetCapture();
+      await page.keyboard.down(MOD_KEY);
+      await page.mouse.click(cx, cy);
+      await page.keyboard.up(MOD_KEY);
+      await sleep(500);
       const opened = await captured();
-      check(`click on segment ${i} opens the reassembled full path`, opened === pngPath, `\n     got: ${opened}\n     exp: ${pngPath}`);
+      check(`a modified click on segment ${i} opens the reassembled full path`, opened === pngPath, `\n     got: ${opened}\n     exp: ${pngPath}`);
     }
   } finally {
     await app.close();

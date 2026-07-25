@@ -3021,6 +3021,11 @@ function imageAttachmentSegmentMatch(analysis, seg) {
     priority: 'high',
     action: async (match, options = {}) => {
       const mod = options.modifiers || {};
+      // The stitched path is always an image by construction, so it renders in
+      // the band unless a modifier asks for the OS.
+      if (isViewableImagePath(analysis.fullPath) && !imageWantsOsHandoff(mod)) {
+        if (await openImageInViewer(analysis.fullPath)) return;
+      }
       const result = await openResourceChoosing(analysis.fullPath, { forceChoose: !!mod.altKey });
       if (result && !result.success && !result.dismissed) {
         showToast(result.error || 'Could not open file');
@@ -3065,6 +3070,42 @@ function wslUncToPosix(text) {
 const HTML_EXTENSIONS = /\.(?:html?|xhtml)$/i;
 function isHtmlDocumentPath(text) {
   return HTML_EXTENSIONS.test(String(text || ''));
+}
+
+// Images the viewer band can render itself. Looking at a screenshot the agent
+// just produced is a reading action, the same as opening a doc, so it belongs in
+// a built-in viewer rather than in whatever app the OS would hand it to — which
+// is a full application switch for something that fits in the band. A modifier
+// still sends it to the OS, same as any other viewer target.
+//
+// Deliberately narrower than RESOURCE_EXTENSIONS: pdf, archives and media stay
+// handoffs, since the band has nothing better to do with them than the OS does.
+const VIEWABLE_IMAGE_EXTENSIONS = /\.(?:png|jpe?g|gif|svg|webp|bmp|ico)$/i;
+function isViewableImagePath(text) {
+  return VIEWABLE_IMAGE_EXTENSIONS.test(String(text || ''));
+}
+
+// Open an image in the viewer band. Returns false when the path can't be
+// resolved to a file:// URL, leaving the caller to fall back to the OS — the
+// same shape the .html branch uses.
+//
+// There is no external variant on purpose. On a URL the modifier means the
+// system browser, but the escalation for an image is the OS default app: a
+// browser tab is a worse place to look at a PNG than Preview is. So a modified
+// click skips this entirely and takes the openResourceChoosing path below.
+async function openImageInViewer(filePath) {
+  const res = await window.pty.resolveFileUrl(filePath);
+  if (res && res.success && res.url) {
+    openUrlFromTerminal(res.url, 'image-file', false);
+    return true;
+  }
+  return false;
+}
+
+// A modified click on an image asks for the OS instead of the band. Alt is
+// included because it already means "choose among all matches" before opening.
+function imageWantsOsHandoff(mod) {
+  return !!(mod && (mod.ctrlKey || mod.metaKey || mod.altKey));
 }
 
 // Check if text looks like a file path (known extension or structured path)
@@ -4338,6 +4379,9 @@ const patterns = [
       const posix = wslUncToPosix(normalized);
       if (RESOURCE_EXTENSIONS.test(posix)) {
         const mod = (options && options.modifiers) || {};
+        if (isViewableImagePath(posix) && !imageWantsOsHandoff(mod)) {
+          if (await openImageInViewer(posix)) return;
+        }
         const result = await openResourceChoosing(posix, { forceChoose: !!mod.altKey });
         if (result && !result.success && !result.dismissed) {
           showToast(result.error || 'Could not open file');
@@ -4353,6 +4397,11 @@ const patterns = [
     regex: /(?:[.\/~…]|[a-zA-Z])[a-zA-Z0-9_.+~\/…-]*\.(?:png|jpe?g|gif|svg|ico|webp|bmp|tiff?|pdf|docx?|xlsx?|pptx?|rtf|epub|mp[34]|wav|avi|mov|mkv|flac|ogg|webm|zip|tgz|gz|bz2|xz|rar|7z|zst|csv|tsv|parquet|avro)\b/gi,
     action: async (match, options = {}) => {
       const mod = options.modifiers || {};
+      // An image renders in the band; a modifier means the OS instead, and alt
+      // still raises the chooser first.
+      if (isViewableImagePath(match.text) && !imageWantsOsHandoff(mod)) {
+        if (await openImageInViewer(match.text)) return;
+      }
       const result = await openResourceChoosing(match.text, { forceChoose: !!mod.altKey });
       if (result && !result.success && !result.dismissed) {
         showToast(result.error || 'Could not open file');

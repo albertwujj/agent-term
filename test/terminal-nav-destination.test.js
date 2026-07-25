@@ -4,6 +4,7 @@ const {
   hasNavigationModifier,
   matchForPress,
   markedLength,
+  opensInApp,
 } = require('../src/terminal-nav-destination');
 
 let passed = 0;
@@ -39,13 +40,61 @@ check('source and diff lines wait for a modifier', () => {
   assert.strictEqual(navigationNeedsModifier(m('diff_block', '│ some prose line')), true);
 });
 
-// The in-app surface keeps the plain click: the terminal stays where it was and
+// A content line is something you select and comment on, so the plain click
+// belongs to commenting there whatever the line happens to say or edit.
+check('a content line never takes the plain click', () => {
+  // The path comes from a diff header above, not from this text: the extension
+  // here is prose, and the click would land in the IDE.
+  assert.strictEqual(navigationNeedsModifier(m('diff_line', '+ see README.md for details')), true);
+  assert.strictEqual(navigationNeedsModifier(m('source_line', '    open("docs/spec.md")')), true);
+  assert.strictEqual(navigationNeedsModifier(m('diff_block', '│ rewrote notes.html by hand')), true);
+  // And a genuine markdown diff still asks for the modifier, so editing a doc
+  // never costs you the gesture you comment with.
+  assert.strictEqual(navigationNeedsModifier(m('diff_block', '│ ## A heading in launch-plan.md')), true);
+  // Same for the patterns that resolve their file by scanning backwards.
+  assert.strictEqual(navigationNeedsModifier(m('line_ref', 'line 12 of notes.md')), true);
+  assert.strictEqual(navigationNeedsModifier(m('comment_line_ref', '# :344')), true);
+  assert.strictEqual(navigationNeedsModifier(m('python_traceback', 'File "docs/a.md", line 42')), true);
+});
+
+// A built-in viewer keeps the plain click: the terminal stays where it was and
 // Esc puts the band away.
-check('urls, doc paths and resources act on a plain click', () => {
+check('a built-in viewer acts on a plain click', () => {
   assert.strictEqual(navigationNeedsModifier(m('url', 'https://example.com/x')), false);
-  assert.strictEqual(navigationNeedsModifier(m('plain_file', 'src/renderer.js')), false);
+  assert.strictEqual(navigationNeedsModifier(m('url', 'file:///tmp/page.html')), false);
+  assert.strictEqual(navigationNeedsModifier(m('url', 'review://feature-branch')), false);
+  assert.strictEqual(navigationNeedsModifier(m('plain_file', 'docs/launch-plan.md')), false);
+  assert.strictEqual(navigationNeedsModifier(m('plain_file', 'site/index.html')), false);
+  assert.strictEqual(navigationNeedsModifier(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\notes.md')), false);
+});
+
+// An OS open is an application switch, the same class as the IDE, so it sits on
+// the same escalated gesture.
+check('a handoff to the OS waits for a modifier', () => {
+  assert.strictEqual(navigationNeedsModifier(m('plain_file', 'src/renderer.js')), true);
+  assert.strictEqual(navigationNeedsModifier(m('plain_file', 'src/components')), true);
+  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'report.pdf')), true);
+  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'bundle.zip')), true);
+  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'clip.mp4')), true);
+  assert.strictEqual(navigationNeedsModifier(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\a')), true);
+});
+
+// The band renders an image itself, so looking at one is a built-in viewer and
+// keeps the plain click. A stitched attachment is classified by name, since its
+// text is only one fragment of a path split across rows.
+check('an image is a built-in viewer', () => {
   assert.strictEqual(navigationNeedsModifier(m('resource_file', 'shot.png')), false);
-  assert.strictEqual(navigationNeedsModifier(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\a')), false);
+  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'diagram.svg')), false);
+  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'photo.JPEG')), false);
+  assert.strictEqual(navigationNeedsModifier(m('image_attachment', '/tmp/scree')), false);
+  assert.strictEqual(navigationNeedsModifier(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\shot.png')), false);
+});
+
+// Stated as what opens in-app, so anything unrecognised has to earn the plain
+// click rather than taking it by default.
+check('a pattern nobody classified waits for a modifier', () => {
+  assert.strictEqual(navigationNeedsModifier(m('some_future_pattern', 'whatever')), true);
+  assert.strictEqual(opensInApp(m('some_future_pattern', 'whatever')), false);
 });
 
 // navigateToFileLine routes .md and .html to the in-app viewers before it ever
@@ -64,9 +113,9 @@ check('a source file that merely contains md in its name still needs the modifie
   assert.strictEqual(navigationNeedsModifier(m('file_line', 'notes.mdx:4')), true);
 });
 
-check('an unknown pattern is left alone', () => {
-  assert.strictEqual(navigationNeedsModifier(m('image_attachment', '/tmp/a.png')), false);
+check('a missing match is not a target at all', () => {
   assert.strictEqual(navigationNeedsModifier(null), false);
+  assert.strictEqual(opensInApp(null), false);
 });
 
 // Ctrl or Cmd. Alt already means "choose among all matches" on paths, and

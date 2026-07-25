@@ -1,49 +1,76 @@
 // Which navigable terminal matches act on a plain click, and which ask for a
 // modifier first.
 //
-// A plain click is for destinations that leave the terminal intact: a URL or an
-// .html path in the viewer band, an .md path in the md viewer, a resource or a
-// bare path with the OS. The scrollback stays where it was and Esc puts things
-// back.
+// One rule: a plain click opens something in a built-in viewer. A URL or an
+// .html path in the web band, a review:// package in the diff viewer, an .md
+// path in the md viewer. Those keep the terminal where it is — the scrollback
+// is untouched and Esc puts the band away.
 //
-// Everything that resolves through the IDE — symbols, file:line, source lines,
-// diff lines — takes ctrl/cmd. Two reasons. It is an application switch, so it
-// belongs on the escalated gesture the md viewer already uses for following a
-// link. And it is the widest part of the match surface: the bare-identifier
-// symbol patterns claim most technical words in ordinary agent prose, so a
-// double-click meant to select a word for commenting fired an IDE jump on its
-// first press.
+// Everything else hands you to another application, and that takes ctrl/cmd:
+// the IDE for a symbol, a file:line, a source or diff line; the OS for a bare
+// path, a folder, an image or an archive. An application switch is the most
+// expensive thing a stray click can do, and the IDE side is also the widest
+// part of the match surface — the bare-identifier symbol patterns claim most
+// technical words in ordinary agent prose, so a double click meant to select a
+// word for commenting used to fire a jump on its first press.
 //
-// The doc exception matters more than it looks. navigateToFileLine routes .md
-// and .html targets to the in-app viewers before it ever reaches the IDE, so
-// README.md:42 is an in-app destination wearing a file:line shape, and it keeps
-// the plain click.
+// Stated as what opens in-app rather than what does not, so a pattern added
+// later needs an explicit decision to earn the plain click instead of taking it
+// by default.
 
-const IDE_PATTERN_NAMES = new Set([
-  'qualified_symbol',
-  'underscore_symbol',
-  'camel_pascal_symbol',
+// Patterns whose destination is a built-in viewer whatever their text says.
+// `url` covers http(s) and file:// in the web band, and review:// in the diff
+// viewer; a modifier on those means the system browser instead.
+// `image_attachment` is classified by name rather than by text: the renderer
+// stitches a path split across rows, so a match's text is one fragment of it and
+// the extension may live in the other. It is an image by construction anyway.
+const IN_APP_PATTERN_NAMES = new Set(['url', 'image_attachment']);
+
+// Patterns whose match text IS the path, so a document extension inside it names
+// the destination. Everywhere else the path comes from context — a diff header
+// above, a backward scan for the enclosing file — and an extension appearing in
+// the line is just text: `+ see README.md for details` is a diff line that
+// navigates to code, not a link to a document.
+//
+// Content lines are deliberately absent even when their file is markdown. A diff
+// line, a source line and a bordered prose line are things you select and
+// comment on, so they never take the plain click; the gesture belongs to
+// commenting there and navigation asks for the modifier.
+const PATH_IS_THE_TEXT = new Set([
+  'plain_file',
+  'wsl_unc_path',
+  'resource_file',
   'file_line',
   'file_line_col',
   'paren_line',
   'github_line',
-  'line_ref',
-  'comment_line_ref',
-  'python_traceback',
-  'source_line',
-  'diff_line',
-  'diff_block',
 ]);
 
-// A document extension at the end of the path portion of a match. The lookahead
-// is what lets this see past the line reference a pattern carries: README.md:42,
-// docs/a.md#L4, notes.html(12) all name a document.
+// A document extension at the end of the path portion of a match: .md to the md
+// viewer, .html to the web band. navigateToFileLine routes both to their viewer
+// before it ever reaches the IDE, so README.md:42 is an in-app destination
+// wearing a file:line shape. The lookahead is what lets this see past the line
+// reference a pattern carries — README.md:42, docs/a.md#L4, notes.html(12).
 const DOC_TARGET = /\.(?:markdown|mdown|xhtml|html|htm|md)(?=$|[\s:(#,;)\]}'"])/i;
+
+// Images the band renders itself, so they are a built-in viewer too. Narrower
+// than the resource set on purpose: pdf, archives and media stay handoffs,
+// because the band has nothing better to do with them than the OS does. Keep in
+// step with VIEWABLE_IMAGE_EXTENSIONS in renderer.js, which does the routing.
+const IMAGE_TARGET = /\.(?:png|jpe?g|gif|svg|webp|bmp|ico)(?=$|[\s:(#,;)\]}'"])/i;
+
+// True when a plain click on this match opens a built-in viewer.
+function opensInApp(match) {
+  if (!match) return false;
+  if (IN_APP_PATTERN_NAMES.has(match.patternName)) return true;
+  if (!PATH_IS_THE_TEXT.has(match.patternName)) return false;
+  const text = String(match.text || '');
+  return DOC_TARGET.test(text) || IMAGE_TARGET.test(text);
+}
 
 // True when this match should sit out a plain click and wait for ctrl/cmd.
 function navigationNeedsModifier(match) {
-  if (!match || !IDE_PATTERN_NAMES.has(match.patternName)) return false;
-  return !DOC_TARGET.test(String(match.text || ''));
+  return !!match && !opensInApp(match);
 }
 
 // Ctrl or Cmd. Alt is excluded: it already means "choose among all matches" on
@@ -105,8 +132,9 @@ function markedLength(match) {
 }
 
 module.exports = {
-  IDE_PATTERN_NAMES,
+  IN_APP_PATTERN_NAMES,
   DOC_TARGET,
+  opensInApp,
   navigationNeedsModifier,
   hasNavigationModifier,
   matchForPress,
