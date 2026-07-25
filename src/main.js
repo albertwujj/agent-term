@@ -1789,8 +1789,15 @@ function createPty(cols, rows) {
   startRepoWatch(); // poll the primary folder for work-branch / lock warnings
   startJobWatch(); // nudge the agent when a background job ends while it idles
 
+  // Runs on node-pty's threadsafe-function callback. An exception thrown here
+  // cannot be delivered as a JS exception once the environment is unwinding, so
+  // N-API rethrows it as C++ and the process aborts — a quit reported as
+  // "Electron quit unexpectedly" rather than an exit. The window is torn down
+  // before the shell is, and webContents.send on a destroyed target throws, so
+  // this path is reachable on any quit while the CLI is still printing.
   ptyProcess.onData((data) => {
-    if (mainWindow) {
+   try {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('pty-output', data);
     }
     scanForBranchArm(data); // arm the work-branch watcher on @…proceed-by-branching.md
@@ -1802,6 +1809,9 @@ function createPty(cols, rows) {
     // user can see/find us. Don't steal focus — they may be in another
     // window working on something else.
     if (windowHidden) setHidden(false);
+   } catch (err) {
+    try { log('[main] pty data handler failed: ' + (err && err.message)); } catch {}
+   }
   });
 
   // "AI working" indicator — Windows taskbar progress bar in indeterminate
@@ -1812,7 +1822,9 @@ function createPty(cols, rows) {
     progressInterval = setInterval(updateProgressBar, PROGRESS_POLL_MS);
   }
 
+  // Same threadsafe-function rule as onData above: nothing may escape.
   ptyProcess.onExit(({ exitCode }) => {
+   try {
     ptyProcess = null;
     // Seal the open block + stop heartbeating. The run stays in the hub
     // so the viewer can still browse it; the heartbeat dot will mark it
@@ -1820,8 +1832,12 @@ function createPty(cols, rows) {
     try { if (streamClient) streamClient.stop(); } catch {}
     // Graceful close (`exit` typed in shell): record session end. App will
     // not auto-relaunch because userClosed is still false on this path.
+    // Idempotent, so the window-close path having already written it is fine.
     writeClosedSessionEvent();
     app.quit();
+   } catch (err) {
+    try { log('[main] pty exit handler failed: ' + (err && err.message)); } catch {}
+   }
   });
 }
 
@@ -3976,6 +3992,40 @@ app.whenReady().then(async () => {
     }
   } catch (err) {
     log('[force-fallback] shortcut registration error: ' + (err && err.message));
+  }
+});
+
+// Quitting with a live shell is what turns an exit into a crash on macOS.
+// node-pty reports child exit from a waiter thread through a threadsafe
+// function; if that lands while Node is already freeing the environment, N-API
+// cannot enter JS to deliver it and rethrows as C++, which terminates the
+// process. The crash report is unambiguous — uv_run beneath
+// node::FreeEnvironment, ThrowAsJavaScriptException above it — and no JS-side
+// guard can help, because the call never reaches JS.
+//
+// So the shell has to be gone BEFORE the quit proceeds rather than killed
+// alongside it: hold the quit, kill, let the exit callback land on a healthy
+// loop, then quit for real. A shell exits on the signal in milliseconds; the
+// timer is only there so one that ignores it cannot hang the app.
+const PTY_QUIT_DRAIN_MS = 1000;
+let ptyQuitDrain = null;
+
+function finishQuitAfterPty() {
+  if (ptyQuitDrain) { clearTimeout(ptyQuitDrain); ptyQuitDrain = null; }
+  ptyProcess = null; // lets the next before-quit through
+  app.quit();
+}
+
+app.on('before-quit', (event) => {
+  if (!ptyProcess || ptyQuitDrain) return; // nothing live, or already draining
+  event.preventDefault();
+  const p = ptyProcess;
+  ptyQuitDrain = setTimeout(finishQuitAfterPty, PTY_QUIT_DRAIN_MS);
+  try { p.onExit(finishQuitAfterPty); } catch {}
+  try { p.kill(); }
+  catch (err) {
+    log('[main] PTY kill during quit failed: ' + (err && err.message));
+    finishQuitAfterPty();
   }
 });
 
