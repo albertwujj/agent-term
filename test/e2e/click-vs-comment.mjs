@@ -199,6 +199,33 @@ async function main() {
     check('ctrl/cmd click on a symbol navigates', await navFired());
     await clearNavFeedback();
 
+    console.log('the mark and the hit region are the same span');
+    // Where the reference lands decides whether its line belongs to it. The
+    // cursor is the readout: it turns to a pointer over a match the current
+    // modifier state can act on.
+    const cursorOver = async (needle, word, held) => {
+      const t = await wordTarget(needle, word);
+      if (!t) throw new Error(`no row carrying "${word}"`);
+      if (held) await page.keyboard.down(MOD_KEY);
+      await page.mouse.move(t.x, t.y);
+      await sleep(200);
+      const cursor = await page.evaluate(() => document.querySelector('.xterm-screen')?.style.cursor || '');
+      if (held) await page.keyboard.up(MOD_KEY);
+      return cursor;
+    };
+    // An IDE jump lands on the line, so file:line is one reference end to end.
+    const ide = 'and isSessionActive for it';
+    check('an IDE path is a target under the modifier', await cursorOver(ide, 'src/sessions-log.js', true) === 'pointer');
+    check('and so is its line, the same one reference', await cursorOver(ide, '213', true) === 'pointer');
+    check('neither is a target without the modifier', await cursorOver(ide, 'src/sessions-log.js', false) === '');
+
+    // The md viewer opens the document, so the line is not part of what is named.
+    await runCmd("printf '%s\\n' 'open README.md:42 now'");
+    await sleep(1200);
+    const doc = 'open README.md:42 now';
+    check('a doc is a target on a plain click', await cursorOver(doc, 'README.md', false) === 'pointer');
+    check('and its line is ordinary text', await cursorOver(doc, '42', false) === '');
+
     console.log('a double click on an IDE-bound match navigates nowhere');
     // The residual collision the modifier gate closes: the first press of a
     // double click is detail 1, so before the gate it armed and navigated on its

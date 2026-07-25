@@ -62,10 +62,53 @@ function matchForPress(match, event) {
   return match;
 }
 
+// How much of a match is marked and clickable.
+//
+// It depends on where the reference lands, because that decides whether the line
+// is part of what is being pointed at.
+//
+// An IDE destination IS the line. Landing on it is the whole point of the jump,
+// so src/renderer.js:88 is one reference and stays one span, marked and
+// clickable end to end.
+//
+// A doc destination is the document. The md viewer opens README.md, and the :42
+// adds nothing to that, so the mark names the document and the qualifier stays
+// ordinary text you can select. The hit region stops there too: what is marked
+// is what responds, with no invisible target hanging off the end of the
+// underline. In practice an agent rarely prints a line against a doc at all.
+//
+// Parsing keeps the full span either way. Overlap resolution runs on
+// match.start/end, so narrowing here cannot let a lower-priority pattern claim
+// the qualifier.
+const PATH_WITH_LINE_PATTERNS = new Set([
+  'file_line',
+  'file_line_col',
+  'paren_line',
+  'github_line',
+]);
+
+// A trailing line reference in each of the shapes those patterns admit:
+// :42, :42:15, :~10-~20, (42), (42,15), (100-200, 300-400), #L42, #L42-L50.
+const LINE_QUALIFIER = /(?::~?\d+(?:-~?\d+)?)+$|\(\d+(?:-\d+)?(?:,\s*\d+(?:-\d+)?)*\)$|#L\d+(?:-L\d+)?$/;
+
+// Patterns that carry a line reference with no path of their own — "line 42",
+// "# :344", a Python traceback frame — are left whole: there the reference is
+// the whole thing being named, so there is nothing to trim down to.
+function markedLength(match) {
+  const text = String((match && match.text) || '');
+  if (!match || !PATH_WITH_LINE_PATTERNS.has(match.patternName)) return text.length;
+  if (!DOC_TARGET.test(text)) return text.length;
+  const qualifier = LINE_QUALIFIER.exec(text);
+  if (!qualifier) return text.length;
+  const kept = text.length - qualifier[0].length;
+  return kept > 0 ? kept : text.length;
+}
+
 module.exports = {
   IDE_PATTERN_NAMES,
   DOC_TARGET,
   navigationNeedsModifier,
   hasNavigationModifier,
   matchForPress,
+  markedLength,
 };

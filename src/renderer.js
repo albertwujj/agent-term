@@ -11,7 +11,7 @@ const { extractDroppedPaths, hasSupportedPathDropType } = require('./drag-drop-p
 const { handleTerminalKeydown } = require('./terminal-keyboard');
 const { beginDecorationPress, resolveDecorationPress, decorationPressOptions, DEFAULT_DRAG_THRESHOLD_PX } = require('./terminal-decoration-press');
 const { attachTerminalMouseShortcuts } = require('./terminal-mouse');
-const { navigationNeedsModifier, hasNavigationModifier, matchForPress } = require('./terminal-nav-destination');
+const { navigationNeedsModifier, hasNavigationModifier, matchForPress, markedLength } = require('./terminal-nav-destination');
 const {
   DEFAULT_SELECTION_CONTEXT_LINES,
   buildTerminalCommentBatchMessage,
@@ -4888,7 +4888,9 @@ function getClickableMatchAtMouseEvent(event) {
   const matches = parseRow(text);
   for (const match of matches) {
     match.bufferRow = logicalStart;
-    if (charOffset >= match.start && charOffset < match.end) {
+    // The hit region is the marked span, so what is underlined is what responds.
+    // On README.md:42 that is README.md; the :42 is ordinary text you can select.
+    if (charOffset >= match.start && charOffset < match.start + markedLength(match)) {
       return match;
     }
   }
@@ -4919,7 +4921,9 @@ function createDecoration(bufferLineIndex, match) {
   }
 
   let adjustedCol = col;
-  let adjustedWidth = Math.min(match.text.length, terminal.cols - col);
+  // The mark stops at the path; a trailing :42 is an argument to the jump, not
+  // part of the name. Hit testing is unaffected, so the qualifier still clicks.
+  let adjustedWidth = Math.min(markedLength(match), terminal.cols - col);
 
   if (match.trimToContent) {
     const trimLine = buffer.getLine(currentRow);
