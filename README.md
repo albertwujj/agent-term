@@ -27,7 +27,7 @@ Add the companion viewer (**[agent-stream-hub](https://github.com/albertwujj/age
 </p>
 
 ## Plus the quality-of-life stuff
-Paste images and drag-drop files straight into a prompt · fuzzy-search the whole scrollback · click a resource path (`.png`, `.pdf`, `.csv`, …) to open it in your OS default app · right-click to quote a selection into the prompt. `Ctrl+K` / `Cmd+K` inserts your IDE's current location into the prompt.
+Paste images and drag-drop files straight into a prompt · fuzzy-search the whole scrollback · click an image path the agent prints and it renders right in the app (`Ctrl/Cmd`-click sends `.pdf`, `.csv`, folders and the rest to their OS apps) · right-click to quote a selection into the prompt. `Ctrl+K` / `Cmd+K` inserts your IDE's current location into the prompt.
 
 ## Comment on its output
 Most of what an agent tells you scrolls past in the terminal. Select any of it (a line, a claim, a command it's about to run) and comment; your note goes back to the agent with the exact text quoted, so a few words are enough. (Works on the rendered markdown viewer too.)
@@ -49,7 +49,7 @@ Point an agent at a writing project (essays, notes, research, docs) and the same
 ![the write loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list](assets/doc-edit-loop.gif)
 
 ## Confirm what the agent tells you
-Agents explain themselves by quoting `file:line` and symbols. Click any reference the agent mentions (not just files it edited) and your IDE jumps to that exact line so you can verify the claim. It works with URLs too.
+Agents explain themselves by quoting `file:line` and symbols. `Ctrl`-click any reference the agent mentions (`Cmd` on Mac; not just files it edited) and your IDE jumps to that exact line so you can verify the claim. URLs it cites open too, in an embedded web view right in the terminal.
 
 ![click a reference → your IDE jumps to that exact line](assets/click-to-ide.gif)
 
@@ -63,6 +63,7 @@ Everything here is modular and agent-sized: the terminal is 18k lines of plain J
 Runs on **macOS and Windows**. I build AgentTerm on a Mac and use it for work on Windows, so both are first-class. Live-session switching is integrated with the Windows taskbar. On a Mac, give each session its own full screen or desktop: the initial prompt stays pinned at the top of the window, so a Mission Control swipe shows every session, readable (a more Mac-optimized UX is welcome). IDE navigation targets **JetBrains** today, but the protocol's open, so other editors and code viewers are easy to add. PRs welcome on both fronts. All MIT, all free: no telemetry, no upsell.
 
 ## How it works (for the curious)
+- **One click rule**: a plain click opens what renders in-app (markdown, reviews, web pages, images); anything that hands you to another application (OS apps, your IDE) waits for `Ctrl/Cmd`; commenting always goes through a selection.
 - **Append-only, single-pass decoration engine**: pattern detection runs incrementally on new output (O(new rows), not O(total)), so thousands of live links cost ~nothing as the stream grows.
 - **Open IDE protocol**: navigation is newline-delimited JSON over a local TCP socket (a backend plugin resolves files/symbols + moves the caret on `8765`; a frontend plugin scrolls the viewport + reports the caret on `8766`). Any editor can implement it; see the [API spec](https://github.com/albertwujj/intellij-navigator/blob/main/API.md). JetBrains today; VS Code / Neovim / Emacs welcome.
 - **Cross-platform shell**: WSL on Windows, native PTY on macOS.
