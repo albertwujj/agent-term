@@ -5,6 +5,7 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 const { commentHeader } = require('./comment-format');
+const { mdStorePosixPath, uncFromPosix } = require('./md-thread-store');
 const net = require('net');
 const pty = require('node-pty');
 const {
@@ -3363,6 +3364,12 @@ async function loadCommentStore(p) {
 }
 
 async function saveCommentStore(p, store) {
+  // The markdown store lives in a .agent-threads folder beside the document, so
+  // the first comment on a document creates it. path.dirname is the host's, and
+  // p is already a host path — the WSL UNC form on Windows, where creating the
+  // folder crosses the same boundary the write itself does. Review stores land
+  // in a folder produce-review already made, so this is a no-op there.
+  await fs.promises.mkdir(path.dirname(p), { recursive: true });
   const tmp = p + '.tmp';
   await fs.promises.writeFile(tmp, JSON.stringify(store, null, 2) + '\n', 'utf8');
   await fs.promises.rename(tmp, p);
@@ -3499,23 +3506,12 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
 // --- Markdown document threads (md viewer → sidecar store; the agent-facing
 // contract is ~/agent-threads/contract.md + md/user-intent.md) ---
 
-// For /path/NAME.md the store is /path/.NAME-comments.json — the document's
-// hidden sibling, basename verbatim, markdown extension replaced (mirrors the
-// review store's derivation).
-function mdStorePosixPath(docPath) {
-  const cut = docPath.lastIndexOf('/') + 1;
-  const dir = docPath.slice(0, cut);
-  const stem = docPath.slice(cut).replace(/\.(?:md|markdown|mdown)$/i, '');
-  return `${dir}.${stem}-comments.json`;
-}
-
 // Absolute POSIX path → a path Node fs can open: unchanged on mac/linux, the
 // \\wsl.localhost UNC form on Windows (the docs live inside WSL).
 async function fsPathFromPosix(posixPath) {
   const root = await getFileUrlRoot();
   if (!root.startsWith('file://wsl.localhost/')) return posixPath;
-  const distro = root.slice('file://wsl.localhost/'.length);
-  return `\\\\wsl.localhost\\${distro}${posixPath.replace(/\//g, '\\')}`;
+  return uncFromPosix(posixPath, root.slice('file://wsl.localhost/'.length));
 }
 
 // Agent-related runbook repos can be vendored inside the session's repo, sit
