@@ -2,6 +2,7 @@ const {
   DEFAULT_DRAG_THRESHOLD_PX,
   beginDecorationPress,
   resolveDecorationPress,
+  decorationPressOptions,
 } = require('../src/terminal-decoration-press');
 
 let passed = 0;
@@ -107,6 +108,43 @@ test('resolveDecorationPress honors a custom threshold', () => {
   const pending = { match: MATCH, x: 0, y: 0 };
   assertEqual(resolveDecorationPress(pending, { button: 0, x: 8, y: 0 }, 10), 'navigate');
   assertEqual(resolveDecorationPress(pending, { button: 0, x: 12, y: 0 }, 10), 'select');
+});
+
+// --- decorationPressOptions -------------------------------------------------
+//
+// These moved here from the integration suite, where they exercised a copy of
+// this decision in terminal-decoration-actions that the renderer never called.
+
+test('decorationPressOptions activates a plain press without a debug payload', () => {
+  const options = decorationPressOptions({});
+  assertEqual(options.copyResponse, undefined, 'a plain click should not request the debug payload');
+  assertEqual(options.modifiers, { ctrlKey: false, metaKey: false, altKey: false, shiftKey: false });
+});
+
+test('decorationPressOptions treats Ctrl+Alt as the debug chord', () => {
+  const options = decorationPressOptions({ ctrlKey: true, altKey: true });
+  assertEqual(options.copyResponse, true, 'Ctrl+Alt+click should request the debug payload');
+});
+
+test('decorationPressOptions treats Cmd+Alt as the debug chord (Mac)', () => {
+  const options = decorationPressOptions({ metaKey: true, altKey: true });
+  assertEqual(options.copyResponse, true, 'Cmd+Alt+click should request the debug payload');
+});
+
+test('decorationPressOptions forwards Ctrl alone as a normal activation', () => {
+  const options = decorationPressOptions({ ctrlKey: true });
+  assertEqual(options.copyResponse, undefined, 'plain Ctrl+click should not request the debug payload');
+  assertEqual(options.modifiers.ctrlKey, true, 'ctrlKey should reach the action for branching');
+});
+
+test('decorationPressOptions forwards Alt alone for the chooser', () => {
+  const options = decorationPressOptions({ altKey: true });
+  assertEqual(options.copyResponse, undefined, 'Alt+click should not request the debug payload');
+  assertEqual(options.modifiers.altKey, true, 'altKey should reach the action for the chooser');
+});
+
+test('decorationPressOptions tolerates a missing event', () => {
+  assertEqual(decorationPressOptions().modifiers.shiftKey, false);
 });
 
 // --- runner -----------------------------------------------------------------

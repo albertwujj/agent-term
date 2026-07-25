@@ -9,7 +9,7 @@ const {
 } = require('./search-ui-state');
 const { extractDroppedPaths, hasSupportedPathDropType } = require('./drag-drop-paths');
 const { handleTerminalKeydown } = require('./terminal-keyboard');
-const { beginDecorationPress, resolveDecorationPress, DEFAULT_DRAG_THRESHOLD_PX } = require('./terminal-decoration-press');
+const { beginDecorationPress, resolveDecorationPress, decorationPressOptions, DEFAULT_DRAG_THRESHOLD_PX } = require('./terminal-decoration-press');
 const { attachTerminalMouseShortcuts } = require('./terminal-mouse');
 const { navigationNeedsModifier, hasNavigationModifier, matchForPress } = require('./terminal-nav-destination');
 const {
@@ -2319,15 +2319,7 @@ document.addEventListener('mouseup', (event) => {
     unfreezeTerminalOutput();
   }
   const m = press.match;
-  if (typeof m.action === 'function') {
-    const modifiers = {
-      ctrlKey: !!event.ctrlKey, metaKey: !!event.metaKey,
-      altKey: !!event.altKey, shiftKey: !!event.shiftKey,
-    };
-    // Ctrl+Alt-click (Cmd+Alt on Mac) = developer debug copy (matches
-    // terminal-decoration-actions; Ctrl+click on Mac is the OS right-click).
-    m.action(m, (event.ctrlKey || event.metaKey) && event.altKey ? { copyResponse: true, modifiers } : { modifiers });
-  }
+  if (typeof m.action === 'function') m.action(m, decorationPressOptions(event));
 }, true);
 
 // Drag-and-drop file → paste escaped path into terminal

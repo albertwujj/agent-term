@@ -39,8 +39,31 @@ function resolveDecorationPress(pending, { button, x, y } = {}, threshold = DEFA
   return draggedFar ? 'select' : 'navigate';
 }
 
+// The options a resolved press hands to its match's action.
+//
+// Modifier state is forwarded so actions can branch on it: a URL opens the
+// embedded viewer band on a plain click and the system browser under any
+// modifier, and Alt on a path raises the search-everywhere chooser.
+//
+// Ctrl+Alt (Cmd+Alt on Mac) is the developer debug chord, which copies the
+// navigation JSON instead of acting. It is the deliberately obscure combination
+// because Ctrl, Cmd and Alt each carry a meaning of their own now. Cmd is
+// accepted alongside Ctrl because macOS converts Ctrl+click into a right-click
+// before the app ever sees it, a conversion trackpad users rely on.
+function decorationPressOptions(event = {}) {
+  const modifiers = {
+    ctrlKey: !!event.ctrlKey,
+    metaKey: !!event.metaKey,
+    altKey: !!event.altKey,
+    shiftKey: !!event.shiftKey,
+  };
+  const debugChord = (modifiers.ctrlKey || modifiers.metaKey) && modifiers.altKey;
+  return debugChord ? { copyResponse: true, modifiers } : { modifiers };
+}
+
 module.exports = {
   DEFAULT_DRAG_THRESHOLD_PX,
   beginDecorationPress,
   resolveDecorationPress,
+  decorationPressOptions,
 };

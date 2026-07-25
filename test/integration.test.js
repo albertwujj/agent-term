@@ -40,9 +40,6 @@ const {
   isTerminalDecorationTarget,
 } = require('../src/terminal-mouse');
 const {
-  handleDecorationPointerAction,
-} = require('../src/terminal-decoration-actions');
-const {
   extractDroppedPaths,
   hasSupportedPathDropType,
 } = require('../src/drag-drop-paths');
@@ -107,24 +104,6 @@ function createKeyEvent(overrides = {}) {
       defaultPrevented = true;
     },
     isDefaultPrevented: () => defaultPrevented,
-    ...overrides,
-  };
-}
-
-function createMouseHandlerEvent(overrides = {}) {
-  let defaultPrevented = false;
-  let propagationStopped = false;
-  return {
-    type: 'contextmenu',
-    ctrlKey: false,
-    preventDefault: () => {
-      defaultPrevented = true;
-    },
-    stopPropagation: () => {
-      propagationStopped = true;
-    },
-    isDefaultPrevented: () => defaultPrevented,
-    isPropagationStopped: () => propagationStopped,
     ...overrides,
   };
 }
@@ -559,89 +538,6 @@ test('right-button mousedown is left alone', () => {
   assertEqual(defaultAllowed, true, 'Right-button mousedown should fall through');
 });
 
-test('decoration click activates navigation normally', async () => {
-  const calls = [];
-  const result = await handleDecorationPointerAction({
-    event: createMouseHandlerEvent({ type: 'click' }),
-    match: {
-      action: async (...args) => { calls.push(args); },
-    },
-  });
-
-  assertEqual(result, 'activate', 'Plain click should activate the decoration');
-  assertEqual(calls.length, 1, 'Plain click should call the action once');
-  assertEqual(calls[0][1].copyResponse, undefined, 'Plain click should not request debug payloads');
-});
-
-test('decoration Ctrl+Alt+click copies the debug payload', async () => {
-  const calls = [];
-  const result = await handleDecorationPointerAction({
-    event: createMouseHandlerEvent({ type: 'click', ctrlKey: true, altKey: true }),
-    match: {
-      action: async (...args) => { calls.push(args); },
-    },
-  });
-
-  assertEqual(result, 'debug', 'Ctrl+Alt+click should switch to debug payload copy');
-  assertEqual(calls.length, 1, 'Ctrl+Alt+click should still invoke the action once');
-  assertEqual(calls[0][1].copyResponse, true, 'Ctrl+Alt+click should request the debug payload');
-});
-
-test('decoration Cmd+Alt+click copies the debug payload (Mac chord)', async () => {
-  const calls = [];
-  const result = await handleDecorationPointerAction({
-    event: createMouseHandlerEvent({ type: 'click', metaKey: true, altKey: true }),
-    match: {
-      action: async (...args) => { calls.push(args); },
-    },
-  });
-
-  assertEqual(result, 'debug', 'Cmd+Alt+click should switch to debug payload copy');
-  assertEqual(calls[0][1].copyResponse, true, 'Cmd+Alt+click should request the debug payload');
-});
-
-test('decoration Ctrl+click alone activates with the modifier forwarded', async () => {
-  const calls = [];
-  const result = await handleDecorationPointerAction({
-    event: createMouseHandlerEvent({ type: 'click', ctrlKey: true }),
-    match: {
-      action: async (...args) => { calls.push(args); },
-    },
-  });
-
-  assertEqual(result, 'activate', 'Plain Ctrl+click is a normal activation now');
-  assertEqual(calls[0][1].copyResponse, undefined, 'Plain Ctrl+click should not request debug payloads');
-  assertEqual(calls[0][1].modifiers.ctrlKey, true, 'ctrlKey should be forwarded for action-level branching');
-});
-
-test('decoration Alt+click activates with altKey forwarded (chooser modifier)', async () => {
-  const calls = [];
-  const result = await handleDecorationPointerAction({
-    event: createMouseHandlerEvent({ type: 'click', altKey: true }),
-    match: {
-      action: async (...args) => { calls.push(args); },
-    },
-  });
-
-  assertEqual(result, 'activate', 'Alt+click is a normal activation');
-  assertEqual(calls[0][1].copyResponse, undefined, 'Alt+click should not request debug payloads');
-  assertEqual(calls[0][1].modifiers.altKey, true, 'altKey should be forwarded for the search-everywhere chooser');
-});
-
-test('decoration right-click is ignored', async () => {
-  const calls = [];
-  const event = createMouseHandlerEvent({ type: 'contextmenu' });
-  const result = await handleDecorationPointerAction({
-    event,
-    match: {
-      action: async (...args) => { calls.push(args); },
-    },
-  });
-
-  assertEqual(result, 'ignored', 'Right-click should be ignored by decoration actions');
-  assertEqual(calls.length, 0, 'Right-click should not activate the decoration');
-  assertEqual(event.isDefaultPrevented(), false, 'Ignored right-click should not prevent default');
-});
 
 // =============================================================================
 // Tests: Terminal scroll behavior
