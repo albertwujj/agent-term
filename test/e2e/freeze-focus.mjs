@@ -54,9 +54,10 @@ async function main() {
     await page.keyboard.type(cmd);
     await page.keyboard.press('Enter');
   };
-  // Synthetic mousedown on the terminal screen (button 0). detail>=2 opens a
-  // comment; detail 1 with no mouseup is a HELD press, which freezes once the
-  // hold threshold elapses. Real coords so the buffer-position map works.
+  // Synthetic mousedown on the terminal screen (button 0). detail 1 with no
+  // mouseup is a HELD press, which freezes once the hold threshold elapses; a
+  // detail>=2 press is a word/line select, which freezes at once. Real coords so
+  // the buffer-position map works.
   const pressTerminal = (detail) => page.evaluate((d) => {
     const el = document.querySelector('.xterm-screen');
     const r = el.getBoundingClientRect();
@@ -137,10 +138,29 @@ async function main() {
     check('ArrowDown thaws (pill gone)', !(await pillShown()));
 
     // ---- Fix 1: dismissing a comment restores terminal focus ----
+    // A comment always comes from a selection now: drag to select (which freezes
+    // the stream), then type. See test/e2e/click-vs-comment.mjs for the gestures.
     console.log('Fix 1 — Esc out of a comment refocuses the terminal');
-    await pressTerminal(2); // freeze + open comment
+    const box = await page.evaluate(() => {
+      const b = document.querySelector('.xterm-screen').getBoundingClientRect();
+      return { x: b.x, y: b.y, w: b.width, h: b.height };
+    });
+    // Only a few ticks have printed, so the text is at the TOP of the screen —
+    // mid-screen is blank and a drag there would select nothing.
+    const dragY = Math.round(box.y + 30);
+    // The synthetic held press above never got a mouseup, so xterm still thinks a
+    // selection drag is in flight; a real click closes that out first.
+    await page.mouse.click(Math.round(box.x + 10), dragY);
+    await sleep(200);
+    await page.mouse.move(Math.round(box.x + 10), dragY);
+    await page.mouse.down();
+    await page.mouse.move(Math.round(box.x + 60), dragY, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForSelector('.terminal-comment-selection-hint', { timeout: 5_000 });
+    await focusTerm();
+    await page.keyboard.type('c');
     await page.waitForSelector('.terminal-comment-bubble', { timeout: 5_000 });
-    check('double-press opens a comment', (await activeClass()).includes('cu-ta'));
+    check('typing on a selection opens a comment', (await activeClass()).includes('cu-ta'));
     await page.evaluate(() => {
       const el = document.activeElement || document.body;
       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));

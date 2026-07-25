@@ -11,6 +11,7 @@ const { extractDroppedPaths, hasSupportedPathDropType } = require('./drag-drop-p
 const { handleTerminalKeydown } = require('./terminal-keyboard');
 const { beginDecorationPress, resolveDecorationPress, DEFAULT_DRAG_THRESHOLD_PX } = require('./terminal-decoration-press');
 const { attachTerminalMouseShortcuts } = require('./terminal-mouse');
+const { navigationNeedsModifier, hasNavigationModifier, matchForPress } = require('./terminal-nav-destination');
 const {
   DEFAULT_SELECTION_CONTEXT_LINES,
   buildTerminalCommentBatchMessage,
@@ -1069,15 +1070,6 @@ function cleanTerminalOutputLine(text) {
   return String(text == null ? '' : text).replace(/\s+$/g, '');
 }
 
-function collectTerminalLineCommentContext(targetStartRow) {
-  const { text, endIndex } = getRowText(targetStartRow);
-  return {
-    kind: 'line',
-    targetLine: { row: targetStartRow, endRow: endIndex, text: cleanTerminalOutputLine(text) },
-    targetRow: targetStartRow,
-  };
-}
-
 function ensureTerminalCommentStyles() {
   if (document.getElementById('terminal-comment-style')) return;
   const style = document.createElement('style');
@@ -1281,47 +1273,10 @@ function makeBubbleDraggable(bubble, handle) {
   });
 }
 
-function createTerminalCommentHighlight(bufferRow) {
-  const buffer = terminal.buffer.active;
-  const marker = terminal.registerMarker(bufferRow - buffer.baseY - buffer.cursorY);
-  if (!marker) return null;
-
-  const decoration = terminal.registerDecoration({
-    marker,
-    x: 0,
-    width: terminal.cols,
-    layer: 'top',
-  });
-
-  if (!decoration) {
-    marker.dispose();
-    return null;
-  }
-
-  decoration.onRender((element) => {
-    const viewportLine = marker.line - terminal.buffer.active.viewportY;
-    if (isAlternateBufferActive() && viewportLine >= 0 && viewportLine < terminal.rows) {
-      element.style.display = 'block';
-    }
-    element.style.backgroundColor = 'rgba(138, 180, 248, 0.14)';
-    element.style.borderLeft = '2px solid rgba(138, 180, 248, 0.75)';
-    element.style.pointerEvents = 'none';
-    element.style.boxSizing = 'border-box';
-  });
-
-  return {
-    dispose() {
-      decoration.dispose();
-      marker.dispose();
-    },
-  };
-}
-
-// Cell-exact highlight for a selection comment — one decoration per visual row,
-// covering just the selected cells (same mechanism as search highlights). The
-// native selection is cleared when the bubble opens, so this is what keeps "what
-// am I commenting on" visible while composing and on queued drafts; the whole-row
-// wash above stays for line comments, where the row IS the unit.
+// Cell-exact highlight for a comment — one decoration per visual row, covering
+// just the selected cells (same mechanism as search highlights). The native
+// selection is cleared when the bubble opens, so this is what keeps "what am I
+// commenting on" visible while composing and on queued drafts.
 function createTerminalSelectionHighlight(range) {
   if (!range) return null;
   const buffer = terminal.buffer.active;
@@ -1509,7 +1464,10 @@ function positionTerminalSelectionCommentHint(hint, range) {
   const columnWidth = rect.width / Math.max(1, terminal.cols);
   const endColumn = Math.max(0, Math.min(terminal.cols, getSelectionEndColumn(range)));
   const anchorX = rect.left + endColumn * columnWidth;
-  const left = Math.min(window.innerWidth - 136, Math.max(14, anchorX - 118));
+  // Measured, not assumed: the pill's text is no longer a fixed two words, and a
+  // hardcoded width would hang its right edge off the selection end.
+  const width = hint.offsetWidth || 118;
+  const left = Math.min(window.innerWidth - width - 18, Math.max(14, anchorX - width));
   const baseTop = top + rowHeight + 4;
   hint.style.left = `${left}px`;
   hint.style.top = `${Math.max(14, Math.min(baseTop, window.innerHeight - 42))}px`;
@@ -1545,7 +1503,12 @@ function showTerminalSelectionCommentHint() {
   if (!terminalCommentSelectionHint) {
     const hint = document.createElement('div');
     hint.className = 'terminal-comment-selection-hint';
-    hint.textContent = 'Type to comment';
+    // Names its own exit. The pill owns the next printable key, and it outlives
+    // the freeze that put it up (the idle thaw leaves the selection alone), so a
+    // pill can be sitting armed over settled output while you turn back to the
+    // shell to type a command. "Type to comment" announces the capture; without
+    // the second clause nothing announces the release.
+    hint.textContent = 'Type to comment · esc dismisses';
     document.body.appendChild(hint);
     terminalCommentSelectionHint = hint;
   }
@@ -1908,9 +1871,9 @@ function openTerminalCommentEditor({
   originalQueuedComment = null,
 } = {}) {
   // The composer anchors to on-screen rows — hold the view still while it's up.
-  // Same live-output gate as the press path: idle output needs no hold. (The
-  // press itself no longer freezes on a quick click, so this is where the
-  // double-click line comment gets its freeze.)
+  // Same live-output gate as the press path: idle output needs no hold. The
+  // selection that fed this composer has usually frozen the view already; this
+  // covers a composer opened from an idle-output selection that then went live.
   if (Date.now() - lastTerminalOutputAt <= TERMINAL_LIVE_OUTPUT_MS) freezeTerminalOutput();
   hideTerminalSelectionCommentHint();
   ensureTerminalCommentStyles();
@@ -2094,37 +2057,6 @@ function openTerminalSelectionComment({ initialComment = '' } = {}) {
   });
 }
 
-function openTerminalCommentAtEvent(event) {
-  const position = getMouseBufferPosition(event);
-  if (!position) return false;
-  clearTerminalSelection();
-
-  if (getActiveTerminalCommentText()) {
-    queueActiveTerminalCommentDraft();
-  } else {
-    closeTerminalComment({
-      focusTerminal: false,
-      restoreQueuedDraft: !!(activeTerminalComment && activeTerminalComment.queueMode),
-    });
-  }
-
-  const targetStartRow = getLogicalLineStart(position.buffer, position.bufferRow);
-  const context = collectTerminalLineCommentContext(targetStartRow);
-  const highlight = createTerminalCommentHighlight(position.bufferRow);
-
-  return openTerminalCommentEditor({
-    context,
-    highlight,
-    anchorX: event.clientX,
-    anchorY: event.clientY,
-    queueMode: queuedTerminalComments.length > 0,
-  });
-}
-
-function isTerminalCommentMouseDown(event) {
-  return event.button === 0 && event.detail >= 2;
-}
-
 function selectTerminalRange(start, end) {
   if (!start || !end) return;
   let rangeStart = start;
@@ -2225,9 +2157,13 @@ screenElement.addEventListener('mousedown', (event) => {
     freezeTerminalOutput();
     return;
   }
-  // A double-click press opens a comment, and the composer takes its own freeze;
-  // arming a hold-freeze here would re-freeze after the composer is dismissed.
-  if (event.detail >= 2) return;
+  // A double/triple click is xterm's word/line select: selection intent is
+  // already declared, so freeze now rather than waiting out the hold — the word
+  // under the pointer must not scroll away mid-gesture.
+  if (event.detail >= 2) {
+    freezeTerminalOutput();
+    return;
+  }
   // While the CLI owns the mouse, a plain press/drag is the app's gesture and
   // can't start a local selection — there is nothing to freeze for. Shift
   // (above) stays: that's the local-selection escape hatch under capture.
@@ -2289,14 +2225,6 @@ screenElement.addEventListener('mousedown', (event) => {
   handleShiftSelectionMouseDown(event);
 }, true);
 
-screenElement.addEventListener('mousedown', (event) => {
-  if (!isTerminalCommentMouseDown(event)) return;
-  event.preventDefault();
-  event.stopPropagation();
-  if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
-  openTerminalCommentAtEvent(event);
-}, true);
-
 // Mouse shortcuts: middle-click scrolls to end everywhere.
 attachTerminalMouseShortcuts({
   screenElement,
@@ -2305,7 +2233,7 @@ attachTerminalMouseShortcuts({
 });
 
 screenElement.addEventListener('mousemove', (event) => {
-  setHoveredMatch(getClickableMatchAtMouseEvent(event));
+  setHoveredMatch(getClickableMatchAtMouseEvent(event), event);
   if (terminalOutputFrozen) armTerminalFreezeIdleTimer(); // presence over the frozen frame = engagement
 });
 
@@ -2318,11 +2246,23 @@ terminal.onSelectionChange(() => {
 });
 // Esc resumes a frozen view (and abandons any in-progress comment) — the easy
 // cancel. Registered before any composer's own Esc so it wins while frozen.
+//
+// It also disarms a pill on an unfrozen view: an armed pill owns the next
+// printable key, so on idle output (select a word, then start typing a command)
+// there has to be a way to hand that key back to the shell. Scoped to keystrokes
+// aimed at the terminal, so Esc still closes a viewer or a picker that has focus.
 document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape' || !terminalOutputFrozen) return;
+  if (event.key !== 'Escape') return;
+  const disarmOnly = !terminalOutputFrozen;
+  if (disarmOnly && !(terminalCommentSelectionHint && isSelectionCommentTypingTarget(event.target))) return;
   event.preventDefault();
   event.stopPropagation();
   if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+  if (disarmOnly) {
+    clearTerminalSelection();
+    hideTerminalSelectionCommentHint();
+    return;
+  }
   cancelTerminalFreeze();
 }, true);
 document.addEventListener('keydown', handleSelectionCommentHintKeydown, true);
@@ -2333,9 +2273,16 @@ document.addEventListener('keydown', handleSelectionCommentHintKeydown, true);
 let pendingDecorationPress = null;
 
 screenElement.addEventListener('mousedown', (event) => {
-  pressConsumedByDecoration = false;
+  // Only a fresh sequence clears the OSC 8 guard. xterm activates a hyperlink on
+  // every mouseup, so on a double click over a URL that is both a visible match
+  // and an OSC 8 link, the second release would re-open what the first press
+  // already navigated to.
+  if (event.detail <= 1) pressConsumedByDecoration = false;
+  // IDE-bound matches sit out a plain click and wait for ctrl/cmd, so nothing is
+  // armed here and a double-click that selects a word to comment on it navigates
+  // nowhere on its first press.
   const match = (event.button === 0 && !event.shiftKey)
-    ? getClickableMatchAtMouseEvent(event)
+    ? matchForPress(getClickableMatchAtMouseEvent(event), event)
     : null;
   pendingDecorationPress = beginDecorationPress({
     button: event.button,
@@ -2343,6 +2290,7 @@ screenElement.addEventListener('mousedown', (event) => {
     match,
     x: event.clientX,
     y: event.clientY,
+    detail: event.detail,
   });
 });
 
@@ -2381,13 +2329,6 @@ document.addEventListener('mouseup', (event) => {
     m.action(m, (event.ctrlKey || event.metaKey) && event.altKey ? { copyResponse: true, modifiers } : { modifiers });
   }
 }, true);
-
-screenElement.addEventListener('dblclick', (event) => {
-  if (event.button !== 0) return;
-  event.preventDefault();
-  event.stopPropagation();
-  if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
-});
 
 // Drag-and-drop file → paste escaped path into terminal
 // Prevent Electron's default file navigation on drag-and-drop
@@ -3506,6 +3447,10 @@ async function openMarkdownDocLink(filePath) {
 // Show navigation result feedback
 function showNavigationFeedback(filePath, line, result) {
   const feedback = document.createElement('div');
+  // Named so a test can see that an IDE navigation was attempted at all — the
+  // gesture rule is about whether the call fires, which is otherwise invisible
+  // on a machine with no IDE listening.
+  feedback.className = 'nav-feedback';
 
   let message;
   let bgColor;
@@ -3870,6 +3815,7 @@ async function navigateToSymbol(symbolName, fileHint = null, { copyResponse = fa
 // Show symbol navigation feedback
 function showSymbolFeedback(symbolName, result) {
   const feedback = document.createElement('div');
+  feedback.className = 'nav-feedback';
 
   let message;
   let bgColor;
@@ -4705,7 +4651,23 @@ function updateRenderedMatchStyle(matchKey) {
   }
 }
 
-function setHoveredMatch(match) {
+let hoveredMatchCursor = '';
+
+function setHoveredMatch(match, event) {
+  // The cursor answers "does clicking here do something", so it tracks the
+  // modifier as well as the match: an IDE-bound match reads as plain text until
+  // ctrl/cmd is held, and lights up the moment it is. Same reasoning as the md
+  // viewer's I-beam over link text — a pointer that promises a jump the bare
+  // click no longer makes is a lie. Kept above the same-match early return so
+  // holding the modifier updates it without moving to another match.
+  const nextCursor = (match && (!navigationNeedsModifier(match) || hasNavigationModifier(event)))
+    ? 'pointer'
+    : '';
+  if (screenElement && nextCursor !== hoveredMatchCursor) {
+    hoveredMatchCursor = nextCursor;
+    screenElement.style.cursor = nextCursor;
+  }
+
   const nextKey = match ? getMatchKey(match) : null;
   if (nextKey === hoveredMatchKey) return;
 
@@ -4714,10 +4676,6 @@ function setHoveredMatch(match) {
 
   if (previousKey) updateRenderedMatchStyle(previousKey);
   if (nextKey) updateRenderedMatchStyle(nextKey);
-
-  if (screenElement) {
-    screenElement.style.cursor = nextKey ? 'pointer' : '';
-  }
 }
 
 // Parse a row for all pattern matches
@@ -5079,7 +5037,14 @@ function createDecoration(bufferLineIndex, match) {
     if (isAlternateBufferActive() && viewportLine >= 0 && viewportLine < terminal.rows) {
       element.style.display = 'block';
     }
-    const isHoverOnly = match.style === 'hover-only';
+    // The resting underline means one thing: a plain click acts here. A match
+    // that waits for ctrl/cmd shows nothing until hovered, so README.md:42 (md
+    // viewer) and src/renderer.js:88 (IDE) stop being two identical-looking
+    // spans with different rules. Derived from the same predicate as the press,
+    // so the mark and the gesture cannot drift apart. It also takes the dotted
+    // underline off ordinary prose, where the bare-identifier symbol patterns
+    // were claiming most technical words.
+    const isHoverOnly = match.style === 'hover-only' || navigationNeedsModifier(match);
     decorationStyles.set(matchKey, { fgColor, isHoverOnly });
     rememberDecorationElement(matchKey, element);
     applyDecorationElementStyle(element, { fgColor, isHoverOnly }, hoveredMatchKey === matchKey);

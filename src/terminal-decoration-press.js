@@ -14,10 +14,14 @@ const DEFAULT_DRAG_THRESHOLD_PX = 4;
 // Decide whether a mousedown should start a deferred decoration press. Returns a
 // pending record (carrying the match and the press origin) or null when the
 // press is not a plain left click on navigable text. Shift presses are excluded
-// because shift-drag selection is handled by its own dedicated path.
-function beginDecorationPress({ button, shiftKey, match, x, y } = {}) {
+// because shift-drag selection is handled by its own dedicated path. So are
+// multi-click presses (detail >= 2): the second and third press of a
+// double/triple click are the terminal's word- and line-select gestures, and
+// arming them would navigate again on every press of the sequence.
+function beginDecorationPress({ button, shiftKey, match, x, y, detail = 1 } = {}) {
   if (button !== 0) return null;
   if (shiftKey) return null;
+  if (detail >= 2) return null;
   if (!match) return null;
   return { match, x, y };
 }

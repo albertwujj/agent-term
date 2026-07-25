@@ -42,6 +42,18 @@ test('beginDecorationPress returns null when the press is not on navigable text'
   assertEqual(beginDecorationPress({ button: 0, shiftKey: false, match: null, x: 1, y: 2 }), null);
 });
 
+test('beginDecorationPress ignores multi-click presses (word/line select)', () => {
+  // The second press of a double click and the third of a triple click are
+  // selection gestures; arming them would navigate once per press.
+  assertEqual(beginDecorationPress({ button: 0, shiftKey: false, match: MATCH, x: 1, y: 2, detail: 2 }), null);
+  assertEqual(beginDecorationPress({ button: 0, shiftKey: false, match: MATCH, x: 1, y: 2, detail: 3 }), null);
+});
+
+test('beginDecorationPress arms the first press of a click sequence', () => {
+  const pending = beginDecorationPress({ button: 0, shiftKey: false, match: MATCH, x: 1, y: 2, detail: 1 });
+  assertEqual(pending && pending.match, MATCH);
+});
+
 test('beginDecorationPress tolerates a missing argument object', () => {
   assertEqual(beginDecorationPress(), null);
 });
