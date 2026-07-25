@@ -50,6 +50,33 @@
     .xterm-viewport::-webkit-scrollbar-thumb:hover {
       background: rgba(255, 255, 255, 0.5);
     }
+    /* Selection over a coloured cell.
+
+       xterm's DOM renderer paints the selection as one layer behind the rows
+       instead of compositing it per cell, so any cell carrying its own
+       background — a diff line's red or green, the one thing on screen that has
+       one — covers it. Selecting a diff line looked like nothing happened, even
+       though the selection was real and the comment pill was armed behind it.
+
+       macOS is where this bites, because WebGL is deliberately skipped there
+       (see renderer.js, atlas corruption) and the DOM renderer takes over.
+       Windows keeps WebGL, which composites selection per cell and builds no
+       such layer, so these rules are a no-op there.
+
+       Lifting the layer above the rows needs the fill to be translucent, or it
+       would hide the glyphs it is meant to mark. The alpha is chosen to stay
+       legible over the terminal background and over a diff's own colour.
+
+       !important because xterm injects the theme's selectionBackground as its
+       own stylesheet at runtime, which beats a static rule whatever the source
+       order. theme.selectionBackground stays as it is: it is what the WebGL
+       renderer uses on Windows, where none of this applies. */
+    .xterm .xterm-selection {
+      z-index: 5 !important;
+    }
+    .xterm .xterm-selection div {
+      background-color: rgba(56, 110, 168, 0.42) !important;
+    }
     /* Search bar */
     #search-bar {
       position: fixed;
