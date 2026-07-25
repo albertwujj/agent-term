@@ -645,6 +645,11 @@ const terminal = new Terminal({
   fontSize: 16,
   fontFamily: '"Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, "Courier New", monospace',
   scrollback: 100000,
+  // Enables the overview ruler, where an unsent comment leaves a tick so the
+  // scrollbar maps where it sits in the scrollback. Has to be set up front: the
+  // width is part of the layout, so changing it later re-wraps the whole buffer.
+  // The strip is transparent when nothing has marked it, which is most of the time.
+  overviewRulerWidth: 10,
   allowProposedApi: true, // Required for registerDecoration() and registerMarker()
   linkHandler: {
     activate: (_event, text) => {
@@ -1127,9 +1132,26 @@ function ensureTerminalCommentStyles() {
       font: 12px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       -webkit-app-region: no-drag;
     }
-    .terminal-comment-footer-count {
+    /* The count is the way back to unsent work, so it reads as a control rather
+       than as a label — but a quieter one than Discard beside it, since it is
+       the safe action of the two. */
+    .terminal-comment-footer button.terminal-comment-footer-count {
       min-width: 92px;
       color: #c9d1d9;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      padding: 4px 8px;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .terminal-comment-footer button.terminal-comment-footer-count:hover:not(:disabled) {
+      border-color: rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .terminal-comment-footer button.terminal-comment-footer-count:disabled {
+      cursor: default;
     }
     .terminal-comment-footer button {
       border: 1px solid rgba(255, 255, 255, 0.14);
@@ -1277,7 +1299,7 @@ function makeBubbleDraggable(bubble, handle) {
 // just the selected cells (same mechanism as search highlights). The native
 // selection is cleared when the bubble opens, so this is what keeps "what am I
 // commenting on" visible while composing and on queued drafts.
-function createTerminalSelectionHighlight(range) {
+function createTerminalSelectionHighlight(range, { ruler = false } = {}) {
   if (!range) return null;
   const buffer = terminal.buffer.active;
   const endRow = getSelectionEndRow(range);
@@ -1292,6 +1314,13 @@ function createTerminalSelectionHighlight(range) {
       x: startCol,
       width: Math.max(1, endCol - startCol),
       layer: 'top',
+      // A tick in the overview ruler, so the scrollbar maps where unsent work
+      // sits in the scrollback: the card itself hides once its row leaves the
+      // viewport, and a count alone cannot say where to look. First row only —
+      // a selection spanning several rows is one comment, not several.
+      ...(ruler && row === range.start.row
+        ? { overviewRulerOptions: { color: 'rgba(138, 180, 248, 0.9)', position: 'right' } }
+        : {}),
     });
     if (!decoration) {
       marker.dispose();
@@ -1685,6 +1714,29 @@ function getQueuedTerminalCommentContext(comment) {
   };
 }
 
+// Scroll the next unsent comment into view, cycling through the batch.
+//
+// A queued card hides when its row leaves the viewport, so once output scrolls
+// past, the footer count was the only trace left and it was inert text — you
+// could see that unsent work existed and not reach it, while the one control
+// that always worked was Discard. Walking the buffer top-down rather than in
+// authoring order makes repeated clicks read as a sweep through the scrollback.
+let queuedTerminalCommentCursor = 0;
+
+function revealNextQueuedTerminalComment() {
+  const ordered = queuedTerminalComments
+    .filter((c) => Number.isFinite(c.targetRow))
+    .sort((a, b) => a.targetRow - b.targetRow);
+  if (!ordered.length) return;
+  if (queuedTerminalCommentCursor >= ordered.length) queuedTerminalCommentCursor = 0;
+  const target = ordered[queuedTerminalCommentCursor];
+  queuedTerminalCommentCursor = (queuedTerminalCommentCursor + 1) % ordered.length;
+  // Centred, like a search hit: the comment is usually about the lines around
+  // its anchor, so landing it at the viewport edge would hide the context.
+  terminal.scrollToLine(Math.max(0, target.targetRow - Math.floor(terminal.rows / 2)));
+  updateQueuedTerminalCommentCards();
+}
+
 function ensureTerminalCommentFooter() {
   ensureTerminalCommentStyles();
   if (terminalCommentFooter) return terminalCommentFooter;
@@ -1692,8 +1744,10 @@ function ensureTerminalCommentFooter() {
   const footer = document.createElement('div');
   footer.className = 'terminal-comment-footer';
 
-  const count = document.createElement('span');
+  const count = document.createElement('button');
+  count.type = 'button';
   count.className = 'terminal-comment-footer-count';
+  count.addEventListener('click', () => revealNextQueuedTerminalComment());
 
   const discardButton = document.createElement('button');
   discardButton.type = 'button';
@@ -1728,7 +1782,12 @@ function updateTerminalCommentFooter() {
 
   const footer = ensureTerminalCommentFooter();
   const count = getPendingTerminalCommentCount();
+  // Only queued drafts have a row to go to; the one being written is already in
+  // front of you, so with nothing else pending the count stays a plain readout.
+  const reachable = queuedTerminalComments.filter((c) => Number.isFinite(c.targetRow)).length;
   footer._count.textContent = `${count} comment${count === 1 ? '' : 's'}`;
+  footer._count.disabled = reachable === 0;
+  footer._count.title = reachable ? 'Scroll to the next unsent comment' : '';
 }
 
 function queueActiveTerminalCommentDraft() {
@@ -2045,7 +2104,10 @@ function openTerminalSelectionComment({ initialComment = '' } = {}) {
   const endRow = getSelectionEndRow(context.selection);
   const top = getTerminalRowTop(endRow == null ? context.targetRow : endRow);
   const rect = screenElement.getBoundingClientRect();
-  const highlight = createTerminalSelectionHighlight(context.visualRange);
+  // Ruler tick from the moment a comment is being written: this highlight is
+  // handed to the queued draft if the composer is left, so the mark and the
+  // unsent work have the same lifetime.
+  const highlight = createTerminalSelectionHighlight(context.visualRange, { ruler: true });
 
   return openTerminalCommentEditor({
     context,
