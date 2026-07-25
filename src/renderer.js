@@ -863,8 +863,17 @@ function unfreezeTerminalOutput() {
 function cancelTerminalFreeze() {
   clearPendingFreezePress(); // a hold-freeze in flight must not refreeze after the cancel
   if (!terminalOutputFrozen) return;
+  // The queued batch survives resuming. This used to clear it, which made Esc
+  // the fastest way to destroy comments already finished and set aside — while
+  // the pill advertised it as "resume" and nothing else. Resuming and abandoning
+  // are different intents and only one of them is reversible, so only the
+  // labelled control does the destructive one. The cards stay anchored, the
+  // ruler keeps its ticks and the footer keeps counting.
+  //
+  // The composer is a different matter: Esc on an open one cancels the draft
+  // being written, which is what Esc means in a composer everywhere else. Only
+  // work you already set aside is protected here.
   if (activeTerminalComment) closeTerminalComment({ focusTerminal: false });
-  clearQueuedTerminalComments();
   try { terminal.clearSelection(); } catch {}
   hideTerminalSelectionCommentHint();
   unfreezeTerminalOutput();
@@ -1152,6 +1161,16 @@ function ensureTerminalCommentStyles() {
     }
     .terminal-comment-footer button.terminal-comment-footer-count:disabled {
       cursor: default;
+    }
+    /* Send is the one that finishes the work, so it carries the accent while
+       Discard stays neutral — the destructive control should never be the
+       most inviting thing in the row. */
+    .terminal-comment-footer button.terminal-comment-footer-send {
+      border-color: rgba(138, 180, 248, 0.55);
+      color: #d7e3fc;
+    }
+    .terminal-comment-footer button.terminal-comment-footer-send:hover:not(:disabled) {
+      background: rgba(138, 180, 248, 0.16);
     }
     .terminal-comment-footer button {
       border: 1px solid rgba(255, 255, 255, 0.14);
@@ -1749,21 +1768,34 @@ function ensureTerminalCommentFooter() {
   count.className = 'terminal-comment-footer-count';
   count.addEventListener('click', () => revealNextQueuedTerminalComment());
 
+  // Send belongs here because a queued batch can outlive every composer. The
+  // composer's Enter still flushes, but that only reaches a batch you are
+  // actively adding to; queue a few comments and walk away and Enter is nowhere,
+  // which left Discard as the only control that still worked on the batch.
+  const sendButton = document.createElement('button');
+  sendButton.type = 'button';
+  sendButton.className = 'terminal-comment-footer-send';
+  sendButton.textContent = 'Send';
+
   const discardButton = document.createElement('button');
   discardButton.type = 'button';
   discardButton.textContent = 'Discard';
 
-  // No Send-all button: the composer's Enter already finishes the current comment
-  // and flushes the queue. The footer is just the queued count + bulk Discard
-  // (and the backup way to abandon a batch left without an open composer).
-  footer.append(count, discardButton);
+  footer.append(count, sendButton, discardButton);
   footer._count = count;
+  footer._sendButton = sendButton;
   footer._discardButton = discardButton;
 
   const stopTerminalEvent = (e) => e.stopPropagation();
   footer.addEventListener('mousedown', stopTerminalEvent);
   footer.addEventListener('click', stopTerminalEvent);
   footer.addEventListener('dblclick', stopTerminalEvent);
+  sendButton.addEventListener('click', () => {
+    sendButton.disabled = true; // guards a double click through the async send
+    Promise.resolve(submitTerminalCommentBatch()).finally(() => {
+      if (terminalCommentFooter === footer) sendButton.disabled = false;
+    });
+  });
   discardButton.addEventListener('click', () => discardTerminalCommentBatch());
 
   document.body.appendChild(footer);
