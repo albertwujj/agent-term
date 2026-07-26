@@ -97,6 +97,92 @@ function resolveImageSrc(src, { rootUrl, docDir, version }) {
   return `${rootUrl}${encoded}${query}`;
 }
 
+// Raw HTML is never parsed (html: false above), so a document's tags render as
+// the literal text the author typed. The one exception is <img>: markdown image
+// syntax has no size control, so sized images are authored as HTML tags across
+// the ecosystem (GitHub READMEs being the canonical case). A text token
+// containing one is split around a real image token, which the src rewriting
+// and anchor machinery then treat like any authored image. Only src, alt,
+// width and height cross over; every other attribute is dropped. A <p> wrapper
+// line would be left rendering as stray text once its images become images, so
+// it is removed only from an inline run where the split produced one.
+const HTML_IMG_TAG = /<img\s[^<>]*>/gi;
+const HTML_P_WRAPPER = /^<\/?p(?:\s[^<>]*)?>$/i;
+
+function parseImgTagAttrs(tag) {
+  const attrs = {};
+  const attrPattern = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>]+))/g;
+  let match;
+  while ((match = attrPattern.exec(tag))) {
+    attrs[match[1].toLowerCase()] = match[2] ?? match[3] ?? match[4] ?? '';
+  }
+  return attrs;
+}
+
+function buildImageToken(TokenCtor, attrs, level) {
+  const token = new TokenCtor('image', 'img', 0);
+  token.level = level;
+  token.content = attrs.alt || '';
+  token.attrs = [['src', attrs.src], ['alt', '']];
+  if (/^\d+%?$/.test(attrs.width || '')) token.attrPush(['width', attrs.width]);
+  if (/^\d+%?$/.test(attrs.height || '')) token.attrPush(['height', attrs.height]);
+  if (token.content) {
+    const alt = new TokenCtor('text', '', 0);
+    alt.level = level + 1;
+    alt.content = token.content;
+    token.children = [alt];
+  } else {
+    token.children = [];
+  }
+  return token;
+}
+
+function recognizeHtmlImages(tokens) {
+  for (const token of tokens) {
+    if (token.type !== 'inline' || !Array.isArray(token.children)) continue;
+    const TokenCtor = token.constructor;
+    let produced = false;
+    const rebuilt = [];
+    for (const child of token.children) {
+      if (child.type !== 'text' || !/<img\s/i.test(child.content)) {
+        rebuilt.push(child);
+        continue;
+      }
+      const pieces = [];
+      let last = 0;
+      let match;
+      HTML_IMG_TAG.lastIndex = 0;
+      while ((match = HTML_IMG_TAG.exec(child.content))) {
+        const attrs = parseImgTagAttrs(match[0]);
+        if (!attrs.src) continue; // a src-less tag stays literal text
+        pieces.push({ text: child.content.slice(last, match.index) });
+        pieces.push({ image: attrs });
+        last = match.index + match[0].length;
+      }
+      if (pieces.length === 0) {
+        rebuilt.push(child);
+        continue;
+      }
+      pieces.push({ text: child.content.slice(last) });
+      for (const piece of pieces) {
+        if (piece.image) {
+          rebuilt.push(buildImageToken(TokenCtor, piece.image, child.level));
+          produced = true;
+        } else if (piece.text) {
+          const text = new TokenCtor('text', '', 0);
+          text.level = child.level;
+          text.content = piece.text;
+          rebuilt.push(text);
+        }
+      }
+    }
+    if (!produced) continue;
+    token.children = rebuilt.filter((child) => !(
+      child.type === 'text' && HTML_P_WRAPPER.test(child.content.trim())
+    ));
+  }
+}
+
 function rewriteImageSources(tokens, imageOptions) {
   const canResolve = !!(imageOptions && imageOptions.rootUrl && imageOptions.docDir);
   for (const token of tokens) {
@@ -228,6 +314,7 @@ function renderMarkdownDocument(source, imageOptions) {
   const text = String(source == null ? '' : source);
   const env = {};
   const tokens = markdown.parse(text, env);
+  recognizeHtmlImages(tokens);
   rewriteImageSources(tokens, imageOptions);
   const headings = collectHeadings(tokens);
   const anchors = assignAnchors(tokens);

@@ -186,4 +186,51 @@ test('does not double-encode pre-encoded image paths', () => {
   );
 });
 
+test('renders an HTML img run through the image pipeline, wrapper dropped', () => {
+  const doc = renderMarkdownDocument([
+    '# Shots',
+    '',
+    '<p>',
+    '  <img src="assets/one.jpg" width="235" alt="first shot">',
+    '  &nbsp;',
+    '  <img src="assets/two.jpg" width="235" alt="second shot">',
+    '</p>',
+  ].join('\n'), { rootUrl: 'file://', docDir: '/docs' });
+
+  assert(doc.html.includes('src="file:///docs/assets/one.jpg"'), `src should resolve like a markdown image, got: ${doc.html}`);
+  assert(doc.html.includes('data-md-src="assets/one.jpg"'), 'authored src should be kept for image anchoring');
+  assert(doc.html.includes('width="235"'), 'width should carry over');
+  assert(doc.html.includes('alt="first shot"'), 'alt should carry over');
+  assert(doc.html.includes('src="file:///docs/assets/two.jpg"'), 'every img in the run should render');
+  assert(!doc.html.includes('&lt;p&gt;'), 'the p wrapper should not remain as literal text');
+  assert(!doc.html.includes('&lt;img'), 'no literal img text should remain');
+});
+
+test('an HTML img mid-sentence renders inline with its text intact', () => {
+  const doc = renderMarkdownDocument('Before <img src="pic.png" alt="x"> after.');
+
+  assert(doc.html.includes('Before '), 'leading text kept');
+  assert(doc.html.includes('<img src="pic.png"'), `image should render, got: ${doc.html}`);
+  assert(doc.html.includes(' after.'), 'trailing text kept');
+});
+
+test('non-img HTML stays literal, and a src-less or event-laden img is defused', () => {
+  const doc = renderMarkdownDocument([
+    'A <span>tag</span> and <img width="10"> stay text.',
+    '',
+    '<img src="x.png" onerror="alert(1)" alt="evil">',
+  ].join('\n'));
+
+  assert(doc.html.includes('&lt;span&gt;'), 'span should stay literal text');
+  assert(doc.html.includes('&lt;img width=&quot;10&quot;&gt;'), `src-less img should stay literal, got: ${doc.html}`);
+  assert(doc.html.includes('<img src="x.png"'), 'img with src should render');
+  assert(!doc.html.includes('onerror'), 'only src/alt/width/height may cross over');
+});
+
+test('a p wrapper without any img in its run stays literal text', () => {
+  const doc = renderMarkdownDocument('<p>\njust prose\n</p>');
+
+  assert(doc.html.includes('&lt;p&gt;'), `bare p should stay literal, got: ${doc.html}`);
+});
+
 runTests();
