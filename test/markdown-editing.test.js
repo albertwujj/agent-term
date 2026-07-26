@@ -58,6 +58,14 @@ const FIXTURE = [
   'A closing paragraph kept clean for the preflight check.',
   '',
   'A spare paragraph kept clean for the enter-send check.',
+  '',
+  '<p>',
+  '  <img src="assets/a.jpg" width="120" alt="shot a">',
+  '  &nbsp;',
+  '  <img src="assets/b.jpg" width="120" alt="shot b">',
+  '</p>',
+  '',
+  '![shot c](assets/c.jpg)',
 ].join('\n');
 
 // Store mock mimicking main's md-add-threads: tick the turn, one open thread
@@ -586,6 +594,48 @@ async function run() {
     const breakBodies = (sentBatches[sentBatches.length - 1].threads || []).map((t) => t.body || '');
     check('the envelope carries the break inside <ins>',
       breakBodies.some((b) => /<ins>[^<]*\n[^<]*<\/ins>/.test(b)), breakBodies);
+  }
+
+  // --- an HTML image run is a black box: comments route by the image anchor
+  //     (its whitespace spacers are not anchorable text), edits refuse ---
+  {
+    preflightResult = { runbook: '/fake/agent-threads/md/user-intent.md' };
+    const sentBefore = sentBatches.length;
+    const imgBlock = Array.from(primary().querySelectorAll('[data-md-anchor-id]'))
+      .find((b) => b.querySelector && b.querySelector('img[data-md-src="assets/a.jpg"]'));
+    check('the HTML img run renders as images, no literal tag text',
+      !!imgBlock && imgBlock.querySelectorAll('img[data-md-src]').length === 2
+        && !imgBlock.textContent.includes('<img'));
+    imgBlock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(5);
+    key({ key: 'Enter' }); // entry Enter would open the editor on a prose block
+    await sleep(10);
+    check('an image-only block refuses the in-place editor', !editing());
+    key({ key: 'w' }); // a letter still comments
+    await sleep(10);
+    const imgComposer = document.querySelector('.md-comment-card textarea, textarea.cu-ta');
+    check('a letter on the image block still opens the comment composer', !!imgComposer);
+    if (imgComposer) {
+      imgComposer.value = 'swap the middle shot';
+      imgComposer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+      await sleep(30);
+      const sent = sentBatches.length > sentBefore
+        ? sentBatches[sentBatches.length - 1].threads : [];
+      const anchor = sent.length ? sent[sent.length - 1].anchor : null;
+      check('the comment anchors by the image, not by whitespace',
+        !!anchor && anchor.src === 'assets/a.jpg' && !!anchor.wholeBlock, anchor);
+    }
+    // The guard reads rendered text, not authoring form: a markdown-syntax
+    // image block refuses the editor the same way.
+    const mdImgBlock = Array.from(primary().querySelectorAll('[data-md-anchor-id]'))
+      .find((b) => b.querySelector && b.querySelector('img[data-md-src="assets/c.jpg"]'));
+    mdImgBlock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(5);
+    key({ key: 'Enter' });
+    await sleep(10);
+    check('a markdown image block refuses the in-place editor the same way', !editing());
+    key({ key: 'Escape' });
+    await sleep(5);
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

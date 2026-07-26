@@ -3361,7 +3361,9 @@ function createMarkdownViewer({
   // no such text, so it anchors by the image itself (contract.md image anchor).
   function getMarkdownThreadPayload(comment) {
     const selected = String(comment.selectedText || '');
-    const blockText = String(comment.targetText || '');
+    // Trimmed: an image run keeps whitespace between its images (an HTML-authored
+    // triptych's &nbsp; spacers), which must not read as anchorable block text.
+    const blockText = String(comment.targetText || '').trim();
     const hierarchy = Array.isArray(comment.sectionHierarchy) ? comment.sectionHierarchy : [];
     const heading = hierarchy.length ? String(hierarchy[hierarchy.length - 1]) : '';
     const image = !selected && !blockText ? comment.imageAnchor : null;
@@ -3919,6 +3921,12 @@ function createMarkdownViewer({
     // through their own paths, so only the in-place editor is blocked here.
     if (target.closest && target.closest('.md-sealed')) {
       if (typeof showToast === 'function') showToast('This edit is sent — awaiting the agent');
+      return;
+    }
+    // The typeset text is the editing surface; an image-only block has none to
+    // strike or hang an insertion on, so it takes comments, not in-place edits.
+    if (!getRenderedText(target).trim()) {
+      if (typeof showToast === 'function') showToast('An image block takes comments, not edits');
       return;
     }
     const range = getBlockSourceRange(target);
