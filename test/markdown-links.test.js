@@ -140,7 +140,7 @@ async function run() {
   clickBlock('no links at all');
   await sleep(5);
   check('the hint stays quiet on prose with no link',
-    hintText() === 'a–z comments · other keys edit', hintText());
+    hintText() === 'letters comment · other keys edit', hintText());
   key({ key: 'Escape' });
   await sleep(5);
 

@@ -47,13 +47,14 @@ function isPlainCommentKey(event) {
     && !event.isComposing;
 }
 
-// The first-key dispatch (md-editing-design.md): lowercase letters comment;
-// every other unmodified key edits at the caret. Capitals count as edits — a
-// rewrite starts sentence-case, a quick aside doesn't. "Lowercase" = any
-// Unicode lowercase letter; IME composition never dispatches; modifier
-// chords pass through.
+// The first-key dispatch (md-editing-design.md): letters comment — a–z and
+// A–Z alike, since an aside starts sentence-case as naturally as not. Every
+// other unmodified key edits at the caret: ⌫/Delete, Enter, arrows, digits,
+// punctuation, Space. ASCII letters only — an accented or CJK character is
+// text being typed into the document, not the start of an aside. IME
+// composition never dispatches; modifier chords pass through.
 function isCommentEntryKey(event) {
-  return isPlainCommentKey(event) && /\p{Ll}/u.test(event.key);
+  return isPlainCommentKey(event) && /[a-zA-Z]/.test(event.key);
 }
 
 function isEditEntryKey(event) {
@@ -61,7 +62,7 @@ function isEditEntryKey(event) {
   const k = event.key;
   if (k === 'Backspace' || k === 'Delete' || k === 'Enter'
     || k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') return true;
-  return typeof k === 'string' && [...k].length === 1 && !/\p{Ll}/u.test(k);
+  return typeof k === 'string' && [...k].length === 1 && !/[a-zA-Z]/.test(k);
 }
 
 // Merged word-diff of one line pair via common prefix/suffix trim: the middle
@@ -5332,7 +5333,7 @@ function createMarkdownViewer({
     const build = () => {
       const el = document.createElement('div');
       el.className = `md-comment-hint${selection ? ' floating' : ''}`;
-      el.textContent = 'a–z comments · other keys edit' + (link ? FOLLOW_HINT : '');
+      el.textContent = 'letters comment · other keys edit' + (link ? FOLLOW_HINT : '');
       return el;
     };
     const hint = build();

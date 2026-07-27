@@ -212,6 +212,32 @@ async function run() {
       notPrevented && !ev.defaultPrevented && document.body.innerHTML.length === before);
   }
 
+  // --- first-key dispatch: letters comment (either case), space edits ---
+  clickBlock('Second paragraph');
+  await sleep(5);
+  key({ key: 'K' }); // an aside starts sentence-case as naturally as not
+  await sleep(10);
+  {
+    const caps = document.querySelector('.md-comment-card textarea, textarea.cu-ta');
+    check('an uppercase letter opens the comment composer seeded with it',
+      !!caps && caps.value === 'K', caps && caps.value);
+    if (caps) caps.value = '';
+  }
+  key({ key: 'Escape' });
+  await sleep(10);
+  clickBlock('Second paragraph');
+  await sleep(5);
+  key({ key: ' ' }); // space edits: it types a marked space at the caret
+  await sleep(10);
+  {
+    const spaceEd = editing();
+    const ins = spaceEd && spaceEd.querySelector('ins.md-pending-ins');
+    check('entry space opens the editor and inserts a marked space',
+      !!ins && ins.textContent === ' ', ins && JSON.stringify(ins.textContent));
+  }
+  key({ key: 'Escape' });
+  await sleep(10);
+
   // --- wrapped paragraph: edits directly on the rendered text ---
   clickBlock('A scratch document');
   await sleep(5);
