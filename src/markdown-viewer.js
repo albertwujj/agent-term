@@ -4107,7 +4107,47 @@ function createMarkdownViewer({
     const el = node && node.nodeType === 3 ? node.parentElement : node;
     return el && el.closest ? el.closest(sel) : null;
   }
+  // ——— Action-by-action edit history ———
+  // Native undo is blocked on the editing surface (it can't see the marks), so
+  // the session keeps its own: the first mutator call in a user action
+  // snapshots the block before the change. A strike+insert pair (typing over a
+  // selection, paste) lands in the same event, so a microtask latch coalesces
+  // it into one step. Escape/Revert still drop the whole session at once.
+  function pushEditingUndo() {
+    const session = state.editing;
+    if (!session || !session.el || session.undoLatch) return;
+    session.undoLatch = true;
+    queueMicrotask(() => { session.undoLatch = false; });
+    const caret = getEditableCaretOffset(session.el);
+    (session.undoStack = session.undoStack || []).push({
+      html: session.el.innerHTML,
+      caret: caret == null ? 0 : caret,
+    });
+    session.redoStack = [];
+  }
+
+  // One step back (or forward again): swap the live block for the snapshot.
+  // The mirror observer re-serializes the counterpart, and the caret re-seat
+  // runs the follower — a step whose caret sits on another page flips to it,
+  // the same physics as typing there.
+  function undoEditingStep(redo) {
+    const session = state.editing;
+    if (!session || !session.el) return;
+    const from = redo ? session.redoStack : session.undoStack;
+    if (!from || !from.length) return;
+    const caret = getEditableCaretOffset(session.el);
+    const to = redo
+      ? (session.undoStack = session.undoStack || [])
+      : (session.redoStack = session.redoStack || []);
+    to.push({ html: session.el.innerHTML, caret: caret == null ? 0 : caret });
+    const snap = from.pop();
+    session.el.innerHTML = snap.html;
+    try { session.el.focus({ preventScroll: true }); } catch {}
+    setCaretWithin(session.el, snap.caret);
+  }
+
   function strikeInBlock(block, range, caretMode) {
+    pushEditingUndo();
     // Deleting text you inserted — it was never in the document, so remove it.
     const ins = markWrapping(range.commonAncestorContainer, 'ins.md-pending-ins');
     if (ins && ins.contains(range.startContainer) && ins.contains(range.endContainer)) {
@@ -4145,6 +4185,7 @@ function createMarkdownViewer({
   function insertMarkedInBlock(text) {
     if (!text) return;
     const s = editSel(); if (!s || !s.rangeCount) return;
+    pushEditingUndo();
     const range = s.getRangeAt(0);
     range.deleteContents();
     const host = markWrapping(range.startContainer, 'ins.md-pending-ins');
@@ -4346,7 +4387,7 @@ function createMarkdownViewer({
       rows: 2,
       onInput: () => { autoGrowTextarea(composer.textarea); session.note = composer.textarea.value; },
       actions: [
-        { label: 'Undo', onClick: () => revertBlockEditor() },
+        { label: 'Revert', onClick: () => revertBlockEditor() },
         { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: sendShortcut, primary: true, onClick: () => { commitBlockEditor(); sendEditBatch(); } },
       ],
     });
@@ -4668,7 +4709,7 @@ function createMarkdownViewer({
         if (ov) ov.note = composer.textarea.value.trim();
       },
       actions: [
-        { label: 'Undo', onClick: () => undoOverlay(anchorId) },
+        { label: 'Revert', onClick: () => undoOverlay(anchorId) },
         { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: sendShortcut, primary: true, onClick: () => sendEditBatch() },
       ],
     });
@@ -5114,6 +5155,7 @@ function createMarkdownViewer({
   // break's position is the user's, its form is not (md/user-intent.md).
   function insertLineBreakInBlock() {
     const s = editSel(); if (!s || !s.rangeCount) return;
+    pushEditingUndo();
     const range = s.getRangeAt(0);
     range.deleteContents();
     const tn = document.createTextNode('\n');
@@ -6113,6 +6155,13 @@ function createMarkdownViewer({
         } else if (inSurface && event.key === 'Enter' && event.shiftKey) {
           event.preventDefault();
           insertLineBreakInBlock();
+        } else if (inSurface && (event.metaKey || event.ctrlKey) && !event.altKey
+          && /^[zy]$/i.test(String(event.key))) {
+          // ⌘/Ctrl+Z steps the session history back one action; Shift (or
+          // Ctrl+Y) steps forward. The note composer keeps native undo —
+          // this rung only fires with the caret on the surface.
+          event.preventDefault();
+          undoEditingStep(event.shiftKey || String(event.key).toLowerCase() === 'y');
         } else if (inSurface && (event.metaKey || event.ctrlKey) && /^[biu]$/i.test(event.key)) {
           event.preventDefault();
         }

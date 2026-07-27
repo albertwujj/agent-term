@@ -250,7 +250,7 @@ async function run() {
   check('a labeled send rides the live edit', editStripBtns.some((b) => b.textContent.startsWith('Send')), editStripBtns.map((b) => b.textContent));
   check('the live-edit control sits inline in the pane', !!(document.querySelector('.md-editing-strip')
     && document.querySelector('.md-editing-strip').closest('.md-spread-pane')));
-  check('a clickable undo rides the live edit', editStripBtns.some((b) => b.textContent === 'Undo'));
+  check('a clickable undo rides the live edit', editStripBtns.some((b) => b.textContent === 'Revert'));
   check('the live-edit control carries the note field (same control as revisit)',
     !!document.querySelector('.md-editing-strip textarea'));
   {
@@ -262,6 +262,17 @@ async function run() {
       !!struck && struck.textContent === original.slice(-1) && para.textContent === original,
       { struck: struck && struck.textContent, text: para && para.textContent.slice(-8) });
   }
+
+  // --- action-by-action history: ⌘Z steps back one action, ⌘⇧Z forward ---
+  para.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'z', metaKey: true }));
+  await sleep(10);
+  check('cmd+z undoes the entry strike, session stays open',
+    !para.querySelector('del.md-pending-del') && editing() === para,
+    para.innerHTML.slice(-40));
+  para.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'z', metaKey: true, shiftKey: true }));
+  await sleep(10);
+  check('cmd+shift+z redoes the strike',
+    !!para.querySelector('del.md-pending-del'), para.innerHTML.slice(-40));
 
   para.textContent = 'A scratch for validating the comment round-trip. Each\nsection invites a different kind of comment.';
   para.dispatchEvent(new dom.window.Event('blur'));
@@ -282,15 +293,15 @@ async function run() {
   check('clicking the struck text expands the action strip',
     !!(strip && wrappedNow && wrappedNow.nextElementSibling === strip));
   const labels = strip ? Array.from(strip.querySelectorAll('button')).map((b) => b.textContent) : [];
-  check('the revealed edit is the shared composer bubble (Undo + Send)',
-    !!(strip && labels.includes('Undo') && labels.some((l) => l.startsWith('Send'))), labels);
+  check('the revealed edit is the shared composer bubble (Revert + Send)',
+    !!(strip && labels.includes('Revert') && labels.some((l) => l.startsWith('Send'))), labels);
   check('the note is the composer textarea, same widget as a comment',
     !!(strip && strip.querySelector('textarea') && /note/i.test(strip.querySelector('textarea').placeholder || '')));
   clickBlock('Second paragraph'); // click-away folds
   await sleep(10);
   check('click-away folds the strip', !primary().querySelector('.md-pending-strip:not(.sent)'));
 
-  await clickStripButton('Undo');
+  await clickStripButton('Revert');
   await sleep(10);
   check('undo restores the paragraph',
     Array.from(primary().querySelectorAll('p')).some((el) => el.textContent.includes('A scratch document')));
@@ -316,7 +327,7 @@ async function run() {
       !!del && del.textContent === ' ' && !merged.querySelector('ins.md-pending-ins'), del && JSON.stringify(del.textContent));
     check('word-merge edit does not duplicate the word',
       merged && (merged.textContent.match(/source/g) || []).length === 1, merged && merged.textContent);
-    await clickStripButton('Undo'); // undo
+    await clickStripButton('Revert'); // undo
     await sleep(10);
   }
 
@@ -324,7 +335,7 @@ async function run() {
   await renderedEdit('A scratch document', 'A scratch for validating the comment round-trip. Each\nsection invites a different kind of comment.');
   clickBlock('Second paragraph'); // sets the active comment target
   await sleep(10);
-  await clickStripButton('Undo');
+  await clickStripButton('Revert');
   await sleep(10);
   check('undo re-renders even with an active comment target',
     !primary().querySelector('p.md-pending-block') && !primary().querySelector('.md-pending-strip:not(.sent)')
@@ -344,7 +355,7 @@ async function run() {
   const h1 = primary().querySelector('h1.md-pending-block');
   check('heading decorates in place after commit', !!h1);
   check('heading decoration carries del/ins', !!(h1 && h1.querySelector('del.md-pending-del') && h1.querySelector('ins.md-pending-ins')));
-  await clickStripButton('Undo');
+  await clickStripButton('Revert');
   await sleep(10);
 
   // --- stray spaces from word deletion stay on the typeset path ---
@@ -352,7 +363,7 @@ async function run() {
     await renderedEdit('Heading', value);
     check(`${label} still decorates the heading in place`,
       !!primary().querySelector('h1.md-pending-block') && primary().querySelectorAll('.md-pending-diff:not(.sent)').length === 0);
-    await clickStripButton('Undo');
+    await clickStripButton('Revert');
     await sleep(10);
   }
 
@@ -396,7 +407,7 @@ async function run() {
       && marked.querySelector('strong del.md-pending-del').textContent === 'bold');
     check('the markup decoration carries no source syntax',
       !!marked && !marked.innerHTML.includes('**') && primary().querySelectorAll('.md-pending-diff:not(.sent)').length === 0);
-    await clickStripButton('Undo'); // clean the block for the sections below
+    await clickStripButton('Revert'); // clean the block for the sections below
     await sleep(10);
   }
 
@@ -448,14 +459,14 @@ async function run() {
   check('an edit on a commented block renders (not frozen by the queued comment)',
     primary().querySelectorAll('.md-viewer-body .md-pending-block, .md-viewer-body ins.md-pending-ins, .md-viewer-body del.md-pending-del').length > 0);
   check('the comment mark survives the edit re-render', !!primary().querySelector('.md-queued-comment-mark'));
-  // The edit's Undo is reachable: clicking the struck/inserted text reveals the bubble.
+  // The edit's Revert is reachable: clicking the struck/inserted text reveals the bubble.
   const shMark = primary().querySelector('.md-viewer-body ins.md-pending-ins, .md-viewer-body del.md-pending-del');
   shMark.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   await sleep(10);
   const shStrip = primary().querySelector('.md-pending-strip:not(.sent)');
   check('the edit is rollback-able on a commented block (Undo in the bubble)',
-    !!(shStrip && Array.from(shStrip.querySelectorAll('button')).some((b) => b.textContent === 'Undo')));
-  await clickStripButton('Undo');
+    !!(shStrip && Array.from(shStrip.querySelectorAll('button')).some((b) => b.textContent === 'Revert')));
+  await clickStripButton('Revert');
   await sleep(10);
   check('undo clears the edit but keeps the comment',
     primary().querySelectorAll('.md-pending-block, ins.md-pending-ins, del.md-pending-del').length === 0
