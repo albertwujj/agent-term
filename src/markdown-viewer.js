@@ -3055,14 +3055,14 @@ function createMarkdownViewer({
   // article copy, so the viewer owns the drag: the two open pages read as one
   // sheet (the fold is just distance under the sweep), and pressing past a
   // page's top or bottom edge turns the page — crossing flips, hovering
-  // doesn't, so the first and last lines never fight a flip zone. The record
-  // is document-space (anchor + offset pairs, ordered by document position,
-  // so a backward sweep is a first-class selection); the highlight paints it
-  // into both articles, so it survives every flip. A held press beyond the
-  // edge keeps turning at a readable cadence.
+  // doesn't, so the first and last lines never fight a flip zone and a held
+  // press never turns more than once: the crossing is spent after its turn,
+  // and turning again takes another push past the edge. The record is
+  // document-space (anchor + offset pairs, ordered by document position, so
+  // a backward sweep is a first-class selection); the highlight paints it
+  // into both articles, so it survives every flip.
   const VDRAG_THRESHOLD = 5;
   const VDRAG_FLIP_GRACE_MS = 260;
-  const VDRAG_FLIP_CADENCE_MS = 800;
   let vdragPaintRaf = 0;
 
   function resolveArticlePoint(x, y) {
@@ -3146,22 +3146,47 @@ function createMarkdownViewer({
     });
   }
 
+  // After a turn the endpoint rests at the first line the turn revealed, so
+  // the selection reads continuously onto the visible spread and releasing
+  // right away selects only to the top (or, backward, the bottom) of the new
+  // page — never more.
+  function snapVdragFocusToRevealedPage(drag, direction) {
+    const pane = direction > 0 ? state.primaryPane : state.secondaryPane;
+    const vp = viewportRectOf(pane);
+    if (!vp) return;
+    const inset = Math.min(getRenderedLineHeight(), 24) / 2;
+    const y = direction > 0 ? vp.top + inset : vp.bottom - inset;
+    for (const x of [vp.left + 40, (vp.left + vp.right) / 2, vp.right - 40]) {
+      const point = resolveArticlePoint(x, y);
+      if (point) { drag.focus = point; return; }
+    }
+  }
+
   function updateVdragFlip(drag, beyond) {
     if (!beyond) {
       drag.flipDir = 0;
+      drag.flipSpent = 0;
       if (drag.flipTimer) { clearTimeout(drag.flipTimer); drag.flipTimer = null; }
       return;
     }
-    if (drag.flipDir === beyond && drag.flipTimer) return;
+    if (drag.flipSpent === beyond) return; // one turn per crossing
+    if (drag.flipDir === beyond && drag.flipTimer) return; // grace pending
     drag.flipDir = beyond;
     if (drag.flipTimer) clearTimeout(drag.flipTimer);
-    const fire = () => {
+    drag.flipTimer = setTimeout(() => {
+      drag.flipTimer = null;
       if (state.vdrag !== drag || drag.flipDir !== beyond) return;
       flipSpread(beyond);
-      scheduleVdragPaint();
-      drag.flipTimer = setTimeout(fire, VDRAG_FLIP_CADENCE_MS);
-    };
-    drag.flipTimer = setTimeout(fire, VDRAG_FLIP_GRACE_MS);
+      drag.flipSpent = beyond;
+      // Snap a frame later: the flip's scroll fires the async page-alignment
+      // pass (whole-line top nudge, bottom trim), and the parked endpoint
+      // should read the settled first line, not the pre-nudge one.
+      requestAnimationFrame(() => {
+        if (state.vdrag !== drag) return;
+        snapVdragFocusToRevealedPage(drag, beyond);
+        scheduleVdragPaint();
+      });
+    }, VDRAG_FLIP_GRACE_MS);
   }
 
   function handleVdragMove(event) {
@@ -3236,6 +3261,7 @@ function createMarkdownViewer({
       active: false,
       flipTimer: null,
       flipDir: 0,
+      flipSpent: 0,
       record: null,
     };
     document.addEventListener('mousemove', handleVdragMove, true);
