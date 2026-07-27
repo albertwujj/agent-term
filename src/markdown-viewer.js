@@ -1034,6 +1034,21 @@ function ensureStyles() {
     }
     /* The live-edit control is the same inline bubble as a revisit (chrome from
        .md-pending-strip); .md-editing-strip is just a marker for it. */
+    /* A long edit run can walk the caret pages away from the block's tail,
+       taking the bubble's flow seat off every page. It then pins to the edited
+       page's bottom edge as an overlay, so Undo/Send/note stay reachable. */
+    .md-editing-strip.pinned {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 6px;
+      margin: 0;
+      z-index: 40;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18);
+    }
+    /* Caret in the page's lower half: the pin flips to the top edge so the
+       bubble never covers the text being struck. */
+    .md-editing-strip.pinned.pinned-top { bottom: auto; top: 6px; }
     /* Edit's note row (green, ties to the edit's change bar) and the unsent
        draft's note row (amber). Layout shared with the resting rows above. */
     .md-pending-note-mark { border-left-color: #1b8d4c; color: #3f6b52; }
@@ -1444,6 +1459,11 @@ function createMarkdownViewer({
       if (!range || !range.startContainer || range.startContainer.nodeType !== Node.TEXT_NODE) continue;
       const node = range.startContainer;
       if (!node.length) continue;
+      // Strip/composer chrome carries text too (button labels, notes) — it is
+      // apparatus, not a content line, and a pinned strip sits right at the
+      // page bottom where this probe runs. Never let it define a page edge.
+      if (node.parentElement && node.parentElement.closest
+        && node.parentElement.closest('.md-pending-strip')) continue;
       const probe = document.createRange();
       const start = Math.min(range.startOffset, node.length - 1);
       probe.setStart(node, start);
@@ -3032,45 +3052,178 @@ function createMarkdownViewer({
     return element.offsetTop || 0;
   }
 
-  function fitActiveCommentCard() {
-    if (!state.activeCard || !state.primaryPane) return;
-    updateBottomSpacer();
-
-    const { card, pane } = state.activeCard;
+  // Off-grid fit: nudge the shared scrollTop the minimum needed so the span
+  // [spanTop, spanBottom] (article offsets) sits inside the given page's
+  // window — either edge, so a span cut by the page top pulls back into view
+  // the same as one cut by the bottom. The grid follows the scroll.
+  function fitSpanOnPane(spanTop, spanBottom, pane) {
+    if (!state.primaryPane) return;
     const paneHeight = state.primaryPane.clientHeight || 0;
     const pageAdvance = getSpreadPageAdvance();
     if (!paneHeight || !pageAdvance) return;
-
-    // The editor height is intentionally capped, so normal panes can fit the
-    // active card. Tiny/pathological panes rely on textarea internal scroll.
     const margin = 14;
-    const cardTop = getProjectedOffsetTop(card);
-    const cardBottom = cardTop + card.offsetHeight;
+    const base = pane === 'right' ? pageAdvance : 0;
     let nextScrollTop = state.primaryPane.scrollTop;
-
-    if (pane === 'right') {
-      const rightStart = nextScrollTop + pageAdvance;
-      const rightEnd = rightStart + paneHeight;
-      if (cardTop < rightStart + margin) {
-        nextScrollTop = Math.max(0, cardTop - pageAdvance - margin);
-      } else if (cardBottom > rightEnd - margin) {
-        nextScrollTop = Math.max(0, cardBottom - pageAdvance - paneHeight + margin);
-      }
-    } else {
-      const leftStart = nextScrollTop;
-      const leftEnd = nextScrollTop + paneHeight;
-      if (cardTop < leftStart + margin) {
-        nextScrollTop = Math.max(0, cardTop - margin);
-      } else if (cardBottom > leftEnd - margin) {
-        nextScrollTop = Math.max(0, cardBottom - paneHeight + margin);
-      }
+    const start = nextScrollTop + base;
+    const end = start + paneHeight;
+    if (spanTop < start + margin) {
+      nextScrollTop = Math.max(0, spanTop - base - margin);
+    } else if (spanBottom > end - margin) {
+      nextScrollTop = Math.max(0, spanBottom - base - paneHeight + margin);
     }
-
     if (nextScrollTop !== state.primaryPane.scrollTop) {
       state.primaryPane.scrollTop = nextScrollTop;
-      state.spreadGridTop = nextScrollTop; // keep the grid with the scrolled card
+      state.spreadGridTop = nextScrollTop; // keep the grid with the scrolled fit
     }
     syncSecondaryPane();
+  }
+
+  function fitActiveCommentCard() {
+    if (!state.activeCard || !state.primaryPane) return;
+    updateBottomSpacer();
+    // The editor height is intentionally capped, so normal panes can fit the
+    // active card. Tiny/pathological panes rely on textarea internal scroll.
+    const { card, pane } = state.activeCard;
+    const cardTop = getProjectedOffsetTop(card);
+    fitSpanOnPane(cardTop, cardTop + card.offsetHeight, pane);
+  }
+
+  function paneOf(el) {
+    return isInSecondaryPane(el) ? state.secondaryPane : state.primaryPane;
+  }
+
+  // state.primaryPane / state.secondaryPane ARE the .md-page-viewport
+  // elements — the clipping boxes whose client rect is a page's window.
+  function viewportRectOf(pane) {
+    if (!pane || typeof pane.getBoundingClientRect !== 'function') return null;
+    const rect = pane.getBoundingClientRect();
+    return rect.height > 0 ? rect : null;
+  }
+
+  // Client rect of the character just before the offset — a collapsed range
+  // reports an empty rect, a one-char range always measures. The char BEFORE:
+  // a struck trail sits after the caret and is filtered out, so the char at
+  // the offset itself is the trail's far end, stationary while a backward
+  // erase walks the caret up; the preceding char hugs the caret in both
+  // directions (it is the just-typed char when typing forward).
+  function rectForTextOffset(el, offset) {
+    const len = getSearchableTextLength(el);
+    if (len <= 0) return null;
+    const start = Math.max(0, Math.min(offset - 1, len - 1));
+    const range = createTextRangeWithin(el, start, Math.min(start + 1, len));
+    if (!range) return null;
+    const rect = range.getBoundingClientRect();
+    return rect && rect.height > 0 ? rect : null;
+  }
+
+  function caretOffsetVisible(el, offset) {
+    const vp = viewportRectOf(paneOf(el));
+    if (!vp) return false;
+    const rect = rectForTextOffset(el, offset);
+    if (!rect) return false;
+    return rect.top >= vp.top - 1 && rect.bottom <= vp.bottom + 1;
+  }
+
+  // The caret is logical; the page turns to serve it — never a scroll (strict
+  // paging holds; the flip is the app's one motion). When typing or erasing
+  // walks the caret off the visible part of its copy: if the same spread's
+  // other page renders that text (the fold), the session hands over across
+  // it; otherwise the spread flips one turn toward the caret and lands on
+  // whichever copy now renders it.
+  function followEditingCaret() {
+    const session = state.editing;
+    if (!session || session.mode !== 'rendered' || !state.primaryPane) return;
+    const s = window.getSelection && window.getSelection();
+    if (!s || !s.rangeCount) return;
+    const range = s.getRangeAt(0);
+    if (!session.el.contains(range.startContainer)) return;
+    const offset = getTextOffsetWithin(session.el, range.startContainer, range.startOffset);
+    if (caretOffsetVisible(session.el, offset)) {
+      updateEditingStripSeat();
+      return;
+    }
+    const counterpart = getCounterpartAnchorElement(session.el);
+    if (counterpart && caretOffsetVisible(counterpart, offset)) {
+      handoverEditingSession(counterpart, offset);
+      updateEditingStripSeat();
+      return;
+    }
+    const vp = viewportRectOf(paneOf(session.el));
+    const rect = rectForTextOffset(session.el, offset);
+    if (!vp || !rect) return;
+    flipSpread(rect.top < vp.top ? -1 : 1);
+    if (counterpart && caretOffsetVisible(counterpart, offset)) {
+      handoverEditingSession(counterpart, offset);
+    } else if (caretOffsetVisible(session.el, offset)) {
+      setCaretWithin(session.el, offset);
+    }
+    updateEditingStripSeat();
+  }
+
+  // The block's two copies are one logical surface: the session rides
+  // whichever copy renders the page the caret is on. The mirror keeps them
+  // identical, so a handover is a role swap — wire the other copy, unwire
+  // this one, park the caret at the same text offset.
+  function handoverEditingSession(toEl, caretOffset) {
+    const session = state.editing;
+    if (!session || !toEl || toEl === session.el) return;
+    const fromEl = session.el;
+    if (session.unwire) session.unwire();
+    session.el = toEl; // before focus: the blur guards read it
+    session.unwire = wireEditingSurface(toEl);
+    wireEditingMirror(session, toEl, fromEl);
+    try { toEl.focus({ preventScroll: true }); } catch {}
+    setCaretWithin(toEl, caretOffset);
+  }
+
+  // The bubble never leaves the reader: it keeps its flow seat under the
+  // block while that seat is on a page, and pins to an edge of the edited
+  // page when the block's tail is a page away from the caret — the edge
+  // OPPOSITE the caret, so it never covers the text being struck. Never
+  // moved while its note has focus (moving a focused field would blur-commit).
+  function updateEditingStripSeat() {
+    const session = state.editing;
+    if (!session || !session.strip || !session.strip.isConnected) return;
+    const strip = session.strip;
+    if (strip.contains(document.activeElement)) return;
+    const pane = paneOf(session.el);
+    const vp = viewportRectOf(pane);
+    if (!vp) return;
+    const pinAwayFromCaret = () => {
+      const sel = window.getSelection && window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      const r = sel.getRangeAt(0);
+      if (!session.el.contains(r.startContainer)) return;
+      const off = getTextOffsetWithin(session.el, r.startContainer, r.startOffset);
+      const caretRect = rectForTextOffset(session.el, off);
+      if (!caretRect) return;
+      const caretLow = (caretRect.top + caretRect.bottom) / 2 > (vp.top + vp.bottom) / 2;
+      strip.classList.toggle('pinned-top', caretLow);
+    };
+    const blockRect = session.el.getBoundingClientRect();
+    const stripH = strip.offsetHeight || 0;
+    const seatFits = blockRect.bottom >= vp.top && blockRect.bottom + stripH <= vp.bottom + 1;
+    if (strip.classList.contains('pinned')) {
+      if (seatFits) {
+        strip.classList.remove('pinned', 'pinned-top');
+        session.el.insertAdjacentElement('afterend', strip);
+      } else {
+        if (strip.parentElement !== pane) pane.appendChild(strip); // follow the caret's pane
+        pinAwayFromCaret();
+      }
+      return;
+    }
+    const ownVp = viewportRectOf(paneOf(strip));
+    const rect = strip.getBoundingClientRect();
+    const seated = ownVp && rect.height > 0 && rect.top >= ownVp.top - 1 && rect.bottom <= ownVp.bottom + 1;
+    if (seated) return;
+    if (seatFits) {
+      session.el.insertAdjacentElement('afterend', strip);
+    } else {
+      strip.classList.add('pinned');
+      pane.appendChild(strip);
+      pinAwayFromCaret();
+    }
   }
 
   function layoutSpread() {
@@ -3718,14 +3871,89 @@ function createMarkdownViewer({
     return clone.innerHTML;
   }
 
+  // The editing surface's own listeners, wired so the session can hand the
+  // surface from one article's copy to the other (both wire identically; the
+  // returned teardown unwires this copy). Typing is intercepted wholesale:
   // structural inputs are blocked. A first-key Enter breaks the line at the
   // click caret; while editing, Enter sends and Shift+Enter breaks; clicking
   // away commits; Esc reverts.
+  function wireEditingSurface(el) {
+    const onPaste = (event) => {
+      event.preventDefault();
+      const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
+      const s = window.getSelection && window.getSelection();
+      if (s && s.rangeCount && !s.getRangeAt(0).collapsed) strikeInBlock(el, s.getRangeAt(0), 'after');
+      insertMarkedInBlock(text.replace(/\s+/g, ' '));
+    };
+    const onBeforeInput = (event) => {
+      const t = event.inputType || '';
+      if (t.indexOf('delete') === 0) {
+        event.preventDefault();
+        const s = window.getSelection();
+        const wasSelection = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
+        const ranges = event.getTargetRanges ? event.getTargetRanges() : [];
+        const sr = ranges && ranges[0];
+        if (sr) {
+          const r = document.createRange();
+          r.setStart(sr.startContainer, sr.startOffset);
+          r.setEnd(sr.endContainer, sr.endOffset);
+          strikeInBlock(el, r, wasSelection ? 'after' : (t.indexOf('Forward') !== -1 ? 'after' : 'before'));
+        }
+        return;
+      }
+      if (t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromComposition') {
+        event.preventDefault();
+        const s = window.getSelection();
+        if (s && s.rangeCount && !s.getRangeAt(0).collapsed) strikeInBlock(el, s.getRangeAt(0), 'after');
+        insertMarkedInBlock(event.data || '');
+        return;
+      }
+      // no new blocks, no formatting, no native undo (it can't see our marks)
+      if (t.startsWith('format') || t === 'insertParagraph' || t === 'insertLineBreak'
+        || t === 'insertFromDrop' || t === 'insertHorizontalRule'
+        || t === 'insertOrderedList' || t === 'insertUnorderedList'
+        || t === 'historyUndo' || t === 'historyRedo') {
+        event.preventDefault();
+      }
+    };
+    const onMousedown = (event) => event.stopPropagation();
+    el.addEventListener('paste', onPaste);
+    el.addEventListener('beforeinput', onBeforeInput);
+    el.addEventListener('blur', commitEditorOnBlur);
+    el.addEventListener('mousedown', onMousedown);
+    el.contentEditable = 'true';
+    el.spellcheck = true;
+    el.classList.add('md-rendered-editing');
+    return () => {
+      el.removeEventListener('paste', onPaste);
+      el.removeEventListener('beforeinput', onBeforeInput);
+      el.removeEventListener('blur', commitEditorOnBlur);
+      el.removeEventListener('mousedown', onMousedown);
+      try { el.contentEditable = 'false'; } catch {}
+      el.classList.remove('md-rendered-editing');
+    };
+  }
+
+  // Point the session's mirror at (from → to): every mutation of the editing
+  // surface re-serializes into the other article's copy (cleaned, exactly
+  // like the resting decoration). Pagination trusts both articles laying out
+  // the same content, and the seam repeats a line or two of it — without the
+  // mirror the far side of a seam shows stale text while you type. Reflowing
+  // text also moves the seam's line boxes, so each tick re-aligns the pages.
+  function wireEditingMirror(session, from, to) {
+    if (session.mirror) { try { session.mirror.disconnect(); } catch {} session.mirror = null; }
+    if (!to || typeof MutationObserver !== 'function') return;
+    let seamRaf = 0;
+    session.mirror = new MutationObserver(() => {
+      to.innerHTML = serializeMarkedBlock(from);
+      if (seamRaf) return;
+      seamRaf = requestAnimationFrame(() => { seamRaf = 0; syncSecondaryPane(); });
+    });
+    session.mirror.observe(from, { subtree: true, childList: true, characterData: true });
+  }
+
   function openRenderedEditor(target, range, blockSource, entryEvent, clickCaret) {
     const origRendered = getSearchableTextNodes(target).text;
-    target.contentEditable = 'true';
-    target.spellcheck = true;
-    target.classList.add('md-rendered-editing');
     const anchorId = target.getAttribute('data-md-anchor-id') || '';
     const existing = state.blockOverlays.get(anchorId);
     state.editing = {
@@ -3739,48 +3967,16 @@ function createMarkdownViewer({
       anchorId,
       note: existing ? (existing.note || '') : '',
     };
-    target.addEventListener('paste', (event) => {
-      event.preventDefault();
-      const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
-      const s = window.getSelection && window.getSelection();
-      if (s && s.rangeCount && !s.getRangeAt(0).collapsed) strikeInBlock(target, s.getRangeAt(0), 'after');
-      insertMarkedInBlock(text.replace(/\s+/g, ' '));
-    });
-    target.addEventListener('beforeinput', (event) => {
-      const t = event.inputType || '';
-      if (t.indexOf('delete') === 0) {
-        event.preventDefault();
-        const s = window.getSelection();
-        const wasSelection = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
-        const ranges = event.getTargetRanges ? event.getTargetRanges() : [];
-        const sr = ranges && ranges[0];
-        if (sr) {
-          const r = document.createRange();
-          r.setStart(sr.startContainer, sr.startOffset);
-          r.setEnd(sr.endContainer, sr.endOffset);
-          strikeInBlock(target, r, wasSelection ? 'after' : (t.indexOf('Forward') !== -1 ? 'after' : 'before'));
-        }
-        return;
-      }
-      if (t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromComposition') {
-        event.preventDefault();
-        const s = window.getSelection();
-        if (s && s.rangeCount && !s.getRangeAt(0).collapsed) strikeInBlock(target, s.getRangeAt(0), 'after');
-        insertMarkedInBlock(event.data || '');
-        return;
-      }
-      // no new blocks, no formatting, no native undo (it can't see our marks)
-      if (t.startsWith('format') || t === 'insertParagraph' || t === 'insertLineBreak'
-        || t === 'insertFromDrop' || t === 'insertHorizontalRule'
-        || t === 'insertOrderedList' || t === 'insertUnorderedList'
-        || t === 'historyUndo' || t === 'historyRedo') {
-        event.preventDefault();
-      }
-    });
-    target.addEventListener('blur', commitEditorOnBlur);
-    target.addEventListener('mousedown', (event) => event.stopPropagation());
+    state.editing.unwire = wireEditingSurface(target);
     attachEditingStrip(state.editing, target);
     try { target.focus({ preventScroll: true }); } catch {}
+    wireEditingMirror(state.editing, target, getCounterpartAnchorElement(target));
+    let followRaf = 0;
+    state.editing.caretFollow = () => {
+      if (followRaf) return;
+      followRaf = requestAnimationFrame(() => { followRaf = 0; followEditingCaret(); });
+    };
+    document.addEventListener('selectionchange', state.editing.caretFollow);
 
     const k = entryEvent ? entryEvent.key : '';
     const sel = window.getSelection && window.getSelection();
@@ -3824,7 +4020,12 @@ function createMarkdownViewer({
   // and the note field so either can hand focus to the other.
   function commitEditorOnBlur(event) {
     const to = event && event.relatedTarget;
-    if (to && state.editing && state.editing.strip && state.editing.strip.contains(to)) return;
+    if (to && state.editing) {
+      const { strip, el } = state.editing;
+      if (strip && strip.contains(to)) return;
+      // A handover focuses the other copy: session.el already points there.
+      if (el && (el === to || (el.contains && el.contains(to)))) return;
+    }
     commitBlockEditor();
   }
 
@@ -3862,7 +4063,10 @@ function createMarkdownViewer({
     // leaving the apparatus entirely commits (mirrors the editor's blur guard).
     composer.textarea.addEventListener('blur', (event) => {
       const to = event.relatedTarget;
-      if (to && (editorEl === to || (editorEl && editorEl.contains && editorEl.contains(to)) || holder.contains(to))) return;
+      // The live surface may have handed over to the block's other copy since
+      // the strip was attached — judge against the session's current surface.
+      const surface = state.editing ? state.editing.el : editorEl;
+      if (to && (surface === to || (surface && surface.contains && surface.contains(to)) || holder.contains(to))) return;
       if (state.editing) commitBlockEditor();
     });
     holder.appendChild(composer.root);
@@ -3870,7 +4074,9 @@ function createMarkdownViewer({
     session.composer = composer;
     if (editorEl && editorEl.parentNode) editorEl.insertAdjacentElement('afterend', holder);
     else (state.spreadLayout || document.body).appendChild(holder);
-    ensureVisibleInPane(holder);
+    // Entry moves nothing (the caret is where you clicked): a seat below the
+    // fold pins as an overlay instead of scrolling the page to chase it.
+    updateEditingStripSeat();
     return holder;
   }
 
@@ -3932,6 +4138,7 @@ function createMarkdownViewer({
     const session = state.editing;
     if (!session) return;
     state.editing = null;
+    releaseEditingFollowers(session);
     if (session.strip) { try { session.strip.remove(); } catch {} }
     try { session.el.contentEditable = 'false'; } catch {}
     const anchorId = session.anchorId;
@@ -3958,10 +4165,17 @@ function createMarkdownViewer({
     if (typeof focusTerminal === 'function') focusTerminal();
   }
 
+  function releaseEditingFollowers(session) {
+    if (session.mirror) { try { session.mirror.disconnect(); } catch {} }
+    if (session.caretFollow) document.removeEventListener('selectionchange', session.caretFollow);
+    if (session.unwire) { try { session.unwire(); } catch {} }
+  }
+
   function revertBlockEditor() {
     if (!state.editing) return;
     const session = state.editing;
     state.editing = null;
+    releaseEditingFollowers(session);
     if (session.strip) { try { session.strip.remove(); } catch {} }
     try { session.el.contentEditable = 'false'; } catch {}
     // Nothing committed to the overlay map: a re-layout from the frozen doc
