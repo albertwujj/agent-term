@@ -145,7 +145,7 @@ async function run() {
     check('it arms the block for a comment instead',
       await page.evaluate(() => !!document.querySelector('.md-comment-target-active')));
     check('and the hint names the modifier',
-      await page.evaluate(() => /click follows/.test(document.querySelector('.md-comment-hint')?.textContent || '')));
+      await page.evaluate(() => /click follows/.test(document.querySelector('.md-bar-hint.on')?.textContent || '')));
     await page.keyboard.press('Escape');
     await sleep(300);
 

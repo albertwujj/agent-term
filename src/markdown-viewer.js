@@ -439,6 +439,9 @@ function ensureStyles() {
     .md-page-viewport {
       height: 100%;
       overflow: hidden;
+      /* The page grid does its own shift compensation (preserveSpreadTopAcross);
+         the browser's native scroll anchoring would double-correct under it. */
+      overflow-anchor: none;
     }
     /* The seam markers. Adjacent pages overlap by a line or two so a line is never
        split at a page edge and the reader keeps their place across the seam. Rather
@@ -1638,6 +1641,57 @@ function createMarkdownViewer({
     syncSecondaryPane();
     if (state.primaryPane && state.primaryPane.scrollTop !== keepTop) {
       state.primaryPane.scrollTop = keepTop;
+    }
+  }
+
+  // Content-anchored counterpart to the pixel-preserving realign above. The
+  // comment apparatus lives in the article flow and changes height with state
+  // (composer bubble, one-line queued mark, waiting line, full thread card,
+  // resolved count line). When such a change lands ABOVE the page top, a pixel
+  // scrollTop slides different text under the reader and every later flip
+  // inherits the error — so paging is shift-aware: capture which block sits at
+  // the left page top, run the mutation, then move the scroll AND the page
+  // grid by however far that block moved. Below-top changes move no captured
+  // block and fall through untouched.
+  function captureSpreadTopMarks() {
+    if (!state.primaryPane || !state.article) return null;
+    const paneTop = state.primaryPane.getBoundingClientRect().top;
+    const articleTop = state.article.getBoundingClientRect().top;
+    let straddler = null;
+    const marks = [];
+    for (const el of state.article.querySelectorAll('[data-md-anchor-id]')) {
+      const rect = el.getBoundingClientRect();
+      if (!rect.height || rect.bottom <= paneTop + 1) continue;
+      const mark = { id: el.getAttribute('data-md-anchor-id'), top: rect.top - articleTop };
+      // The deepest block straddling the page top is the true anchor (a list
+      // item beats its whole list: a mutation inside the list above the item
+      // still shifts it). Blocks fully below are fallbacks in case a mutation
+      // replaces the anchor element itself.
+      if (rect.top <= paneTop + 1) { straddler = mark; continue; }
+      marks.push(mark);
+      if (marks.length >= 3) break;
+    }
+    if (straddler) marks.unshift(straddler);
+    return marks.length ? marks : null;
+  }
+
+  function preserveSpreadTopAcross(mutate) {
+    const marks = captureSpreadTopMarks();
+    mutate();
+    if (!marks || !state.primaryPane || !state.article) return;
+    const articleTop = state.article.getBoundingClientRect().top;
+    for (const mark of marks) {
+      const el = getAnchorElement({ id: mark.id });
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (!rect.height) continue;
+      const shift = (rect.top - articleTop) - mark.top;
+      if (Math.abs(shift) >= 0.5) {
+        state.primaryPane.scrollTop += shift;
+        state.spreadGridTop = (state.spreadGridTop || 0) + shift;
+        syncSecondaryPane();
+      }
+      return;
     }
   }
 
@@ -3465,22 +3519,27 @@ function createMarkdownViewer({
       || state.editing
       || state.queuedComments.length > 0
     ) return;
-    const landingIds = Array.from(state.spreadLayout.querySelectorAll('.md-landing-target'))
-      .map((target) => target.getAttribute('data-md-anchor-id'))
-      .filter(Boolean);
-    const html = state.doc.html || '<div class="md-viewer-loading">Empty markdown file</div>';
-    state.article.innerHTML = html;
-    state.secondaryArticle.innerHTML = html;
-    // Reserve known image heights before anything measures the column, so a
-    // re-layout doesn't collapse images to zero and shove content out of view.
-    reserveCachedImageHeights(state.article);
-    reserveCachedImageHeights(state.secondaryArticle);
-    updateBottomSpacer();
-    for (const id of landingIds) {
-      for (const target of getAnchorElementsById(id)) target.classList.add('md-landing-target');
-    }
-    renderThreadLayer(false);
-    renderPendingDiffBlocks();
+    // Shift-aware: the rebuild swaps thread cards/marks in and out of the flow,
+    // so hold the page top to content across it. Search refresh runs after —
+    // when it jumps to a hit, that jump owns the frame and must land last.
+    preserveSpreadTopAcross(() => {
+      const landingIds = Array.from(state.spreadLayout.querySelectorAll('.md-landing-target'))
+        .map((target) => target.getAttribute('data-md-anchor-id'))
+        .filter(Boolean);
+      const html = state.doc.html || '<div class="md-viewer-loading">Empty markdown file</div>';
+      state.article.innerHTML = html;
+      state.secondaryArticle.innerHTML = html;
+      // Reserve known image heights before anything measures the column, so a
+      // re-layout doesn't collapse images to zero and shove content out of view.
+      reserveCachedImageHeights(state.article);
+      reserveCachedImageHeights(state.secondaryArticle);
+      updateBottomSpacer();
+      for (const id of landingIds) {
+        for (const target of getAnchorElementsById(id)) target.classList.add('md-landing-target');
+      }
+      renderThreadLayer(false);
+      renderPendingDiffBlocks();
+    });
     const didRefreshSearch = refreshSearchAfterRender();
     updateChangeHighlights();
     applyChangePulse();
@@ -3551,8 +3610,12 @@ function createMarkdownViewer({
     state.activeCard = null;
     if (restoreQueuedDraft) restoreQueuedMarkdownCommentDraft(active);
     if (target) target.classList.remove('md-comment-target-active');
-    try { card.remove(); } catch {}
-    try { if (placeholder) placeholder.remove(); } catch {}
+    // The bubble may sit above the page top (flipped away while composing);
+    // removing it then shifts everything below — hold the page to content.
+    preserveSpreadTopAcross(() => {
+      try { card.remove(); } catch {}
+      try { if (placeholder) placeholder.remove(); } catch {}
+    });
     updateSelectionHighlights();
     syncSecondaryPane();
   }
@@ -3779,9 +3842,11 @@ function createMarkdownViewer({
   }
 
   function removeQueuedMarkdownCommentCard(comment) {
-    try { if (comment && comment.card) comment.card.remove(); } catch {}
-    try { if (comment && comment.cardCounterpart) comment.cardCounterpart.remove(); } catch {}
-    try { if (comment && comment.placeholder) comment.placeholder.remove(); } catch {}
+    preserveSpreadTopAcross(() => {
+      try { if (comment && comment.card) comment.card.remove(); } catch {}
+      try { if (comment && comment.cardCounterpart) comment.cardCounterpart.remove(); } catch {}
+      try { if (comment && comment.placeholder) comment.placeholder.remove(); } catch {}
+    });
     if (comment) {
       comment.card = null;
       comment.cardCounterpart = null;
@@ -3821,11 +3886,13 @@ function createMarkdownViewer({
     // and it vanishes while the comment stays queued. The two identical marks are
     // each other's height spacer, so the panes stay aligned with no separate spacer.
     comment.placeholder = null;
-    comment.card = buildQueuedMarkElement(comment);
-    insertCommentFlowElementAfterTarget(comment.target, comment.card);
-    const counterpart = getCounterpartAnchorElement(comment.target);
-    comment.cardCounterpart = counterpart ? buildQueuedMarkElement(comment) : null;
-    if (comment.cardCounterpart) insertCommentFlowElementAfterTarget(counterpart, comment.cardCounterpart);
+    preserveSpreadTopAcross(() => {
+      comment.card = buildQueuedMarkElement(comment);
+      insertCommentFlowElementAfterTarget(comment.target, comment.card);
+      const counterpart = getCounterpartAnchorElement(comment.target);
+      comment.cardCounterpart = counterpart ? buildQueuedMarkElement(comment) : null;
+      if (comment.cardCounterpart) insertCommentFlowElementAfterTarget(counterpart, comment.cardCounterpart);
+    });
     updateSelectionHighlights();
     syncSecondaryPane();
   }
