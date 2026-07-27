@@ -5570,15 +5570,18 @@ function createMarkdownViewer({
         return;
       }
     }
-    // Page-flip keys — only while nothing is targeted (a click hands
-    // Space/arrows to the dispatch below) and focus is inside the md band,
-    // so the terminal keeps its own PageUp/arrows. A composer field in the
-    // band keeps its own Space/arrows too — otherwise Space page-flips instead
-    // of typing (it silently ate spaces in the note/reply composers).
+    // Page-flip keys — focus must be inside the md band, so the terminal
+    // keeps its own PageUp/arrows, and a composer field in the band keeps its
+    // own Space/arrows too — otherwise Space page-flips instead of typing (it
+    // silently ate spaces in the note/reply composers). A click hands
+    // Space/arrows to the dispatch below, but PageUp/PageDown never belong to
+    // a target: they keep flipping while one is armed — the caret is logical,
+    // it survives the page move, and the bar guide stays up to say so.
     const flipTarget = event.target;
     const inBandField = !!flipTarget && (flipTarget.isContentEditable
       || /^(INPUT|TEXTAREA|SELECT)$/.test(flipTarget.tagName || ''));
-    if (!state.activeTarget && state.shell.contains(flipTarget) && !inBandField) {
+    const pageOnlyKey = event.key === 'PageDown' || event.key === 'PageUp';
+    if ((!state.activeTarget || pageOnlyKey) && state.shell.contains(flipTarget) && !inBandField) {
       const forward = event.key === 'PageDown' || event.key === 'ArrowDown'
         || (event.key === ' ' && !event.shiftKey);
       const backward = event.key === 'PageUp' || event.key === 'ArrowUp'
