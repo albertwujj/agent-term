@@ -997,6 +997,11 @@ function ensureStyles() {
       text-decoration-thickness: 2px;
       text-underline-offset: 2px;
       text-decoration-color: rgba(217, 119, 6, 0.85);
+      /* Typed spaces must each render, or the caret sits still on the
+         keystroke: a space typed beside an existing one (any word-boundary
+         click) collapses under normal white-space and reads as a dead key.
+         Matches ins.md-sent-ins; the marks carry every typed space anyway. */
+      white-space: pre-wrap;
     }
     .md-viewer-body ins.md-sent-ins {
       color: #475569;
