@@ -83,7 +83,7 @@ function clickLink(hrefFragment, { follow = false } = {}) {
 }
 
 function hintText() {
-  const hint = primary().querySelector('.md-comment-hint');
+  const hint = document.querySelector('.md-bar-hint.on');
   return hint ? hint.textContent : '';
 }
 

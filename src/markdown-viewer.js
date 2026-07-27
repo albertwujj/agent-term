@@ -561,32 +561,16 @@ function ensureStyles() {
       height: var(--md-bottom-spacer-height, 0px);
       pointer-events: none;
     }
-    .md-comment-hint {
-      width: fit-content;
-      margin: 6px 0 8px;
-      padding: 3px 8px;
-      border: 1px solid #d1d5db;
-      border-radius: 999px;
-      background-color: var(--md-panel);
-      color: #64748b;
+    .md-bar-hint {
+      display: none;
+      color: #aab1ba;
       font-size: 12px;
-      line-height: 1.4;
+      line-height: 1;
+      white-space: nowrap;
       user-select: none;
-      transition: background-color 200ms ease;
+      padding: 0 6px;
     }
-    .md-comment-hint.floating {
-      position: fixed;
-      z-index: 8305;
-      margin: 0;
-      pointer-events: none;
-      /* Selection hints live under <body>, outside .vb-md, so they cannot inherit
-         the viewer's palette variables. Keep their two states explicit here. */
-      background-color: #ced1d5;
-      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
-    }
-    body:has(.vb-md.open.vb-full) .md-comment-hint.floating {
-      background-color: #e5eaf0;
-    }
+    .md-bar-hint.on { display: inline-block; }
     .md-comment-card {
       margin: 8px 0 12px;
       padding: 9px 10px;
@@ -1194,9 +1178,8 @@ function createMarkdownViewer({
     // Rolling up takes the doc off screen, so an md-scoped search has nothing to
     // show — close it (clearing its highlights) so Ctrl-F targets the terminal.
     onHide: () => {
-      // Rolling up abandons the transient target/selection; without this its hint
-      // (the selection hint lives under <body>, outside the band) strands on the
-      // terminal. Leaves live edits and open composers untouched.
+      // Rolling up abandons the transient target/selection (and clears the bar
+      // hint with it). Leaves live edits and open composers untouched.
       clearActiveTarget();
       if (!state.search.isOpen) return;
       if (typeof closeSearchBar === 'function') closeSearchBar();
@@ -1211,6 +1194,18 @@ function createMarkdownViewer({
     band.mount();
     band.shell.setAttribute('aria-label', 'Markdown viewer');
     band.shell.setAttribute('tabindex', '-1'); // so state.shell.focus() works
+
+    // The comment/edit key guide is bar chrome, not page flow: a flow slot can
+    // land beyond both pages (a block at the right page's bottom puts its slot
+    // past the spread, and the counterpart slot belongs to the next spread),
+    // and an armed target survives page flips while flow chrome scrolls away
+    // with its block. The bar shows the guide exactly while a target is armed.
+    if (band.barRight && !band.barRight.querySelector('.md-bar-hint')) {
+      const hintEl = document.createElement('span');
+      hintEl.className = 'md-bar-hint';
+      band.barRight.insertBefore(hintEl, band.barRight.firstChild);
+    }
+    state.barHint = band.barRight ? band.barRight.querySelector('.md-bar-hint') : null;
 
     // Right-side bar button: copy the document body as plain text (comments
     // excluded), for pasting a drafted message into a chat or email. Sits apart
@@ -2986,18 +2981,6 @@ function createMarkdownViewer({
     }
   }
 
-  function positionSelectionHint(hint, selection) {
-    if (!hint || !selection || !selection.rect) return;
-    const margin = 10;
-    const rect = selection.rect;
-    const width = hint.offsetWidth || 112;
-    const height = hint.offsetHeight || 24;
-    const left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin));
-    const top = Math.max(margin, Math.min(rect.bottom + 6, window.innerHeight - height - margin));
-    hint.style.left = `${left}px`;
-    hint.style.top = `${top}px`;
-  }
-
   function activateSelectionFromDom() {
     const result = getCurrentSelectionContextResult();
     if (!result.context) {
@@ -3173,12 +3156,10 @@ function createMarkdownViewer({
   }
 
   function hideHint() {
-    if (state.hint) {
-      try { if (state.hint.counterpart) state.hint.counterpart.remove(); } catch {}
-      state.hint.remove();
-      state.hint = null;
-      syncSecondaryPane();
-    }
+    if (!state.hint) return;
+    state.hint.classList.remove('on');
+    state.hint.textContent = '';
+    state.hint = null;
   }
 
   function closeActiveCard({ restoreQueuedDraft = false } = {}) {
@@ -5328,31 +5309,15 @@ function createMarkdownViewer({
   // one, so it never nags on ordinary prose.
   const FOLLOW_HINT = platform === 'darwin' ? ' · ⌘click follows' : ' · ctrl+click follows';
 
+  // The key guide lives in the band's bar (see ensureMounted), one fixed slot
+  // for block and selection targets alike — page geometry and page flips
+  // cannot take it off screen the way flow or floating chrome could be.
   function showHint(target, { selection = null, link = null } = {}) {
     hideHint();
-    const build = () => {
-      const el = document.createElement('div');
-      el.className = `md-comment-hint${selection ? ' floating' : ''}`;
-      el.textContent = 'letters comment · other keys edit' + (link ? FOLLOW_HINT : '');
-      return el;
-    };
-    const hint = build();
-    if (selection) {
-      document.body.appendChild(hint);
-      positionSelectionHint(hint, selection);
-    } else {
-      // Real content in BOTH articles (the queued-mark idiom: the two copies
-      // are each other's height spacer). A block at the page fold clips the
-      // slot after it on the clicked page; that same slot is the top of the
-      // other page, so the counterpart copy is the one the reader sees. A
-      // one-sided hint with an empty spacer showed a blank slot there instead.
-      insertCommentFlowElementAfterTarget(target, hint);
-      const counterpart = getCounterpartAnchorElement(target);
-      hint.counterpart = counterpart ? build() : null;
-      if (hint.counterpart) insertCommentFlowElementAfterTarget(counterpart, hint.counterpart);
-    }
-    state.hint = hint;
-    syncSecondaryPane();
+    if (!state.barHint) return;
+    state.barHint.textContent = 'letters comment · other keys edit' + (link ? FOLLOW_HINT : '');
+    state.barHint.classList.add('on');
+    state.hint = state.barHint;
   }
 
   function getSectionHierarchyForTarget(target) {

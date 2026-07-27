@@ -50,15 +50,11 @@ async function run() {
 
   const shell = document.querySelector('.vb-shell.vb-md');
   const bar = shell.querySelector('.vb-bar');
-  const floatingHint = document.createElement('div');
-  floatingHint.className = 'md-comment-hint floating';
-  document.body.appendChild(floatingHint);
 
   assert.strictEqual(
     window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),
     '#dadde1',
   );
-  assert.strictEqual(window.getComputedStyle(floatingHint).backgroundColor, 'rgb(206, 209, 213)');
 
   doubleClick(bar);
   assert.ok(shell.classList.contains('vb-full'));
@@ -66,7 +62,6 @@ async function run() {
     window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),
     '#eef1f5',
   );
-  assert.strictEqual(window.getComputedStyle(floatingHint).backgroundColor, 'rgb(229, 234, 240)');
 
   doubleClick(bar);
   assert.ok(!shell.classList.contains('vb-full'));
@@ -74,9 +69,7 @@ async function run() {
     window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),
     '#dadde1',
   );
-  assert.strictEqual(window.getComputedStyle(floatingHint).backgroundColor, 'rgb(206, 209, 213)');
 
-  floatingHint.remove();
   viewer.close();
   console.log('markdown-viewer palette test passed');
 }
