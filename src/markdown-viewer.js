@@ -561,6 +561,8 @@ function ensureStyles() {
       height: var(--md-bottom-spacer-height, 0px);
       pointer-events: none;
     }
+    /* While the viewer owns a drag, the native selection must not compete. */
+    .md-spread-layout.md-vdrag { user-select: none; cursor: text; }
     .md-bar-hint {
       display: none;
       color: #aab1ba;
@@ -1279,6 +1281,7 @@ function createMarkdownViewer({
     band.content.appendChild(scroll);
     spreadLayout.addEventListener('click', handleArticleClick);
     spreadLayout.addEventListener('mouseup', handleSelectionMouseup);
+    spreadLayout.addEventListener('mousedown', handleVdragDown);
     spreadLayout.addEventListener('mouseover', handleChangeBarHover);
     primaryViewport.addEventListener('scroll', handlePrimaryPaneScroll);
     spreadLayout.addEventListener('wheel', handleSpreadWheel, { passive: false });
@@ -2900,6 +2903,9 @@ function createMarkdownViewer({
 
   function getSelectionHighlightRecords() {
     const records = [];
+    if (state.vdrag && state.vdrag.active && state.vdrag.record) {
+      records.push(state.vdrag.record);
+    }
     if (state.activeCard && isMarkdownSelectionKind(state.activeCard.targetKind)) {
       records.push(state.activeCard);
     } else if (state.activeSelection && state.activeSelection.selectedText) {
@@ -3007,7 +3013,13 @@ function createMarkdownViewer({
       if (result.reason === 'multiPane') showMultiPaneSelectionError();
       return false;
     }
-    const selection = result.context;
+    return activateSelectionFromRecord(result.context);
+  }
+
+  // Arms a selection record — from the native path above or built by the
+  // virtual drag (document-space, possibly spanning pages).
+  function activateSelectionFromRecord(selection) {
+    if (!selection) return false;
     if (!canHighlightSelectionRecord(selection)) {
       showSelectionHighlightError();
       return false;
@@ -3037,6 +3049,197 @@ function createMarkdownViewer({
     setTimeout(() => {
       activateSelectionFromDom();
     }, 0);
+  }
+
+  // ---- Virtual drag selection. A native drag can only live inside one
+  // article copy, so the viewer owns the drag: the two open pages read as one
+  // sheet (the fold is just distance under the sweep), and pressing past a
+  // page's top or bottom edge turns the page — crossing flips, hovering
+  // doesn't, so the first and last lines never fight a flip zone. The record
+  // is document-space (anchor + offset pairs, ordered by document position,
+  // so a backward sweep is a first-class selection); the highlight paints it
+  // into both articles, so it survives every flip. A held press beyond the
+  // edge keeps turning at a readable cadence.
+  const VDRAG_THRESHOLD = 5;
+  const VDRAG_FLIP_GRACE_MS = 260;
+  const VDRAG_FLIP_CADENCE_MS = 800;
+  let vdragPaintRaf = 0;
+
+  function resolveArticlePoint(x, y) {
+    let range = null;
+    try { range = document.caretRangeFromPoint(x, y); } catch { return null; }
+    if (!range || !range.startContainer) return null;
+    const node = range.startContainer;
+    const el = node.nodeType === 3 ? node.parentElement : node;
+    if (!el || !el.closest) return null;
+    if (el.closest('.md-comment-card, .md-queued-comment-card, .md-pending-strip, .md-thread-card, .md-thread-waiting-line, button, textarea, input')) return null;
+    const anchor = el.closest('[data-md-anchor-id]');
+    if (!anchor || !state.spreadLayout || !state.spreadLayout.contains(anchor) || !anchor.contains(node)) return null;
+    return {
+      anchorId: anchor.getAttribute('data-md-anchor-id'),
+      offset: getTextOffsetWithin(anchor, node, range.startOffset),
+      pane: isInSecondaryPane(anchor) ? 'right' : 'left',
+    };
+  }
+
+  function buildVirtualSelectionRecord(a, b) {
+    if (!a || !b || !state.article) return null;
+    const anchors = getArticleAnchors(state.article);
+    const idxOf = (id) => anchors.findIndex((el) => getAnchorIdForTarget(el) === id);
+    const ai = idxOf(a.anchorId);
+    const bi = idxOf(b.anchorId);
+    if (ai < 0 || bi < 0) return null;
+    const backward = bi < ai || (bi === ai && b.offset < a.offset);
+    const start = backward ? b : a;
+    const end = backward ? a : b;
+    const startIdx = backward ? bi : ai;
+    const endIdx = backward ? ai : bi;
+    const parts = [];
+    for (let i = startIdx; i <= endIdx; i++) {
+      const text = getSearchableTextNodes(anchors[i]).text;
+      parts.push(text.slice(i === startIdx ? start.offset : 0, i === endIdx ? end.offset : text.length));
+    }
+    const selectedText = parts.join('\n').trim();
+    if (!selectedText) return null;
+    let selectionStart = start.offset;
+    let selectionEnd = end.offset;
+    if (startIdx === endIdx) {
+      const raw = parts[0];
+      selectionStart += raw.length - raw.replace(/^\s+/, '').length;
+      selectionEnd -= raw.length - raw.replace(/\s+$/, '').length;
+    }
+    const multiBlock = startIdx !== endIdx;
+    return {
+      target: anchors[startIdx],
+      anchorId: getAnchorIdForTarget(anchors[startIdx]),
+      endAnchorId: getAnchorIdForTarget(anchors[endIdx]),
+      selectedText,
+      selectionStart,
+      selectionEnd,
+      targetKind: isBroadMarkdownSelection({ selectedText, multiBlock }) ? 'passage' : 'selection',
+      sourceStartLine: getTargetSourceStartLine(anchors[startIdx]),
+      // Where the drag currently is — the composer seats at the passage END,
+      // on the page the reader finished on.
+      pane: b.pane,
+      rect: null,
+    };
+  }
+
+  function spreadEdges() {
+    const left = viewportRectOf(state.primaryPane);
+    const right = viewportRectOf(state.secondaryPane);
+    if (!left && !right) return null;
+    return {
+      top: Math.min(left ? left.top : Infinity, right ? right.top : Infinity),
+      bottom: Math.max(left ? left.bottom : -Infinity, right ? right.bottom : -Infinity),
+    };
+  }
+
+  function scheduleVdragPaint() {
+    if (vdragPaintRaf) return;
+    vdragPaintRaf = requestAnimationFrame(() => {
+      vdragPaintRaf = 0;
+      const drag = state.vdrag;
+      if (!drag || !drag.active) return;
+      drag.record = buildVirtualSelectionRecord(drag.start, drag.focus || drag.start);
+      updateSelectionHighlights();
+    });
+  }
+
+  function updateVdragFlip(drag, beyond) {
+    if (!beyond) {
+      drag.flipDir = 0;
+      if (drag.flipTimer) { clearTimeout(drag.flipTimer); drag.flipTimer = null; }
+      return;
+    }
+    if (drag.flipDir === beyond && drag.flipTimer) return;
+    drag.flipDir = beyond;
+    if (drag.flipTimer) clearTimeout(drag.flipTimer);
+    const fire = () => {
+      if (state.vdrag !== drag || drag.flipDir !== beyond) return;
+      flipSpread(beyond);
+      scheduleVdragPaint();
+      drag.flipTimer = setTimeout(fire, VDRAG_FLIP_CADENCE_MS);
+    };
+    drag.flipTimer = setTimeout(fire, VDRAG_FLIP_GRACE_MS);
+  }
+
+  function handleVdragMove(event) {
+    const drag = state.vdrag;
+    if (!drag) return;
+    if (!drag.active) {
+      const dx = event.clientX - drag.x0;
+      const dy = event.clientY - drag.y0;
+      if (dx * dx + dy * dy < VDRAG_THRESHOLD * VDRAG_THRESHOLD) return;
+      drag.active = true;
+      const s = window.getSelection && window.getSelection();
+      if (s && s.removeAllRanges) try { s.removeAllRanges(); } catch {}
+      if (state.spreadLayout) state.spreadLayout.classList.add('md-vdrag');
+    }
+    const edges = spreadEdges();
+    const beyond = edges ? (event.clientY < edges.top ? -1 : (event.clientY > edges.bottom ? 1 : 0)) : 0;
+    updateVdragFlip(drag, beyond);
+    if (beyond === 0) {
+      const point = resolveArticlePoint(event.clientX, event.clientY);
+      if (point) {
+        drag.focus = point;
+        scheduleVdragPaint();
+      }
+    }
+    event.preventDefault();
+  }
+
+  function releaseVdrag(drag) {
+    state.vdrag = null;
+    document.removeEventListener('mousemove', handleVdragMove, true);
+    document.removeEventListener('mouseup', handleVdragUp, true);
+    if (drag.flipTimer) clearTimeout(drag.flipTimer);
+    if (state.spreadLayout) state.spreadLayout.classList.remove('md-vdrag');
+  }
+
+  function cancelVdrag() {
+    const drag = state.vdrag;
+    if (!drag) return false;
+    const wasActive = drag.active;
+    releaseVdrag(drag);
+    if (wasActive) {
+      state.vdragConsumedClick = true;
+      setTimeout(() => { state.vdragConsumedClick = false; }, 0);
+      updateSelectionHighlights();
+    }
+    return wasActive;
+  }
+
+  function handleVdragUp() {
+    const drag = state.vdrag;
+    if (!drag) return;
+    releaseVdrag(drag);
+    if (!drag.active) return; // a plain click: the click event handles it
+    state.vdragConsumedClick = true;
+    setTimeout(() => { state.vdragConsumedClick = false; }, 0);
+    const record = buildVirtualSelectionRecord(drag.start, drag.focus || drag.start);
+    updateSelectionHighlights(); // drop the live-drag paint
+    if (record) activateSelectionFromRecord(record);
+  }
+
+  function handleVdragDown(event) {
+    if (event.button !== 0 || state.vdrag || state.editing) return;
+    if (event.target && event.target.closest
+      && event.target.closest('.md-comment-card, .md-queued-comment-card, .md-pending-strip, .md-thread-card, .md-thread-waiting-line, button, textarea, input')) return;
+    const point = resolveArticlePoint(event.clientX, event.clientY);
+    if (!point) return;
+    state.vdrag = {
+      x0: event.clientX,
+      y0: event.clientY,
+      start: point,
+      focus: point,
+      active: false,
+      flipTimer: null,
+      flipDir: 0,
+      record: null,
+    };
+    document.addEventListener('mousemove', handleVdragMove, true);
+    document.addEventListener('mouseup', handleVdragUp, true);
   }
 
   function getProjectedOffsetTop(element) {
@@ -5380,6 +5583,12 @@ function createMarkdownViewer({
   }
 
   function handleArticleClick(event) {
+    // The click that ends a virtual drag is the drag's release, not a click.
+    if (state.vdragConsumedClick) {
+      state.vdragConsumedClick = false;
+      event.preventDefault();
+      return;
+    }
     // A link in the article never navigates on its own: index.html is the whole
     // app, and a browser-style navigation would take the terminal with it. What
     // the click means is decided below.
@@ -5580,8 +5789,21 @@ function createMarkdownViewer({
     composer.textarea.spellcheck = true;
     card.appendChild(composer.root);
 
-    const placeholder = createCommentPlaceholderForTarget(target);
-    insertCommentFlowElementAfterTarget(target, card);
+    // The composer seats where the reader finished: after the selection's END
+    // anchor, in the article of the pane the drag released on — the start may
+    // be a page behind, and typing must not jump backward away from the
+    // mouseup point. (A live card can sit in either article; a right-page
+    // block click has always seated it in the secondary copy.)
+    let seatEl = target;
+    const seatSelection = state.activeSelection;
+    if (seatSelection && (seatSelection.endAnchorId || seatSelection.anchorId)) {
+      const article = seatSelection.pane === 'right' ? state.secondaryArticle : state.article;
+      const seatId = seatSelection.endAnchorId || seatSelection.anchorId;
+      const end = article ? article.querySelector(`[data-md-anchor-id="${seatId}"]`) : null;
+      if (end) seatEl = end;
+    }
+    const placeholder = createCommentPlaceholderForTarget(seatEl);
+    insertCommentFlowElementAfterTarget(seatEl, card);
     const activeSelection = originalQueuedComment && isMarkdownSelectionKind(originalQueuedComment.targetKind)
       ? originalQueuedComment
       : state.activeSelection;
@@ -5708,6 +5930,26 @@ function createMarkdownViewer({
     if (state.activeCard && state.activeCard.card && !state.activeCard.card.isConnected) {
       closeActiveCard();
       clearActiveTarget();
+    }
+    if (event.key === 'Escape' && state.vdrag) {
+      event.preventDefault();
+      cancelVdrag();
+      return;
+    }
+    // ⌘/Ctrl+C with an armed selection record: the native clipboard cannot
+    // see a document-space selection (a cross-page record has no live DOM
+    // range), so copy its text. A live native selection (double-click) and
+    // any focused field keep the native copy.
+    if ((event.metaKey || event.ctrlKey) && String(event.key).toLowerCase() === 'c'
+      && state.activeSelection && state.activeSelection.selectedText
+      && state.shell && state.shell.contains(event.target)
+      && isTypingTarget(event.target)) {
+      const native = window.getSelection && window.getSelection();
+      if (!native || native.isCollapsed) {
+        event.preventDefault();
+        try { navigator.clipboard.writeText(state.activeSelection.selectedText); } catch {}
+        return;
+      }
     }
     if (event.key === 'Escape' && state.threadReply) {
       event.preventDefault();
