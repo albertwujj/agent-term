@@ -308,6 +308,97 @@ async function run() {
   check('undo leaves no pending presentation',
     primary().querySelectorAll('.md-pending-diff:not(.sent), .md-pending-block, .md-pending-strip:not(.sent)').length === 0);
 
+  // --- selection-shaped entries strike the whole selection, not one char ---
+  {
+    // A triple-click's live range ends at the NEXT block's start; the entry
+    // clamps it to the armed block instead of degrading to a caret strike.
+    const p = Array.from(primary().querySelectorAll('p'))
+      .find((el) => el.textContent.includes('Second paragraph'));
+    const sel = dom.window.getSelection();
+    const r = document.createRange();
+    r.setStart(p.firstChild, 0);
+    r.setEnd(p.nextElementSibling, 0);
+    sel.removeAllRanges(); sel.addRange(r);
+    p.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    await sleep(10); // the arm sits behind a setTimeout(0)
+    key({ key: 'Backspace' });
+    await sleep(10);
+    const ed = editing();
+    const struck = ed ? Array.from(ed.querySelectorAll('del.md-pending-del')).map((d) => d.textContent).join('') : '';
+    check('a selection reaching the next block strikes this whole block',
+      !!ed && struck === 'Second paragraph on one source line only.', JSON.stringify(struck));
+    key({ key: 'Escape' });
+    await sleep(10);
+  }
+  {
+    // A virtual-drag selection lives only in the armed record — no live DOM
+    // range. The record alone must carry the entry strike.
+    const p = Array.from(primary().querySelectorAll('p'))
+      .find((el) => el.textContent.includes('Second paragraph'));
+    const at = p.textContent.indexOf('paragraph');
+    const sel = dom.window.getSelection();
+    const r = document.createRange();
+    r.setStart(p.firstChild, at);
+    r.setEnd(p.firstChild, at + 'paragraph'.length);
+    sel.removeAllRanges(); sel.addRange(r);
+    p.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    await sleep(10);
+    sel.removeAllRanges();
+    key({ key: 'Backspace' });
+    await sleep(10);
+    const ed = editing();
+    const struck = ed ? Array.from(ed.querySelectorAll('del.md-pending-del')).map((d) => d.textContent).join('') : '';
+    check('an armed selection record strikes without a live range',
+      !!ed && struck === 'paragraph', JSON.stringify(struck));
+    key({ key: 'Escape' });
+    await sleep(10);
+  }
+  {
+    // A caret parked inside struck text must not grow the strike: typing there
+    // splits the del and the insertion takes the seam, outside both halves.
+    const p = Array.from(primary().querySelectorAll('p'))
+      .find((el) => el.textContent.includes('Second paragraph'));
+    const at = p.textContent.indexOf('source');
+    const sel = dom.window.getSelection();
+    const r = document.createRange();
+    r.setStart(p.firstChild, at);
+    r.setEnd(p.firstChild, at + 'source'.length);
+    sel.removeAllRanges(); sel.addRange(r);
+    p.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    await sleep(10);
+    key({ key: 'Backspace' });
+    await sleep(10);
+    const ed = editing();
+    const del = ed && ed.querySelector('del.md-pending-del');
+    const mid = document.createRange();
+    mid.setStart(del.firstChild, 2);
+    mid.collapse(true);
+    sel.removeAllRanges(); sel.addRange(mid);
+    ed.dispatchEvent(new dom.window.InputEvent('beforeinput', {
+      inputType: 'insertText', data: 'X', bubbles: true, cancelable: true,
+    }));
+    await sleep(10);
+    const dels = Array.from(ed.querySelectorAll('del.md-pending-del')).map((d) => d.textContent);
+    const ins = ed.querySelector('ins.md-pending-ins');
+    check('typing mid-strike splits the del around a clean ins',
+      dels.join('|') === 'so|urce' && !!ins && ins.textContent === 'X' && !ins.closest('del'),
+      ed && ed.innerHTML.slice(0, 160));
+    const tailDel = Array.from(ed.querySelectorAll('del.md-pending-del')).pop();
+    const end = document.createRange();
+    end.setStart(tailDel.firstChild, tailDel.textContent.length);
+    end.collapse(true);
+    sel.removeAllRanges(); sel.addRange(end);
+    ed.dispatchEvent(new dom.window.InputEvent('beforeinput', {
+      inputType: 'insertText', data: 'Y', bubbles: true, cancelable: true,
+    }));
+    await sleep(10);
+    const nested = ed.querySelector('del.md-pending-del ins.md-pending-ins');
+    check('typing at the strike edge hops out of the del',
+      !nested && ed.textContent.includes('urceY'), ed && ed.innerHTML.slice(0, 160));
+    key({ key: 'Escape' });
+    await sleep(10);
+  }
+
   // --- a word-merge edit strikes only what was removed (no duplication) ---
   // "one source" -> "onesource" (delete the space). A prior word-snap turned
   // this into a duplicated "one onesource"; the minimal diff strikes just the

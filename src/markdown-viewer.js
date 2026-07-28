@@ -4171,8 +4171,21 @@ function createMarkdownViewer({
       if (s > 0) mid = mid.splitText(s);
       if (mid.data.length > (e - s)) mid.splitText(e - s);
       const parent = mid.parentNode;
-      if (parent && parent.closest && parent.closest('del.md-pending-del')) continue; // already struck
-      if (parent && parent.closest && parent.closest('ins.md-pending-ins')) { parent.removeChild(mid); continue; }
+      const struck = parent && parent.closest ? parent.closest('del.md-pending-del') : null;
+      if (struck) {
+        // Already struck — no new mark, but it is part of the run the caret
+        // settles around, so a ⌫ against old struck text hops past it
+        // instead of dead-stopping.
+        if (!firstDel) firstDel = struck;
+        lastDel = struck;
+        continue;
+      }
+      const insHost = parent && parent.closest ? parent.closest('ins.md-pending-ins') : null;
+      if (insHost) {
+        parent.removeChild(mid);
+        if (!insHost.textContent.length) insHost.remove();
+        continue;
+      }
       const del = document.createElement('del');
       del.className = 'md-pending-del';
       parent.insertBefore(del, mid);
@@ -4182,12 +4195,39 @@ function createMarkdownViewer({
     }
     if (lastDel) collapseCaret(caretMode === 'after' ? lastDel : firstDel, caretMode === 'after' ? 'after' : 'before');
   }
+  // A caret parked inside struck text (arrow walks and clicks land there — the
+  // position after a strike's last char and the one beyond the <del> are the
+  // same screen spot) must not put new text inside the del, where it would
+  // render struck. At the strike's edge the caret hops out; mid-strike the del
+  // splits and the insertion takes the seam.
+  function escapeDelAtCaret(range) {
+    const del = markWrapping(range.startContainer, 'del.md-pending-del');
+    if (!del || !del.parentNode) return;
+    const pre = document.createRange();
+    pre.selectNodeContents(del);
+    pre.setEnd(range.startContainer, range.startOffset);
+    const before = pre.toString().length;
+    if (before <= 0) range.setStartBefore(del);
+    else if (before >= del.textContent.length) range.setStartAfter(del);
+    else {
+      const tail = document.createElement('del');
+      tail.className = 'md-pending-del';
+      const rest = document.createRange();
+      rest.selectNodeContents(del);
+      rest.setStart(range.startContainer, range.startOffset);
+      tail.appendChild(rest.extractContents());
+      del.parentNode.insertBefore(tail, del.nextSibling);
+      range.setStartAfter(del);
+    }
+    range.collapse(true);
+  }
   function insertMarkedInBlock(text) {
     if (!text) return;
     const s = editSel(); if (!s || !s.rangeCount) return;
     pushEditingUndo();
     const range = s.getRangeAt(0);
     range.deleteContents();
+    escapeDelAtCaret(range);
     const host = markWrapping(range.startContainer, 'ins.md-pending-ins');
     const tn = document.createTextNode(text.replace(/\s/g, ' '));
     if (host) { range.insertNode(tn); }
@@ -4289,7 +4329,35 @@ function createMarkdownViewer({
     session.mirror.observe(from, { subtree: true, childList: true, characterData: true });
   }
 
-  function openRenderedEditor(target, range, blockSource, entryEvent, clickCaret) {
+  // The selection an entry keystroke acts on, as a live range clamped to the
+  // block. The native selection's boundaries often rest outside it — a
+  // triple-click ends at the NEXT block's start — so clamp rather than reject.
+  // A virtual-drag selection has no live range at all; its record rebuilds
+  // one. Either way a span reaching past this block strikes the part inside
+  // it: editing is per-block.
+  function resolveEntrySelectionRange(target, record) {
+    const sel = window.getSelection && window.getSelection();
+    if (sel && sel.rangeCount && !sel.getRangeAt(0).collapsed) {
+      const live = sel.getRangeAt(0);
+      let overlaps = false;
+      try { overlaps = live.intersectsNode(target); } catch {}
+      if (overlaps) {
+        const r = live.cloneRange();
+        if (!target.contains(r.startContainer)) r.setStart(target, 0);
+        if (!target.contains(r.endContainer)) r.setEnd(target, target.childNodes.length);
+        if (!r.collapsed) return r;
+      }
+    }
+    if (record && record.selectedText && record.anchorId === getAnchorIdForTarget(target)) {
+      const end = record.endAnchorId && record.endAnchorId !== record.anchorId
+        ? getSearchableTextNodes(target).text.length
+        : record.selectionEnd;
+      return createTextRangeWithin(target, record.selectionStart, end);
+    }
+    return null;
+  }
+
+  function openRenderedEditor(target, range, blockSource, entryEvent, clickCaret, entrySelection) {
     const origRendered = getSearchableTextNodes(target).text;
     const anchorId = target.getAttribute('data-md-anchor-id') || '';
     const existing = state.blockOverlays.get(anchorId);
@@ -4316,14 +4384,14 @@ function createMarkdownViewer({
     document.addEventListener('selectionchange', state.editing.caretFollow);
 
     const k = entryEvent ? entryEvent.key : '';
-    const sel = window.getSelection && window.getSelection();
     // The entry keystroke strikes/inserts in place, exactly like every keystroke
-    // after it — with a live selection, ⌫/Delete strikes the whole selection and
-    // a printable key types over it (strike + insert).
-    if (entryEvent && isMutatingEntryKey(entryEvent) && sel && sel.rangeCount && !sel.getRangeAt(0).collapsed) {
-      const live = sel.getRangeAt(0);
-      if (target.contains(live.startContainer) && target.contains(live.endContainer)) {
-        strikeInBlock(target, live.cloneRange(), 'after');
+    // after it — with a selection (live or virtual-drag record), ⌫/Delete
+    // strikes the whole selection and a printable key types over it
+    // (strike + insert).
+    if (entryEvent && isMutatingEntryKey(entryEvent)) {
+      const entryRange = resolveEntrySelectionRange(target, entrySelection);
+      if (entryRange) {
+        strikeInBlock(target, entryRange, 'after');
         if (k === 'Enter') insertLineBreakInBlock();
         else if (k !== 'Backspace' && k !== 'Delete') insertMarkedInBlock(k);
         return;
@@ -4462,13 +4530,16 @@ function createMarkdownViewer({
     const range = getBlockSourceRange(target);
     if (!range) return;
     const clickCaret = state.pendingClickCaret;
+    // A virtual-drag selection has no live DOM range — it exists only in the
+    // armed record, which the target clear below wipes. Carry it in by hand.
+    const entrySelection = state.activeSelection;
     hideHint();
     clearActiveTarget();
     // Every block edits in place on its frozen rendered surface — markup blocks
     // (bold, links, lists) strike like prose. There is no source-textarea
     // fallback; the source is never touched.
     const blockSource = blockSourceForRange(range);
-    openRenderedEditor(target, range, blockSource, entryEvent, clickCaret);
+    openRenderedEditor(target, range, blockSource, entryEvent, clickCaret, entrySelection);
   }
 
   function commitBlockEditor() {
@@ -5158,6 +5229,7 @@ function createMarkdownViewer({
     pushEditingUndo();
     const range = s.getRangeAt(0);
     range.deleteContents();
+    escapeDelAtCaret(range);
     const tn = document.createTextNode('\n');
     if (markWrapping(range.startContainer, 'pre')) {
       const host = markWrapping(range.startContainer, 'ins.md-pending-ins');
