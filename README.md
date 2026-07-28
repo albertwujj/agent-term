@@ -94,7 +94,7 @@ These are the paths we run daily and verify with each release. If setup snags an
 Plus the open specs (bring your own host/agent):
 - **[agent-threads](https://github.com/albertwujj/agent-threads)**: the review-thread spec the review loop (and live-markdown commenting) runs on.
 - **[agent-lock](https://github.com/yunxin/agent-lock)**: a lock so several agents share one git checkout without clobbering each other (the working tree, branches, and the host-global ports their tests grab).
-- **[agent-cicd](https://github.com/albertwujj/agent-cicd)**: runbooks that drive a Gerrit/Jenkins/SonarQube change to green, serialized through agent-lock; the kits composing in practice.
+- **[agent-cicd](https://github.com/albertwujj/agent-cicd)**: scripts that watch a Gerrit change's Jenkins build to a verdict and auto-retry infra flakes, pushes serialized through agent-lock; the kits composing in practice.
 - **[voice-to-agent](https://github.com/albertwujj/voice-to-agent)**: the vendored guide that tells an agent to reconstruct and act on a raw speech-to-text transcript (what the phone's voice input runs on).
 
 Built with Electron · xterm.js (WebGL) · node-pty · esbuild. MIT licensed. A ⭐ helps others find it.
