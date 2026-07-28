@@ -17,7 +17,7 @@ function assertEqual(actual, expected, message = '') {
 function createElectronInput(overrides = {}) {
   return {
     type: 'keyDown',
-    key: 'o',
+    key: 'u',
     control: false,
     meta: false,
     shift: false,
@@ -29,7 +29,7 @@ function createElectronInput(overrides = {}) {
 function createDomInput(overrides = {}) {
   return {
     type: 'keydown',
-    key: 'o',
+    key: 'u',
     ctrlKey: false,
     metaKey: false,
     shiftKey: false,
@@ -55,41 +55,41 @@ async function runTests() {
   if (failed > 0) process.exit(1);
 }
 
-test('Ctrl+Shift+O goes back on Windows', () => {
+test('Ctrl+Shift+U opens the selector on Windows', () => {
   assertEqual(
     getViewerShortcutAction(createElectronInput({ control: true, shift: true }), 'win32'),
-    'back'
+    'selector'
   );
 });
 
-test('Ctrl+Shift+I goes forward on Linux', () => {
+test('Cmd+Shift+U opens the selector with DOM modifier fields on macOS', () => {
   assertEqual(
     getViewerShortcutAction(
-      createDomInput({ key: 'I', ctrlKey: true, shiftKey: true }),
-      'linux'
-    ),
-    'forward'
-  );
-});
-
-test('Cmd+Shift+O goes back on macOS', () => {
-  assertEqual(
-    getViewerShortcutAction(createElectronInput({ meta: true, shift: true }), 'darwin'),
-    'back'
-  );
-});
-
-test('Cmd+Shift+I goes forward with DOM modifier fields on macOS', () => {
-  assertEqual(
-    getViewerShortcutAction(
-      createDomInput({ key: 'i', metaKey: true, shiftKey: true }),
+      createDomInput({ key: 'U', metaKey: true, shiftKey: true }),
       'darwin'
     ),
-    'forward'
+    'selector'
   );
 });
 
-test('Alt conflicts with the back shortcut', () => {
+test('Ctrl+Shift+O expands the band on Linux', () => {
+  assertEqual(
+    getViewerShortcutAction(
+      createDomInput({ key: 'O', ctrlKey: true, shiftKey: true }),
+      'linux'
+    ),
+    'expand'
+  );
+});
+
+test('Cmd+Shift+O expands the band on macOS', () => {
+  assertEqual(
+    getViewerShortcutAction(createElectronInput({ key: 'o', meta: true, shift: true }), 'darwin'),
+    'expand'
+  );
+});
+
+test('Alt conflicts with the selector shortcut', () => {
   assertEqual(
     getViewerShortcutAction(
       createElectronInput({ control: true, shift: true, alt: true }),
@@ -99,10 +99,10 @@ test('Alt conflicts with the back shortcut', () => {
   );
 });
 
-test('Alt conflicts with the forward shortcut through DOM fields', () => {
+test('Alt conflicts with the expand shortcut through DOM fields', () => {
   assertEqual(
     getViewerShortcutAction(
-      createDomInput({ key: 'i', ctrlKey: true, shiftKey: true, altKey: true }),
+      createDomInput({ key: 'o', ctrlKey: true, shiftKey: true, altKey: true }),
       'linux'
     ),
     null
@@ -126,41 +126,14 @@ test('the platform primary modifier is required', () => {
 test('Ctrl remains a supported alias on macOS', () => {
   assertEqual(
     getViewerShortcutAction(createElectronInput({ control: true, shift: true }), 'darwin'),
-    'back'
+    'selector'
   );
 });
 
 test('Cmd remains a supported alias on Windows', () => {
   assertEqual(
-    getViewerShortcutAction(createElectronInput({ key: 'i', meta: true, shift: true }), 'win32'),
-    'forward'
-  );
-});
-
-test('Ctrl+Shift+U opens the selector on Windows', () => {
-  assertEqual(
-    getViewerShortcutAction(createElectronInput({ key: 'u', control: true, shift: true }), 'win32'),
-    'selector'
-  );
-});
-
-test('Cmd+Shift+U opens the selector with DOM modifier fields on macOS', () => {
-  assertEqual(
-    getViewerShortcutAction(
-      createDomInput({ key: 'U', metaKey: true, shiftKey: true }),
-      'darwin'
-    ),
-    'selector'
-  );
-});
-
-test('Alt conflicts with the selector shortcut', () => {
-  assertEqual(
-    getViewerShortcutAction(
-      createElectronInput({ key: 'u', control: true, shift: true, alt: true }),
-      'win32'
-    ),
-    null
+    getViewerShortcutAction(createElectronInput({ key: 'o', meta: true, shift: true }), 'win32'),
+    'expand'
   );
 });
 
@@ -169,6 +142,36 @@ test('mixed Ctrl and Cmd modifiers conflict', () => {
     getViewerShortcutAction(
       createDomInput({ ctrlKey: true, metaKey: true, shiftKey: true }),
       'darwin'
+    ),
+    null
+  );
+});
+
+test('Ctrl+Shift+I shrinks the band on Windows', () => {
+  assertEqual(
+    getViewerShortcutAction(
+      createElectronInput({ key: 'i', control: true, shift: true }),
+      'win32'
+    ),
+    'shrink'
+  );
+});
+
+test('Cmd+Shift+I shrinks with DOM modifier fields on macOS', () => {
+  assertEqual(
+    getViewerShortcutAction(
+      createDomInput({ key: 'I', metaKey: true, shiftKey: true }),
+      'darwin'
+    ),
+    'shrink'
+  );
+});
+
+test('Alt conflicts with the shrink shortcut', () => {
+  assertEqual(
+    getViewerShortcutAction(
+      createDomInput({ key: 'i', ctrlKey: true, shiftKey: true, altKey: true }),
+      'linux'
     ),
     null
   );
@@ -197,7 +200,7 @@ test('Electron keyUp input does not produce an action', () => {
 test('an input without a type can still produce an action', () => {
   const input = createDomInput({ ctrlKey: true, shiftKey: true });
   delete input.type;
-  assertEqual(getViewerShortcutAction(input, 'linux'), 'back');
+  assertEqual(getViewerShortcutAction(input, 'linux'), 'selector');
 });
 
 runTests();

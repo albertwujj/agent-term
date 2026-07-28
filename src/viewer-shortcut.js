@@ -22,10 +22,15 @@ function getViewerShortcutAction(input, _platform) {
   const hasPrimaryModifier = control !== meta;
 
   if (!hasPrimaryModifier) return null;
-  if (key === 'o') return 'back';
-  if (key === 'i') return 'forward';
-  // U completes the physical U/I/O key cluster: selector / forward / back.
+  // The U/I/O cluster, left to right: U picks the viewer, then I and O step it
+  // down and up the size ladder (bar handle / reading height / full screen). The
+  // steps clamp at each end, so holding the modifier and tapping O runs the band
+  // out to full and leaves it there.
+  // (I and O once held a back / forward history cycle; the selector reaches any
+  // entry directly, so the cycle retired.)
   if (key === 'u') return 'selector';
+  if (key === 'i') return 'shrink';
+  if (key === 'o') return 'expand';
   return null;
 }
 

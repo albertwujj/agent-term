@@ -1,8 +1,7 @@
-// Viewer selector — modal overlay listing every known viewer candidate (the
-// same merged history Cmd/Ctrl+Shift+O/I cycles through) with a filter input,
-// so a viewer buried deep in the recents list is one typed fragment away
-// instead of N repeated chord presses. Vanilla DOM, no framework — patterned
-// on sessions-picker.
+// Viewer selector (Cmd/Ctrl+Shift+U) — modal overlay listing every known viewer
+// candidate, merged from scrollback and the live stream, with a filter input: a
+// viewer buried deep in the recents list is one typed fragment away. Vanilla DOM,
+// no framework — patterned on sessions-picker.
 //
 // Public API:
 //   const handle = createViewerSelector({

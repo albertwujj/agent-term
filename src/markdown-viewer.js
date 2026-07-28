@@ -6233,6 +6233,7 @@ function createMarkdownViewer({
     open,
     openSearch,
     runSearch,
+    stepSize: (delta) => band.stepSize(delta),
   };
 }
 

@@ -33,11 +33,11 @@ contextBridge.exposeInMainWorld('pty', {
   // Listen for caret insertion trigger from main process (Ctrl+K/Cmd+K)
   onInsertCaretPosition: (callback) => ipcRenderer.on('insert-caret-position', () => callback()),
   onShowCaretDiagnostics: (callback) => ipcRenderer.on('show-caret-diagnostics', () => callback()),
-  // Hotkey (Cmd/Ctrl+Shift+O): open the most recent viewer URL from the
-  // terminal scrollback in the embedded web viewer.
+  // Open the most recent viewer candidate from the terminal scrollback. No chord
+  // sends this any more; the e2e harness drives it to put a viewer on screen.
   onOpenRecentViewerUrl: (callback) => ipcRenderer.on('open-recent-viewer-url', () => callback()),
-  // App-wide viewer history: back (Cmd/Ctrl+Shift+O) / forward (...+I).
-  onNavigateViewerHistory: (callback) => ipcRenderer.on('navigate-viewer-history', (_event, direction) => callback(direction)),
+  // Viewer chords: selector (Cmd/Ctrl+Shift+U) / shrink (...+I) / expand (...+O).
+  onViewerShortcut: (callback) => ipcRenderer.on('viewer-shortcut', (_event, action) => callback(action)),
   // Open a URL in the default browser
   openURL: (url) => ipcRenderer.invoke('open-url', url),
   // Open a resource file with the OS default handler
@@ -58,7 +58,7 @@ contextBridge.exposeInMainWorld('pty', {
   renderReviewPackage: (packagePath) => ipcRenderer.invoke('render-review-package', packagePath),
   // Cheap existence check (no state change) for auto-open of a freshly-printed review:// link.
   reviewPackageExists: (packagePath) => ipcRenderer.invoke('review-package-exists', packagePath),
-  // Same, for file:// viewer candidates (Ctrl+Shift+O skips links whose file isn't on disk).
+  // Same, for file:// viewer candidates (the recents list skips links whose file isn't on disk).
   viewerFileExists: (filePath) => ipcRenderer.invoke('viewer-file-exists', filePath),
   // Main re-rendered the open review (package or source changed) → reload the viewer.
   onReviewRerendered: (cb) => ipcRenderer.on('review-rerendered', (e, payload) => cb(payload)),

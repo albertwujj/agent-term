@@ -140,7 +140,7 @@ function getWebViewer() {
       getPreloadUrl: () => webviewPreloadUrl,
       // For the viewer's own Cmd/Ctrl+F (find-in-page) shortcut detection.
       platform: window.pty.platform,
-      onNavigateHistory: (action) => { handleViewerHistoryAction(action); },
+      onShortcut: (action) => { handleViewerShortcut(action); },
       // Closing the viewer (GC) → tell main to stop the review auto-refresh.
       onClose: () => {
         if (!suppressViewerEvict) clearViewerCache(); // user ✕ → forget the cache
@@ -162,10 +162,10 @@ function getWebViewer() {
   return webViewer;
 }
 
-// One ordered history across every individual URL, review, and markdown doc.
-// The history owns a stable cursor: explicit opens become newest, while shortcut
-// traversal selects without re-recording, so walking A -> B -> C never mutates
-// into the old A/B ping-pong. Entries dedupe by exact viewer identity, not kind.
+// One ordered history across every individual URL, review, and markdown doc —
+// the list the selector (Cmd/Ctrl+Shift+U) offers. The history owns a stable
+// cursor: explicit opens become newest, while a pick selects without
+// re-recording. Entries dedupe by exact viewer identity, not kind.
 const viewerHistory = new ViewerHistory({ limit: 100 });
 const viewerValidationMemory = new ViewerValidationMemory();
 function recordViewer(kind, key) {
@@ -173,8 +173,8 @@ function recordViewer(kind, key) {
 }
 
 // ✕ on a band = "done": close it and forget the whole recents cache (re-seedable from
-// the stream on the next Ctrl+Shift+O). Guarded so the PROGRAMMATIC switch-closes below
-// don't trip it — a switch must keep the cache so you can still cycle back. onClose runs
+// the stream on the next selector open). Guarded so the PROGRAMMATIC switch-closes below
+// don't trip it — a switch must keep the cache so you can still go back. onClose runs
 // synchronously inside close(), so the flag is set only for the duration of the close.
 let suppressViewerEvict = false;
 function clearViewerCache() { viewerHistory.clear(); }
@@ -341,7 +341,7 @@ async function maybeAutoOpenReview(url) {
 // file:// URL must name a document (extension after the last slash): bare
 // hosts and directories never render as a page, and prose *mentioning* such
 // URLs (a terminal conversation about this very filter, say) would otherwise
-// seed Ctrl+Shift+O.
+// seed the viewer selector.
 function looksLikeRealViewerUrl(url) {
   if (/^review:\/\//i.test(url)) {
     const p = url.replace(/^review:\/\//i, '');
@@ -439,12 +439,14 @@ async function openViewerFromHistory(entry, openKey) {
   return true;
 }
 
-async function navigateViewerHistory(direction) {
-  const move = direction === 'forward' ? 'forward' : 'back';
+// Open the newest viewer candidate that still resolves, stepping to an older one
+// whenever an entry turns out to be gone. Reached only through the open-recent
+// channel now — the selector is how a person picks a viewer.
+async function openRecentViewer() {
   viewerHistory.merge(collectDiscoveredViewerCandidates());
-  const candidates = viewerHistory.traverse(move);
+  const candidates = viewerHistory.traverse('back');
   if (!candidates.length) {
-    showToast(viewerHistory.entries().length ? `No ${move === 'back' ? 'older' : 'newer'} viewer` : 'No viewer to open');
+    showToast(viewerHistory.entries().length ? 'No older viewer' : 'No viewer to open');
     return;
   }
 
@@ -460,21 +462,20 @@ async function navigateViewerHistory(direction) {
     if (entries.length > 1 && index >= 0) showToast(`${index + 1}/${entries.length}`);
     return;
   }
-  showToast(viewerHistory.current ? `No ${move === 'back' ? 'older' : 'newer'} viewer` : 'No viewer to open');
+  showToast(viewerHistory.current ? 'No older viewer' : 'No viewer to open');
 }
 
-// Serialize repeated keypresses so a slow filesystem check cannot make two
-// presses race from the same cursor position.
+// Serialize repeated opens so a slow filesystem check cannot make two of them
+// race from the same cursor position.
 let viewerNavigationQueue = Promise.resolve();
-function queueViewerHistoryNavigation(direction) {
+function queueRecentViewerOpen() {
   viewerNavigationQueue = viewerNavigationQueue
-    .then(() => navigateViewerHistory(direction))
-    .catch((error) => console.warn('[viewer-history] navigation failed', error));
+    .then(() => openRecentViewer())
+    .catch((error) => console.warn('[viewer-history] open failed', error));
 }
 
-// Viewer selector (Cmd/Ctrl+Shift+U) — the same merged candidate list the
-// O/I chords cycle through, but as a filterable overlay: type any fragment of
-// the URL/path instead of chording past every intermediate entry.
+// Viewer selector (Cmd/Ctrl+Shift+U) — the merged candidate list as a filterable
+// overlay: type any fragment of the URL/path to open it.
 let activeViewerSelector = null;
 function closeViewerSelector() {
   if (!activeViewerSelector) return;
@@ -503,14 +504,13 @@ function toggleViewerSelector() {
   });
 }
 
-// A dead entry is purged and reported, never silently skipped — unlike cycling
-// there is no "next" candidate the user asked for.
+// A dead entry is purged and reported, never silently skipped — the user picked
+// this entry, so there is no "next" candidate to fall through to.
 //
 // An md pick is an explicit gesture, so it gets the click path's ambiguity
 // treatment: a bare name with several same-named files surfaces the chooser
-// instead of silently opening the resolver's top choice (which is what the
-// chooser-less O/I cycle takes). Dismissing the chooser neither purges nor
-// toasts — the user saw the matches and declined.
+// instead of silently opening the resolver's top choice. Dismissing the chooser
+// neither purges nor toasts — the user saw the matches and declined.
 async function openViewerSelection(entry) {
   if (entry.kind === 'md') {
     const choice = await window.pty.resolveMarkdownChoices(entry.key);
@@ -532,18 +532,33 @@ async function openViewerSelection(entry) {
   showToast('Viewer target is gone', { variant: 'error' });
 }
 
-// Single entry point for every chord source (main window and webview guest):
-// selector toggles the overlay; back/forward dismisses it and cycles.
-function handleViewerHistoryAction(action) {
-  if (action === 'selector') { toggleViewerSelector(); return; }
-  closeViewerSelector();
-  queueViewerHistoryNavigation(action);
+// Whichever band is up — open or rolled up — since both size chords act on it.
+function bandOwningViewer() {
+  try { if (webViewer && webViewer.isOpen && webViewer.isOpen()) return webViewer; } catch {}
+  try { if (markdownViewer && markdownViewer.isOpen && markdownViewer.isOpen()) return markdownViewer; } catch {}
+  return null;
 }
 
-// Legacy channel remains for the existing e2e harness and older main bundles.
-window.pty.onOpenRecentViewerUrl(() => { queueViewerHistoryNavigation('back'); });
-if (typeof window.pty.onNavigateViewerHistory === 'function') {
-  window.pty.onNavigateViewerHistory((action) => { handleViewerHistoryAction(action); });
+// Size chords: Cmd/Ctrl+Shift+O steps the band up the ladder (handle → reading
+// height → full screen), ...+I steps it down. Each press is one step and the ends
+// clamp, so the chord can be held and tapped to run the band to either extreme.
+function stepViewerSize(delta) {
+  const viewer = bandOwningViewer();
+  if (!viewer) { showToast('No viewer open'); return; }
+  try { viewer.stepSize(delta); } catch {}
+}
+
+// Single entry point for every chord source (main window and webview guest).
+function handleViewerShortcut(action) {
+  if (action === 'selector') { toggleViewerSelector(); return; }
+  if (action === 'expand') { stepViewerSize(+1); return; }
+  if (action === 'shrink') { stepViewerSize(-1); return; }
+}
+
+// Open-the-most-recent channel: no chord sends it, but the e2e harness does.
+window.pty.onOpenRecentViewerUrl(() => { queueRecentViewerOpen(); });
+if (typeof window.pty.onViewerShortcut === 'function') {
+  window.pty.onViewerShortcut((action) => { handleViewerShortcut(action); });
 }
 
 // Auto-refresh: main re-rendered the open review (its package .md changed) →
@@ -3646,7 +3661,7 @@ function getMarkdownViewer() {
       },
       getSearchState: () => searchState,
       // Closing the md band clears it as the current viewer (launch/replace
-      // bookkeeping for the Ctrl+Shift+O cycle).
+      // bookkeeping for the recents list).
       onClose: () => {
         if (!suppressViewerEvict) clearViewerCache(); // user ✕ → forget the cache
       },
@@ -3668,7 +3683,7 @@ function getMarkdownViewer() {
 // when clicked in the terminal: .md in this viewer, .html in the web viewer,
 // anything else with the OS. No chooser on the way — the path was resolved
 // against the doc's own directory, so it is already absolute and unambiguous.
-// Recording it as a viewer entry makes Ctrl+Shift+O the way back to the doc you
+// Recording it as a viewer entry makes the selector the way back to the doc you
 // followed the link from.
 async function openMarkdownDocLink(filePath) {
   if (isMarkdownDocumentPath(filePath)) {

@@ -45,7 +45,7 @@ function ensureWebStyles() {
   document.head.appendChild(style);
 }
 
-function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onNavigateHistory, getTerminalGrid, getPreloadUrl, platform } = {}) {
+function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTerminalGrid, getPreloadUrl, platform } = {}) {
   let view = null;
   let backBtn = null;
   let fwdBtn = null;
@@ -193,9 +193,9 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onNavigateHistory
     // the page is on screen — never over a collapsed strip.
     view.addEventListener('ipc-message', (e) => {
       if (e.channel === 'rv-find' && band.isOpen()) openFind();
-      if (e.channel === 'viewer-history' && typeof onNavigateHistory === 'function') {
+      if (e.channel === 'viewer-shortcut' && typeof onShortcut === 'function') {
         const action = e.args && e.args[0];
-        if (action === 'back' || action === 'forward' || action === 'selector') onNavigateHistory(action);
+        if (action === 'selector' || action === 'expand' || action === 'shrink') onShortcut(action);
       }
     });
     // Each finished load on a Microsoft login host is checked for a device-compliance block.
@@ -351,6 +351,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onNavigateHistory
     hide: () => band.hide(),
     show: () => band.show(),
     toggle: () => band.toggle(),
+    stepSize: (delta) => band.stepSize(delta),
     // Open OR rolled-up (hidden) both mean this viewer owns the band — so mutual
     // exclusion (closeWebViewer / anyViewerOpen) still acts on a collapsed viewer
     // instead of leaving its handle stacked under the other viewer. Matches the md

@@ -235,7 +235,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
   }
 
   // The guest is a separate WebContents, so host-window shortcuts do not see
-  // keystrokes while the page has focus. Forward find and viewer-history keys.
+  // keystrokes while the page has focus. Forward find and viewer chords.
   function bindHostShortcuts() {
     document.addEventListener('keydown', function (e) {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
@@ -247,7 +247,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       if (!action) return;
       e.preventDefault();
       if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-      try { ipcRenderer.sendToHost('viewer-history', action); } catch {}
+      try { ipcRenderer.sendToHost('viewer-shortcut', action); } catch {}
     }, true);
   }
 

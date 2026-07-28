@@ -1626,8 +1626,8 @@ function createWindow() {
     showSessionsPicker();
   });
 
-  // DevTools accelerators. Cmd/Ctrl+Shift+I belongs to viewer-history forward;
-  // keep DevTools on F12 everywhere and the native Cmd+Opt+I chord on macOS.
+  // DevTools accelerators. Cmd/Ctrl+Shift+I shrinks the viewer band, so DevTools
+  // stays on F12 everywhere and on the native Cmd+Opt+I chord on macOS.
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     const k = input.key;
@@ -1637,13 +1637,13 @@ function createWindow() {
       try { mainWindow.webContents.toggleDevTools(); } catch {}
       return;
     }
-    // Cmd/Ctrl+Shift+O walks toward older viewer candidates; ...+I walks back
-    // toward newer ones; ...+U opens the filterable selector over the same
-    // list. The renderer merges scrollback and live extraction.
+    // Cmd/Ctrl+Shift+U opens the filterable selector over every viewer candidate
+    // (the renderer merges scrollback and live extraction); ...+I and ...+O step
+    // the open band down and up its size ladder.
     const viewerAction = getViewerShortcutAction(input, process.platform);
     if (viewerAction) {
       event.preventDefault();
-      try { mainWindow.webContents.send('navigate-viewer-history', viewerAction); } catch {}
+      try { mainWindow.webContents.send('viewer-shortcut', viewerAction); } catch {}
       return;
     }
     // Cmd/Ctrl+Shift+R (dev only): relaunch in place to pick up every edited
@@ -2504,9 +2504,9 @@ function isMarkdownFilePath(filePath) {
 // hard dependency via the renderer, and gives mtime+size in one portable call).
 // Silent-resolution face of resolveMarkdownChoices: the top choice, which is
 // also the first row an ambiguity chooser would show. Every md resolution —
-// viewer open, stat/refresh, history cycling — goes through the same discovery
-// and ordering, so a gesture that can't show a chooser (Ctrl+Shift+O/I mid-
-// cycle) still lands on the same file an explicit click would default to.
+// viewer open, stat/refresh, history resolution — goes through the same discovery
+// and ordering, so a gesture that can't show a chooser still lands on the same
+// file an explicit click would default to.
 async function resolveMarkdownPath(filePath) {
   const resolved = await resolveMarkdownChoices(filePath);
   if (!resolved) return null;
@@ -2901,7 +2901,7 @@ ipcMain.handle('review-package-exists', async (_event, packagePath) => {
   return r.code === 0;
 });
 
-// Existence check for file:// viewer candidates (Ctrl+Shift+O). Terminal
+// Existence check for file:// viewer candidates. Terminal
 // prose — an agent printing an example link — is lexically indistinguishable
 // from a printed real link; whether the file is on disk is the check prose
 // can't fake.
