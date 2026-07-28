@@ -5143,13 +5143,14 @@ function createMarkdownViewer({
     return line;
   }
 
-  // The fold lives in the gutter beside the group, not in a row of its own: a
-  // header row would cost a line to restate what you can already see, and a
-  // group with no control at all could never fold back. It rides the first row
-  // either way, so it never moves — it only flips.
-  function addResolvedFoldCaret(el, key, expanded) {
+  // The fold control, by state. Folded, the row itself is the control — one
+  // full-width target, no chrome — and its "+N more" already marks it as a
+  // fold rather than a thread. Expanded, the first row is a thread line whose
+  // click opens that thread, so folding back gets a gutter caret: the one
+  // place a second control fits without spending a line. The caret exists
+  // exactly when there is something to fold.
+  function addResolvedFoldControl(el, key, expanded) {
     if (!el) return;
-    el.classList.add('md-resolved-first');
     const toggle = (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -5157,23 +5158,21 @@ function createMarkdownViewer({
       else state.resolvedExpanded.add(key);
       layoutSpread();
     };
-    const caret = document.createElement('button');
-    caret.type = 'button';
-    caret.className = 'md-resolved-caret';
-    caret.textContent = expanded ? '▾' : '▸';
-    caret.title = expanded ? 'Fold resolved' : 'Show earlier resolved';
-    caret.addEventListener('mousedown', (event) => { event.preventDefault(); event.stopPropagation(); });
-    caret.addEventListener('click', toggle);
-    el.appendChild(caret);
-    // Folded, the whole row is the header, so clicking anywhere on it unfolds —
-    // the caret alone is a needle's-eye target and the row's hover already
-    // promises a click. Expanded, the first row is a thread line whose click
-    // opens that thread, so only the caret folds back.
     if (!expanded) {
       el.title = 'Show earlier resolved';
       el.addEventListener('mousedown', (event) => event.stopPropagation());
       el.addEventListener('click', toggle);
+      return;
     }
+    el.classList.add('md-resolved-first');
+    const caret = document.createElement('button');
+    caret.type = 'button';
+    caret.className = 'md-resolved-caret';
+    caret.textContent = '▾';
+    caret.title = 'Fold resolved';
+    caret.addEventListener('mousedown', (event) => { event.preventDefault(); event.stopPropagation(); });
+    caret.addEventListener('click', toggle);
+    el.appendChild(caret);
   }
 
   // One resolved thread, at rest behind the count: your opening ask and nothing
@@ -5320,10 +5319,11 @@ function createMarkdownViewer({
       : (waiting ? 'waiting' : 'needs-user')}`;
     card.addEventListener('mousedown', (event) => event.stopPropagation());
     card.addEventListener('dblclick', (event) => event.stopPropagation());
-    // A waiting card is the read-back state of its resting row, so its whole
-    // surface folds back on click. Guarded: buttons and the reply composer
-    // keep their clicks, and a text-selection drag is reading, not folding.
-    if (waiting) {
+    // A waiting or resolved card is the read-back state of its resting row, so
+    // its whole surface folds back on click. Guarded: buttons and the reply
+    // composer keep their clicks, and a text-selection drag is reading, not
+    // folding.
+    if (waiting || thread.status === 'resolved') {
       card.addEventListener('click', (event) => {
         if (event.target.closest && event.target.closest('button, .md-thread-reply')) return;
         const sel = window.getSelection && window.getSelection();
@@ -5339,8 +5339,8 @@ function createMarkdownViewer({
     // No title (the first message IS the title), no `read` pill (that state is
     // gone — only blocked-or-done can be acted on), and no fold control on a
     // needs-user card: it is blocking the agent, so folding it would hide the
-    // one thing that needs the user. Resolved cards fold via their block's
-    // count line; waiting cards fold on click (above).
+    // one thing that needs the user. Waiting and resolved cards fold on click
+    // (above).
     // The head exists only to carry a lost-anchor warning.
     if (lost) {
       const head = document.createElement('div');
@@ -5517,22 +5517,24 @@ function createMarkdownViewer({
         // One line per block for everything resolved. Unfolded, the threads
         // themselves render above their count, so the line also folds them back.
         for (const [key, { target, threads: group }] of resolvedByBlock) {
-          const expanded = state.resolvedExpanded.has(key);
+          // A lone resolved thread has no fold to manage: its row IS the
+          // thread line — click opens the card, the card folds on click.
+          const single = group.length === 1;
+          const expanded = single || state.resolvedExpanded.has(key);
           const put = (el) => {
             if (target) insertCommentFlowElementAfterTarget(target, el);
             else article.appendChild(el);
           };
           // Two levels, and expansion costs no extra row: folded is the newest
           // hook alone; unfolded is a line per thread (your opening ask), with
-          // the full card only for the one you open. The fold caret rides the
-          // first row's gutter, so it stays put and never spends a line.
+          // the full card only for the one you open.
           const rows = expanded
             ? group.map((thread) => (state.expandedThreads.has(thread.id)
               ? buildThreadCard(thread, !target)
               : buildResolvedThreadLine(thread)))
             : [buildResolvedFoldedRow(group)];
           for (const row of rows) row.classList.add('md-resolved-item');
-          addResolvedFoldCaret(rows[0], key, expanded);
+          if (!single) addResolvedFoldControl(rows[0], key, expanded);
           for (const row of rows) put(row);
         }
         resolvedByBlock.clear();
