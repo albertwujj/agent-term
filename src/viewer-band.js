@@ -243,6 +243,20 @@ function createViewerBand({
   let sizeMode = 'golden'; // open-height target: 'golden' (the major share) | 'full' (viewport)
   const fraction = SHARE_FRACTION[share] || SHARE_FRACTION.major;
 
+  // The band overlays the terminal, so its bottom edge is where visible terminal
+  // starts. Anything the host anchors to a terminal row (the type-to-comment
+  // pill, queued comment cards) has to re-check itself whenever that edge moves —
+  // announce it rather than have the host poll. Content-agnostic, like the rest
+  // of the band: listeners read the geometry off the DOM themselves.
+  function emitGeometryChange() {
+    // The document's own constructor, not the bare global: under jsdom the two
+    // are different realms and dispatchEvent rejects a foreign Event.
+    const { CustomEvent } = document.defaultView;
+    document.dispatchEvent(new CustomEvent('viewer-band-geometry', {
+      detail: { name, state },
+    }));
+  }
+
   function makeBtn(label, title, onClick) {
     const btn = document.createElement('button');
     btn.className = 'vb-btn';
@@ -336,6 +350,7 @@ function createViewerBand({
     shell.classList.remove('hidden');
     shell.classList.add('open');
     state = 'open';
+    emitGeometryChange();
   }
   // Roll up to just the bar handle, keeping content alive so showing is instant.
   function hide() {
@@ -346,6 +361,7 @@ function createViewerBand({
     shell.classList.remove('open');
     shell.classList.add('hidden');
     state = 'hidden';
+    emitGeometryChange();
     if (typeof onHide === 'function') onHide();
   }
   function show() {
@@ -354,6 +370,7 @@ function createViewerBand({
     shell.classList.remove('hidden');
     shell.classList.add('open');
     state = 'open';
+    emitGeometryChange();
     if (typeof onShow === 'function') onShow();
   }
   function toggle() {
@@ -382,7 +399,7 @@ function createViewerBand({
       e.stopPropagation();
       sizeMode = (sizeMode === 'full') ? 'golden' : 'full'; // toggle full <-> golden
       if (state === 'hidden') show();
-      else if (state === 'open') applyOpenSize();
+      else if (state === 'open') { applyOpenSize(); emitGeometryChange(); }
     });
   }
   // Full dismiss; the viewer's onClose frees content (GC the webview, etc.).
@@ -390,6 +407,7 @@ function createViewerBand({
     if (state === 'closed' || !shell) return;
     shell.classList.remove('open', 'hidden');
     state = 'closed';
+    emitGeometryChange();
     if (typeof onClose === 'function') onClose();
   }
   function isOpen() { return state === 'open'; }
@@ -425,6 +443,10 @@ function createViewerBand({
     if (!shell) return;
     if (state === 'open') applyOpenSize();
     else if (state === 'hidden') shell.style.setProperty('--vb-collapsed-h', collapsedHeight() + 'px');
+    else return;
+    // After the re-snap, not on the raw resize: the host's own resize listener
+    // runs first and would read the pre-snap edge.
+    emitGeometryChange();
   });
 
   const api = {

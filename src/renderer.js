@@ -1265,8 +1265,16 @@ function ensureTerminalCommentStyles() {
 
 function positionTerminalCommentBubble(bubble, anchorX, anchorY) {
   const margin = 14;
+  // The composer belongs to the terminal, so it opens below an open viewer band
+  // rather than under it — the band is an overlay, and a bubble tucked behind it
+  // is a bubble you can't type into. Capped so a full-screen band can't push it
+  // off the bottom; dragging is left alone, that's the user's own placement.
+  const minTop = Math.min(
+    Math.max(margin, getVisibleTerminalTop() + 6),
+    Math.max(margin, window.innerHeight - margin - 120),
+  );
   bubble.style.left = `${Math.max(margin, Math.min(anchorX, window.innerWidth - margin - 420))}px`;
-  bubble.style.top = `${Math.max(margin, anchorY + 18)}px`;
+  bubble.style.top = `${Math.max(minTop, anchorY + 18)}px`;
 
   requestAnimationFrame(() => {
     if (!bubble.isConnected) return;
@@ -1277,7 +1285,7 @@ function positionTerminalCommentBubble(bubble, anchorX, anchorY) {
       left = Math.max(margin, window.innerWidth - margin - rect.width);
     }
     if (rect.bottom > window.innerHeight - margin) {
-      top = Math.max(margin, anchorY - rect.height - 12);
+      top = Math.max(minTop, anchorY - rect.height - 12);
     }
     bubble.style.left = `${left}px`;
     bubble.style.top = `${top}px`;
@@ -1366,6 +1374,16 @@ function createTerminalSelectionHighlight(range, { ruler = false } = {}) {
   };
 }
 
+// A viewer band is an OVERLAY: the terminal keeps its full height behind it, so
+// a row under the band is still in the viewport while none of it is on screen.
+// The band's bottom edge (the bar, or the collapsed handle) is therefore where
+// visible terminal starts.
+function getVisibleTerminalTop() {
+  const band = document.querySelector('.vb-shell.open, .vb-shell.hidden');
+  if (!band) return 0;
+  return band.getBoundingClientRect().bottom;
+}
+
 function getTerminalRowTop(bufferRow) {
   if (!screenElement || !terminal || !terminal.buffer) return null;
   const viewportLine = bufferRow - terminal.buffer.active.viewportY;
@@ -1373,7 +1391,13 @@ function getTerminalRowTop(bufferRow) {
 
   const rect = screenElement.getBoundingClientRect();
   const rowHeight = rect.height / Math.max(1, terminal.rows);
-  return rect.top + viewportLine * rowHeight;
+  const top = rect.top + viewportLine * rowHeight;
+  // Covered by a viewer band counts as off-screen: everything anchored here (the
+  // type-to-comment pill, a queued card) sits above the band in z-order, so it
+  // would otherwise float over the viewer pointing at text nobody can see. The
+  // 1px slack absorbs the band's grid-snap rounding.
+  if (top < getVisibleTerminalTop() - 1) return null;
+  return top;
 }
 
 function positionQueuedTerminalCommentCard(comment) {
@@ -5484,6 +5508,31 @@ window.addEventListener('resize', () => {
       void runSearch(searchState.query);
     }, 200);
   }
+});
+
+// A viewer band opening, rolling up, or resizing sweeps its bottom edge across
+// terminal rows, so every overlay anchored to a row has to re-decide whether its
+// row is still on screen (getTerminalRowTop treats a covered row as off-screen).
+// Ride the band's height transition frame by frame instead of sampling once at
+// the class change: the edge is still animating then, so a single read would
+// strand the pill over the opening band and flash it back over the closing one.
+const VIEWER_BAND_TRANSITION_MS = 320; // the band's height transition, plus a beat
+let viewerBandFollowFrame = null;
+let viewerBandFollowUntil = 0;
+document.addEventListener('viewer-band-geometry', () => {
+  viewerBandFollowUntil = Date.now() + VIEWER_BAND_TRANSITION_MS;
+  if (viewerBandFollowFrame) return;
+  const step = () => {
+    updateQueuedTerminalCommentCards();
+    // Direct, not the debounced schedule: the debounce exists to keep the pill
+    // from flickering up mid-drag, and re-triggering it every frame would defer
+    // the pill until after the transition. Uncovering a live selection re-arms
+    // the pill here — covering it disarmed the snapshot, since a pill that can't
+    // be seen must not still own the next printable key.
+    showTerminalSelectionCommentHint();
+    viewerBandFollowFrame = Date.now() < viewerBandFollowUntil ? requestAnimationFrame(step) : null;
+  };
+  viewerBandFollowFrame = requestAnimationFrame(step);
 });
 
 // Start decoration loop

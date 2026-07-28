@@ -16,7 +16,7 @@
     "test:integration": "node test/integration.test.js",
     "test:remote-input-integration": "node test/remote-input-integration.test.js",
     "test:context": "node test/file-context.test.js",
-    "test:e2e": "npm run build && node test/e2e/freeze-focus.mjs && node test/e2e/capture-select-comment.mjs && node test/e2e/resume-hint-viewer-open.mjs && node test/e2e/image-attachment-click.mjs && node test/e2e/link-routing.mjs && node test/e2e/md-store-folder.mjs && node test/e2e/queued-comment-return.mjs && node test/e2e/freeze-keeps-comments.mjs && node test/e2e/click-vs-comment.mjs",
+    "test:e2e": "npm run build && node test/e2e/freeze-focus.mjs && node test/e2e/capture-select-comment.mjs && node test/e2e/resume-hint-viewer-open.mjs && node test/e2e/image-attachment-click.mjs && node test/e2e/link-routing.mjs && node test/e2e/md-store-folder.mjs && node test/e2e/queued-comment-return.mjs && node test/e2e/freeze-keeps-comments.mjs && node test/e2e/click-vs-comment.mjs && node test/e2e/viewer-covers-comment-pill.mjs",
     "test:all": "npm test && npm run test:context",
     "rebuild": "electron-rebuild -f -w node-pty",
     "pack": "npm run build && electron-builder --dir",
