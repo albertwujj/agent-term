@@ -666,7 +666,14 @@ const terminal = new Terminal({
     foreground: '#cccccc',
     cursor: '#cccccc',
     cursorAccent: '#0c0c0c',
-    selectionBackground: '#264f78',
+    // Matches TERMINAL_MARK_BG. xterm paints this the instant the selection
+    // changes and our own mark lands on the next frame, so the handover is
+    // invisible; it also fills the empty cells past the end of a row's text,
+    // which the DOM renderer builds no element for and a decoration therefore
+    // cannot reach. Inactive matches too — a selection does not dim just
+    // because focus moved to the composer that is commenting on it.
+    selectionBackground: '#26639f',
+    selectionInactiveBackground: '#26639f',
     black: '#0c0c0c',
     red: '#c50f1f',
     green: '#13a10e',
@@ -1322,46 +1329,68 @@ function makeBubbleDraggable(bubble, handle) {
   });
 }
 
-// Cell-exact highlight for a comment — one decoration per visual row, covering
-// just the selected cells (same mechanism as search highlights). The native
-// selection is cleared when the bubble opens, so this is what keeps "what am I
-// commenting on" visible while composing and on queued drafts.
+// The comment mark: the band that says "this is what the comment is about".
+//
+// It is painted by us rather than left to xterm's own selection colour, because
+// that colour cannot carry the mark over the one kind of output that has a
+// background of its own — a diff's added/removed rows. The WebGL renderer
+// (Windows) blends the selection into a cell that already has a background at
+// half strength, so a selection over a green diff row moves the pixels about a
+// quarter as far as over a plain row: the selection is real, the pill is armed,
+// and nothing looks selected. A decoration's backgroundColor replaces the
+// cell's own instead of blending with it, identically in both renderers and in
+// both buffers, so a diff row marks exactly as strongly as a plain one.
+//
+// Glyph colours are deliberately left alone: inside the band you can still read
+// which lines were added and which were removed.
+const TERMINAL_MARK_BG = '#26639f';
+
+// One decoration per visual row, covering just the marked cells (same mechanism
+// as search highlights).
+function paintTerminalMarkRow(row, startCol, endCol, { ruler = false } = {}) {
+  const buffer = terminal.buffer.active;
+  const marker = terminal.registerMarker(row - buffer.baseY - buffer.cursorY);
+  if (!marker) return null;
+  const decoration = terminal.registerDecoration({
+    marker,
+    x: startCol,
+    width: Math.max(1, endCol - startCol),
+    layer: 'top',
+    backgroundColor: TERMINAL_MARK_BG,
+    // A tick in the overview ruler, so the scrollbar maps where unsent work
+    // sits in the scrollback: the card itself hides once its row leaves the
+    // viewport, and a count alone cannot say where to look. First row only —
+    // a selection spanning several rows is one comment, not several.
+    ...(ruler
+      ? { overviewRulerOptions: { color: 'rgba(138, 180, 248, 0.9)', position: 'right' } }
+      : {}),
+  });
+  if (!decoration) {
+    marker.dispose();
+    return null;
+  }
+  // The decoration element carries no paint of its own now that the renderer
+  // colours the cells — it stays only as something to hang the class on, and
+  // must not sit between the mouse and the row it marks.
+  decoration.onRender((element) => {
+    element.classList.add('terminal-comment-mark');
+    element.style.pointerEvents = 'none';
+  });
+  return { marker, decoration };
+}
+
+// The mark for a settled selection: the native selection is cleared when the
+// bubble opens, so this is what keeps "what am I commenting on" visible while
+// composing and on queued drafts.
 function createTerminalSelectionHighlight(range, { ruler = false } = {}) {
   if (!range) return null;
-  const buffer = terminal.buffer.active;
   const endRow = getSelectionEndRow(range);
   const parts = [];
   for (let row = range.start.row; row <= endRow; row++) {
     const startCol = row === range.start.row ? range.start.column : 0;
     const endCol = row === endRow ? getSelectionEndColumn(range) : terminal.cols;
-    const marker = terminal.registerMarker(row - buffer.baseY - buffer.cursorY);
-    if (!marker) continue;
-    const decoration = terminal.registerDecoration({
-      marker,
-      x: startCol,
-      width: Math.max(1, endCol - startCol),
-      layer: 'top',
-      // A tick in the overview ruler, so the scrollbar maps where unsent work
-      // sits in the scrollback: the card itself hides once its row leaves the
-      // viewport, and a count alone cannot say where to look. First row only —
-      // a selection spanning several rows is one comment, not several.
-      ...(ruler && row === range.start.row
-        ? { overviewRulerOptions: { color: 'rgba(138, 180, 248, 0.9)', position: 'right' } }
-        : {}),
-    });
-    if (!decoration) {
-      marker.dispose();
-      continue;
-    }
-    decoration.onRender((element) => {
-      const viewportLine = marker.line - terminal.buffer.active.viewportY;
-      if (isAlternateBufferActive() && viewportLine >= 0 && viewportLine < terminal.rows) {
-        element.style.display = 'block';
-      }
-      element.style.backgroundColor = 'rgba(138, 180, 248, 0.3)';
-      element.style.pointerEvents = 'none';
-    });
-    parts.push({ marker, decoration });
+    const part = paintTerminalMarkRow(row, startCol, endCol, { ruler: ruler && row === range.start.row });
+    if (part) parts.push(part);
   }
   if (!parts.length) return null;
   return {
@@ -1372,6 +1401,67 @@ function createTerminalSelectionHighlight(range, { ruler = false } = {}) {
       }
     },
   };
+}
+
+// The same mark, tracking the live selection as it is dragged — so the band you
+// judge the selection by while dragging is the same band that survives into the
+// composer, and a drag over a diff hunk reads as clearly as one over plain text.
+const liveTerminalMarkRows = new Map(); // absolute buffer row -> { marker, decoration, startCol, endCol }
+let liveTerminalMarkSyncQueued = false;
+
+function disposeLiveTerminalMarkRow(row) {
+  const part = liveTerminalMarkRows.get(row);
+  if (!part) return;
+  part.decoration.dispose();
+  part.marker.dispose();
+  liveTerminalMarkRows.delete(row);
+}
+
+function syncLiveTerminalMark() {
+  const range = terminal.hasSelection()
+    ? normalizeTerminalSelectionRange(terminal.getSelectionPosition())
+    : null;
+  const wanted = new Map();
+  if (range) {
+    const buffer = terminal.buffer.active;
+    const endRow = getSelectionEndRow(range);
+    // Only what is on screen is painted: a drag down the scrollback can select
+    // thousands of rows, and a decoration for a row nobody can see costs the
+    // same as one you can. onScroll re-syncs, so rows are painted as they
+    // arrive.
+    const first = Math.max(range.start.row, buffer.viewportY);
+    const last = Math.min(endRow, buffer.viewportY + terminal.rows - 1);
+    for (let row = first; row <= last; row++) {
+      wanted.set(row, {
+        startCol: row === range.start.row ? range.start.column : 0,
+        endCol: row === endRow ? getSelectionEndColumn(range) : terminal.cols,
+      });
+    }
+  }
+  // Rows whose span is unchanged are kept: a drag only ever changes the row it
+  // is on, and re-registering every row on every mouse move would churn a
+  // decoration per row per frame for no visible difference.
+  for (const [row, part] of [...liveTerminalMarkRows]) {
+    const want = wanted.get(row);
+    if (want && want.startCol === part.startCol && want.endCol === part.endCol) {
+      wanted.delete(row);
+      continue;
+    }
+    disposeLiveTerminalMarkRow(row);
+  }
+  for (const [row, want] of wanted) {
+    const part = paintTerminalMarkRow(row, want.startCol, want.endCol);
+    if (part) liveTerminalMarkRows.set(row, { ...part, ...want });
+  }
+}
+
+function scheduleLiveTerminalMarkSync() {
+  if (liveTerminalMarkSyncQueued) return;
+  liveTerminalMarkSyncQueued = true;
+  requestAnimationFrame(() => {
+    liveTerminalMarkSyncQueued = false;
+    syncLiveTerminalMark();
+  });
 }
 
 // A viewer band is an OVERLAY: the terminal keeps its full height behind it, so
@@ -2360,6 +2450,7 @@ screenElement.addEventListener('mouseleave', () => {
 });
 
 terminal.onSelectionChange(() => {
+  scheduleLiveTerminalMarkSync();
   scheduleTerminalSelectionCommentHint();
 });
 // Esc resumes a frozen view (and abandons any in-progress comment) — the easy
@@ -5485,6 +5576,9 @@ terminal.onWriteParsed(() => {
 
 terminal.onScroll(() => {
   updateQueuedTerminalCommentCards();
+  // The live mark only paints the rows on screen, so scrolling is what brings
+  // the rest of a long selection into view.
+  scheduleLiveTerminalMarkSync();
   scheduleTerminalSelectionCommentHint();
   if (!isAlternateBufferActive()) return;
   altBufferDirty = true;

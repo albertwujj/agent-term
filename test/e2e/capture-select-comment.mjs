@@ -60,12 +60,12 @@ async function main() {
   });
   const pillShown = () => page.evaluate(() => !!document.querySelector('.terminal-comment-selection-hint'));
   const bubbleShown = () => page.evaluate(() => !!document.querySelector('.terminal-comment-bubble'));
-  // The stand-in highlight decoration (rgba .3 wash) only exists once the live
-  // selection is gone while the pill is armed — its presence proves the mouse
-  // report actually cleared the selection and the snapshot took over.
+  // The comment mark. While a selection is live it tracks the selection; once
+  // the mouse report clears the selection, the only thing that can still be
+  // painting it is the armed snapshot — so a mark on screen after the report
+  // proves the snapshot took over.
   const standInShown = () => page.evaluate(() => (
-    [...document.querySelectorAll('.xterm-decoration')]
-      .some((el) => (el.style.backgroundColor || '').includes('0.3'))
+    document.querySelectorAll('.terminal-comment-mark').length > 0
   ));
 
   try {
