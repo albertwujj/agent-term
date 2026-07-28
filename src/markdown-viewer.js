@@ -5150,20 +5150,30 @@ function createMarkdownViewer({
   function addResolvedFoldCaret(el, key, expanded) {
     if (!el) return;
     el.classList.add('md-resolved-first');
+    const toggle = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.resolvedExpanded.has(key)) state.resolvedExpanded.delete(key);
+      else state.resolvedExpanded.add(key);
+      layoutSpread();
+    };
     const caret = document.createElement('button');
     caret.type = 'button';
     caret.className = 'md-resolved-caret';
     caret.textContent = expanded ? '▾' : '▸';
     caret.title = expanded ? 'Fold resolved' : 'Show earlier resolved';
     caret.addEventListener('mousedown', (event) => { event.preventDefault(); event.stopPropagation(); });
-    caret.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (state.resolvedExpanded.has(key)) state.resolvedExpanded.delete(key);
-      else state.resolvedExpanded.add(key);
-      layoutSpread();
-    });
+    caret.addEventListener('click', toggle);
     el.appendChild(caret);
+    // Folded, the whole row is the header, so clicking anywhere on it unfolds —
+    // the caret alone is a needle's-eye target and the row's hover already
+    // promises a click. Expanded, the first row is a thread line whose click
+    // opens that thread, so only the caret folds back.
+    if (!expanded) {
+      el.title = 'Show earlier resolved';
+      el.addEventListener('mousedown', (event) => event.stopPropagation());
+      el.addEventListener('click', toggle);
+    }
   }
 
   // One resolved thread, at rest behind the count: your opening ask and nothing
