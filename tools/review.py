@@ -214,6 +214,21 @@ def highlight_line(text, state, lang):
     return out, state
 
 
+def prefix_states(text, lang):
+    """Highlighter state entering every line of a file: `states[n - 1]` is the
+    state line n starts in. A hunk whose first line sits inside a docstring or a
+    block comment only knows that from the lines above it."""
+    states, st = [None], None
+    for line in text.splitlines():
+        _, st = highlight_line(line, st, lang)
+        states.append(st)
+    return states
+
+
+def state_at(states, line_no):
+    return states[line_no - 1] if states and 1 <= line_no <= len(states) else None
+
+
 def toks_to_html(toks):
     buf, plain = [], []
     for cls, txt in toks:
@@ -244,16 +259,19 @@ def split_hunks(diff_text):
     return hunks
 
 
-def parse_hunk(hunk_text, lang):
+def parse_hunk(hunk_text, lang, seeds=None):
     """Return (header, [(kind, old_no, new_no, code_html), ...]).
     Tracks highlighter state separately for the old and new streams so multi-line
-    docstrings / block comments colour correctly on both sides."""
+    docstrings / block comments colour correctly on both sides. `seeds` is the
+    (old, new) output of `hunk_seeds`: the state each side carries into the
+    hunk's first line, so a hunk opening mid-docstring reads as prose."""
     lines = hunk_text.splitlines()
     header = lines[0]
     m = HUNK_RE.match(header)
     old_no = int(m.group(1)) if m else 0
     new_no = int(m.group(2)) if m else 0
-    st_old = st_new = None
+    st_old = state_at(seeds[0], old_no) if seeds else None
+    st_new = state_at(seeds[1], new_no) if seeds else None
     recs = []
     for line in lines[1:]:
         if line.startswith("\\"):
@@ -434,6 +452,13 @@ def file_versions(git, diff_args, repo, path):
     return old, new
 
 
+def hunk_seeds(git, diff_args, repo, path, lang):
+    """(old_states, new_states) for a file — per side, since a hunk can start
+    inside a comment on one side and outside it on the other."""
+    old_text, new_text = file_versions(git, diff_args, repo, path)
+    return prefix_states(old_text, lang), prefix_states(new_text, lang)
+
+
 # Word/tag-aware HTML diff (in-house htmldiff on stdlib difflib): diff the rendered
 # HTML at word granularity, wrapping changed TEXT runs in <ins>/<del> and emitting
 # element tags verbatim so the document structure is never broken.
@@ -561,10 +586,11 @@ def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
         return "\n".join(out)
 
     lang = lang_for(path)
+    seeds = hunk_seeds(git, diff_args, repo, path, lang)
     if lo and hi:
         all_recs = []
         for h in hunks:
-            _, recs = parse_hunk(h, lang)
+            _, recs = parse_hunk(h, lang, seeds)
             all_recs.extend(recs)
         recs = _recs_in_range(all_recs, lo, hi)
         if not recs:
@@ -575,7 +601,7 @@ def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
         out.append(f'<div class="diff">{render_split(f"{path} @ L{lo}-{hi}", recs)}</div>')
     else:
         for h in hunks:
-            header, recs = parse_hunk(h, lang)
+            header, recs = parse_hunk(h, lang, seeds)
             _index_recs(index, path, recs)
             out.append(f'<div class="diff">{render_split(header, recs)}</div>')
     out.append("</section>")
@@ -902,10 +928,11 @@ def build_page(git, diff_args, ann, commit_ref, strip_prefixes, title, slug, rep
             elif not hunks:
                 main.append('<div class="why muted">(no textual hunks)</div>')
             else:
+                seeds = hunk_seeds(git, diff_args, repo, p, lang)
                 for h in hunks:
                     for note in notes_for(h, spec.get("hunks", [])):
                         main.append(f'<div class="hunknote">{note}</div>')
-                    header, recs = parse_hunk(h, lang)
+                    header, recs = parse_hunk(h, lang, seeds)
                     fidx = index.setdefault(p, {"old": {}, "new": {}})
                     for kind, old, new, code in recs:
                         if kind == "meta":
