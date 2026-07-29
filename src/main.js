@@ -46,6 +46,7 @@ const {
   relaunchAndExit,
   relaunchPortableAndExit,
   resolveLatestRelaunchTarget,
+  spawnNewInstance,
 } = require('./relaunch');
 const { rebuildRuntimeBundles } = require('./runtime-build');
 const { StreamClient } = require('./stream/client');
@@ -1421,6 +1422,29 @@ function relaunchLatestAndExit() {
   }
 }
 
+// Cmd/Ctrl+Shift+N: a deliberate extra window. Resolves the same latest-code
+// target as the auto-relaunch path, but the current instance keeps running.
+function launchNewInstance() {
+  let target = { mode: 'electron', execPath: null };
+  if (app.isPackaged && process.platform === 'win32') {
+    try {
+      target = resolveLatestRelaunchTarget(process.execPath, {
+        version: app.getVersion(),
+      });
+    } catch (err) {
+      log('[new-instance] refusing old-code launch: ' + (err && err.message));
+      return;
+    }
+  }
+  try {
+    spawnNewInstance(process.argv, target.execPath || process.execPath, {
+      cwd: target.execPath ? path.dirname(target.execPath) : undefined,
+    });
+  } catch (err) {
+    log('[new-instance] launch failed: ' + (err && err.message));
+  }
+}
+
 function writeClosedSessionEvent() {
   if (sessionIndex === null || !activeFileWritten) return;
   const userDataDir = app.getPath('userData');
@@ -1644,6 +1668,14 @@ function createWindow() {
     if (viewerAction) {
       event.preventDefault();
       try { mainWindow.webContents.send('viewer-shortcut', viewerAction); } catch {}
+      return;
+    }
+    // Cmd/Ctrl+Shift+N: launch a fresh AgentTerm instance alongside this one.
+    // It opens on the sessions picker + launcher, like any fresh start.
+    const cmdShiftN = (input.control || input.meta) && input.shift && (k === 'N' || k === 'n');
+    if (cmdShiftN) {
+      event.preventDefault();
+      launchNewInstance();
       return;
     }
     // Cmd/Ctrl+Shift+R (dev only): relaunch in place to pick up every edited

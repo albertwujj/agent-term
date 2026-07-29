@@ -20,9 +20,11 @@ const path = require('path');
 const sessionsLog = require('./sessions-log');
 
 const MAX_VISIBLE = 10;
-// User-close auto-relaunch keeps a small pool of taskbar-visible AgentTerm
-// sessions. Hidden-but-running sessions do not satisfy this threshold.
-const MIN_VISIBLE_FOR_RELAUNCH = 3;
+// User-close auto-relaunch replaces only the last taskbar-visible AgentTerm
+// session, so closing the final window never leaves the user with nothing.
+// Hidden-but-running sessions do not satisfy this threshold. Additional
+// windows are opened deliberately via Cmd/Ctrl+Shift+N.
+const MIN_VISIBLE_FOR_RELAUNCH = 1;
 const WORKING_GRACE_MS = 5 * 60 * 1000;     // any window that worked in the last 5 min is "working", never evict
 const IDLE_CLOSE_MS = 4 * 60 * 60 * 1000;   // hidden + idle 4h → auto-close (Tier 2 → Tier 3)
 const ACTIVITY_REFRESH_MS = 30 * 1000;      // throttle: how often a window writes its activity timestamps

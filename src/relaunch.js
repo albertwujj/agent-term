@@ -91,6 +91,24 @@ function relaunchPortableAndExit(app, argv, execPath, dependencies = {}) {
   app.exit(0);
 }
 
+// Start a fresh AgentTerm alongside the running one (Cmd/Ctrl+Shift+N). The
+// child is a new launch, not a successor, so the relaunch marker is dropped
+// rather than added. Detached spawn keeps its lifetime independent of ours.
+function spawnNewInstance(argv, execPath, dependencies = {}) {
+  const spawnImpl = dependencies.spawn || spawn;
+  const options = {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  };
+  if (dependencies.cwd) options.cwd = dependencies.cwd;
+  const args = (Array.isArray(argv) ? argv : [])
+    .slice(1)
+    .filter((arg) => arg !== RELAUNCHED_ARG);
+  const child = spawnImpl(execPath, args, options);
+  child.unref();
+}
+
 module.exports = {
   INSTALLED_RELAUNCHER_PREFIX,
   RELAUNCHED_ARG,
@@ -99,4 +117,5 @@ module.exports = {
   relaunchAndExit,
   relaunchPortableAndExit,
   resolveLatestRelaunchTarget,
+  spawnNewInstance,
 };

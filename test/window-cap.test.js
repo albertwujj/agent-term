@@ -119,21 +119,18 @@ test('grace boundary: a session that worked exactly WORKING_GRACE_MS ago is stil
   assert.strictEqual(victim, 2);
 });
 
-test('relaunch threshold counts visible sessions, not hidden running sessions', () => {
-  assert.strictEqual(MIN_VISIBLE_FOR_RELAUNCH, 3);
+test('relaunch fires only when no visible session remains; hidden ones do not count', () => {
+  assert.strictEqual(MIN_VISIBLE_FOR_RELAUNCH, 1);
   const records = [
-    rec(1, {}),
-    rec(2, {}),
-    rec(3, { hiddenAt: NOW - 5 * 60_000 }),
+    rec(1, { hiddenAt: NOW - 5 * 60_000 }),
   ];
   assert.strictEqual(shouldRelaunchAfterUserClose(records), true);
 });
 
-test('relaunch threshold is satisfied by three visible sessions', () => {
+test('relaunch threshold is satisfied by a single visible session', () => {
   const records = [
     rec(1, {}),
-    rec(2, {}),
-    rec(3, {}),
+    rec(2, { hiddenAt: NOW - 5 * 60_000 }),
   ];
   assert.strictEqual(shouldRelaunchAfterUserClose(records), false);
 });

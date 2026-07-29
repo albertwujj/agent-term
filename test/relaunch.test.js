@@ -9,6 +9,7 @@ const {
   relaunchAndExit,
   relaunchPortableAndExit,
   resolveLatestRelaunchTarget,
+  spawnNewInstance,
 } = require('../src/relaunch');
 
 let testsPassed = 0, testsFailed = 0;
@@ -224,6 +225,47 @@ test('portable relaunch starts an independent outer wrapper then exits', () => {
     ['unref'],
     ['exit', 0],
   ]);
+});
+
+test('new-instance spawn is detached and carries no relaunch marker', () => {
+  const calls = [];
+  const fakeChild = { unref() { calls.push(['unref']); } };
+  const spawn = (execPath, args, options) => {
+    calls.push(['spawn', execPath, args, options]);
+    return fakeChild;
+  };
+
+  spawnNewInstance(
+    ['/path/to/electron', '/path/to/app', RELAUNCHED_ARG],
+    '/path/to/electron',
+    { spawn },
+  );
+
+  assert.deepStrictEqual(calls, [
+    ['spawn', '/path/to/electron', ['/path/to/app'], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    }],
+    ['unref'],
+  ]);
+});
+
+test('new-instance spawn pins cwd for packaged launcher targets', () => {
+  const calls = [];
+  const fakeChild = { unref() {} };
+  const spawn = (execPath, args, options) => {
+    calls.push([execPath, args, options.cwd]);
+    return fakeChild;
+  };
+
+  spawnNewInstance(
+    ['C:\\Temp\\extract\\AgentTerm.exe', RELAUNCHED_ARG],
+    'D:\\Tools\\AgentTerm.exe',
+    { spawn, cwd: 'D:\\Tools' },
+  );
+
+  assert.deepStrictEqual(calls, [['D:\\Tools\\AgentTerm.exe', [], 'D:\\Tools']]);
 });
 
 test('portable package uses a per-launch extraction directory', () => {
