@@ -2448,8 +2448,27 @@ screenElement.addEventListener('contextmenu', (event) => {
   cancelTerminalFreeze();
 }, true);
 
+// xterm fires onSelectionChange on mouse UP, never while the drag is in flight,
+// so the mark has to follow the drag itself. Without this, a growing selection
+// is painted by xterm's own colour alone — precisely what cannot carry it over a
+// cell with a background of its own, or under one of our span decorations, which
+// the DOM renderer lets suppress the selection paint. The band then looked like
+// it only arrived on release, and only over part of the row.
+//
+// Named at module scope, not closed over per press: re-adding the same listener
+// is a no-op, so a drag that never reports its mouseup (focus lost mid-drag)
+// leaves one dormant pair behind rather than one per press.
+const onTerminalDragMove = () => scheduleLiveTerminalMarkSync();
+const onTerminalDragEnd = () => {
+  document.removeEventListener('mousemove', onTerminalDragMove, true);
+  document.removeEventListener('mouseup', onTerminalDragEnd, true);
+  scheduleLiveTerminalMarkSync();
+};
+
 screenElement.addEventListener('mousedown', (event) => {
   handleShiftSelectionMouseDown(event);
+  document.addEventListener('mousemove', onTerminalDragMove, true);
+  document.addEventListener('mouseup', onTerminalDragEnd, true);
 }, true);
 
 // Mouse shortcuts: middle-click scrolls to end everywhere.

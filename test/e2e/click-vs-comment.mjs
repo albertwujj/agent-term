@@ -252,6 +252,29 @@ async function main() {
 
     // One printed line, a fresh word per gesture: re-selecting a range that is
     // already selected fires no selection-change, so the pill would not re-arm.
+    // The mark has to be there while the drag is still happening. xterm reports
+    // a selection change on mouse UP, and its own selection colour is the one
+    // thing that cannot paint a cell carrying its own background (a diff row),
+    // so a mark that waited for the event looked like it arrived on release.
+    console.log('the mark follows a drag over a row with a background of its own');
+    await runCmd("printf '\\033[48;2;19;56;19m%s\\033[0m\\n' '+ added telemetry to the resume path'");
+    await sleep(1200);
+    const markCount = () => page.evaluate(() => document.querySelectorAll('.terminal-comment-mark').length);
+    const dragFrom = await wordTarget('added telemetry', 'added');
+    const dragTo = await wordTarget('added telemetry', 'resume');
+    if (!dragFrom || !dragTo) throw new Error('no row carrying the coloured diff line');
+    await page.mouse.move(dragFrom.x, dragFrom.y);
+    await page.mouse.down();
+    await page.mouse.move(dragTo.x, dragTo.y, { steps: 6 });
+    await sleep(300); // the mark syncs on the next animation frame
+    check('the mark is painted while the button is still down', await markCount() > 0);
+    await page.mouse.up();
+    await sleep(400);
+    check('and it is still there after the release', await markCount() > 0);
+    await escape();
+    await sleep(200);
+    check('and gone once the selection is dismissed', await markCount() === 0);
+
     // Sending a comment is left for last — the message echoes the same words back
     // into the screen, which would confuse the row lookup.
     console.log('a double click on plain output selects a word and offers a comment');
