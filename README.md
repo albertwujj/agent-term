@@ -1,6 +1,6 @@
 # AgentTerm
 
-**Steer a fleet of coding agents**: integrated, open, and yours to reshape.
+**Steer a fleet of coding agents**: the terminal, extended to your OS and IDE.
 
 ![AgentTerm – filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
