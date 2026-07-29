@@ -8,16 +8,14 @@ const INSTALLED_RELAUNCHER_PREFIX = '.agent-term-launcher-';
 // Electron expects relaunch args without argv[0] (the executable). Always
 // remove inherited markers first, then add exactly one marker for the fresh
 // process. Both automatic and shortcut-driven relaunches use this path.
+// Nothing reads the marker at runtime; it exists so a successor is
+// identifiable in Task Manager's command line when debugging respawns.
 function buildRelaunchArgs(argv) {
   const args = (Array.isArray(argv) ? argv : [])
     .slice(1)
     .filter((arg) => arg !== RELAUNCHED_ARG);
   args.push(RELAUNCHED_ARG);
   return args;
-}
-
-function isRelaunched(argv) {
-  return Array.isArray(argv) && argv.includes(RELAUNCHED_ARG);
 }
 
 function escapeRegExp(text) {
@@ -113,7 +111,6 @@ module.exports = {
   INSTALLED_RELAUNCHER_PREFIX,
   RELAUNCHED_ARG,
   buildRelaunchArgs,
-  isRelaunched,
   relaunchAndExit,
   relaunchPortableAndExit,
   resolveLatestRelaunchTarget,

@@ -5,7 +5,6 @@ const {
   INSTALLED_RELAUNCHER_PREFIX,
   RELAUNCHED_ARG,
   buildRelaunchArgs,
-  isRelaunched,
   relaunchAndExit,
   relaunchPortableAndExit,
   resolveLatestRelaunchTarget,
@@ -73,11 +72,6 @@ test('relaunch stays bounded to one marker across generations', () => {
     argv = ['/path/to/electron', ...buildRelaunchArgs(argv)];
     assert.strictEqual(argv.filter((arg) => arg === RELAUNCHED_ARG).length, 1);
   }
-});
-
-test('relaunch detection uses the exact marker', () => {
-  assert.strictEqual(isRelaunched(['/path/to/app', RELAUNCHED_ARG]), true);
-  assert.strictEqual(isRelaunched(['/path/to/app', '--relaunched=later']), false);
 });
 
 test('installed relaunch routes through the stable latest-version selector', () => {

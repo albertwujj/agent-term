@@ -42,7 +42,6 @@ const windowCap = require('./window-cap');
 const cliIcons = require('./cli-icons');
 const { pickNextHue } = require('./hue-assign');
 const {
-  isRelaunched,
   relaunchAndExit,
   relaunchPortableAndExit,
   resolveLatestRelaunchTarget,
@@ -3978,9 +3977,8 @@ app.whenReady().then(async () => {
       });
       log('[dev] rebuilt every runtime bundle on startup');
     } catch (err) {
-      const kind = isRelaunched(process.argv) ? 'relaunch' : 'launch';
       log('[dev] runtime bundle rebuild FAILED:\n' + (err && err.message));
-      log(`[dev] aborting ${kind}; stale runtime bundles are never used.`);
+      log('[dev] aborting startup; stale runtime bundles are never used.');
       app.quit();
       return;
     }
