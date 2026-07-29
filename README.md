@@ -32,6 +32,8 @@ Paste images and drag-drop files straight into a prompt · fuzzy-search the whol
 ## Comment on its output
 Most of what an agent tells you scrolls past in the terminal. Select any of it (a line, a claim, a command it's about to run) and comment; your note goes back to the agent with the exact text quoted, so a few words are enough. (Works on the rendered markdown viewer too.)
 
+If your CLI captures the mouse (Claude Code's fullscreen rendering does), hold `Shift` while selecting; commenting works the same. To keep plain-drag selection, launch Claude Code with `CLAUDE_CODE_DISABLE_MOUSE=1`, or `CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1` to keep its wheel scrolling.
+
 ![select a phrase in the agent's output and say three words](assets/comment-select.png)
 
 …and what reaches the agent: your words, with the exact context quoted:
