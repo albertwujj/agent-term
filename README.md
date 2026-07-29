@@ -1,6 +1,6 @@
 # AgentTerm
 
-**Steer a fleet of coding agents**: act on everything they print, from your desk or your phone.
+**Steer a fleet of coding agents**: beyond the terminal, on surfaces you already know.
 
 ![AgentTerm – filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
