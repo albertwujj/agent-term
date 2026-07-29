@@ -1,6 +1,6 @@
 # AgentTerm
 
-**Steer a fleet of coding agents**: beyond the terminal, on surfaces you already know.
+**Steer a fleet of the coding agents you already run**: beyond the terminal, on surfaces you already know.
 
 ![AgentTerm – filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
