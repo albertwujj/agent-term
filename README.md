@@ -80,11 +80,19 @@ Each capability is a small, documented protocol, not a feature sealed in the app
 
 ## Install
 - **Windows:** download the installer (`AgentTerm-x.x.x-setup.exe`) from the [Releases page](https://github.com/albertwujj/agent-term/releases). Requires [WSL](https://learn.microsoft.com/en-us/windows/wsl/install); your agents run in it.
-- **macOS (from source):** `git clone https://github.com/albertwujj/agent-term && cd agent-term && npm install && npm run start`
+- **macOS (from source):** `git clone https://github.com/albertwujj/agent-term && cd agent-term && npm install && npm run start`. That first `npm run start` is the only one: from then on `Ctrl/Cmd+Shift+N` opens the next window, and closing the last window respawns a fresh one, so AgentTerm keeps itself running.
 
 These are the paths we run daily and verify with each release. If setup snags anywhere, ask your agent to fix it.
 - **IDE plugins (for click-to-IDE):** the two `intellij-navigator` zips are on the same [Releases page](https://github.com/albertwujj/agent-term/releases), with step-by-step install in the release notes.
 - **Phone/web viewer:** self-host [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) and add it to your home screen.
+
+## Shortcuts
+The few worth learning (`Ctrl` on Windows, `Cmd` on Mac):
+- `Ctrl/Cmd+Shift+N`: a new AgentTerm window, opening on the session picker.
+- `Ctrl/Cmd+F`: fuzzy-search the whole scrollback.
+- `Ctrl/Cmd+K`: insert your IDE's current location into the prompt.
+- `Ctrl/Cmd+Shift+U`: everything the session can open in a viewer (docs, images, URLs), as a filterable list.
+- `Ctrl/Cmd+Shift+O` / `+I`: grow / shrink the open viewer.
 
 ## Related repos
 - **[agent-term](https://github.com/albertwujj/agent-term)** (this repo): the terminal.
