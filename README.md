@@ -88,7 +88,7 @@ These are the paths we run daily and verify with each release. If setup snags an
 
 ## Shortcuts
 The few worth learning (`Ctrl` on Windows, `Cmd` on Mac):
-- `Ctrl/Cmd+Shift+N`: a new AgentTerm window, opening on the session picker.
+- `Ctrl/Cmd+Shift+N`: a new AgentTerm window, opening on the session picker. This is the only kind of new: every session is a whole OS window, and there are no tabs.
 - `Ctrl/Cmd+F`: fuzzy-search the whole scrollback.
 - `Ctrl/Cmd+K`: insert your IDE's current location into the prompt.
 - `Ctrl/Cmd+Shift+U`: everything the session can open in a viewer (docs, images, URLs), as a filterable list.
