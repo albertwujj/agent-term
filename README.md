@@ -1,6 +1,6 @@
 # AgentTerm
 
-**Steer a fleet of coding agents**: the terminal, extended to your OS and IDE.
+**Steer a fleet of coding agents**: act on everything they print, from your desk or your phone.
 
 ![AgentTerm – filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
