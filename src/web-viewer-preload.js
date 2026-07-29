@@ -304,12 +304,14 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
 
   // The send is a pointer at EVERY open thread (main recounts after the store
   // write), so the primary says what it flushes when that is more than this
-  // one — the md viewer's "Send all (n)" grammar. extraOpen is what THIS
-  // action adds to the open count: 1 for a new thread or a reply that reopens
-  // a resolved one, 0 for a reply on an already-open thread.
+  // one — the md viewer's "Send all (n)" grammar, and the same plain "Send":
+  // the button's contrast is with moving away (comment kept, agent not
+  // pinged), not with commenting. extraOpen is what THIS action adds to the
+  // open count: 1 for a new thread or a reply that reopens a resolved one,
+  // 0 for a reply on an already-open thread.
   function sendLabel(extraOpen) {
     const n = store.threads.filter(function (t) { return (t.status || 'open') === 'open'; }).length + extraOpen;
-    return n > 1 ? 'Comment & send all (' + n + ')' : 'Comment & send';
+    return n > 1 ? 'Send all (' + n + ')' : 'Send';
   }
 
   function openQuoteComposer(initialText) {
@@ -420,7 +422,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       store = res.data;
       if (onClose) onClose();
       renderAndTrack(false);
-      // "Comment & send" composes and pings the agent in one action.
+      // The Send primary composes and pings the agent in one action.
       if (alsoSend) sendThread('Comment sent to agent');
       else toast('Comment added');
     });
@@ -668,7 +670,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       : '';
     // Comment is the only action: the agent owns `resolved` (contract.md), so
     // there is no Resolve button to disagree with it — and no Reopen either,
-    // because a follow-up IS the reopen. "Comment & send" posts and pings.
+    // because a follow-up IS the reopen. The composer's Send posts and pings.
     div.innerHTML = badge + lost + moved + quote + msgs
       + '<div class="rv-thread-actions">'
       + '<button class="rv-link" data-act="comment">Comment</button>'
@@ -720,7 +722,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
         }
         store = res.data;
         renderAndTrack(false);
-        // "Comment & send" posts the follow-up and pings the agent in one action.
+        // The Send primary posts the follow-up and pings the agent in one action.
         if (alsoSend) sendThread('Comment sent to agent');
         else toast('Comment added');
       });

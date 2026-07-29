@@ -5560,7 +5560,7 @@ function createMarkdownViewer({
       onCancel: () => closeThreadReply(),
       onInput: () => autoGrowTextarea(composer.textarea),
       actions: [
-        { label: 'Cancel', onClick: () => closeThreadReply() },
+        { label: 'Discard', onClick: () => closeThreadReply() },
         { label: 'Send', primary: true, onClick: () => submitThreadReply(thread, composer) },
       ],
     });
