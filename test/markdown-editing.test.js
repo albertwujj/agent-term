@@ -525,6 +525,31 @@ async function run() {
   await sleep(10);
   check('an emptied draft leaves nothing behind',
     !primary().querySelector('.md-queued-comment-mark') && !document.querySelector('.md-comment-card textarea, textarea.cu-ta'));
+
+  // Escape backs out of a revisit (the comment survives as its mark);
+  // Discard deletes the comment — draft or queued original alike.
+  clickBlock('bold');
+  await sleep(5);
+  key({ key: 'k' });
+  await sleep(10);
+  document.querySelector('.md-comment-card textarea, textarea.cu-ta').value = 'delete me later';
+  clickBlock('Second paragraph'); // queue it
+  await sleep(10);
+  primary().querySelector('.md-queued-comment-mark').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await sleep(10);
+  key({ key: 'Escape' });
+  await sleep(10);
+  check('escape on a revisit restores the queued mark',
+    !!primary().querySelector('.md-queued-comment-mark') && !document.querySelector('.md-comment-card textarea, textarea.cu-ta'));
+  primary().querySelector('.md-queued-comment-mark').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await sleep(10);
+  const discardBtn = Array.from(document.querySelectorAll('.md-comment-card button'))
+    .find((b) => b.textContent === 'Discard');
+  check('the bubble offers Discard', !!discardBtn);
+  discardBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await sleep(10);
+  check('discard on a revisit deletes the queued comment',
+    !primary().querySelector('.md-queued-comment-mark') && !document.querySelector('.md-comment-card textarea, textarea.cu-ta'));
   clickBlock('Second paragraph'); // clear the lingering active target
   await sleep(10);
   key({ key: 'Escape' });

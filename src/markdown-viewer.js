@@ -5979,8 +5979,18 @@ function createMarkdownViewer({
     const card = document.createElement('div');
     card.className = 'md-comment-card';
 
+    // Two exits with different blast radius. Escape backs out of this SESSION:
+    // a revisit's original comment survives as its one-line mark. Discard
+    // destroys the COMMENT — the typed draft, and on a revisit the queued
+    // original too; it is also the only visible way to delete a queued
+    // comment. Same grammar as the edit strip: the button destroys, Escape
+    // retreats.
     const cancel = () => {
       closeActiveCard({ restoreQueuedDraft: queueMode });
+      clearActiveTarget();
+    };
+    const discard = () => {
+      closeActiveCard();
       clearActiveTarget();
     };
     // Enter always sends; queueing happens by moving to another paragraph. The
@@ -6001,7 +6011,7 @@ function createMarkdownViewer({
         fitActiveCommentCard();
       },
       actions: [
-        { label: 'Cancel', onClick: cancel },
+        { label: 'Discard', onClick: discard },
         { label: primaryLabel, primary: true, onClick: () => submitComment() },
       ],
     });
