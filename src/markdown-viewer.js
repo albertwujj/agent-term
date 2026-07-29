@@ -5435,7 +5435,6 @@ function createMarkdownViewer({
     for (const article of [state.article, state.secondaryArticle]) {
       if (!article) continue;
       for (const el of article.querySelectorAll(THREAD_FLOW_SELECTOR)) el.remove();
-      for (const el of article.querySelectorAll('.md-sealed-note')) el.remove();
       for (const el of article.querySelectorAll('.md-sealed')) el.classList.remove('md-sealed');
     }
     const store = state.threadStore;
@@ -5461,8 +5460,7 @@ function createMarkdownViewer({
               && decorateMergedIntoBlock(target, parsed.segments, 'sent')) {
               // Sealed: the block's own (grey) border is the whole signal — no
               // "awaiting agent" chip. Grey because a sent edit needs nothing from
-              // the user; amber is reserved for threads that do. A user note rides
-              // underneath as content.
+              // the user; amber is reserved for threads that do.
               target.classList.add('md-sealed');
               // Blocked on an edit: the block stays sealed (nothing was applied)
               // and the agent's question renders beneath it. The card skips the
@@ -5473,17 +5471,17 @@ function createMarkdownViewer({
                   buildOpenThreadElement(thread, false, { skipEnvelope: true }));
                 continue;
               }
-              // Awaiting the agent: the seal alone represents the edit; a note
-              // rides underneath as content. Pulse the seal while the agent works —
-              // the same "being worked on" cue a waiting comment gets, so edits and
-              // comments read consistently.
+              // Awaiting the agent: the seal alone represents the edit. A note is
+              // your words on a sent, waiting thread — the same situation as a
+              // waiting comment, so it rests as the same bordered row (click reads
+              // the thread back; the card folds again on click). The row and the
+              // seal pulse together while the agent works. Without a note the seal
+              // stands alone.
               target.classList.add('md-await-agent');
               const noteMsg = (thread.messages || []).find((m, i) => i > 0 && m.author === 'user');
               if (noteMsg) {
-                const noteRow = document.createElement('div');
-                noteRow.className = 'md-pending-diff-note md-sealed-note';
-                noteRow.textContent = noteMsg.body || '';
-                target.insertAdjacentElement('afterend', noteRow);
+                insertCommentFlowElementAfterTarget(target,
+                  buildOpenThreadElement(thread, false, { skipEnvelope: true }));
               }
               continue;
             }

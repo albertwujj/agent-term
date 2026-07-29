@@ -657,6 +657,22 @@ async function run() {
   await renderedEdit('Second paragraph', 'Second paragraph on a single source line only.');
   await renderedEdit('Heading', 'Heading Here');
 
+  // The single-line edit carries a note: open its strip via a mark, type, fold
+  // back. The note rides the batch as the thread's second message.
+  {
+    const p2 = () => Array.from(primary().querySelectorAll('p')).find((el) => el.textContent.includes('source line only'));
+    p2().querySelector('del.md-pending-del, ins.md-pending-ins')
+      .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(10);
+    const ta = primary().querySelector('.md-pending-strip:not(.sent) textarea');
+    ta.value = 'keep it to one line';
+    ta.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    await sleep(5);
+    p2().querySelector('del.md-pending-del, ins.md-pending-ins')
+      .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(10);
+  }
+
   key({ key: 'Enter', metaKey: true });
   await sleep(30);
   check('send never writes the document (an edit is a comment)', writes.length === 0, writes.length);
@@ -690,6 +706,26 @@ async function run() {
   check('a sealed block refuses in-place editing (roll back to change)', !editing());
   key({ key: 'Escape' });
   await sleep(5);
+
+  // --- the sealed edit's note is an annotation, not content: it rests as the
+  //     same bordered waiting row a sent comment gets, never as a bare line ---
+  {
+    const rowFor = () => Array.from(primary().querySelectorAll('.md-thread-waiting-line'))
+      .find((el) => el.textContent.includes('keep it to one line'));
+    check('the sealed edit\'s note rests as the bordered waiting row', !!rowFor());
+    check('no bare note line sits in the article flow',
+      Array.from(primary().querySelectorAll('.md-pending-diff-note'))
+        .every((el) => el.closest('.md-pending-diff')));
+    rowFor().dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(10);
+    const card = primary().querySelector('.md-thread-card.waiting');
+    check('clicking the row reads the thread back, envelope skipped (the seal shows it)',
+      !!card && card.textContent.includes('keep it to one line') && !card.textContent.includes('[Edit]'));
+    card.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(10);
+    check('clicking the card folds it back to the row',
+      !!rowFor() && !primary().querySelector('.md-thread-card.waiting'));
+  }
 
   // --- runbook preflight: cancel sends nothing; ack sends with the flag ---
   {
