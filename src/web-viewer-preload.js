@@ -14,9 +14,11 @@
 //
 // Divergence from the md viewer's thread layer, deferred to the planned
 // unification (review adopts the md model): there, a sent thread awaiting the
-// agent rests as a one-line row (click to open), and batch Send buttons count
-// what they flush ("Send all (n)"). This viewer has no unsent queue — comments
-// hit the store on submit — so neither maps cleanly; port both with the model.
+// agent rests as a one-line row (click to open). This viewer has no unsent
+// queue — comments hit the store on submit — so that doesn't map cleanly;
+// port it with the model. The send-count grammar IS shared already: the
+// primary counts the open threads its pointer will cover (sendLabel), and
+// the secondary is Discard — it destroys the typed draft, never just closes.
 
 const { ipcRenderer } = require('electron');
 const { normWS, nearestHeading, toast, createComposer, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
@@ -300,6 +302,16 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     activeComposer = null;
   }
 
+  // The send is a pointer at EVERY open thread (main recounts after the store
+  // write), so the primary says what it flushes when that is more than this
+  // one — the md viewer's "Send all (n)" grammar. extraOpen is what THIS
+  // action adds to the open count: 1 for a new thread or a reply that reopens
+  // a resolved one, 0 for a reply on an already-open thread.
+  function sendLabel(extraOpen) {
+    const n = store.threads.filter(function (t) { return (t.status || 'open') === 'open'; }).length + extraOpen;
+    return n > 1 ? 'Comment & send all (' + n + ')' : 'Comment & send';
+  }
+
   function openQuoteComposer(initialText) {
     if (!quoteSel) return;
     // Remove any prior composer + hide the chip, but KEEP the in-place highlight so
@@ -322,8 +334,8 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       seed: initialText || '',
       onCancel: closeQuoteComposer,
       actions: [
-        { label: 'Comment & send', primary: true, onClick: function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeQuoteComposer); } },
-        { label: 'Cancel', onClick: closeQuoteComposer },
+        { label: sendLabel(1), primary: true, onClick: function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeQuoteComposer); } },
+        { label: 'Discard', onClick: closeQuoteComposer },
       ],
     });
     panel.appendChild(c.root);
@@ -379,8 +391,8 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       placeholder: 'Comment on this line…',
       onCancel: closeComposer,
       actions: [
-        { label: 'Comment & send', primary: true, onClick: function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeComposer); } },
-        { label: 'Cancel', onClick: closeComposer },
+        { label: sendLabel(1), primary: true, onClick: function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeComposer); } },
+        { label: 'Discard', onClick: closeComposer },
       ],
     });
     td.appendChild(c.root);
@@ -672,13 +684,17 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     if (existing) { existing.querySelector('textarea').focus(); return; }
     const box = document.createElement('div');
     box.className = 'rv-replybox'; // mount: appended under the thread
+    // A follow-up on a non-open thread reopens it (main.js), so it adds one
+    // to the open count the send will point at.
+    const target = store.threads.find(function (x) { return x.id === threadId; });
+    const reopens = !target || (target.status || 'open') !== 'open';
     const c = createComposer({
       placeholder: 'Comment…',
       rows: 2,
       onCancel: function () { box.remove(); activeComposer = null; },
       actions: [
-        { label: 'Comment & send', primary: true, onClick: function (ctx) { activeComposer = null; sendReply(threadId, ctx.textarea, ctx.root, true); } },
-        { label: 'Cancel', onClick: function () { box.remove(); activeComposer = null; } },
+        { label: sendLabel(reopens ? 1 : 0), primary: true, onClick: function (ctx) { activeComposer = null; sendReply(threadId, ctx.textarea, ctx.root, true); } },
+        { label: 'Discard', onClick: function () { box.remove(); activeComposer = null; } },
       ],
     });
     box.appendChild(c.root);

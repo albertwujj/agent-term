@@ -2100,7 +2100,11 @@ function openTerminalCommentEditor({
   const bubble = document.createElement('div');
   bubble.className = 'terminal-comment-bubble';
 
+  // Two exits: Escape backs out of the session (a revisited queued comment
+  // survives as its mark); Discard destroys the comment — the typed draft,
+  // and on a revisit the queued original too. Same grammar as the md bubble.
   const cancel = () => closeTerminalComment({ restoreQueuedDraft: queueMode });
+  const discard = () => closeTerminalComment();
   // Enter always sends; queueing happens by moving away from the composer. So the
   // primary flushes everything — this comment plus anything already queued.
   const queuedCount = queuedTerminalComments.length;
@@ -2117,7 +2121,7 @@ function openTerminalCommentEditor({
     onCancel: cancel,
     onInput: () => updateTerminalCommentFooter(),
     actions: [
-      { label: 'Cancel', onClick: cancel },
+      { label: 'Discard', onClick: discard },
       { label: primaryLabel, primary: true, onClick: () => submit() },
     ],
   });
