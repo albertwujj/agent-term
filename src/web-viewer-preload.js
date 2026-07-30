@@ -668,14 +668,21 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     const badge = resolved
       ? '<button class="rv-badge rv-badge-btn" data-act="collapse" title="Collapse">resolved ▾</button>'
       : '';
-    // Comment is the only action: the agent owns `resolved` (contract.md), so
-    // there is no Resolve button to disagree with it — and no Reopen either,
-    // because a follow-up IS the reopen. The composer's Send posts and pings.
+    // Comment is a follow-up; the agent owns `resolved` (contract.md), so there
+    // is no Resolve button to disagree with it — and no Reopen either, because
+    // a follow-up IS the reopen. An OPEN thread also carries Send: moving away
+    // from a composer commits the comment to the store with no composer left,
+    // so the card itself must offer the ping — it fires the same pointer at
+    // every open thread that any composer's Send does.
+    const open = (t.status || 'open') === 'open';
     div.innerHTML = badge + lost + moved + quote + msgs
       + '<div class="rv-thread-actions">'
       + '<button class="rv-link" data-act="comment">Comment</button>'
+      + (open ? '<button class="rv-link" data-act="send">' + esc(sendLabel(0)) + '</button>' : '')
       + '</div>';
     div.querySelector('[data-act=comment]').onclick = function () { openReply(div, t.id); };
+    const sendBtn = div.querySelector('[data-act=send]');
+    if (sendBtn) sendBtn.onclick = function () { sendThread('Sent to agent'); };
     const collapseBtn = div.querySelector('[data-act=collapse]');
     if (collapseBtn) collapseBtn.onclick = function () { expandedSet.delete(t.id); renderAndTrack(false); };
     return div;
