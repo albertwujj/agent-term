@@ -3528,18 +3528,21 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
   const pkg = agentPath.replace(/-comments\.json$/i, '.md');
   // Pointer only — the comments store is the single source of truth, and the
   // agent must open it anyway to reply, so the prompt never repeats its content
-  // (the just-composed thread isn't special, merely last). The open-thread
-  // count makes the pending workload explicit; sends always follow the store
-  // write (and a user follow-up reopens its thread), so the count covers the
-  // comment that triggered the send.
+  // (the just-composed thread isn't special, merely last). No count either:
+  // the store keeps changing between this paste and the agent's read (an
+  // earlier send may get resolved first), so a number is stale on arrival and
+  // sends the agent hunting for threads that no longer exist. "The open
+  // threads" stays true for whatever the store holds at read time. The header
+  // still pluralizes by the count at paste time (its convention carries no
+  // number, so it can't mislead the same way).
   let n = 0;
   try { const s = await loadCommentStore(p); n = s.threads.filter((t) => (t.status || 'open') === 'open').length; }
   catch { n = 0; }
   const text = [
     commentHeader(`review://${pkg}`, n || 1),
-    `Read the ${n > 1 ? `${n} open threads` : 'open thread'} in ${agentPath} and address `
-      + `${n > 1 ? 'them' : 'it'} (reply inline by appending an {"author":"agent",...} message and `
-      + 'updating status, and edit code where needed; the open review refreshes on its own).',
+    `Read the open threads in ${agentPath} and address them (reply inline by appending an `
+      + '{"author":"agent",...} message and updating status, and edit code where needed; '
+      + 'the open review refreshes on its own).',
   ].join('\n');
   const ok = writeAsBracketedPasteSubmission(text);
   if (!ok) return { success: false, error: 'No active terminal process' };
@@ -3651,23 +3654,24 @@ ipcMain.handle('md-runbook-preflight', async (event, { docPath } = {}) => {
   return response === 0 ? { runbook: null, acked: true } : { canceled: true };
 });
 
-// The four-fact pointer: doc path, store path, open count, resolved runbook.
-// Content never rides along — the store is the single source of truth. The
-// lead line is picked from a fixed enum (the renderer never injects free
-// text into the prompt).
+// The three-fact pointer: doc path, store path, resolved runbook. Content
+// never rides along — the store is the single source of truth. No open count
+// either: the store keeps changing between paste and the agent's read, so a
+// number is stale on arrival; "the open threads" stays true for whatever the
+// store holds when the agent looks. The lead line is picked from a fixed enum
+// (the renderer never injects free text into the prompt).
 const MD_POINTER_LEADS = {
   comments: 'My comments on markdown document:',
   edits: 'My edits on markdown document:',
   mixed: 'My edits and comments on markdown document:',
 };
 
-function buildMdPointerText(doc, storePosix, runbook, n, batchKind) {
-  const threads = n > 1 ? `${n} open threads` : 'open thread';
+function buildMdPointerText(doc, storePosix, runbook, batchKind) {
   const addressLine = runbook
-    ? `Read the ${threads} in ${storePosix} and address ${n > 1 ? 'them' : 'it'} per ${runbook}.`
+    ? `Read the open threads in ${storePosix} and address them per ${runbook}.`
     // Explicit-ack send without the runbook (not found): no contract reference,
     // the agent addresses the threads on its own reading.
-    : `Read the ${threads} in ${storePosix} and address ${n > 1 ? 'them' : 'it'}.`;
+    : `Read the open threads in ${storePosix} and address them.`;
   return [
     MD_POINTER_LEADS[batchKind] || MD_POINTER_LEADS.comments,
     doc,
@@ -3676,18 +3680,14 @@ function buildMdPointerText(doc, storePosix, runbook, n, batchKind) {
   ].join('\n');
 }
 
-function pasteMdPointer(doc, storePosix, runbook, n, batchKind) {
-  const ok = writeAsBracketedPasteSubmission(buildMdPointerText(doc, storePosix, runbook, n, batchKind));
+function pasteMdPointer(doc, storePosix, runbook, batchKind) {
+  const ok = writeAsBracketedPasteSubmission(buildMdPointerText(doc, storePosix, runbook, batchKind));
   if (!ok) return false;
   pendingResumeIntercept = false;
   lastInputTime = Date.now();
   lastTypingTime = 0;
   lastInputByte = '';
   return true;
-}
-
-function countOpenThreads(store) {
-  return store.threads.filter((t) => (t.status || 'open') === 'open').length;
 }
 
 // One user send-batch of md comments: tick the store's turn clock, append one
@@ -3737,7 +3737,7 @@ ipcMain.handle('md-add-threads', async (event, { docPath, threads, batchKind, al
         });
       }
       await saveCommentStore(p, store);
-      if (!pasteMdPointer(doc, storePosix, runbook, countOpenThreads(store), batchKind)) {
+      if (!pasteMdPointer(doc, storePosix, runbook, batchKind)) {
         return { success: false, error: 'No active terminal process' };
       }
       return { success: true, data: store };
@@ -3799,7 +3799,7 @@ ipcMain.handle('md-add-message', async (event, { docPath, threadId, body, allowM
       t.messages.push({ author: 'user', body: text, ts: Date.now(), turn: store.turn });
       if (t.status !== 'open') t.status = 'open';
       await saveCommentStore(p, store);
-      if (!pasteMdPointer(doc, storePosix, runbook, countOpenThreads(store))) {
+      if (!pasteMdPointer(doc, storePosix, runbook)) {
         return { success: false, error: 'No active terminal process' };
       }
       return { success: true, data: store };
