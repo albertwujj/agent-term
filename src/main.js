@@ -2441,7 +2441,10 @@ async function getWSLCwd() {
 // match as a whole suffix (-path '*/src/foo.js'); a bare filename matches by
 // -name. Bulky trees are pruned so the sweep returns within its timeout, and a
 // timed-out find still yields the hits it printed before the kill.
-const CLICK_SEARCH_PRUNE = String.raw`\( -name node_modules -o -name .git -o -name .cache -o -name .npm -o -name Library \) -prune -o`;
+// .git is pruned by content, not by name: discussion docs live at
+// .git/discussion/<topic>.md by convention and must stay clickable, while the
+// rest of .git (objects, refs, the review runtime) stays out of every search.
+const CLICK_SEARCH_PRUNE = String.raw`\( -name node_modules -o -name .cache -o -name .npm -o -name Library -o \( -path '*/.git/*' ! -path '*/.git/discussion' ! -path '*/.git/discussion/*' \) \) -prune -o`;
 const CLICK_SEARCH_MAX_CHOICES = 8;
 // The markdown chooser filters as you type, so it can present a longer list of
 // same-named files than the fixed Alt-click chooser (where 8 is all that fits).
@@ -2455,7 +2458,7 @@ const MARKDOWN_SWEEP_PY = `
 import os, sys, time
 cwd, root, name = sys.argv[1], sys.argv[2], sys.argv[3]
 budget, cap = float(sys.argv[4]), int(sys.argv[5])
-prune = {"node_modules", ".git", ".cache", ".npm", "Library"}
+prune = {"node_modules", ".cache", ".npm", "Library"}
 hits = []
 def sweep(top, skip, deadline):
     for dirpath, dirnames, filenames in os.walk(top):
@@ -2463,6 +2466,9 @@ def sweep(top, skip, deadline):
             return
         if skip is not None and os.path.normpath(dirpath) == skip:
             dirnames[:] = []
+            continue
+        if os.path.basename(dirpath) == ".git":
+            dirnames[:] = [d for d in dirnames if d == "discussion"]
             continue
         dirnames[:] = [d for d in dirnames if d not in prune]
         if name in filenames:
@@ -2560,8 +2566,9 @@ function markdownSiblingRoot(cwd) {
 // than once in the tree returns { choices } so the renderer can show a picker —
 // plain clicks used to silently take the first `find` hit. Absolute / ~ paths
 // name one file; a path with separators is specific enough to resolve directly.
-// Scope is the repo (cwd) tree plus its sibling folders (node_modules/.git/etc.
-// pruned); the everywhere sweep stays reserved for the explicit Alt-click gesture.
+// Scope is the repo (cwd) tree plus its sibling folders (node_modules etc.
+// pruned; .git contributes only .git/discussion); the everywhere sweep stays
+// reserved for the explicit Alt-click gesture.
 async function resolveMarkdownChoices(filePath) {
   if (filePath.startsWith('/')) {
     return (await posixSh(`test -f ${shellEscape(filePath)}`)).code === 0 ? { path: filePath } : null;
