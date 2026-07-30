@@ -2609,11 +2609,20 @@ async function resolveMarkdownChoices(filePath) {
   return hits.length === 1 ? { path: hits[0] } : { choices: hits };
 }
 
+// The review runtime lives at <git-common-dir>/review (a `.git` path component
+// followed by `review`); its packages render through the review:// flow, never
+// the md viewer. Exact component match: `.git-review/` or a plain `review/`
+// directory outside .git must stay openable.
+const REVIEW_RUNTIME_PATH = /\/\.git\/review\//;
+
 async function statMarkdownFilePath(filePath) {
   if (!isMarkdownFilePath(filePath)) return { success: false, error: 'Not a markdown file' };
   const resolved = await resolveMarkdownPath(filePath);
   if (!resolved) return { success: false, error: 'File not found' };
   if (!isMarkdownFilePath(resolved)) return { success: false, error: 'Not a markdown file' };
+  if (REVIEW_RUNTIME_PATH.test(resolved)) {
+    return { success: false, error: 'Review package: opens via the review:// flow' };
+  }
   const r = await posixSh(
     `python3 -c 'import os,sys; s=os.stat(sys.argv[1]); print(int(s.st_mtime*1000), s.st_size)' ${shellEscape(resolved)}`);
   if (r.code !== 0) return { success: false, error: 'File not found' };
