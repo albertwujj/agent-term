@@ -187,6 +187,12 @@ function ensureBandStyles() {
         color-mix(in srgb, var(--vb-edge) 1%, transparent) 80%,
         transparent 100%);
     }
+    /* Snap — hide/show is a mode switch (terminal ⇄ terminal+viewer), so it lands
+       instantly, like a tab change; the class is on for only a couple of frames
+       around the state flip. golden↔full resizes stay animated (they reshape a
+       surface the eye is already on, where continuity helps). */
+    .vb-shell.vb-snap, .vb-shell.vb-snap *,
+    body:has(.vb-shell.vb-snap) #terminal { transition: none !important; }
     /* Refresh flash — a viewer pulses the band (shell glow + bar/title flash) to
        signal it just reloaded / re-rendered. Simple viewers call flash(); md drives
        .vb-refreshed itself as a pulse-until-its-new-content-lands. Animates against
@@ -344,6 +350,16 @@ function createViewerBand({
     shell.style.setProperty('--vb-open-h', height + 'px');
   }
 
+  // Run a state flip with transitions off (see .vb-snap). Two frames before
+  // re-arming: the first paints the snapped state, the second guarantees the
+  // transition styles return only after that paint.
+  function snap(change) {
+    shell.classList.add('vb-snap');
+    change();
+    const raf = window.requestAnimationFrame || ((cb) => setTimeout(cb, 16));
+    raf(() => raf(() => { if (shell) shell.classList.remove('vb-snap'); }));
+  }
+
   function open() {
     mount();
     applyOpenSize();
@@ -356,19 +372,23 @@ function createViewerBand({
   function hide() {
     if (state !== 'open') return;
     sizeMode = 'golden'; // collapsing resets to the reading size; double-click for full again
-    shell.classList.remove('vb-full');
-    shell.style.setProperty('--vb-collapsed-h', collapsedHeight() + 'px');
-    shell.classList.remove('open');
-    shell.classList.add('hidden');
+    snap(() => {
+      shell.classList.remove('vb-full');
+      shell.style.setProperty('--vb-collapsed-h', collapsedHeight() + 'px');
+      shell.classList.remove('open');
+      shell.classList.add('hidden');
+    });
     state = 'hidden';
     emitGeometryChange();
     if (typeof onHide === 'function') onHide();
   }
   function show() {
     if (state !== 'hidden') return;
-    applyOpenSize();
-    shell.classList.remove('hidden');
-    shell.classList.add('open');
+    snap(() => {
+      applyOpenSize();
+      shell.classList.remove('hidden');
+      shell.classList.add('open');
+    });
     state = 'open';
     emitGeometryChange();
     if (typeof onShow === 'function') onShow();
