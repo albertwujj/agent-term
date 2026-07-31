@@ -2561,14 +2561,25 @@ function markdownSiblingRoot(cwd) {
   return parent;
 }
 
+// When the repo and its siblings miss, sweep home. The OS route
+// (resolveClickedPath) has always finished with a home sweep, and an .md click
+// no longer falls through to it — so the md resolution must reach at least as
+// far on its own, or a doc elsewhere under home reads as not found. Skipped
+// when the sibling root already is home: that tree was just swept.
+async function markdownHomeSweep(root, rel) {
+  const home = (await posixSh('printf %s "$HOME"')).stdout.trim();
+  if (!home || home === root) return [];
+  return (await searchClickedPath(home, rel, 10000)).filter(isMarkdownFilePath);
+}
+
 // Resolve a clicked markdown path to either one file or a list of same-named
 // candidates under the shell cwd. A bare filename (README.md) that occurs more
 // than once in the tree returns { choices } so the renderer can show a picker —
 // plain clicks used to silently take the first `find` hit. Absolute / ~ paths
 // name one file; a path with separators is specific enough to resolve directly.
-// Scope is the repo (cwd) tree plus its sibling folders (node_modules etc.
-// pruned; .git contributes only .git/discussion); the everywhere sweep stays
-// reserved for the explicit Alt-click gesture.
+// Scope is the repo (cwd) tree plus its sibling folders, then home when those
+// miss (node_modules etc. pruned; .git contributes only .git/discussion); the
+// show-every-candidate sweep stays reserved for the explicit Alt-click gesture.
 async function resolveMarkdownChoices(filePath) {
   if (filePath.startsWith('/')) {
     return (await posixSh(`test -f ${shellEscape(filePath)}`)).code === 0 ? { path: filePath } : null;
@@ -2592,7 +2603,9 @@ async function resolveMarkdownChoices(filePath) {
     const hit = (await posixSh(
       `find ${shellEscape(root)} ${CLICK_SEARCH_PRUNE} -path ${shellEscape('*/' + rel)} -print 2>/dev/null | head -1`,
       { timeout: 10000 })).stdout.trim();
-    return hit ? { path: hit } : null;
+    if (hit) return { path: hit };
+    const homeHit = (await markdownHomeSweep(root, rel))[0];
+    return homeHit ? { path: homeHit } : null;
   }
   // A bare filename: list every same-named file so duplicates surface a picker.
   // The walk is two-phase with ordering built in: the repo (cwd) tree is swept
@@ -2605,7 +2618,11 @@ async function resolveMarkdownChoices(filePath) {
     `python3 -c ${shellEscape(MARKDOWN_SWEEP_PY)} ${shellEscape(cwd)} ${shellEscape(root)} ${shellEscape(rel)} ${MARKDOWN_SIBLING_BUDGET_S} ${MARKDOWN_CHOICE_MAX}`,
     { timeout: 10000 }))
     .stdout.split('\n').map((l) => l.trim()).filter(Boolean);
-  if (hits.length === 0) return null;
+  if (hits.length === 0) {
+    const homeHits = await markdownHomeSweep(root, rel);
+    if (homeHits.length === 0) return null;
+    return homeHits.length === 1 ? { path: homeHits[0] } : { choices: homeHits };
+  }
   return hits.length === 1 ? { path: hits[0] } : { choices: hits };
 }
 
