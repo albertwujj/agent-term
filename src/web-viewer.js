@@ -195,7 +195,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
       if (e.channel === 'rv-find' && band.isOpen()) openFind();
       if (e.channel === 'viewer-shortcut' && typeof onShortcut === 'function') {
         const action = e.args && e.args[0];
-        if (action === 'selector' || action === 'expand' || action === 'shrink') onShortcut(action);
+        if (action === 'selector' || action === 'toggle' || action === 'size') onShortcut(action);
       }
     });
     // Each finished load on a Microsoft login host is checked for a device-compliance block.
@@ -351,7 +351,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     hide: () => band.hide(),
     show: () => band.show(),
     toggle: () => band.toggle(),
-    stepSize: (delta) => band.stepSize(delta),
+    toggleFullSize: () => band.toggleFullSize(),
     // Open OR rolled-up (hidden) both mean this viewer owns the band — so mutual
     // exclusion (closeWebViewer / anyViewerOpen) still acts on a collapsed viewer
     // instead of leaving its handle stacked under the other viewer. Matches the md

@@ -1661,8 +1661,8 @@ function createWindow() {
       return;
     }
     // Cmd/Ctrl+Shift+U opens the filterable selector over every viewer candidate
-    // (the renderer merges scrollback and live extraction); ...+I and ...+O step
-    // the open band down and up its size ladder.
+    // (the renderer merges scrollback and live extraction); ...+O toggles the
+    // band shown/hidden, ...+I toggles its open size golden⇄full.
     const viewerAction = getViewerShortcutAction(input, process.platform);
     if (viewerAction) {
       event.preventDefault();

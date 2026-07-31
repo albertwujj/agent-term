@@ -397,29 +397,16 @@ function createViewerBand({
     if (state === 'open') hide();
     else if (state === 'hidden') show();
   }
-  // Land the band on a named size, from wherever it is now. 'collapsed' is the
-  // bar handle; the other two are open heights.
+  // Land the band on an open size ('golden' | 'full'), from open or the handle.
   function applySize(name) {
-    if (name === 'collapsed') { hide(); return; }
     sizeMode = name === 'full' ? 'full' : 'golden';
     if (state === 'hidden') show();          // show() applies the size it was just given
     else { applyOpenSize(); emitGeometryChange(); }
   }
-
-  // The size ladder, smallest first — what the host's two size chords walk. A step
-  // CLAMPS at each end instead of wrapping, so holding the modifier and tapping
-  // runs the band to full (or down to the handle) and leaves it there.
-  const SIZE_LADDER = ['collapsed', 'golden', 'full'];
-  function sizeIndex() {
-    if (state === 'hidden') return 0;
-    return sizeMode === 'full' ? 2 : 1;
-  }
-  function stepSize(delta) {
-    if (state === 'closed' || !shell) return;
-    const next = Math.min(SIZE_LADDER.length - 1, Math.max(0, sizeIndex() + delta));
-    applySize(SIZE_LADDER[next]);
-  }
-  // The bar's double-click: straight to full and straight back, skipping the ladder.
+  // The bar's double-click and the size chord: golden⇄full while open; from the
+  // hidden handle it reveals at full (hide() reset sizeMode to golden), so each
+  // open size is one press away from the handle — toggle() gives golden, this
+  // gives full.
   function toggleFullSize() {
     if (state === 'closed' || !shell) return;
     applySize(state === 'open' && sizeMode === 'full' ? 'golden' : 'full');
@@ -496,7 +483,7 @@ function createViewerBand({
   });
 
   const api = {
-    mount, open, hide, show, toggle, stepSize, toggleFullSize, close, isOpen, isHidden,
+    mount, open, hide, show, toggle, toggleFullSize, close, isOpen, isHidden,
     setTitle, makeBtn, flash,
     get shell() { return shell; },
     get bar() { return bar; },

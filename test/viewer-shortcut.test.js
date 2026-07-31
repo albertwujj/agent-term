@@ -72,20 +72,20 @@ test('Cmd+Shift+U opens the selector with DOM modifier fields on macOS', () => {
   );
 });
 
-test('Ctrl+Shift+O expands the band on Linux', () => {
+test('Ctrl+Shift+O toggles the band on Linux', () => {
   assertEqual(
     getViewerShortcutAction(
       createDomInput({ key: 'O', ctrlKey: true, shiftKey: true }),
       'linux'
     ),
-    'expand'
+    'toggle'
   );
 });
 
-test('Cmd+Shift+O expands the band on macOS', () => {
+test('Cmd+Shift+O toggles the band on macOS', () => {
   assertEqual(
     getViewerShortcutAction(createElectronInput({ key: 'o', meta: true, shift: true }), 'darwin'),
-    'expand'
+    'toggle'
   );
 });
 
@@ -99,7 +99,7 @@ test('Alt conflicts with the selector shortcut', () => {
   );
 });
 
-test('Alt conflicts with the expand shortcut through DOM fields', () => {
+test('Alt conflicts with the toggle shortcut through DOM fields', () => {
   assertEqual(
     getViewerShortcutAction(
       createDomInput({ key: 'o', ctrlKey: true, shiftKey: true, altKey: true }),
@@ -133,7 +133,7 @@ test('Ctrl remains a supported alias on macOS', () => {
 test('Cmd remains a supported alias on Windows', () => {
   assertEqual(
     getViewerShortcutAction(createElectronInput({ key: 'o', meta: true, shift: true }), 'win32'),
-    'expand'
+    'toggle'
   );
 });
 
@@ -147,27 +147,27 @@ test('mixed Ctrl and Cmd modifiers conflict', () => {
   );
 });
 
-test('Ctrl+Shift+I shrinks the band on Windows', () => {
+test('Ctrl+Shift+I toggles full size on Windows', () => {
   assertEqual(
     getViewerShortcutAction(
       createElectronInput({ key: 'i', control: true, shift: true }),
       'win32'
     ),
-    'shrink'
+    'size'
   );
 });
 
-test('Cmd+Shift+I shrinks with DOM modifier fields on macOS', () => {
+test('Cmd+Shift+I toggles full size with DOM modifier fields on macOS', () => {
   assertEqual(
     getViewerShortcutAction(
       createDomInput({ key: 'I', metaKey: true, shiftKey: true }),
       'darwin'
     ),
-    'shrink'
+    'size'
   );
 });
 
-test('Alt conflicts with the shrink shortcut', () => {
+test('Alt conflicts with the size shortcut', () => {
   assertEqual(
     getViewerShortcutAction(
       createDomInput({ key: 'i', ctrlKey: true, shiftKey: true, altKey: true }),

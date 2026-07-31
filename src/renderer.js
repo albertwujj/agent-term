@@ -539,20 +539,27 @@ function bandOwningViewer() {
   return null;
 }
 
-// Size chords: Cmd/Ctrl+Shift+O steps the band up the ladder (handle → reading
-// height → full screen), ...+I steps it down. Each press is one step and the ends
-// clamp, so the chord can be held and tapped to run the band to either extreme.
-function stepViewerSize(delta) {
+// Band chords: Cmd/Ctrl+Shift+O toggles the band shown/hidden (the bar tap),
+// ...+I toggles the open size golden⇄full (the bar double-click; from hidden it
+// reveals at full). Either chord with no viewer at all opens the selector, so
+// the whole cluster gets you a viewer from nothing.
+function toggleViewerVisibility() {
   const viewer = bandOwningViewer();
-  if (!viewer) { showToast('No viewer open'); return; }
-  try { viewer.stepSize(delta); } catch {}
+  if (!viewer) { toggleViewerSelector(); return; }
+  try { viewer.toggle(); } catch {}
+}
+
+function toggleViewerFullSize() {
+  const viewer = bandOwningViewer();
+  if (!viewer) { toggleViewerSelector(); return; }
+  try { viewer.toggleFullSize(); } catch {}
 }
 
 // Single entry point for every chord source (main window and webview guest).
 function handleViewerShortcut(action) {
   if (action === 'selector') { toggleViewerSelector(); return; }
-  if (action === 'expand') { stepViewerSize(+1); return; }
-  if (action === 'shrink') { stepViewerSize(-1); return; }
+  if (action === 'toggle') { toggleViewerVisibility(); return; }
+  if (action === 'size') { toggleViewerFullSize(); return; }
 }
 
 // Open-the-most-recent channel: no chord sends it, but the e2e harness does.

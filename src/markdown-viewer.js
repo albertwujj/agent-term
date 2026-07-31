@@ -6325,7 +6325,8 @@ function createMarkdownViewer({
     open,
     openSearch,
     runSearch,
-    stepSize: (delta) => band.stepSize(delta),
+    toggle: () => band.toggle(),
+    toggleFullSize: () => band.toggleFullSize(),
   };
 }
 

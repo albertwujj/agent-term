@@ -47,38 +47,31 @@ assert.ok(shell.classList.contains('open'));
 assert.ok(!shell.classList.contains('vb-full'));
 assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
 
-// The size ladder the host's two chords walk: collapsed handle / golden / full.
-// A step clamps at each end, so a held-and-tapped chord runs the band out to an
-// extreme and stays there.
-band.stepSize(+1);
-assert.ok(shell.classList.contains('vb-full'), 'a step up from golden is full');
-band.stepSize(+1);
-assert.ok(shell.classList.contains('vb-full'), 'stepping up again stays at full');
+// The size chord (and the bar's double-click): golden⇄full while open; from the
+// hidden handle it reveals at full — so toggle() gives the reading split and
+// toggleFullSize() gives the full screen, each one press from the handle.
+band.toggleFullSize();
+assert.ok(shell.classList.contains('vb-full'), 'size toggle from golden is full');
 assert.ok(shell.classList.contains('open'));
 
-band.stepSize(-1);
-assert.ok(!shell.classList.contains('vb-full'), 'a step down from full is golden');
+band.toggleFullSize();
+assert.ok(!shell.classList.contains('vb-full'), 'size toggle from full is golden');
 assert.ok(shell.classList.contains('open'));
 assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
 
-band.stepSize(-1);
-assert.ok(shell.classList.contains('hidden'), 'a step down from golden is the handle');
-band.stepSize(-1);
-assert.ok(shell.classList.contains('hidden'), 'stepping down again stays on the handle');
-
-band.stepSize(+1);
-assert.ok(shell.classList.contains('open'), 'a step up from the handle reopens');
+band.toggle();
+assert.ok(shell.classList.contains('hidden'), 'toggle from open is the handle');
+band.toggle();
+assert.ok(shell.classList.contains('open'), 'toggle from the handle reopens');
 assert.ok(!shell.classList.contains('vb-full'), 'at the golden reading height');
 assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
 
-// Two taps from the handle reach full, which is what holding the chord does.
-band.stepSize(-1);
-band.stepSize(+1);
-band.stepSize(+1);
+band.hide();
+band.toggleFullSize();
 assert.ok(shell.classList.contains('open') && shell.classList.contains('vb-full'),
-  'handle -> golden -> full in two steps');
+  'size toggle from the handle reveals at full');
 
-// The bar's double-click still jumps straight between full and golden.
+// The bar's double-click drives the same golden⇄full toggle.
 doubleClickBar();
 assert.ok(!shell.classList.contains('vb-full'));
 assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);

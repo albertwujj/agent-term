@@ -22,15 +22,17 @@ function getViewerShortcutAction(input, _platform) {
   const hasPrimaryModifier = control !== meta;
 
   if (!hasPrimaryModifier) return null;
-  // The U/I/O cluster, left to right: U picks the viewer, then I and O step it
-  // down and up the size ladder (bar handle / reading height / full screen). The
-  // steps clamp at each end, so holding the modifier and tapping O runs the band
-  // out to full and leaves it there.
-  // (I and O once held a back / forward history cycle; the selector reaches any
-  // entry directly, so the cycle retired.)
+  // The U/I/O cluster: U picks the viewer, O toggles it shown/hidden (the
+  // everyday tab switch, same as the bar tap), I toggles the open size
+  // golden⇄full (same as the bar double-click; from hidden it reveals at full,
+  // so each open size is one press from the handle). O and I with no viewer at
+  // all fall through to the selector.
+  // (I and O once stepped a collapsed/golden/full size ladder, and before that
+  // held a back / forward history cycle; hide/show became a one-press mode
+  // switch, so the ladder retired.)
   if (key === 'u') return 'selector';
-  if (key === 'i') return 'shrink';
-  if (key === 'o') return 'expand';
+  if (key === 'i') return 'size';
+  if (key === 'o') return 'toggle';
   return null;
 }
 
