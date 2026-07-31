@@ -4013,9 +4013,10 @@ async function navigateToFileLine(filePath, line, column, { copyResponse = false
   if (!copyResponse && isMarkdownDocumentPath(navigablePath)) {
     // A bare name (README.md) can match several files in the tree. Offer a
     // picker instead of silently opening the first `find` hit; a single match
-    // resolves straight through, and a miss leaves the path for the viewer to
-    // report. Alt-click has already picked an absolute path by here, so this
-    // just confirms it.
+    // resolves straight through. A miss is final: the viewer's read would just
+    // re-run the same sweep, so report it now, in the html branch's words.
+    // Alt-click has already picked an absolute path by here, so this just
+    // confirms it.
     const choice = await window.pty.resolveMarkdownChoices(navigablePath);
     if (choice && Array.isArray(choice.choices)) {
       const picked = await showPathChooser(choice.choices);
@@ -4023,6 +4024,9 @@ async function navigateToFileLine(filePath, line, column, { copyResponse = false
       navigablePath = picked;
     } else if (choice && choice.path) {
       navigablePath = choice.path;
+    } else {
+      showToast(`Couldn't locate ${navigablePath}`);
+      return;
     }
     if (searchState.isOpen) closeSearchBar({ restoreFocus: false });
     const opened = await getMarkdownViewer().open({
