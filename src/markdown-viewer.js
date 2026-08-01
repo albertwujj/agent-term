@@ -1119,6 +1119,7 @@ function createMarkdownViewer({
     threadPollInFlight: false,
     threadRenderPending: false,
     threadReply: null,
+    resumeFullPending: false, // a full-size send receded to golden; resume full when the agent's turn ends
     resolvedExpanded: new Set(), // block anchorIds whose resolved history is unfolded to lines
     expandedThreads: new Set(), // thread ids opened from a resolved/waiting line into a full card
     editing: null, // open block-editor session
@@ -2016,6 +2017,7 @@ function createMarkdownViewer({
       // A store update can answer a sealed edit, releasing a refresh that was
       // held waiting on it — apply it now so the resolve lands in one step.
       if (!applyPendingMarkdownRefreshIfReady()) scheduleThreadLayerRender();
+      maybeResumeFullSize();
     } catch {} finally {
       state.threadPollInFlight = false;
     }
@@ -3639,6 +3641,7 @@ function createMarkdownViewer({
     state.threadStore = null;
     state.threadStoreSig = '';
     state.threadRenderPending = false;
+    state.resumeFullPending = false;
     state.resolvedExpanded = new Set();
     state.editing = null;
     state.blockOverlays = new Map();
@@ -4941,10 +4944,15 @@ function createMarkdownViewer({
         // Sending hands the turn to the agent. At full size that leaves the user
         // blind to the pickup, so recede to the golden split: the terminal slides
         // into view underneath (the receipt) while the doc keeps the major share,
-        // where the replies land. The return stays manual (I / bar double-click):
-        // PTY quiet can't tell a finished turn from a permission prompt awaiting
-        // an answer, so no auto-expand rides the working heuristics.
-        if (band.isFull()) band.toggleFullSize();
+        // where the replies land. The user chose full mode, so the recede arms a
+        // resume: when the store says the agent's turn is over (no thread awaits
+        // it — see maybeResumeFullSize), full size comes back. The store is the
+        // one true done signal; PTY quiet can't tell a finished turn from a
+        // permission prompt, so no auto-expand rides the working heuristics.
+        if (band.isFull()) {
+          band.toggleFullSize();
+          state.resumeFullPending = true;
+        }
       }
       state.blockOverlays = new Map();
       state.expandedHunkKey = null;
@@ -5129,6 +5137,31 @@ function createMarkdownViewer({
     if (thread.status === 'resolved') return false;
     const msgs = Array.isArray(thread.messages) ? thread.messages : [];
     return msgs.length > 0 && msgs[msgs.length - 1].author === 'agent';
+  }
+
+  // The agent's doc-side turn is over when no thread still awaits it: each one
+  // is resolved, or bounced back to the user (an open thread the agent spoke
+  // last on). Strict all-resolved would deadlock on a pre-existing open thread
+  // already handed back, and would keep golden when the agent's last act is a
+  // question — which lives in the doc, exactly where full size puts it.
+  function agentTurnOverInStore() {
+    const threads = (state.threadStore && Array.isArray(state.threadStore.threads))
+      ? state.threadStore.threads : [];
+    return threads.length > 0
+      && threads.every((t) => isThreadResolved(t) || threadNeedsUser(t));
+  }
+
+  // The resume armed by a full-size send (sendEditBatch): the user chose full
+  // mode, the send only borrowed the screen for the terminal receipt, so when
+  // the store says the agent is done the doc takes the stage back. One-shot at
+  // the moment the store turns: if the user has meanwhile taken the layout into
+  // their own hands (band hidden by terminal typing or Esc, or already resized),
+  // the moment passes and nothing moves — their hand wins over the restoration.
+  function maybeResumeFullSize() {
+    if (!state.resumeFullPending || !agentTurnOverInStore()) return;
+    state.resumeFullPending = false;
+    if (!band.isOpen() || band.isFull()) return;
+    band.toggleFullSize();
   }
 
   // All of a block's resolved threads, as one line: a count and nothing else.
@@ -5735,6 +5768,7 @@ function createMarkdownViewer({
     state.threadStore = null;
     state.threadStoreSig = '';
     state.threadRenderPending = false;
+    state.resumeFullPending = false;
     state.resolvedExpanded = new Set();
     state.editing = null;
     state.blockOverlays = new Map();
