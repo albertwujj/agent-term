@@ -236,6 +236,11 @@ function openUrlFromTerminal(url, source, external, { recordHistory = true } = {
   if (!external) {
     try {
       if (getWebViewer().open(url)) {
+        // The band now shows this page, not a review — stop the review auto-refresh
+        // poll (it survives a same-band navigation, since only close fires onClose).
+        // A leaked poll would keep firing review-rerendered, whose handler reloads
+        // whatever the band currently shows — i.e. this page.
+        try { window.pty.reviewViewerClosed && window.pty.reviewViewerClosed(); } catch {}
         closeMarkdownViewer();
         if (recordHistory) recordViewer('url', url);
         return true;

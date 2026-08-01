@@ -3922,6 +3922,28 @@ app.on('login', (event, webContents, request, authInfo) => {
 // Runs from whenReady — session.fromPartition needs the app ready.
 function normalizeViewerContentType() {
   const viewerSession = session.fromPartition('persist:webviewer');
+  // Request side: stop advertising application/xhtml+xml on document loads, so Gerrit
+  // never negotiates it in the first place. The response-side rewrite below only sees
+  // network responses — the HTTP cache stores the ORIGIN's headers, and a later cache
+  // hit / 304 revalidation (whose response carries no Content-Type) resurfaces the
+  // original application/xhtml+xml, XML-parsing the page into raw source. Killing the
+  // advertisement keeps a poisoned entry from ever being written.
+  viewerSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    const isDoc = details.resourceType === 'mainFrame' || details.resourceType === 'subFrame';
+    const headers = details.requestHeaders || {};
+    if (isDoc) {
+      for (const name of Object.keys(headers)) {
+        if (name.toLowerCase() !== 'accept') continue;
+        const v = headers[name];
+        if (typeof v === 'string' && /application\/xhtml\+xml/i.test(v)) {
+          headers[name] = v.split(',')
+            .filter((part) => !/^\s*application\/xhtml\+xml\b/i.test(part))
+            .join(',');
+        }
+      }
+    }
+    callback({ requestHeaders: headers });
+  });
   viewerSession.webRequest.onHeadersReceived((details, callback) => {
     const isDoc = details.resourceType === 'mainFrame' || details.resourceType === 'subFrame';
     const headers = details.responseHeaders || {};

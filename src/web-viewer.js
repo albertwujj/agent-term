@@ -151,7 +151,11 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     if (navReady) return;
     backBtn = band.makeBtn('◀', 'Back', () => { try { view && view.goBack(); } catch {} });
     fwdBtn = band.makeBtn('▶', 'Forward', () => { try { view && view.goForward(); } catch {} });
-    const reloadBtn = band.makeBtn('⟳', 'Reload', () => { try { view && view.reload(); } catch {} });
+    // Hard reload: the user reaches for ⟳ when the page looks wrong, and the wrongness can
+    // live in the partition's disk cache (e.g. a Gerrit index cached under its original
+    // application/xhtml+xml content-type — see normalizeViewerContentType in main.js). A
+    // cache-bypassing refetch replaces the poisoned entry while cookies (the login) survive.
+    const reloadBtn = band.makeBtn('⟳', 'Reload', () => { try { view && view.reloadIgnoringCache(); } catch {} });
     copyBtn = band.makeBtn('⧉', 'Copy URL', copyUrl);
     band.barLeft.append(backBtn, fwdBtn, reloadBtn, copyBtn);
     try { band.bar.addEventListener('contextmenu', (e) => { e.preventDefault(); copyUrl(); }); } catch {}
@@ -321,7 +325,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
   // policy as the md viewer (pendingRefreshResult waits out an open card) and
   // the terminal (output freezes while commenting). Every composer exit is a
   // user action (click-away commits the draft), so nothing is ever dropped.
-  // The band's manual ⟳ stays an immediate view.reload(): explicit user action.
+  // The band's manual ⟳ stays immediate (and cache-bypassing): explicit user action.
   // On any check failure, fall through to reloading — never hold forever.
   const GUEST_COMPOSING_CHECK =
     "!!document.querySelector('.rv-quote-compose, .rv-compose-row, .rv-replybox')";
