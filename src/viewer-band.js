@@ -411,6 +411,7 @@ function createViewerBand({
     if (state === 'closed' || !shell) return;
     applySize(state === 'open' && sizeMode === 'full' ? 'golden' : 'full');
   }
+  function isFull() { return state === 'open' && sizeMode === 'full'; }
 
   // Bar gestures: a single TAP rolls up / restores (the everyday toggle, same in golden
   // or full); a DOUBLE-CLICK toggles full ↔ golden — so from full you drop to golden to
@@ -483,7 +484,7 @@ function createViewerBand({
   });
 
   const api = {
-    mount, open, hide, show, toggle, toggleFullSize, close, isOpen, isHidden,
+    mount, open, hide, show, toggle, toggleFullSize, close, isOpen, isHidden, isFull,
     setTitle, makeBtn, flash,
     get shell() { return shell; },
     get bar() { return bar; },

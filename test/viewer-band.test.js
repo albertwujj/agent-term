@@ -53,11 +53,13 @@ assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
 band.toggleFullSize();
 assert.ok(shell.classList.contains('vb-full'), 'size toggle from golden is full');
 assert.ok(shell.classList.contains('open'));
+assert.ok(band.isFull(), 'isFull reports the open-at-full state');
 
 band.toggleFullSize();
 assert.ok(!shell.classList.contains('vb-full'), 'size toggle from full is golden');
 assert.ok(shell.classList.contains('open'));
 assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
+assert.ok(!band.isFull(), 'golden is not full');
 
 band.toggle();
 assert.ok(shell.classList.contains('hidden'), 'toggle from open is the handle');
@@ -67,6 +69,7 @@ assert.ok(!shell.classList.contains('vb-full'), 'at the golden reading height');
 assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
 
 band.hide();
+assert.ok(!band.isFull(), 'the handle is not full even before the size reset lands');
 band.toggleFullSize();
 assert.ok(shell.classList.contains('open') && shell.classList.contains('vb-full'),
   'size toggle from the handle reveals at full');

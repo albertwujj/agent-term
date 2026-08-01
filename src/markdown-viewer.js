@@ -4938,6 +4938,13 @@ function createMarkdownViewer({
         const result = await submitMarkdownThreads({ docPath: doc, threads, batchKind, allowMissingRunbook });
         if (!result || !result.success) throw new Error((result && result.error) || 'Could not send the batch');
         adoptThreadStore(result.data);
+        // Sending hands the turn to the agent. At full size that leaves the user
+        // blind to the pickup, so recede to the golden split: the terminal slides
+        // into view underneath (the receipt) while the doc keeps the major share,
+        // where the replies land. The return stays manual (I / bar double-click):
+        // PTY quiet can't tell a finished turn from a permission prompt awaiting
+        // an answer, so no auto-expand rides the working heuristics.
+        if (band.isFull()) band.toggleFullSize();
       }
       state.blockOverlays = new Map();
       state.expandedHunkKey = null;
