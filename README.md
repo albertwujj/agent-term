@@ -97,7 +97,7 @@ The few worth learning (`Ctrl` on Windows, `Cmd` on Mac):
 - `Ctrl/Cmd+K`: insert your IDE's current location into the prompt.
 
 ## Related repos
-- **[agent-term](https://github.com/albertwujj/agent-term)** (this repo): the terminal.
+- **[agent-term](https://github.com/albertwujj/agent-term)** (this repo): the host that extends the terminal.
 - **[agent-stream-hub](https://github.com/albertwujj/agent-stream-hub)**: the phone/web viewer + relay.
 - **[intellij-navigator](https://github.com/albertwujj/intellij-navigator)**: JetBrains plugins (file/symbol nav + the read-only guard).
 
