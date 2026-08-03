@@ -231,6 +231,7 @@ function createViewerBand({
   share = 'major',
   bg = null,
   minHeight = 280,
+  defaultSize = 'golden', // 'golden' | 'full' — the open size a fresh reveal lands on
   closeTitle = 'Close',
   escToHide = true,   // false → the viewer drives Esc itself (e.g. md cancels an
                       // open comment card first, then hides via its own handler)
@@ -246,7 +247,8 @@ function createViewerBand({
   let content = null;
   let titleEl = null;
   let state = 'closed'; // 'closed' | 'hidden' | 'open'
-  let sizeMode = 'golden'; // open-height target: 'golden' (the major share) | 'full' (viewport)
+  const restSize = defaultSize === 'full' ? 'full' : 'golden';
+  let sizeMode = restSize; // open-height target: 'golden' (the major share) | 'full' (viewport)
   const fraction = SHARE_FRACTION[share] || SHARE_FRACTION.major;
 
   // The band overlays the terminal, so its bottom edge is where visible terminal
@@ -324,7 +326,7 @@ function createViewerBand({
     return Math.round(grid.top + rows * cell - shellTop);
   }
   function collapsedHeight() { return gridSnapHeight(26, 1); }
-  // The golden major share (the default open size).
+  // The golden major share (the split-view reading size).
   function goldenHeight() {
     const vh = window.innerHeight || 800;
     const shellTop = shell ? shell.getBoundingClientRect().top : 0;
@@ -371,7 +373,7 @@ function createViewerBand({
   // Roll up to just the bar handle, keeping content alive so showing is instant.
   function hide() {
     if (state !== 'open') return;
-    sizeMode = 'golden'; // collapsing resets to the reading size; double-click for full again
+    sizeMode = restSize; // collapsing resets to the band's default size
     snap(() => {
       shell.classList.remove('vb-full');
       shell.style.setProperty('--vb-collapsed-h', collapsedHeight() + 'px');
@@ -404,9 +406,8 @@ function createViewerBand({
     else { applyOpenSize(); emitGeometryChange(); }
   }
   // The bar's double-click and the size chord: golden⇄full while open; from the
-  // hidden handle it reveals at full (hide() reset sizeMode to golden), so each
-  // open size is one press away from the handle — toggle() gives golden, this
-  // gives full.
+  // hidden handle it reveals at full — so toggle() reveals at the band's default
+  // size and this always lands full, whatever the default.
   function toggleFullSize() {
     if (state === 'closed' || !shell) return;
     applySize(state === 'open' && sizeMode === 'full' ? 'golden' : 'full');
@@ -439,6 +440,7 @@ function createViewerBand({
   // Full dismiss; the viewer's onClose frees content (GC the webview, etc.).
   function close() {
     if (state === 'closed' || !shell) return;
+    sizeMode = restSize; // the next open is a fresh reveal, at the default size
     shell.classList.remove('open', 'hidden');
     state = 'closed';
     emitGeometryChange();

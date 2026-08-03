@@ -97,4 +97,25 @@ modal.remove();
 pressEsc();
 assert.ok(shell.classList.contains('hidden'), 'Esc hides the band once the modal is gone');
 
+// defaultSize: 'full' — a fresh reveal lands full-screen (the md band's mode:
+// opening a doc puts it on stage). Golden stays reachable by the size toggle,
+// and hide/show returns to full, the band's rest size.
+const fullBand = createViewerBand({ name: 'fulltest', defaultSize: 'full', escToHide: false });
+fullBand.open();
+assert.ok(fullBand.isFull(), 'a full-default band opens at full');
+
+fullBand.toggleFullSize();
+assert.ok(!fullBand.isFull(), 'size toggle still drops to golden');
+assert.ok(fullBand.shell.classList.contains('open'));
+
+fullBand.hide();
+fullBand.show();
+assert.ok(fullBand.isFull(), 'reveal after hide returns to the full default');
+
+fullBand.toggleFullSize();
+assert.ok(!fullBand.isFull());
+fullBand.close();
+fullBand.open();
+assert.ok(fullBand.isFull(), 'a fresh open after close is back at the full default');
+
 console.log('viewer-band test passed');

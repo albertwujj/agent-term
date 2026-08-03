@@ -1188,6 +1188,12 @@ function createMarkdownViewer({
     share: 'major',
     bg: 'var(--md-surface)',
     minHeight: 220,
+    // Opening a doc puts it on stage, so a fresh reveal is full-screen. The
+    // golden split is the handoff state, and it arrives on its own: a send
+    // recedes to it (the terminal receipt) and the store's turn-end resumes
+    // full. The web viewer keeps golden — a terminal URL is a glance beside
+    // the session, not a takeover.
+    defaultSize: 'full',
     closeTitle: 'Close markdown viewer',
     escToHide: false,
     getTerminalGrid: () => {

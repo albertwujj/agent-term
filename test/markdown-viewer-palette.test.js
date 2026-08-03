@@ -51,12 +51,8 @@ async function run() {
   const shell = document.querySelector('.vb-shell.vb-md');
   const bar = shell.querySelector('.vb-bar');
 
-  assert.strictEqual(
-    window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),
-    '#dadde1',
-  );
-
-  doubleClick(bar);
+  // The md band opens at full (its default), where the palette runs bright;
+  // dropping to the golden split mutes it against the visible terminal.
   assert.ok(shell.classList.contains('vb-full'));
   assert.strictEqual(
     window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),
@@ -68,6 +64,13 @@ async function run() {
   assert.strictEqual(
     window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),
     '#dadde1',
+  );
+
+  doubleClick(bar);
+  assert.ok(shell.classList.contains('vb-full'));
+  assert.strictEqual(
+    window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),
+    '#eef1f5',
   );
 
   viewer.close();
