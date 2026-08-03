@@ -281,7 +281,7 @@ async function renderAndOpenReview(reviewUrl) {
   if (res && res.htmlPath) {
     try {
       const u = await window.pty.resolveFileUrl(res.htmlPath);
-      if (u && u.success && u.url) opened = getWebViewer().open(u.url);
+      if (u && u.success && u.url) opened = getWebViewer().open(u.url, { review: true });
     } catch (err) {
       console.warn('[review] open failed', err);
     }

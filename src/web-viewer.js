@@ -54,6 +54,10 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
   let destroyTimer = null;
   let entryUrl = null;       // the url passed to open() — what we route to the browser on a block
   let blockedFired = false;  // fire onDeviceAuthBlock at most once per open()
+  // A full-size review send receded to golden; resume full when the guest reports
+  // the agent's turn over. Same loop as the md viewer (see maybeResumeFullSize
+  // there); here the guest owns the store, so it reports state over IPC instead.
+  let resumeFullPending = false;
   // A <webview> is a separate document host CSS can't reach, so its page renders the OS-native
   // scrollbar — the classic wide bar on Windows, while the host's terminal/md panes are styled
   // thin. Inject a matching slim scrollbar into the guest on each load so the viewer is
@@ -80,6 +84,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     onHide: () => closeFind(),
     onClose: () => {
       closeFind();
+      resumeFullPending = false;
       if (destroyTimer) clearTimeout(destroyTimer);
       destroyTimer = setTimeout(() => { destroyView(); destroyTimer = null; }, 200);
       if (typeof onClose === 'function') onClose();
@@ -201,6 +206,25 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
         const action = e.args && e.args[0];
         if (action === 'selector' || action === 'toggle' || action === 'size') onShortcut(action);
       }
+      // A review send hands the turn to the agent. At full size that leaves the
+      // user blind to the pickup, so recede to the golden split — the terminal
+      // slides in underneath with the pasted pointer prompt (the receipt) — and
+      // arm the resume, since full was the user's choice.
+      if (e.channel === 'rv-sent' && band.isFull()) {
+        band.toggleFullSize();
+        resumeFullPending = true;
+      }
+      // The guest re-reads the store on every refresh and reports where the
+      // agent's turn stands. One-shot at the moment it turns: the flag clears
+      // whether or not motion happens, and motion only if the band is open at
+      // golden — a band the user hid or resized stays where their hand put it.
+      if (e.channel === 'rv-threads-state' && resumeFullPending) {
+        const s = e.args && e.args[0];
+        if (s && s.agentTurnOver) {
+          resumeFullPending = false;
+          if (band.isOpen() && !band.isFull()) band.toggleFullSize();
+        }
+      }
     });
     // Each finished load on a Microsoft login host is checked for a device-compliance block.
     view.addEventListener('did-finish-load', checkDeviceAuthBlock);
@@ -292,9 +316,15 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     view = null;
   }
 
-  function open(rawUrl) {
+  // `review: true` marks a rendered review package (the renderer knows at the
+  // review:// seam). A review is a doc the user works in — like the md viewer,
+  // a fresh reveal takes the full screen. A plain clicked URL stays golden: a
+  // glance beside the session, not a takeover.
+  function open(rawUrl, { review = false } = {}) {
     const target = normalizeHttpUrl(rawUrl);
     if (!target) return false;
+    band.setDefaultSize(review ? 'full' : 'golden');
+    resumeFullPending = false; // a new page is a fresh start; no stale resume
     entryUrl = target;
     blockedFired = false;
     if (destroyTimer) { clearTimeout(destroyTimer); destroyTimer = null; }

@@ -118,4 +118,17 @@ fullBand.close();
 fullBand.open();
 assert.ok(fullBand.isFull(), 'a fresh open after close is back at the full default');
 
+// setDefaultSize — the web band retargets its default per page: review pages
+// full, plain pages golden. Open bands keep their current size; the new default
+// governs the next reveal.
+fullBand.setDefaultSize('golden');
+assert.ok(fullBand.isFull(), 'retargeting while open leaves the current size alone');
+fullBand.hide();
+fullBand.show();
+assert.ok(!fullBand.isFull(), 'the next reveal lands on the new golden default');
+fullBand.close();
+fullBand.setDefaultSize('full');
+fullBand.open();
+assert.ok(fullBand.isFull(), 'retargeting while closed takes effect on open');
+
 console.log('viewer-band test passed');

@@ -484,6 +484,22 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     render();
     if (pulse && before) applyPulses(before);
     prevState = threadStateOf((store && store.threads) || []);
+    reportThreadState();
+  }
+
+  // Tell the host where the agent's turn stands after every store snapshot:
+  // over when no thread still awaits it — each one resolved, or open with the
+  // agent's reply as the last word (bounced back to the user). The host uses
+  // the flip to restore full size after a send receded to golden (web-viewer.js).
+  function reportThreadState() {
+    const threads = (store && store.threads) || [];
+    const agentTurnOver = threads.length > 0 && threads.every(function (t) {
+      if (t.status === 'resolved') return true;
+      const msgs = t.messages || [];
+      const last = msgs[msgs.length - 1];
+      return !!last && last.author === 'agent';
+    });
+    try { ipcRenderer.sendToHost('rv-threads-state', { agentTurnOver: agentTurnOver }); } catch {}
   }
 
   // --- diff-line pulse (scope 1): on an auto-refresh RELOAD, briefly highlight the new-side
@@ -743,6 +759,9 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     ipcRenderer.invoke('rv-send-to-agent', { commentsUrl: commentsUrl }).then(function (res) {
       if (!res || !res.success) { toast((res && res.error) || 'Could not send'); return; }
       toast(okMsg || 'Sent to agent');
+      // The host recedes a full-size band to golden on a send (web-viewer.js) —
+      // the turn just passed to the agent, whose pickup shows in the terminal.
+      try { ipcRenderer.sendToHost('rv-sent'); } catch {}
     });
   }
 

@@ -247,7 +247,7 @@ function createViewerBand({
   let content = null;
   let titleEl = null;
   let state = 'closed'; // 'closed' | 'hidden' | 'open'
-  const restSize = defaultSize === 'full' ? 'full' : 'golden';
+  let restSize = defaultSize === 'full' ? 'full' : 'golden';
   let sizeMode = restSize; // open-height target: 'golden' (the major share) | 'full' (viewport)
   const fraction = SHARE_FRACTION[share] || SHARE_FRACTION.major;
 
@@ -414,6 +414,15 @@ function createViewerBand({
   }
   function isFull() { return state === 'open' && sizeMode === 'full'; }
 
+  // Retarget the size fresh reveals land on — for a band whose default depends
+  // on what it hosts (the web band: review pages full, plain pages golden). A
+  // band already open keeps its current size; the new default takes effect from
+  // the next reveal.
+  function setDefaultSize(name) {
+    restSize = name === 'full' ? 'full' : 'golden';
+    if (state !== 'open') sizeMode = restSize;
+  }
+
   // Bar gestures: a single TAP rolls up / restores (the everyday toggle, same in golden
   // or full); a DOUBLE-CLICK toggles full ↔ golden — so from full you drop to golden to
   // read the agent's output in the terminal tail at full size, then double-click back.
@@ -486,7 +495,7 @@ function createViewerBand({
   });
 
   const api = {
-    mount, open, hide, show, toggle, toggleFullSize, close, isOpen, isHidden, isFull,
+    mount, open, hide, show, toggle, toggleFullSize, close, isOpen, isHidden, isFull, setDefaultSize,
     setTitle, makeBtn, flash,
     get shell() { return shell; },
     get bar() { return bar; },
