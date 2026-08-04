@@ -38,8 +38,12 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
   // rv-send-to-agent stamp, session memory — see reviewSentTs in main.js). An
   // open user-last thread older than it is awaiting the agent; newer user
   // words offer Send. 0 = never pinged this session, so every open user-last
-  // thread offers Send — the right reset for a fresh agent.
+  // thread offers Send — the right reset for a fresh agent. prevSentTs is the
+  // send before that: a thread covered by the LATEST send is the current wave
+  // and keeps its card; one already covered by an earlier send is old context
+  // and folds to a line — recency does the tidying.
   let sentTs = 0;
+  let prevSentTs = 0;
   // Resolved thread ids the user expanded. Resolved threads collapse to a one-line
   // disclosure by default (less clutter); this remembers the ones clicked open.
   // Guest-local, so a full reload re-collapses them — the intended default.
@@ -70,6 +74,11 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     // Host pings this when the window regains focus, so agent replies / status
     // changes written to disk show up without a manual reload.
     ipcRenderer.on('rv-refresh', function () { load({ pulse: true }); });
+    // The host mirrors its agent-working state here so awaiting rows can pulse
+    // while the agent runs — the guest can't see the host's PTY heuristics.
+    ipcRenderer.on('rv-working', function (_e, on) {
+      document.body.classList.toggle('rv-agent-working', !!on);
+    });
     // The out-of-date banner's "Regenerate with latest" button (rendered into the
     // page by review.py) → forward its kind to the host, which prompts the
     // agent with a fixed message. Delegated, so it survives the comment re-renders.
@@ -109,7 +118,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     if (document.querySelector('.rv-compose-row, .rv-replybox')) return;
     ipcRenderer.invoke('read-review-comments', commentsUrl).then(function (res) {
       store = (res && res.success && res.data) ? res.data : { threads: [] };
-      if (res && res.success) sentTs = res.sentTs || 0;
+      if (res && res.success) { sentTs = res.sentTs || 0; prevSentTs = res.prevSentTs || 0; }
       renderAndTrack(opts && opts.pulse);
     }).catch(function () { renderAndTrack(false); });
   }
@@ -654,6 +663,13 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     return null;
   }
 
+  // A collapsed row's one-line handle on a thread: its first user comment.
+  function threadGist(t, fallback) {
+    const first = (t.messages || []).find(function (m) { return (m.author || 'user') === 'user'; }) || (t.messages || [])[0];
+    const raw = normWS((first && first.body) || '') || fallback;
+    return raw.length > 160 ? raw.slice(0, 159) + '…' : raw;
+  }
+
   function threadCard(t, hasHighlight) {
     const a = t.anchor || {};
     const isRegion = !a.side;
@@ -680,15 +696,30 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     // comment…>" — so closed threads stop crowding out the active ones. Click to
     // expand (remembered in expandedSet until the next full reload).
     if (resolved && !expandedSet.has(t.id)) {
-      const first = (t.messages || []).find(function (m) { return (m.author || 'user') === 'user'; }) || (t.messages || [])[0];
-      const raw = normWS((first && first.body) || '') || '(resolved)';
-      const gist = raw.length > 160 ? raw.slice(0, 159) + '…' : raw;
       div.classList.add('rv-collapsed');
       div.innerHTML = '<button class="rv-resolved-head" title="Show thread">'
-        + '<span class="rv-resolved-tag">✓ Resolved</span>' + esc(gist) + '</button>';
+        + '<span class="rv-resolved-tag">✓ Resolved</span>' + esc(threadGist(t, '(resolved)')) + '</button>';
       div.querySelector('.rv-resolved-head').onclick = function () { expandedSet.add(t.id); renderAndTrack(false); };
       return div;
     }
+    // The state ladder, md's model in diff-native form. Loud amber card = your
+    // move (or your unsent words). A thread awaiting the agent recedes: the
+    // CURRENT wave — covered by the latest send — keeps its dimmed card, since
+    // in a diff the card beside the code is the context you just sent; an
+    // EARLIER wave is old context and folds to a one-line row (click to read
+    // back), the way md's waiting rows rest. Recency does the tidying.
+    const last = (t.messages || [])[(t.messages || []).length - 1];
+    const userLast = (t.status || 'open') === 'open' && !!last && (last.author || 'user') === 'user';
+    const needsSend = userLast && (!sentTs || (last.ts || 0) > sentTs);
+    const waiting = userLast && !needsSend;
+    if (waiting && (last.ts || 0) <= prevSentTs && !expandedSet.has(t.id)) {
+      div.classList.add('rv-collapsed', 'rv-waiting');
+      div.innerHTML = '<button class="rv-waiting-head" title="Sent — awaiting agent. Click to open">'
+        + '<span class="rv-waiting-tag">sent</span>' + esc(threadGist(t, '(sent)')) + '</button>';
+      div.querySelector('.rv-waiting-head').onclick = function () { expandedSet.add(t.id); renderAndTrack(false); };
+      return div;
+    }
+    if (waiting) div.classList.add('rv-waiting');
     // Only `resolved` gets a pill, doubling as the collapse control. There is no
     // "read" state any more (contract.md): the agent ends a thread blocked or
     // done, and "open" is self-evident from the reply sitting right there.
@@ -704,15 +735,11 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     // ping. Once covered by a send it rests as "awaiting agent" — the md
     // viewer's model — so a sent thread can't be re-sent by mistake; a fresh
     // follow-up moves past the boundary and brings Send back.
-    const open = (t.status || 'open') === 'open';
-    const last = (t.messages || [])[(t.messages || []).length - 1];
-    const userLast = open && !!last && (last.author || 'user') === 'user';
-    const needsSend = userLast && (!sentTs || (last.ts || 0) > sentTs);
     div.innerHTML = badge + lost + moved + quote + msgs
       + '<div class="rv-thread-actions">'
       + '<button class="rv-link" data-act="comment">Comment</button>'
       + (needsSend ? '<button class="rv-link" data-act="send">' + esc(sendLabel(0)) + '</button>' : '')
-      + (userLast && !needsSend ? '<span class="rv-awaiting">sent — awaiting agent</span>' : '')
+      + (waiting ? '<span class="rv-awaiting">sent — awaiting agent</span>' : '')
       + '</div>';
     div.querySelector('[data-act=comment]').onclick = function () { openReply(div, t.id); };
     const sendBtn = div.querySelector('[data-act=send]');
@@ -778,8 +805,9 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       if (!res || !res.success) { toast((res && res.error) || 'Could not send'); return; }
       toast(okMsg || 'Sent to agent');
       // The boundary moved: re-derive the cards now, so the just-covered threads
-      // flip from Send to awaiting without waiting for the next store read.
-      if (res.sentTs) { sentTs = res.sentTs; renderAndTrack(false); }
+      // flip from Send to awaiting (and earlier waves fold) without waiting for
+      // the next store read.
+      if (res.sentTs) { sentTs = res.sentTs; prevSentTs = res.prevSentTs || 0; renderAndTrack(false); }
       // The host recedes a full-size band to golden on a send (web-viewer.js) —
       // the turn just passed to the agent, whose pickup shows in the terminal.
       try { ipcRenderer.sendToHost('rv-sent'); } catch {}
@@ -813,6 +841,21 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       '.rv-thread-actions{margin-top:5px;display:flex;gap:12px}',
       '.rv-link{background:none;border:0;padding:0;color:#0969da;font:inherit;cursor:pointer}',
       '.rv-awaiting{color:#6e7781;font-style:italic}',
+      // Awaiting the agent: the card recedes — grey edge, dimmed — so amber is
+      // reserved for the one state that needs the user (md's turn-colour rule).
+      // Placed after .rv-open so the grey wins on open+waiting cards.
+      '.rv-thread.rv-waiting{border-left-color:#8b949e;opacity:.8}',
+      '.rv-thread.rv-waiting.rv-collapsed{padding:2px 9px;opacity:.66}',
+      '.rv-thread.rv-waiting.rv-collapsed:hover{opacity:.85}',
+      '.rv-waiting-head{display:block;width:100%;text-align:left;background:none;border:0;padding:1px 0;',
+      'font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#59636e;cursor:pointer;',
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.rv-waiting-head:hover{color:#1f2328}',
+      '.rv-waiting-tag{color:#6e7781;font-style:italic;font-weight:600;margin-right:6px}',
+      // While the agent runs (host forwards its working state as rv-working),
+      // the awaiting note and row tags breathe — md's waiting-line pulse.
+      '@keyframes rv-wait-pulse{0%,100%{opacity:.45}50%{opacity:1}}',
+      'body.rv-agent-working .rv-awaiting,body.rv-agent-working .rv-waiting-tag{animation:rv-wait-pulse 2.4s ease-in-out infinite}',
       '.rv-link:hover{text-decoration:underline}',
       '.rv-link:disabled{color:#8c959f;cursor:default;text-decoration:none}',
       // compose / reply

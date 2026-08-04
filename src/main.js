@@ -3389,8 +3389,15 @@ ipcMain.handle('resolve-file-url', async (event, filePath) => {
 // a restart correctly re-offers Send to the new agent. Host UI state, not
 // contract — the store file stays pure conversation (protocol.md is untouched).
 // The overlay derives thread state from it: an open user-last thread whose last
-// message predates the stamp is awaiting the agent; newer user words need a Send.
+// message predates the stamp is awaiting the agent; newer user words need a
+// Send. Two stamps ({ts, prev}) so the overlay can also tell the current wave
+// (covered by the latest send — stays a card) from earlier waves (already old
+// context — folds to a line): recency does the tidying.
 const reviewSentTs = new Map();
+function reviewSentStamps(p) {
+  const s = reviewSentTs.get(p);
+  return { sentTs: (s && s.ts) || 0, prevSentTs: (s && s.prev) || 0 };
+}
 
 ipcMain.handle('read-review-comments', async (event, fileUrl) => {
   try {
@@ -3398,15 +3405,15 @@ ipcMain.handle('read-review-comments', async (event, fileUrl) => {
     let p;
     try { p = fileURLToPath(fileUrl); } catch { p = String(fileUrl || ''); }
     if (!/-comments\.json$/i.test(p)) return { success: false, error: 'not a comments store' };
-    const sentTs = reviewSentTs.get(p) || 0;
+    const stamps = reviewSentStamps(p);
     let raw;
     try {
       raw = await fs.promises.readFile(p, 'utf8');
     } catch (e) {
-      if (e.code === 'ENOENT') return { success: true, path: p, data: { threads: [] }, sentTs };
+      if (e.code === 'ENOENT') return { success: true, path: p, data: { threads: [] }, ...stamps };
       throw e;
     }
-    return { success: true, path: p, data: JSON.parse(raw), sentTs };
+    return { success: true, path: p, data: JSON.parse(raw), ...stamps };
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -3595,9 +3602,9 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
   lastInputByte = '';
   // Stamp the sent boundary and hand it back so the overlay can re-derive its
   // cards immediately (the next store read gets it via read-review-comments).
-  const sentTs = Date.now();
-  reviewSentTs.set(p, sentTs);
-  return { success: true, sentTs };
+  const was = reviewSentTs.get(p);
+  reviewSentTs.set(p, { ts: Date.now(), prev: (was && was.ts) || 0 });
+  return { success: true, ...reviewSentStamps(p) };
 });
 
 // --- Markdown document threads (md viewer → sidecar store; the agent-facing

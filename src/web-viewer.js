@@ -152,6 +152,21 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     try { view.send('rv-refresh'); } catch {}
   }
 
+  // Mirror the host's agent-working state (the body class the renderer drives
+  // off PTY activity) into the guest, where the overlay pulses its awaiting
+  // rows — the guest can't see the host DOM. Sent on change and on each load
+  // (a fresh guest starts without the class).
+  let lastWorkingSent = null;
+  function pushWorkingState(force) {
+    if (!view) return;
+    const on = document.body.classList.contains('agent-working');
+    if (!force && on === lastWorkingSent) return;
+    lastWorkingSent = on;
+    try { view.send('rv-working', on); } catch {}
+  }
+  const workingObserver = new MutationObserver(() => pushWorkingState(false));
+  workingObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
   function ensureNavButtons() {
     if (navReady) return;
     backBtn = band.makeBtn('◀', 'Back', () => { try { view && view.goBack(); } catch {} });
@@ -190,6 +205,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     view.addEventListener('dom-ready', () => {
       refreshNav();
       try { view.insertCSS(GUEST_SCROLLBAR_CSS).catch(() => {}); } catch {}
+      pushWorkingState(true);
     });
     // In-page find results → update the count.
     view.addEventListener('found-in-page', (e) => {
