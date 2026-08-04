@@ -3383,20 +3383,30 @@ ipcMain.handle('resolve-file-url', async (event, filePath) => {
 // Read a review page's comment store (review/<slug>-comments.json). Takes a
 // file:// URL (derived by the viewer from the page URL); a missing file means
 // "no comments yet" (not an error). Only ever reads a *-comments.json path.
+// Sent boundary per comments store — session memory only, like the diff-pulse
+// baseline (reviewDiffKeys) and the md viewer's unsent queue: "this terminal's
+// agent has been pinged" is a fact about the live session and dies with it, so
+// a restart correctly re-offers Send to the new agent. Host UI state, not
+// contract — the store file stays pure conversation (protocol.md is untouched).
+// The overlay derives thread state from it: an open user-last thread whose last
+// message predates the stamp is awaiting the agent; newer user words need a Send.
+const reviewSentTs = new Map();
+
 ipcMain.handle('read-review-comments', async (event, fileUrl) => {
   try {
     const { fileURLToPath } = require('url');
     let p;
     try { p = fileURLToPath(fileUrl); } catch { p = String(fileUrl || ''); }
     if (!/-comments\.json$/i.test(p)) return { success: false, error: 'not a comments store' };
+    const sentTs = reviewSentTs.get(p) || 0;
     let raw;
     try {
       raw = await fs.promises.readFile(p, 'utf8');
     } catch (e) {
-      if (e.code === 'ENOENT') return { success: true, path: p, data: { threads: [] } };
+      if (e.code === 'ENOENT') return { success: true, path: p, data: { threads: [] }, sentTs };
       throw e;
     }
-    return { success: true, path: p, data: JSON.parse(raw) };
+    return { success: true, path: p, data: JSON.parse(raw), sentTs };
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -3583,7 +3593,11 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
   lastInputTime = Date.now();
   lastTypingTime = 0;
   lastInputByte = '';
-  return { success: true };
+  // Stamp the sent boundary and hand it back so the overlay can re-derive its
+  // cards immediately (the next store read gets it via read-review-comments).
+  const sentTs = Date.now();
+  reviewSentTs.set(p, sentTs);
+  return { success: true, sentTs };
 });
 
 // --- Markdown document threads (md viewer → sidecar store; the agent-facing

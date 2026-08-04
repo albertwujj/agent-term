@@ -12,13 +12,17 @@
 // default sandbox with no bundling. No-op on any non-review page (remote
 // Gerrit etc.), so it's safe as the partition-wide webview preload.
 //
-// Divergence from the md viewer's thread layer, deferred to the planned
-// unification (review adopts the md model): there, a sent thread awaiting the
-// agent rests as a one-line row (click to open). This viewer has no unsent
-// queue — comments hit the store on submit — so that doesn't map cleanly;
-// port it with the model. The send-count grammar IS shared already: the
-// primary counts the open threads its pointer will cover (sendLabel), and
-// the secondary is Discard — it destroys the typed draft, never just closes.
+// Thread-state model is the md viewer's: needs-send / awaiting-agent /
+// back-to-user / resolved, with the agent owning `resolved`. The encodings of
+// the sent boundary differ by necessity: md's queue holds unsent comments out
+// of the store (store-presence = sent), but this guest reloads wholesale on
+// every re-render, so comments commit to the store on submit and the boundary
+// is temporal instead — main's session sentTs stamp vs each thread's last user
+// message (see threadCard). Remaining divergence is presentation only: md
+// rests an awaiting thread as a one-line row; here it's the full card with a
+// muted "awaiting" note. The send-count grammar IS shared: the primary counts
+// the open threads its pointer will cover (sendLabel), and the secondary is
+// Discard — it destroys the typed draft, never just closes.
 
 const { ipcRenderer } = require('electron');
 const { normWS, nearestHeading, toast, createComposer, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
@@ -30,6 +34,12 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
 
   let commentsUrl = null;
   let store = { threads: [] };
+  // The sent boundary: when this session's agent was last pinged (main's
+  // rv-send-to-agent stamp, session memory — see reviewSentTs in main.js). An
+  // open user-last thread older than it is awaiting the agent; newer user
+  // words offer Send. 0 = never pinged this session, so every open user-last
+  // thread offers Send — the right reset for a fresh agent.
+  let sentTs = 0;
   // Resolved thread ids the user expanded. Resolved threads collapse to a one-line
   // disclosure by default (less clutter); this remembers the ones clicked open.
   // Guest-local, so a full reload re-collapses them — the intended default.
@@ -99,6 +109,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     if (document.querySelector('.rv-compose-row, .rv-replybox')) return;
     ipcRenderer.invoke('read-review-comments', commentsUrl).then(function (res) {
       store = (res && res.success && res.data) ? res.data : { threads: [] };
+      if (res && res.success) sentTs = res.sentTs || 0;
       renderAndTrack(opts && opts.pulse);
     }).catch(function () { renderAndTrack(false); });
   }
@@ -686,15 +697,22 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       : '';
     // Comment is a follow-up; the agent owns `resolved` (contract.md), so there
     // is no Resolve button to disagree with it — and no Reopen either, because
-    // a follow-up IS the reopen. An OPEN thread also carries Send: moving away
-    // from a composer commits the comment to the store with no composer left,
-    // so the card itself must offer the ping — it fires the same pointer at
-    // every open thread that any composer's Send does.
+    // a follow-up IS the reopen. A thread carries Send only while it holds user
+    // words the agent was never pinged about (its last message is the user's and
+    // newer than the sent boundary): moving away from a composer commits the
+    // comment to the store with no composer left, so the card must offer the
+    // ping. Once covered by a send it rests as "awaiting agent" — the md
+    // viewer's model — so a sent thread can't be re-sent by mistake; a fresh
+    // follow-up moves past the boundary and brings Send back.
     const open = (t.status || 'open') === 'open';
+    const last = (t.messages || [])[(t.messages || []).length - 1];
+    const userLast = open && !!last && (last.author || 'user') === 'user';
+    const needsSend = userLast && (!sentTs || (last.ts || 0) > sentTs);
     div.innerHTML = badge + lost + moved + quote + msgs
       + '<div class="rv-thread-actions">'
       + '<button class="rv-link" data-act="comment">Comment</button>'
-      + (open ? '<button class="rv-link" data-act="send">' + esc(sendLabel(0)) + '</button>' : '')
+      + (needsSend ? '<button class="rv-link" data-act="send">' + esc(sendLabel(0)) + '</button>' : '')
+      + (userLast && !needsSend ? '<span class="rv-awaiting">sent — awaiting agent</span>' : '')
       + '</div>';
     div.querySelector('[data-act=comment]').onclick = function () { openReply(div, t.id); };
     const sendBtn = div.querySelector('[data-act=send]');
@@ -759,6 +777,9 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     ipcRenderer.invoke('rv-send-to-agent', { commentsUrl: commentsUrl }).then(function (res) {
       if (!res || !res.success) { toast((res && res.error) || 'Could not send'); return; }
       toast(okMsg || 'Sent to agent');
+      // The boundary moved: re-derive the cards now, so the just-covered threads
+      // flip from Send to awaiting without waiting for the next store read.
+      if (res.sentTs) { sentTs = res.sentTs; renderAndTrack(false); }
       // The host recedes a full-size band to golden on a send (web-viewer.js) —
       // the turn just passed to the agent, whose pickup shows in the terminal.
       try { ipcRenderer.sendToHost('rv-sent'); } catch {}
@@ -791,6 +812,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       '.rv-moved{font-size:11px;color:#0550ae;margin-bottom:3px}',
       '.rv-thread-actions{margin-top:5px;display:flex;gap:12px}',
       '.rv-link{background:none;border:0;padding:0;color:#0969da;font:inherit;cursor:pointer}',
+      '.rv-awaiting{color:#6e7781;font-style:italic}',
       '.rv-link:hover{text-decoration:underline}',
       '.rv-link:disabled{color:#8c959f;cursor:default;text-decoration:none}',
       // compose / reply
