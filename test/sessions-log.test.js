@@ -139,7 +139,20 @@ test('deleteActiveFile removes the file', (dir) => {
 
 test('isSessionActive: stale bootTime is not active', () => {
   const rec = { pid: process.pid, bootTime: FROZEN_BOOT };
-  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT + 60_000 }), false);
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT + 60 * 60_000 }), false);
+});
+
+// The stamp is derived from os.uptime(), which drifts against the wall clock on
+// Windows (sleep, clock resync). Live windows restamp on every heartbeat, so a
+// stamp a refresh interval old must still read as this boot.
+test('isSessionActive: a drifted bootTime within tolerance is still active', () => {
+  const rec = { pid: process.pid, bootTime: FROZEN_BOOT - 60_000 };
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT }), true);
+});
+
+test('isSessionActive: drift past the tolerance is not active', () => {
+  const rec = { pid: process.pid, bootTime: FROZEN_BOOT - log.BOOT_TIME_TOLERANCE_MS - 1 };
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT }), false);
 });
 
 test('isSessionActive: matching boot + live pid is active', () => {
@@ -180,14 +193,23 @@ test('isSessionActive: unstamped platform ignores the record stamp', () => {
 });
 
 test('gcActiveFiles cleans up stale entries', (dir) => {
-  // alive (this process) + stale (from previous boot) + dead-pid + live pid
-  // whose window died with a previous compositor session
+  // alive (this process) + previous-boot dead pid + dead-pid + live pid whose
+  // window died with a previous compositor session
   log.writeActiveFile(dir, 1, { pid: process.pid, bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI });
-  log.writeActiveFile(dir, 2, { pid: process.pid, bootTime: FROZEN_BOOT - 60_000 });
+  log.writeActiveFile(dir, 2, { pid: 999998,      bootTime: FROZEN_BOOT - 60 * 60_000 });
   log.writeActiveFile(dir, 3, { pid: 999999,      bootTime: FROZEN_BOOT });
   log.writeActiveFile(dir, 4, { pid: process.pid, bootTime: FROZEN_BOOT, guiSession: 'ws:1:earlier' });
   log.gcActiveFiles(dir, { bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI });
   assert.deepStrictEqual(log.listActiveIds(dir).sort(), [1]);
+});
+
+// A boot-stamp mismatch is not evidence the window is gone, and deleting is
+// destructive: the owner only merges into an existing file. Windows drift used
+// to make a starting window reap every other live window this way.
+test('gcActiveFiles keeps a live pid whose boot stamp drifted', (dir) => {
+  log.writeActiveFile(dir, 1, { pid: process.pid, bootTime: FROZEN_BOOT - 60 * 60_000 });
+  log.gcActiveFiles(dir, { bootTime: FROZEN_BOOT, guiSession: null });
+  assert.deepStrictEqual(log.listActiveIds(dir), [1]);
 });
 
 // ---- pending recovery ----
@@ -232,8 +254,16 @@ test('initPendingRecoveryIfNeeded: same boot returns existing snapshot unchanged
   assert.deepStrictEqual(snap.pendingIds, [99]);
 });
 
-test('initPendingRecoveryIfNeeded: different boot recomputes', (dir) => {
+test('initPendingRecoveryIfNeeded: a drifted stamp keeps the snapshot', (dir) => {
+  // Same boot, Windows-drifted stamp: recomputing here would resurrect
+  // already-resumed sessions as pending.
   log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT - 60_000, pendingIds: [99] });
+  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
+  assert.deepStrictEqual(snap.pendingIds, [99]);
+});
+
+test('initPendingRecoveryIfNeeded: different boot recomputes', (dir) => {
+  log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT - 60 * 60_000, pendingIds: [99] });
   log.appendEvent(dir, { e: 'started', id: 7 });
   log.appendEvent(dir, { e: 'cli',     id: 7, cli: 'claude' });
   log.appendEvent(dir, { e: 'prompt',  id: 7, prompt: 'New session prompt' });

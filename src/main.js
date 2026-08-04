@@ -1282,12 +1282,29 @@ function refreshActivityTimestamps(extra = {}) {
   // picker; keeping the record warm would only make it look reachable.
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const userDataDir = app.getPath('userData');
-  sessionsLog.updateActiveFile(userDataDir, sessionIndex, {
+  const beat = {
+    // Restamp the boot time. It is a derived value that drifts against the wall
+    // clock on Windows, so a stamp frozen at window creation ages out of every
+    // other window's tolerance; refreshing keeps all live windows agreeing on
+    // the current boot. A process cannot outlive a reboot, so restamping can
+    // never certify a record from an earlier boot. Deliberately unlike
+    // guiSession, which stays frozen so a ghost cannot re-certify itself.
+    bootTime: sessionsLog.currentBootTime(),
     lastInputAt: lastInputTime,
     lastWorkingAt: lastPtyOutputTime,
     lastPromptAt: lastPromptTime,
     hiddenAt: windowHidden ? (extra.hiddenAt || Date.now()) : null,
     ...extra,
+  };
+  if (sessionsLog.updateActiveFile(userDataDir, sessionIndex, beat)) return;
+  // The record is gone while the window is still up — reaped by another
+  // process, or lost with the userData directory. Rewrite it whole rather than
+  // stay invisible for the rest of this session (updateActiveFile only merges).
+  sessionsLog.writeActiveFile(userDataDir, sessionIndex, {
+    pid: process.pid,
+    guiSession: getOwnGuiSession(),
+    ...(lockedHue !== null ? { hue: lockedHue } : {}),
+    ...beat,
   });
 }
 

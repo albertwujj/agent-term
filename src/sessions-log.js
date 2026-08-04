@@ -51,6 +51,35 @@ function currentBootTime() {
   return Math.round((Date.now() - os.uptime() * 1000) / 60000) * 60000;
 }
 
+// How far two boot stamps may drift and still mean the same boot.
+//
+// The stamp is derived (now − uptime), so it inherits the platform's uptime
+// source. macOS reads kern.boottime, a wall-clock instant, so every process
+// computes the same stamp for the whole boot. Windows derives uptime from a
+// performance counter that does not advance across sleep/hibernate and drifts
+// as the wall clock resyncs, so the derived stamp walks forward while the
+// machine stays up — two live windows can hold stamps hours apart. Rounding
+// adds its own flip when the true value sits near a 30s boundary.
+//
+// Equality therefore read live Windows windows as dead: they were skipped by
+// the cap and the picker, gc deleted their records, and a user close saw zero
+// visible sessions and relaunched even with other windows on screen.
+//
+// Live windows restamp on every activity heartbeat (ACTIVITY_REFRESH_MS), so
+// the tolerance only has to cover one refresh interval plus the rounding flip.
+// A record from an earlier boot is a whole boot session away.
+const BOOT_TIME_TOLERANCE_MS = 5 * 60 * 1000;
+
+function isSameBoot(a, b) {
+  if (typeof a !== 'number' || typeof b !== 'number') return false;
+  return Math.abs(a - b) <= BOOT_TIME_TOLERANCE_MS;
+}
+
+function isPidAlive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return !!e && e.code === 'EPERM'; }   // EPERM means process exists but signal denied
+}
+
 // ---- paths ----
 
 function paths(userDataDir) {
@@ -223,19 +252,33 @@ function listActiveIds(userDataDir) {
 function isSessionActive(record, opts = {}) {
   const bootTime = opts.bootTime || currentBootTime();
   if (!record || typeof record.pid !== 'number') return false;
-  if (record.bootTime !== bootTime) return false;
+  if (!isSameBoot(record.bootTime, bootTime)) return false;
   const guiSession = (opts.guiSession !== undefined) ? opts.guiSession : currentGuiSession();
   if (guiSession && record.guiSession && record.guiSession !== guiSession) return false;
-  try { process.kill(record.pid, 0); return true; }
-  catch (e) { return e && e.code === 'EPERM'; }   // EPERM means process exists but signal denied
+  return isPidAlive(record.pid);
 }
 
-// Sweep the active/ directory and remove files for processes that are no longer
-// alive (or whose bootTime mismatches). Called on app start.
+// Whether a record may be deleted, which is a stricter question than whether
+// its session is active. Deleting is destructive across processes: the owning
+// window only merges into an existing file, so a wrongly reaped record leaves a
+// live window invisible to the cap, the picker, and the last-window relaunch
+// check. Reap only on evidence the window is gone — a malformed record, a dead
+// pid, or a live pid whose window died with an earlier compositor session. A
+// boot-stamp mismatch is not evidence (see BOOT_TIME_TOLERANCE_MS); such a
+// record is already skipped by isSessionActive and is reaped once its pid dies.
+function isSessionReapable(record, opts = {}) {
+  if (!record || typeof record.pid !== 'number') return true;
+  const guiSession = (opts.guiSession !== undefined) ? opts.guiSession : currentGuiSession();
+  if (guiSession && record.guiSession && record.guiSession !== guiSession) return true;
+  return !isPidAlive(record.pid);
+}
+
+// Sweep the active/ directory and remove records whose window is provably gone.
+// Called on app start and before the last-window relaunch check.
 function gcActiveFiles(userDataDir, opts = {}) {
   for (const id of listActiveIds(userDataDir)) {
     const rec = readActiveFile(userDataDir, id);
-    if (!isSessionActive(rec, opts)) {
+    if (isSessionReapable(rec, opts)) {
       deleteActiveFile(userDataDir, id);
     }
   }
@@ -266,7 +309,7 @@ function writePendingRecovery(userDataDir, snapshot) {
 function initPendingRecoveryIfNeeded(userDataDir, opts = {}) {
   const bootTime = opts.bootTime || currentBootTime();
   const existing = readPendingRecovery(userDataDir);
-  if (existing && existing.bootTime === bootTime) return existing;
+  if (existing && isSameBoot(existing.bootTime, bootTime)) return existing;
 
   const sessions = listSessions(userDataDir);
   const pendingIds = [];
@@ -474,6 +517,7 @@ function menuList(userDataDir, opts = {}) {
 module.exports = {
   // basic
   currentBootTime,
+  isSameBoot,
   paths,
   ensureDirs,
   // log
@@ -487,6 +531,7 @@ module.exports = {
   deleteActiveFile,
   listActiveIds,
   isSessionActive,
+  isSessionReapable,
   gcActiveFiles,
   // pending
   readPendingRecovery,
@@ -504,4 +549,5 @@ module.exports = {
   compactSessionsLog,
   // constants
   RECENT_WINDOW_MS,
+  BOOT_TIME_TOLERANCE_MS,
 };
