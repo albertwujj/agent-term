@@ -45,10 +45,12 @@ When the agent finishes, it prepares your review: it hands you the parts that ne
 
 ![the review loop: comment on a line, the agent fixes it and replies, the review re-renders in place](assets/review-loop.gif)
 
-## Write with it
-Point an agent at a writing project (essays, notes, research, docs) and the same loop works: your materials are organized as a repo the agent uses as needed and edits for you, and the markdown viewer shows its changes live in the rendered view. Comment on any passage, or edit the rendered text directly, starting new lines anywhere; edits reach the agent as suggestions, and it decides what each new line becomes in the source (a heading, a list item, a paragraph). You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
+## Plan with it
+The viewer turns markdown into a place you write English, live. A doc opens rendered and updates as the agent works. Comment on any passage, or edit the rendered text directly, starting new lines anywhere; edits reach the agent as suggestions, and it decides what each new line becomes in the source (a heading, a list item, a paragraph). You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
 
-![the write loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list; the send hands the screen to the terminal, and the doc takes it back when the agent finishes](assets/doc-edit-loop.gif)
+And English is where the real planning happens. A large part of design is settled in words before any code: the plan, the design doc, the findings. Those docs are how you work with the agent, and how you work with other people. They become so fast to produce this way that one project can carry a targeted doc for each audience: for the agents, for developers, for program managers, and more. The plan converges the way code does: commented, revised in place, settled before anything is built. The same loop covers any writing project (essays, notes, research, docs): your materials are organized as a repo the agent uses as needed and edits for you.
+
+![the plan loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list; the send hands the screen to the terminal, and the doc takes it back when the agent finishes](assets/doc-edit-loop.gif)
 
 ## Confirm what the agent tells you
 Agents explain themselves by quoting `file:line` and symbols. `Ctrl`-click any reference the agent mentions (`Cmd` on Mac; not just files it edited) and your IDE jumps to that exact line so you can verify the claim. URLs it cites open too, in an embedded web view right in the terminal.
