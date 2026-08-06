@@ -352,6 +352,12 @@ function ensureStyles() {
       border: 1px solid #d8dee6;
       padding: 6px 8px;
       vertical-align: top;
+      /* A cell's widest unbroken token (usually a code identifier) otherwise
+         sets the table's minimum width, and a wide table juts past the pane
+         and gets clipped — the pane hides overflow because scrolling doesn't
+         exist here. anywhere lets auto layout always fit the measure; it
+         inherits into the code spans that carry most of the long tokens. */
+      overflow-wrap: anywhere;
     }
     .md-viewer-body th {
       background-color: var(--md-panel);
