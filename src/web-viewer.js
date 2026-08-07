@@ -387,8 +387,12 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     });
   }
   // Nudge the guest overlay to re-read the comment store IN PLACE (agent reply arrived) — the
-  // pulse path, no reload. Only meaningful on a review page; a no-op otherwise.
-  function pingRefresh() { pingReviewRefresh(); }
+  // pulse path, no reload. Only meaningful on a review page; a no-op otherwise. While rolled
+  // up the guest's thread pulse plays off-screen, so flash the handle — the band-level cue.
+  function pingRefresh() {
+    if (band.isHidden()) band.flash();
+    pingReviewRefresh();
+  }
 
   // Returning to the window nudges the overlay to re-read the comment store.
   window.addEventListener('focus', () => { if (band.isOpen()) pingReviewRefresh(); });

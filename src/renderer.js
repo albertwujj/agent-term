@@ -144,6 +144,7 @@ function getWebViewer() {
       // Closing the viewer (GC) → tell main to stop the review auto-refresh.
       onClose: () => {
         if (!suppressViewerEvict) clearViewerCache(); // user ✕ → forget the cache
+        openReviewUrl = null;
         try { window.pty.reviewViewerClosed && window.pty.reviewViewerClosed(); } catch {}
       },
       // The viewer hit an Entra device-compliance block it can't pass (see web-viewer's
@@ -240,6 +241,7 @@ function openUrlFromTerminal(url, source, external, { recordHistory = true } = {
         // poll (it survives a same-band navigation, since only close fires onClose).
         // A leaked poll would keep firing review-rerendered, whose handler reloads
         // whatever the band currently shows — i.e. this page.
+        openReviewUrl = null;
         try { window.pty.reviewViewerClosed && window.pty.reviewViewerClosed(); } catch {}
         closeMarkdownViewer();
         if (recordHistory) recordViewer('url', url);
@@ -254,6 +256,11 @@ function openUrlFromTerminal(url, source, external, { recordHistory = true } = {
   if (/^file:/i.test(url)) return window.pty.openURL(url);
   return openHttpUrl(url, source);
 }
+
+// The review:// URL the web band currently shows (null when it hosts a plain
+// page or nothing). Lets a re-printed link mean "reveal what's already up"
+// instead of a cold re-open.
+let openReviewUrl = null;
 
 // review:// handler: render the package, open the rendered page, and feed any
 // structural issues back to the agent (the auto-correction loop).
@@ -286,6 +293,7 @@ async function renderAndOpenReview(reviewUrl) {
       console.warn('[review] open failed', err);
     }
   }
+  if (opened) openReviewUrl = reviewUrl;
   // Never auto-prompt the agent — any problem surfaces as an in-page banner with a
   // Notify button (the scope-error page, the out-of-date banner), pinged only on click.
   if (res && res.reject) {
@@ -303,14 +311,20 @@ async function renderAndOpenReview(reviewUrl) {
 // boundaries, removes terminal control styling, retains OSC 8 URL targets, and
 // records every individual URL/markdown candidate rather than one per type.
 const streamViewerCandidates = new ViewerStreamAccumulator({ limit: 100 });
-const seenReviewUrls = new Set();
+// url → when the stream last carried it. A first sighting auto-opens; a LATER
+// sighting is either the agent deliberately printing the link again (the "look
+// at this" ping) or a TUI repainting bytes already on screen — told apart by
+// recency in maybeRevealReprintedReview.
+const reviewSightings = new Map();
 
 function captureViewerCandidates(data) {
   const captured = streamViewerCandidates.push(data);
   for (const entry of captured) {
     viewerValidationMemory.observe(entry);
-    if (entry.kind !== 'review' || seenReviewUrls.has(entry.key) || !looksLikeRealViewerUrl(entry.key)) continue;
-    seenReviewUrls.add(entry.key);
+    if (entry.kind !== 'review' || !looksLikeRealViewerUrl(entry.key)) continue;
+    const lastSeenAt = reviewSightings.get(entry.key);
+    reviewSightings.set(entry.key, Date.now());
+    if (lastSeenAt !== undefined) { maybeRevealReprintedReview(entry.key, lastSeenAt); continue; }
     // First sighting captures the reviewed branch and auto-opens a real package.
     try { window.pty.captureReviewBranch(entry.key); } catch {}
     maybeAutoOpenReview(entry.key);
@@ -318,16 +332,13 @@ function captureViewerCandidates(data) {
 }
 
 // Auto-open a freshly-printed review:// so the user needn't click the link.
-// Guards, in order: (1) once per URL per session; (2) the .md must actually
-// exist — a stale or hypothetical path is skipped silently, never popped or
-// toasted (the "md path is not valid" corner case); (3) if a viewer is already
-// open, don't yank it away — just toast that a review is ready (the link in the
-// terminal stays clickable). The capture site already filtered example links and
-// fires this only the first time a URL appears, so this runs once on a fresh print.
-const autoOpenedReviews = new Set();
+// The capture site filters example links and routes only a URL's FIRST sighting
+// here (later sightings go to maybeRevealReprintedReview). Guards: the .md must
+// actually exist — a stale or hypothetical path is skipped silently, never
+// popped or toasted (the "md path is not valid" corner case) — and if a viewer
+// is already open, don't yank it away: just toast that a review is ready (the
+// link in the terminal stays clickable).
 async function maybeAutoOpenReview(url) {
-  if (autoOpenedReviews.has(url)) return;
-  autoOpenedReviews.add(url);
   let pkgPath;
   try { pkgPath = decodeURIComponent(url.replace(/^review:\/\//i, '')).trim(); } catch { return; }
   let exists = false;
@@ -337,6 +348,36 @@ async function maybeAutoOpenReview(url) {
     showToast('Agent posted a review — click the link to open');
     return;
   }
+  openUrlFromTerminal(url, 'auto', false);
+}
+
+// A review:// printed AGAIN is the agent's explicit "look at this" ping — the only
+// signal that moves the band (a content change merely flashes it; see the
+// review-rerendered handler). It reveals the current review from its rolled-up
+// handle, or re-opens it after a ✕. Repaint noise is the hazard: a TUI re-emitting
+// bytes already on screen is byte-identical to a deliberate re-print, so two
+// recency guards separate them — (1) the URL must have been ABSENT from the stream
+// for a beat (a continuously-repainted screen never goes quiet, so it can never
+// ping), and (2) not within a breath of the user typing (typing just rolled the
+// band up; a keystroke-triggered repaint mustn't pop it straight back). The
+// actions are also idempotent — revealing an open band and re-opening the current
+// review are no-ops — and another viewer on stage stays untouched (the link in the
+// terminal remains clickable).
+const REVIEW_REPRINT_QUIET_MS = 10_000;
+const REVIEW_REPRINT_TYPING_GUARD_MS = 3000;
+async function maybeRevealReprintedReview(url, lastSeenAt) {
+  if (Date.now() - lastSeenAt < REVIEW_REPRINT_QUIET_MS) return;
+  if (Date.now() - lastTerminalTypingAt < REVIEW_REPRINT_TYPING_GUARD_MS) return;
+  if (openReviewUrl === url && webViewer && webViewer.isOpen()) {
+    webViewer.show();
+    return;
+  }
+  if (anyViewerOpen()) return;
+  let pkgPath;
+  try { pkgPath = decodeURIComponent(url.replace(/^review:\/\//i, '')).trim(); } catch { return; }
+  let exists = false;
+  try { exists = await window.pty.reviewPackageExists(pkgPath); } catch {}
+  if (!exists) return;
   openUrlFromTerminal(url, 'auto', false);
 }
 
@@ -575,19 +616,21 @@ if (typeof window.pty.onViewerShortcut === 'function') {
 
 // Auto-refresh: main re-rendered the open review (its package .md changed) →
 // reload the viewer so the update shows, with comments re-anchored across it.
+// The band STAYS where the user left it: reload()'s chrome pulse — the bar
+// while open, the slim top handle while rolled up — is the whole announcement,
+// exactly the md viewer's model. Only an explicit ping (the agent printing the
+// review:// link again) moves the band: maybeRevealReprintedReview.
 if (window.pty && typeof window.pty.onReviewRerendered === 'function') {
   window.pty.onReviewRerendered(() => {
-    // Agent-driven reload. If the band was rolled up (terminal input collapses it via
-    // withdrawViewersOnInput), show() it first so the reload's flash + diff-line pulse play
-    // on-screen instead of on a hidden band — otherwise the agent's change goes unseen.
-    try { if (webViewer && webViewer.isOpen && webViewer.isOpen()) { webViewer.show(); webViewer.reload(); } } catch {}
+    try { if (webViewer && webViewer.isOpen && webViewer.isOpen()) webViewer.reload(); } catch {}
   });
 }
 // Comments-only change (an agent reply, no source edit) → refresh the overlay IN PLACE so the
 // reply surfaces and pulses, without a full reload (which would wipe the pulse baseline).
+// Same hands-off rule: while rolled up, pingRefresh flashes the handle instead of revealing.
 if (window.pty && typeof window.pty.onReviewCommentsChanged === 'function') {
   window.pty.onReviewCommentsChanged(() => {
-    try { if (webViewer && webViewer.isOpen && webViewer.isOpen()) { webViewer.show(); webViewer.pingRefresh(); } } catch {}
+    try { if (webViewer && webViewer.isOpen && webViewer.isOpen()) webViewer.pingRefresh(); } catch {}
   });
 }
 
@@ -918,7 +961,11 @@ function cancelTerminalFreeze() {
 // any OPEN viewer to its handle (reversible; the content stays alive) so the terminal
 // is unobstructed and un-dimmed (the recede only applies while a viewer is open).
 // hide() is a no-op unless the viewer is open, so this only acts when one is showing.
+// When the user last composed printable input — the re-print reveal consults it
+// so a keystroke-triggered TUI repaint can't pop the band back up mid-typing.
+let lastTerminalTypingAt = 0;
 function withdrawViewersOnInput() {
+  lastTerminalTypingAt = Date.now();
   try { webViewer && webViewer.hide && webViewer.hide(); } catch {}
   try { markdownViewer && markdownViewer.hide && markdownViewer.hide(); } catch {}
 }

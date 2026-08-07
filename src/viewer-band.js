@@ -200,6 +200,10 @@ function ensureBandStyles() {
     .vb-shell.vb-refreshed { animation: vb-refresh-shell 3000ms ease-out 3; }
     .vb-shell.vb-refreshed .vb-bar { animation: vb-refresh-bar 3000ms ease-out 3; }
     .vb-shell.vb-refreshed .vb-title { animation: vb-refresh-text 3000ms ease-out 3; }
+    /* Rolled up, the shell's shadow pulse has no body to frame — the bar's flash
+       alone lights the (normally invisible) handle strip, which IS the hidden-state
+       announcement: content changed behind this handle. */
+    .vb-shell.hidden.vb-refreshed { animation: none; }
     @keyframes vb-refresh-shell {
       0%, 100% { box-shadow: 0 7px 14px -3px rgba(0, 0, 0, 0.45); }
       38% {
