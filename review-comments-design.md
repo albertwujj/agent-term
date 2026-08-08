@@ -189,12 +189,21 @@ ship as a thread, the agent amends the commit and the regen shows the result.
   (pending = amber/rose while un-sent, slate once covered by a send — the
   sent tint), with its card beneath carrying the note/replies and eliding
   the redundant diff. When the block no longer matches (the agent amended;
-  anchor `lost`), the card carries the del/ins diff itself. A decorated
-  block refuses re-editing: discard first (pending) or wait (sent) — md's
-  sealed-block rule.
+  anchor `lost`), the card carries the del/ins diff itself.
+- **A pending edit revisits in place** (2026-08-08): while the thread is
+  wholly the user's (open, un-sent, every message user-authored) the block
+  stays a live edit surface — clicking back in re-enters the session with
+  the marks kept and the note seeded, and click-away/Send **updates** the
+  thread (`rv-update-edit-thread`, same guard as discard) rather than adding
+  one. Click-away commits silently, so an accidental click must not cost a
+  discard-and-retype. Dissolving every mark in a revisit is the discard.
+  Esc restores the decorated resting state. Sent or agent-touched edits
+  stay sealed — md's sealed-block rule.
 - **Undo of a committed edit** is `rv-discard-thread`, allowed only while the
   thread is wholly the user's (open, every message user-authored); after that
-  a follow-up is the vehicle, like any thread.
+  a follow-up is the vehicle, like any thread. In-session, ⌘Z steps back per
+  action on the session's own stack (native undo is blocked — it can't see
+  the marks), with caret restore in the block's raw text space.
 - **Two-column note**: the commit body is CSS multicol, so the edit's
   composer strip and the thread cards are `column-span:all` (the
   `.rv-quote-thread` precedent) — controls are block-level things, not

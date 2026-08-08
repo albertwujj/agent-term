@@ -90,6 +90,8 @@ function setCaret(root, offset) {
 function createCommitEditController(io) {
   // io: {
   //   addEditThread({anchor, body, note, alsoSend}) -> Promise<{success,...}>,
+  //   updateEditThread({threadId, body, note, alsoSend}) -> Promise<{success,...}>,
+  //   discardThread(threadId),
   //   openBlockComment(block, seedKey),
   //   composerBlocked() -> bool,
   //   sendLabel() -> string,
@@ -98,10 +100,19 @@ function createCommitEditController(io) {
   //   platform,
   // }
   let armed = null;   // { block } — clicked commit block, caret span in place
-  let session = null; // { block, origHtml, origText, note, composerWrap, composer, undoStack, redoStack, undoLatch, unwire }
+  // The session. baseHtml is what Esc restores (for a revisit: the marked
+  // state at open); cleanHtml is the un-marked original the block returns to
+  // on commit, when the store becomes the single truth again; origText is the
+  // clean text the anchor quotes. `revisit` carries the stored thread being
+  // re-entered.
+  let session = null;
   // Blocks currently decorated from stored edit threads: el -> original innerHTML.
   const decorated = new Map();
   let decoratedState = new Map(); // threadId -> block (this render pass)
+  // Pending edits still wholly the user's (open, every message user-authored):
+  // clicking back into the block re-enters the edit — an accidental click-away
+  // must not cost a discard-and-retype. block -> { threadId, cleanHtml, note }.
+  const revisitInfo = new Map();
 
   const engine = createMarkEngine({ beforeMutate: () => pushUndo() });
 
@@ -127,7 +138,9 @@ function createCommitEditController(io) {
     if (!t || !t.closest) { disarm(); return; }
     if (t.closest(OVERLAY_SEL)) return; // clicks in overlay UI never disarm-toggle
     const block = t.closest(COMMIT_BLOCK_SEL);
-    if (!block || block.classList.contains('rv-edit-decorated')) { disarm(); return; }
+    // A decorated block arms only while its edit is revisitable (pending and
+    // wholly the user's); sent or agent-touched edits stay sealed.
+    if (!block || (block.classList.contains('rv-edit-decorated') && !revisitInfo.has(block))) { disarm(); return; }
     const sel = window.getSelection && window.getSelection();
     if (sel && !sel.isCollapsed && String(sel)) { disarm(); armed = { block }; return; } // selection path: no caret span
     disarm();
@@ -230,13 +243,20 @@ function createCommitEditController(io) {
     setCaret(session.block, snap.caret);
   }
 
+  function cleanTextOf(html) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    return tmp.textContent;
+  }
+
   function openSession(block, entryEvent, caretOffset, entrySelection) {
     if (session) return;
-    if (block.classList.contains('rv-edit-decorated')) {
+    const revisit = revisitInfo.get(block) || null;
+    if (block.classList.contains('rv-edit-decorated') && !revisit) {
       disarm();
       if (io.onToast) {
         io.onToast(block.classList.contains('rv-edit-pending')
-          ? 'This block has a pending edit — discard it on its card to re-edit'
+          ? 'This edit has agent replies — follow up on its card'
           : 'This edit is sent — awaiting the agent');
       }
       return;
@@ -247,13 +267,22 @@ function createCommitEditController(io) {
     block.normalize();
     session = {
       block,
-      origHtml: block.innerHTML,
-      origText: block.textContent,
-      note: '',
+      revisit,
+      baseHtml: block.innerHTML, // Esc target: for a revisit, the marked state
+      cleanHtml: revisit ? revisit.cleanHtml : block.innerHTML,
+      origText: revisit ? cleanTextOf(revisit.cleanHtml) : block.textContent,
+      note: revisit ? (revisit.note || '') : '',
       undoStack: [],
       redoStack: [],
       undoLatch: false,
     };
+    if (revisit) {
+      // The session owns the block now; the decoration pass must not restore
+      // over live typing, and the block sheds its sealed look while editable.
+      decorated.delete(block);
+      revisitInfo.delete(block);
+      block.classList.remove('rv-edit-decorated', 'rv-edit-pending', 'rv-edit-revisitable');
+    }
     session.unwire = wireSurface(block);
     attachStrip(session, block);
     try { block.focus({ preventScroll: true }); } catch {}
@@ -264,7 +293,7 @@ function createCommitEditController(io) {
       if (k !== 'Backspace' && k !== 'Delete') engine.insertMarkedInBlock(k);
       return;
     }
-    const max = session.origText.length;
+    const max = block.textContent.length; // current content: marks included on a revisit
     const caret = Math.max(0, Math.min(caretOffset != null ? caretOffset : max, max));
     if (!entryEvent || k.startsWith('Arrow')) { setCaret(block, caret); return; }
     if (k === 'Backspace') {
@@ -354,6 +383,7 @@ function createCommitEditController(io) {
     const sendShortcut = io.platform === 'darwin' ? '↩' : 'Enter';
     const composer = createComposer({
       placeholder: 'Note for the agent about this edit...',
+      seed: sess.note || '',
       rows: 2,
       onCancel: () => revert(),
       onInput: (ctx) => { sess.note = ctx.textarea.value; },
@@ -417,38 +447,60 @@ function createCommitEditController(io) {
     session = null;
     if (sess.unwire) sess.unwire();
     if (sess.composerWrap) sess.composerWrap.remove();
-    if (restoreHtml) sess.block.innerHTML = sess.origHtml;
+    if (restoreHtml != null) sess.block.innerHTML = restoreHtml;
   }
 
   function revert() {
-    teardown(true);
+    if (!session) return;
+    const sess = session;
+    teardown(sess.baseHtml);
+    if (sess.revisit) {
+      // Back to the resting decorated state: the thread is untouched, so the
+      // block is still its pending, revisitable decoration.
+      decorated.set(sess.block, sess.cleanHtml);
+      revisitInfo.set(sess.block, sess.revisit);
+      sess.block.classList.add('rv-edit-decorated', 'rv-edit-pending', 'rv-edit-revisitable');
+    }
   }
 
   function commit(alsoSend) {
     if (!session) return;
     const sess = session;
     const hasMarks = !!sess.block.querySelector('del.md-pending-del, ins.md-pending-ins');
-    if (!hasMarks) { revert(); return; }
-    const serialized = serializeMarkedBlock(sess.block);
-    const inner = overlayToEnvelope(serialized);
-    if (!/<del>|<ins>/.test(inner)) { revert(); return; }
-    const anchor = {
-      path: '(commit message)',
-      snippet: normWS(sess.origText).slice(0, 600),
-      context: '',
-      wholeBlock: true,
-      heading: 'Commit message',
-    };
+    const serialized = hasMarks ? serializeMarkedBlock(sess.block) : '';
+    const inner = hasMarks ? overlayToEnvelope(serialized) : '';
+    const marked = /<del>|<ins>/.test(inner);
+    if (!marked) {
+      // A revisit whose marks all dissolved IS the discard; a fresh session
+      // with no marks was never an edit.
+      if (sess.revisit) {
+        teardown(sess.cleanHtml);
+        if (io.discardThread) io.discardThread(sess.revisit.threadId);
+      } else revert();
+      return;
+    }
     const body = wrapEditEnvelope(inner);
+    const note = (sess.note || '').trim();
     // Restore the block first: the stored thread is the single truth, and the
     // decoration pass re-marks it from the store on the next render.
-    teardown(true);
-    Promise.resolve(io.addEditThread({ anchor, body, note: (sess.note || '').trim(), alsoSend: !!alsoSend }))
-      .then((res) => {
-        if (!res || !res.success) {
-          if (io.onToast) io.onToast((res && res.error) || 'Could not add edit');
-        }
-      });
+    teardown(sess.cleanHtml);
+    const write = sess.revisit
+      ? io.updateEditThread({ threadId: sess.revisit.threadId, body, note, alsoSend: !!alsoSend })
+      : io.addEditThread({
+          anchor: {
+            path: '(commit message)',
+            snippet: normWS(sess.origText).slice(0, 600),
+            context: '',
+            wholeBlock: true,
+            heading: 'Commit message',
+          },
+          body, note, alsoSend: !!alsoSend,
+        });
+    Promise.resolve(write).then((res) => {
+      if (!res || !res.success) {
+        if (io.onToast) io.onToast((res && res.error) || 'Could not save edit');
+      }
+    });
   }
 
   // ——— rendering stored edit threads in place ———
@@ -459,10 +511,11 @@ function createCommitEditController(io) {
   function decorateEditThreads(threads) {
     for (const [el, html] of decorated) {
       el.innerHTML = html;
-      el.classList.remove('rv-edit-decorated', 'rv-edit-pending', 'rv-edit-waiting');
+      el.classList.remove('rv-edit-decorated', 'rv-edit-pending', 'rv-edit-waiting', 'rv-edit-revisitable');
     }
     decorated.clear();
     decoratedState = new Map();
+    revisitInfo.clear();
     const blocks = commitBlocks();
     for (const t of (threads || [])) {
       if ((t.status || 'open') === 'resolved') continue;
@@ -478,8 +531,10 @@ function createCommitEditController(io) {
         && (!session || session.block !== b)
         && normWS(b.textContent) === normWS(original));
       if (!block) continue;
-      decorated.set(block, block.innerHTML);
+      const cleanHtml = block.innerHTML;
+      decorated.set(block, cleanHtml);
       const pending = !io.threadNeedsSend || io.threadNeedsSend(t);
+      const userOnly = (t.messages || []).every((m) => (m.author || 'user') === 'user');
       block.textContent = '';
       for (const seg of parsed.segments) {
         if (seg.kind === 'text') block.append(document.createTextNode(seg.text));
@@ -493,6 +548,17 @@ function createCommitEditController(io) {
         }
       }
       block.classList.add('rv-edit-decorated', pending ? 'rv-edit-pending' : 'rv-edit-waiting');
+      // Pending and wholly the user's → clicking back in re-enters the edit.
+      // The note seeds only from the two-message shape (envelope + note);
+      // follow-up comments are conversation, not the note.
+      if (pending && userOnly) {
+        block.classList.add('rv-edit-revisitable');
+        revisitInfo.set(block, {
+          threadId: t.id,
+          cleanHtml,
+          note: (t.messages || []).length === 2 ? String(t.messages[1].body || '') : '',
+        });
+      }
       decoratedState.set(t.id, block);
     }
     return decoratedState;

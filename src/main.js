@@ -3543,6 +3543,37 @@ ipcMain.handle('rv-add-thread', async (event, { commentsUrl, anchor, body, note 
   });
 });
 
+// Revision of a pending commit-message edit (the user re-entered the block):
+// replace the envelope, and the note in the envelope+note shape, while the
+// thread is still wholly the user's — the same guard as discard below. The
+// fresh ts keeps the thread ahead of the sent boundary (needs-send).
+ipcMain.handle('rv-update-edit-thread', async (event, { commentsUrl, threadId, body, note } = {}) => {
+  const p = commentsPathFromUrl(commentsUrl);
+  if (!validCommentsPath(p)) return { success: false, error: 'not a comments store' };
+  const text = String(body == null ? '' : body).trim();
+  if (!text) return { success: false, error: 'Empty edit' };
+  const noteText = String(note == null ? '' : note).trim();
+  return withCommentsLock(p, async () => {
+    try {
+      const store = await loadCommentStore(p);
+      const t = store.threads.find((x) => x.id === threadId);
+      if (!t) return { success: false, error: 'thread not found' };
+      const userOnly = (t.messages || []).every((m) => (m.author || 'user') === 'user');
+      if ((t.status || 'open') !== 'open' || !userOnly) {
+        return { success: false, error: 'the agent has this thread — reply instead' };
+      }
+      const ts = Date.now();
+      t.messages[0] = { author: 'user', body: text, ts };
+      if (t.messages.length <= 2) {
+        if (noteText) t.messages[1] = { author: 'user', body: noteText, ts };
+        else t.messages.length = 1;
+      }
+      await saveCommentStore(p, store);
+      return { success: true, data: store };
+    } catch (e) { return { success: false, error: e.message }; }
+  });
+});
+
 // Undo for a pending commit-message edit: drop its thread while it is still
 // wholly the user's — open, every message user-authored. Once the agent has
 // spoken the record is a conversation and undo becomes a follow-up instead.

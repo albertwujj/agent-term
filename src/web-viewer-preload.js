@@ -365,6 +365,19 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
           return res;
         });
       },
+      updateEditThread: function (item) {
+        return ipcRenderer.invoke('rv-update-edit-thread', {
+          commentsUrl: commentsUrl, threadId: item.threadId, body: item.body, note: item.note,
+        }).then(function (res) {
+          if (!res || !res.success) return res;
+          store = res.data;
+          renderAndTrack(false);
+          if (item.alsoSend) sendThread('Edit sent to agent');
+          else toast('Edit updated');
+          return res;
+        });
+      },
+      discardThread: discardEditThread,
     });
     commitEdit.bind();
   }

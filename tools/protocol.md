@@ -127,6 +127,11 @@ messages**:
 | `anchor.{path,side,line,snippet}` | generator updates `line` on regen; agent may repoint on `lost` | |
 | `anchor_status` | generator only (on regen) | `ok` / `moved` / `lost` |
 
+Append-only governs **cross-author** safety. While a thread is still wholly the
+user's — `open`, every message user-authored — the host may rewrite or remove
+the user's own messages (revising a pending edit, discarding it). Once an agent
+message exists, the thread is a conversation and append-only is absolute.
+
 ## 3. Re-anchoring (generator MUST do on regen)
 
 Code moves between regenerations, so on every regen the generator re-stamps each

@@ -36,12 +36,16 @@ const subject = document.querySelector('.commit-subject');
 const [p1, p2] = document.querySelectorAll('.commit-body p');
 
 const addCalls = [];
+const updateCalls = [];
+const discardCalls = [];
 const blockComments = [];
 const toasts = [];
 let needsSendFlag = true;
 const io = {
   platform: 'darwin',
   addEditThread: (item) => { addCalls.push(item); return Promise.resolve({ success: true }); },
+  updateEditThread: (item) => { updateCalls.push(item); return Promise.resolve({ success: true }); },
+  discardThread: (id) => { discardCalls.push(id); },
   openBlockComment: (block, seed) => { blockComments.push({ block, seed }); },
   composerBlocked: () => false,
   sendLabel: () => 'Send',
@@ -153,14 +157,113 @@ async function run() {
   check('sent marks rest in slate',
     placed.get('e1') === p1 && !!p1.querySelector('del.md-sent-del') && !p1.querySelector('.md-pending-del'));
 
-  // — a decorated block refuses re-arming —
+  // — a SENT (slate) block refuses re-arming —
   click(p1);
   key(p1, { key: 'Backspace' });
-  check('a decorated block refuses a new edit session', !ctl.isEditing());
+  check('a sent block refuses a new edit session', !ctl.isEditing());
 
   // — resolved / gone threads restore the block —
   ctl.decorateEditThreads([]);
   check('removing the thread restores the block verbatim', p1.innerHTML === P1, p1.innerHTML);
+
+  // — revisit: a pending user-only edit re-enters in place —
+  needsSendFlag = true;
+  ctl.decorateEditThreads([editThread]);
+  check('a pending user-only edit marks its block revisitable', p1.classList.contains('rv-edit-revisitable'));
+  click(p1);
+  check('clicking a revisitable block arms it', !!caret());
+  key(p1, { key: 'Backspace' }); // caret fallback = end → strikes the final "."
+  check('an edit key re-enters the session with the marks kept',
+    ctl.isEditing() && p1.getAttribute('contenteditable') === 'true'
+    && !!p1.querySelector('ins.md-pending-ins'));
+  await sleep(5);
+  mousedown(document.querySelector('#commit h2'));
+  await sleep(5);
+  check('click-away updates the stored thread instead of adding one',
+    !ctl.isEditing() && addCalls.length === 2 && updateCalls.length === 1
+    && updateCalls[0].threadId === 'e1' && updateCalls[0].alsoSend === false);
+  check('the updated envelope keeps the old marks and adds the new strike',
+    /<del>utilizes <\/del>/.test(updateCalls[0].body) && /<del>\.<\/del>/.test(updateCalls[0].body),
+    updateCalls[0].body);
+  check('the block returns clean until the store re-decorates', p1.innerHTML === P1, p1.innerHTML);
+
+  // — revisit seeds the note; Esc restores the decorated resting state —
+  const e1v2 = {
+    ...editThread,
+    messages: [{ author: 'user', body: updateCalls[0].body, ts: 6 },
+               { author: 'user', body: 'trim it', ts: 6 }],
+  };
+  ctl.decorateEditThreads([e1v2]);
+  click(p1);
+  key(p1, { key: '5' });
+  const noteTa = document.querySelector('.rv-edit-compose textarea');
+  check('revisit seeds the note from the stored second message',
+    ctl.isEditing() && noteTa && noteTa.value === 'trim it', noteTa && noteTa.value);
+  key(p1, { key: 'Escape' });
+  check('esc restores the marked resting state, still revisitable',
+    !ctl.isEditing() && !!p1.querySelector('del.md-pending-del')
+    && p1.classList.contains('rv-edit-revisitable') && ctl.decoratedBlockFor('e1') === p1);
+  check('esc leaves the store untouched', updateCalls.length === 1);
+  ctl.decorateEditThreads([]);
+
+  // — dissolving every mark on a revisit discards the thread —
+  const insThread = {
+    id: 'e2',
+    status: 'open',
+    anchor_status: 'ok',
+    anchor: { path: '(commit message)', snippet: P2, wholeBlock: true, heading: 'Commit message' },
+    messages: [{ author: 'user', body: '[Edit]\nSecond paragraph of rationale here.<ins> Extra.</ins>\n[/Edit]', ts: 7 }],
+  };
+  ctl.decorateEditThreads([insThread]);
+  const insEl = p2.querySelector('ins.md-pending-ins');
+  check('the pure insertion decorates in place', !!insEl && insEl.textContent === ' Extra.');
+  const insRange = document.createRange();
+  insRange.selectNodeContents(insEl);
+  const sel2 = window.getSelection();
+  sel2.removeAllRanges();
+  sel2.addRange(insRange);
+  key(p2, { key: 'Backspace' }); // deleting your own insertion removes it → zero marks
+  await sleep(5);
+  mousedown(document.querySelector('#commit h2'));
+  await sleep(5);
+  check('dissolving every mark on a revisit discards the thread',
+    !ctl.isEditing() && discardCalls.length === 1 && discardCalls[0] === 'e2'
+    && updateCalls.length === 1 && p2.innerHTML === P2, { discardCalls, html: p2.innerHTML });
+  ctl.decorateEditThreads([]);
+
+  // — undo restores the caret where the undone action began —
+  function rawCaretOffset(root) {
+    const s = window.getSelection();
+    if (!s || !s.rangeCount) return null;
+    const r = s.getRangeAt(0);
+    let sum = 0;
+    const w = document.createTreeWalker(root, 4, null);
+    let n;
+    while ((n = w.nextNode())) {
+      if (n === r.startContainer) return sum + r.startOffset;
+      sum += n.data.length;
+    }
+    return null;
+  }
+  const at = P2.indexOf('paragraph ');
+  const r2 = document.createRange();
+  r2.setStart(p2.firstChild, at);
+  r2.setEnd(p2.firstChild, at + 'paragraph '.length);
+  const sel3 = window.getSelection();
+  sel3.removeAllRanges();
+  sel3.addRange(r2);
+  key(p2, { key: 'Backspace' }); // entry: strike the selection, caret after the del
+  await sleep(5);
+  typeChar(p2, 'q');
+  await sleep(5);
+  key(p2, { key: 'z', metaKey: true }); // undo the insert
+  check('undo removes the insert and restores its caret',
+    !p2.querySelector('ins.md-pending-ins') && rawCaretOffset(p2) === at + 'paragraph '.length,
+    rawCaretOffset(p2));
+  key(p2, { key: 'z', metaKey: true }); // undo the strike
+  check('a second undo restores the block and the pre-strike caret',
+    !p2.querySelector('del.md-pending-del') && rawCaretOffset(p2) === at, rawCaretOffset(p2));
+  key(p2, { key: 'Escape' });
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
