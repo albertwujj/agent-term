@@ -4,7 +4,7 @@
 
 ![AgentTerm – filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
-Use with any CLI coding agent (Claude Code, Codex, etc). 
+Use with any CLI coding agent (Claude Code, Codex, Copilot, Cursor's CLI): the host reaches the agent through open conventions instead of a vendor API. Close to all of its author's daily work runs through it.
 
 Coding agents chose the terminal for a reason: nothing is more flexible, and everything composes with it. But the terminal never caught up to what the agent became. Everything an agent prints (a diff, a plan, a claim, a link) is dead text you can read but not act on. And once you're running several, each is an identical tab outside and a wall of text inside, with no telling which you meant to get back to. AgentTerm keeps the foundation and breaks through the ceiling: act on what the agent prints, review what it built until it's right, find the right session, steer it mid-run. Where that takes conventions that don't exist yet, it defines them as open protocols: the agent prints a `review://` link, and the review opens right in the terminal.
 
@@ -16,7 +16,7 @@ Run many agents and AgentTerm tracks them at two levels. The ones you're **activ
 ![your active agent sessions: each a live taskbar button with a thumbnail preview](assets/taskbar-preview.png)
 
 ## Watch and steer from your phone
-Add the companion viewer (**[agent-stream-hub](https://github.com/albertwujj/agent-stream-hub)**) to your phone's home screen as a web app. It shows **which agents need you across all your machines** ("your turn"), and drills into any live session **as the terminal itself**: the same screen you left at your desk, recognizable at a glance, with even its menus drivable key-by-key. **Steer it by voice**: speak, and your words reach the agent as text it knows came from voice, so it repairs the mishears and false starts against the session before acting. That's the part phone dictation can't do: with no view of your code it hears "pie test" and leaves it there; the agent turns it into `pytest`. Type instead, even from a network that only allows outbound HTTPS.
+Add the companion viewer (**[agent-stream-hub](https://github.com/albertwujj/agent-stream-hub)**) to your phone's home screen as a web app. It shows **which agents need you across all your machines** ("your turn"), and drills into any live session **as the terminal itself**: the same screen you left at your desk, recognizable at a glance, with even its menus drivable key-by-key. **Steer it by voice**: speak, and your words reach the agent as text it knows came from voice, so it repairs the mishears and false starts against the session before acting. That's the part phone dictation can't do: with no view of your code it hears "pie test" and leaves it there; the agent turns it into `pytest`. Type instead when voice isn't right. And everything travels over plain outbound HTTPS, so it works even from networks that allow nothing else.
 
 <p>
   <img src="assets/phone-machines.jpg" width="235" alt="which machines have agents waiting on you ('your turn')">
