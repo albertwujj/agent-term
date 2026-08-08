@@ -12,6 +12,18 @@ const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { createViewerBand } = require('./viewer-band');
 const { createComposer, isPasteCommentShortcut } = require('./comment-ui');
+const {
+  isPlainCommentKey,
+  isCommentEntryKey,
+  isEditEntryKey,
+  isMutatingEntryKey,
+  createMarkEngine,
+  serializeMarkedBlock,
+  overlayToEnvelope,
+  wrapEditEnvelope,
+  parseEditEnvelope,
+  buildEnvelopeDiffNode,
+} = require('./edit-marks');
 
 const BROAD_SELECTION_CHAR_LIMIT = 240;
 const BROAD_SELECTION_WORD_LIMIT = 45;
@@ -37,33 +49,9 @@ function findMarkdownSearchRanges(text, query) {
   return ranges;
 }
 
-function isPlainCommentKey(event) {
-  return event
-    && typeof event.key === 'string'
-    && event.key.length === 1
-    && !event.ctrlKey
-    && !event.metaKey
-    && !event.altKey
-    && !event.isComposing;
-}
-
-// The first-key dispatch (md-editing-design.md): letters comment — a–z and
-// A–Z alike, since an aside starts sentence-case as naturally as not. Every
-// other unmodified key edits at the caret: ⌫/Delete, Enter, arrows, digits,
-// punctuation, Space. ASCII letters only — an accented or CJK character is
-// text being typed into the document, not the start of an aside. IME
-// composition never dispatches; modifier chords pass through.
-function isCommentEntryKey(event) {
-  return isPlainCommentKey(event) && /[a-zA-Z]/.test(event.key);
-}
-
-function isEditEntryKey(event) {
-  if (!event || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return false;
-  const k = event.key;
-  if (k === 'Backspace' || k === 'Delete' || k === 'Enter'
-    || k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') return true;
-  return typeof k === 'string' && [...k].length === 1 && !/[a-zA-Z]/.test(k);
-}
+// isPlainCommentKey / isCommentEntryKey / isEditEntryKey / isMutatingEntryKey
+// (the first-key dispatch) now live in edit-marks.js, shared with the review
+// viewer's commit-message editor.
 
 // Merged word-diff of one line pair via common prefix/suffix trim: the middle
 // is what changed. One representation drives both the in-place pending view
@@ -87,19 +75,6 @@ function diffMergedParts(oldText, newText) {
     ins: newText.slice(p, newText.length - s),
     suffix: oldText.slice(oldText.length - s),
   };
-}
-
-// Entry keys split by whether they mutate: ⌫/Delete, every printable char —
-// Space included — and Enter (a line break at the click caret) apply
-// immediately: the keystroke IS the edit, and each only reaches dispatch
-// with a block deliberately targeted (untargeted Space page-flips). A no-op
-// entry read as "the key didn't work". Arrows enter the editor without
-// inserting.
-function isMutatingEntryKey(event) {
-  const k = event.key;
-  if (k === 'Backspace' || k === 'Delete' || k === 'Enter') return true;
-  if (k.startsWith('Arrow')) return false;
-  return [...k].length === 1;
 }
 
 function isTypingTarget(target) {
@@ -4110,18 +4085,11 @@ function createMarkdownViewer({
   // Strike-in-place editing: a delete strikes the text (never removes it), a
   // keystroke inserts it marked. The marks ARE the edit — no diff, no
   // reconstruction. Scoped to the block; structure never changes.
-  function editSel() { return window.getSelection && window.getSelection(); }
-  function collapseCaret(node, mode) {
-    const s = editSel(); if (!s) return; const r = document.createRange();
-    if (mode === 'before') r.setStartBefore(node);
-    else if (mode === 'after') r.setStartAfter(node);
-    else r.setStart(node, mode); // mode is a numeric offset
-    r.collapse(true); s.removeAllRanges(); s.addRange(r);
-  }
-  function markWrapping(node, sel) {
-    const el = node && node.nodeType === 3 ? node.parentElement : node;
-    return el && el.closest ? el.closest(sel) : null;
-  }
+  // The mark mutators live in edit-marks.js (shared with the review viewer's
+  // commit-message editor); this host binds them to its per-action undo.
+  const {
+    strikeInBlock, escapeDelAtCaret, insertMarkedInBlock, insertLineBreakInBlock,
+  } = createMarkEngine({ beforeMutate: () => pushEditingUndo() });
   // ——— Action-by-action edit history ———
   // Native undo is blocked on the editing surface (it can't see the marks), so
   // the session keeps its own: the first mutator call in a user action
@@ -4161,107 +4129,9 @@ function createMarkdownViewer({
     setCaretWithin(session.el, snap.caret);
   }
 
-  function strikeInBlock(block, range, caretMode) {
-    pushEditingUndo();
-    // Deleting text you inserted — it was never in the document, so remove it.
-    const ins = markWrapping(range.commonAncestorContainer, 'ins.md-pending-ins');
-    if (ins && ins.contains(range.startContainer) && ins.contains(range.endContainer)) {
-      const sc = range.startContainer, so = range.startOffset;
-      range.deleteContents();
-      if (!ins.textContent.length) { collapseCaret(ins, 'before'); ins.remove(); }
-      else collapseCaret(sc, so);
-      return;
-    }
-    const sc = range.startContainer, so = range.startOffset, ec = range.endContainer, eo = range.endOffset;
-    const SHOW_TEXT = (window.NodeFilter && window.NodeFilter.SHOW_TEXT) || 4;
-    const walker = document.createTreeWalker(block, SHOW_TEXT, null);
-    const touched = []; let n;
-    while ((n = walker.nextNode())) { if (range.intersectsNode(n)) touched.push(n); }
-    let firstDel = null, lastDel = null;
-    for (const tn of touched) {
-      const s = (tn === sc) ? so : 0;
-      const e = (tn === ec) ? eo : tn.data.length;
-      if (e <= s) continue;
-      let mid = tn;
-      if (s > 0) mid = mid.splitText(s);
-      if (mid.data.length > (e - s)) mid.splitText(e - s);
-      const parent = mid.parentNode;
-      const struck = parent && parent.closest ? parent.closest('del.md-pending-del') : null;
-      if (struck) {
-        // Already struck — no new mark, but it is part of the run the caret
-        // settles around, so a ⌫ against old struck text hops past it
-        // instead of dead-stopping.
-        if (!firstDel) firstDel = struck;
-        lastDel = struck;
-        continue;
-      }
-      const insHost = parent && parent.closest ? parent.closest('ins.md-pending-ins') : null;
-      if (insHost) {
-        parent.removeChild(mid);
-        if (!insHost.textContent.length) insHost.remove();
-        continue;
-      }
-      const del = document.createElement('del');
-      del.className = 'md-pending-del';
-      parent.insertBefore(del, mid);
-      del.appendChild(mid);
-      if (!firstDel) firstDel = del;
-      lastDel = del;
-    }
-    if (lastDel) collapseCaret(caretMode === 'after' ? lastDel : firstDel, caretMode === 'after' ? 'after' : 'before');
-  }
-  // A caret parked inside struck text (arrow walks and clicks land there — the
-  // position after a strike's last char and the one beyond the <del> are the
-  // same screen spot) must not put new text inside the del, where it would
-  // render struck. At the strike's edge the caret hops out; mid-strike the del
-  // splits and the insertion takes the seam.
-  function escapeDelAtCaret(range) {
-    const del = markWrapping(range.startContainer, 'del.md-pending-del');
-    if (!del || !del.parentNode) return;
-    const pre = document.createRange();
-    pre.selectNodeContents(del);
-    pre.setEnd(range.startContainer, range.startOffset);
-    const before = pre.toString().length;
-    if (before <= 0) range.setStartBefore(del);
-    else if (before >= del.textContent.length) range.setStartAfter(del);
-    else {
-      const tail = document.createElement('del');
-      tail.className = 'md-pending-del';
-      const rest = document.createRange();
-      rest.selectNodeContents(del);
-      rest.setStart(range.startContainer, range.startOffset);
-      tail.appendChild(rest.extractContents());
-      del.parentNode.insertBefore(tail, del.nextSibling);
-      range.setStartAfter(del);
-    }
-    range.collapse(true);
-  }
-  function insertMarkedInBlock(text) {
-    if (!text) return;
-    const s = editSel(); if (!s || !s.rangeCount) return;
-    pushEditingUndo();
-    const range = s.getRangeAt(0);
-    range.deleteContents();
-    escapeDelAtCaret(range);
-    const host = markWrapping(range.startContainer, 'ins.md-pending-ins');
-    const tn = document.createTextNode(text.replace(/\s/g, ' '));
-    if (host) { range.insertNode(tn); }
-    else { const el = document.createElement('ins'); el.className = 'md-pending-ins'; el.appendChild(tn); range.insertNode(el); }
-    collapseCaret(tn, tn.length);
-  }
-  // Snapshot a block's marked content for the overlay: strip editing artifacts
-  // (contenteditable's NBSPs and stray <br>), drop empty marks, keep the del/ins.
-  function serializeMarkedBlock(el) {
-    const clone = el.cloneNode(true);
-    clone.removeAttribute('contenteditable');
-    clone.classList.remove('md-rendered-editing');
-    clone.querySelectorAll('br').forEach((b) => b.remove());
-    const SHOW_TEXT = (window.NodeFilter && window.NodeFilter.SHOW_TEXT) || 4;
-    const walk = document.createTreeWalker(clone, SHOW_TEXT, null);
-    let n; while ((n = walk.nextNode())) n.nodeValue = n.nodeValue.replace(/\u00a0/g, " ");
-    clone.querySelectorAll('del.md-pending-del, ins.md-pending-ins').forEach((m) => { if (!m.textContent.length) m.remove(); });
-    return clone.innerHTML;
-  }
+  // strikeInBlock / escapeDelAtCaret / insertMarkedInBlock moved to
+  // edit-marks.js (bound above with this host's undo hook).
+  // serializeMarkedBlock moved to edit-marks.js.
 
   // The editing surface's own listeners, wired so the session can hand the
   // surface from one article's copy to the other (both wire identically; the
@@ -4878,21 +4748,7 @@ function createMarkdownViewer({
   // The exact marks the user struck, as the envelope body: the passage in
   // rendered form with <del>/<ins> in place (markup tags dropped; the user
   // marked what they saw, and the agent maps it to the source).
-  function overlayToEnvelope(html) {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    let out = '';
-    const walk = (node) => {
-      node.childNodes.forEach((child) => {
-        if (child.nodeType === 3) out += child.nodeValue;
-        else if (child.nodeName === 'DEL') out += `<del>${child.textContent}</del>`;
-        else if (child.nodeName === 'INS') out += `<ins>${child.textContent}</ins>`;
-        else walk(child);
-      });
-    };
-    walk(tmp);
-    return out;
-  }
+  // overlayToEnvelope moved to edit-marks.js.
 
   // One edit thread from an overlay: its exact marks as the [Edit] envelope. The
   // ATX heading marker (if any) is restored from the frozen source so the agent's
@@ -4910,7 +4766,7 @@ function createMarkdownViewer({
     const hierarchy = getSectionHierarchyForLine(finalDoc.headings, a.startLine);
     if (Array.isArray(hierarchy) && hierarchy.length) heading = String(hierarchy[hierarchy.length - 1]);
     return {
-      body: `[Edit]\n${marker}${inner}\n[/Edit]`,
+      body: wrapEditEnvelope(inner, marker),
       note: ov.note || '',
       anchor: { snippet, context: '', wholeBlock: false, heading },
     };
@@ -5063,61 +4919,7 @@ function createMarkdownViewer({
   }
 
   // The [Edit] envelope is the agent's wire format — never show it raw.
-  function parseEditEnvelope(body) {
-    const text = String(body || '');
-    const at = text.indexOf('[Edit]');
-    const end = text.indexOf('[/Edit]');
-    if (at === -1 || end === -1 || end < at) return null;
-    const lead = text.slice(0, at).trim();
-    const inner = text.slice(at + 6, end).replace(/^\n/, '').replace(/\n$/, '');
-    const lines = inner.split('\n');
-    // Any body with marks is a merged edit — parse the whole inner (a strike-in-
-    // place edit on a soft-wrapped block spans lines, its newlines staying as
-    // text between marks). Only a markless -/+ body is structural.
-    if (/<del>|<ins>/.test(inner)) {
-      const segments = [];
-      const re = /<del>([\s\S]*?)<\/del>|<ins>([\s\S]*?)<\/ins>/g;
-      let last = 0;
-      let m;
-      while ((m = re.exec(inner)) !== null) {
-        if (m.index > last) segments.push({ kind: 'text', text: inner.slice(last, m.index) });
-        if (m[1] != null) segments.push({ kind: 'del', text: m[1] });
-        else segments.push({ kind: 'ins', text: m[2] });
-        last = m.index + m[0].length;
-      }
-      if (last < inner.length) segments.push({ kind: 'text', text: inner.slice(last) });
-      return { lead, kind: 'merged', segments };
-    }
-    const rows = lines.map((l) => (
-      l.startsWith('- ') || l === '-' ? { sign: 'old', text: l.slice(2) }
-        : (l.startsWith('+ ') || l === '+' ? { sign: 'new', text: l.slice(2) } : { sign: 'ctx', text: l })
-    ));
-    return { lead, kind: 'lines', rows };
-  }
-
-  function buildEnvelopeDiffNode(parsed) {
-    const body = document.createElement('div');
-    body.className = 'md-pending-diff-body';
-    if (parsed.kind === 'merged') {
-      for (const seg of parsed.segments) {
-        if (seg.kind === 'text') body.append(document.createTextNode(seg.text));
-        else {
-          const el = document.createElement(seg.kind);
-          el.textContent = seg.text;
-          body.appendChild(el);
-        }
-      }
-    } else {
-      for (const row of parsed.rows) {
-        const div = document.createElement('div');
-        div.className = row.sign === 'old' ? 'md-pending-diff-old'
-          : (row.sign === 'new' ? 'md-pending-diff-new' : 'md-pending-diff-ctx');
-        div.textContent = row.text === '' ? ' ' : row.text;
-        body.appendChild(div);
-      }
-    }
-    return body;
-  }
+  // parseEditEnvelope / buildEnvelopeDiffNode moved to edit-marks.js.
 
   function isEditThread(thread) {
     const first = thread.messages && thread.messages[0];
@@ -5285,30 +5087,7 @@ function createMarkdownViewer({
   // it visible and struck-able. What the new line BECOMES in markdown source
   // (heading, paragraph, list item, continuation) is the agent's call — the
   // break's position is the user's, its form is not (md/user-intent.md).
-  function insertLineBreakInBlock() {
-    const s = editSel(); if (!s || !s.rangeCount) return;
-    pushEditingUndo();
-    const range = s.getRangeAt(0);
-    range.deleteContents();
-    escapeDelAtCaret(range);
-    const tn = document.createTextNode('\n');
-    if (markWrapping(range.startContainer, 'pre')) {
-      const host = markWrapping(range.startContainer, 'ins.md-pending-ins');
-      if (host) { range.insertNode(tn); }
-      else { const el = document.createElement('ins'); el.className = 'md-pending-ins'; el.appendChild(tn); range.insertNode(el); }
-      collapseCaret(tn, tn.length);
-      return;
-    }
-    // Always a fresh atom, even mid-insertion (a nested ins is fine — the
-    // envelope reads the outer mark's textContent), so the pilcrow/pre-wrap
-    // styling stays scoped to the break itself. Caret lands after the atom:
-    // the next typed char must join the surrounding run, not the atom.
-    const el = document.createElement('ins');
-    el.className = 'md-pending-ins md-pending-break';
-    el.appendChild(tn);
-    range.insertNode(el);
-    collapseCaret(el, 'after');
-  }
+  // insertLineBreakInBlock moved to edit-marks.js.
 
   function isCodeSurface(el) {
     return !!(el && el.closest && el.closest('pre'));

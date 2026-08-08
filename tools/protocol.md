@@ -95,6 +95,23 @@ store is that with `.html → -comments.json`.
 }
 ```
 
+### Region anchors and edit threads
+
+A thread on **prose** (the commit message, package prose, a rendered preview)
+carries a *region* anchor instead of a code anchor: `path` (the section's
+`data-path`, e.g. `(commit message)`), `snippet` (the quoted text — the real
+anchor), optional `context`, `wholeBlock`, and `heading`; **no `side`/`line`**.
+On regen the generator stamps a region anchor `ok` while its snippet still
+appears on the page, else `lost`.
+
+A thread whose first user message is wrapped in `[Edit]…[/Edit]` is a
+**suggested edit**: the passage as rendered, with `<del>`/`<ins>` marks for the
+user's deletions/insertions. The host composes these on the commit-message
+blocks and renders them as an inline diff (in place while the original text
+still matches, in the card otherwise). To the generator it is an ordinary
+thread — anchors only, never the body. An optional second user message on the
+same thread is the user's note about the edit.
+
 ### Field ownership — what makes shared-write safe
 
 Two processes write this file: the **host** (on the user's actions) and the

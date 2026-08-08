@@ -27,6 +27,8 @@
 const { ipcRenderer } = require('electron');
 const { normWS, nearestHeading, toast, createComposer, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
 const { getViewerShortcutAction } = require('./viewer-shortcut');
+const { createCommitEditController } = require('./review-commit-edit');
+const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
 
 (function () {
   if (window.__rvInit) return;
@@ -48,6 +50,9 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
   // disclosure by default (less clutter); this remembers the ones clicked open.
   // Guest-local, so a full reload re-collapses them — the intended default.
   const expandedSet = new Set();
+  // Commit-message editing (review-commit-edit.js): strike-in-place marks on
+  // the commit blocks, committed as [Edit] threads. Bound on review pages only.
+  let commitEdit = null;
 
   function ready(fn) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
@@ -69,6 +74,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     bindGutter();
     bindSelection();
     bindDoubleClick();
+    bindCommitEditing();
     load();
     pulseDiffDelta(); // scope 1: pulse new diff lines vs the previous render (host-held baseline)
     // Host pings this when the window regains focus, so agent replies / status
@@ -114,8 +120,8 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
   function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 
   function load(opts) {
-    // Don't clobber an open composer/reply mid-typing on an external refresh.
-    if (document.querySelector('.rv-compose-row, .rv-replybox')) return;
+    // Don't clobber an open composer/reply/edit mid-typing on an external refresh.
+    if (document.querySelector('.rv-compose-row, .rv-replybox, .rv-edit-compose')) return;
     ipcRenderer.invoke('read-review-comments', commentsUrl).then(function (res) {
       store = (res && res.success && res.data) ? res.data : { threads: [] };
       if (res && res.success) { sentTs = res.sentTs || 0; prevSentTs = res.prevSentTs || 0; }
@@ -190,7 +196,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
   }
 
   function refreshQuoteButton() {
-    if (document.querySelector('.rv-quote-compose, .rv-compose-row, .rv-replybox')) return;
+    if (document.querySelector('.rv-quote-compose, .rv-compose-row, .rv-replybox, .rv-edit-compose')) return;
     const sel = window.getSelection && window.getSelection();
     if (!sel || sel.isCollapsed || !normWS(String(sel))) { hideQuoteButton(); return; }
     const range = sel.getRangeAt(0);
@@ -199,7 +205,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     // Only prose / commit message / markdown preview are quote-commentable; code
     // diffs use the line gutter. Skip selections inside our own overlay.
     if (!el || !el.closest('.md-render, #commit')) { hideQuoteButton(); return; }
-    if (el.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox')) { hideQuoteButton(); return; }
+    if (el.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox, .md-rendered-editing')) { hideQuoteButton(); return; }
     const rect = range.getBoundingClientRect();
     const full = normWS(String(sel));
     const snippet = full.slice(0, 400);
@@ -237,13 +243,13 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     document.addEventListener('mousedown', function (e) {
       if (e.detail < 2 || !e.target || !e.target.closest) return;
       if (!e.target.closest('.md-render, #commit')) return;
-      if (e.target.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox')) return;
+      if (e.target.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox, .md-rendered-editing, .rv-edit-compose')) return;
       e.preventDefault();
     });
     document.addEventListener('dblclick', function (e) {
       const t = e.target;
       if (!t || !t.closest || !t.closest('.md-render, #commit')) return;
-      if (t.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox')) return;
+      if (t.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox, .md-rendered-editing, .rv-edit-compose')) return;
       const block = enclosingBlock(t);
       if (!block) return;
       e.preventDefault();
@@ -322,6 +328,59 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     activeComposer = null;
   }
 
+  // --- commit-message editing: the md viewer's edit-is-a-comment model on the
+  // commit blocks. The controller owns the dispatch/session; this host wires
+  // its store IPC, the comment fallback for letters, and the quote-chip
+  // cleanup when an edit begins. ---
+  function bindCommitEditing() {
+    commitEdit = createCommitEditController({
+      platform: process.platform,
+      onToast: toast,
+      sendLabel: function () { return sendLabel(1); },
+      threadNeedsSend: threadNeedsSend,
+      composerBlocked: function () {
+        return !!document.querySelector('.rv-quote-compose, .rv-compose-row, .rv-replybox');
+      },
+      onEditStart: function () { hideQuoteButton(); },
+      // A letter on an armed commit block comments on it — the whole-block
+      // quote path, exactly what a double-click would have set up.
+      openBlockComment: function (block, seedKey) {
+        const range = document.createRange();
+        range.selectNodeContents(block);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        refreshQuoteButton();
+        if (quoteSel) openQuoteComposer(seedKey);
+      },
+      addEditThread: function (item) {
+        return ipcRenderer.invoke('rv-add-thread', {
+          commentsUrl: commentsUrl, anchor: item.anchor, body: item.body, note: item.note,
+        }).then(function (res) {
+          if (!res || !res.success) return res;
+          store = res.data;
+          renderAndTrack(false);
+          if (item.alsoSend) sendThread('Edit sent to agent');
+          else toast('Edit added');
+          return res;
+        });
+      },
+    });
+    commitEdit.bind();
+  }
+
+  // Undo for a pending edit thread: allowed only while it is wholly the
+  // user's (rv-discard-thread enforces the same rule store-side).
+  function discardEditThread(threadId) {
+    ipcRenderer.invoke('rv-discard-thread', { commentsUrl: commentsUrl, threadId: threadId })
+      .then(function (res) {
+        if (!res || !res.success) { toast((res && res.error) || 'Could not discard'); return; }
+        store = res.data;
+        renderAndTrack(false);
+        toast('Edit discarded');
+      });
+  }
+
   // The send is a pointer at EVERY open thread (main recounts after the store
   // write), so the primary says what it flushes when that is more than this
   // one — the md viewer's "Send all (n)" grammar, and the same plain "Send":
@@ -332,6 +391,16 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
   function sendLabel(extraOpen) {
     const n = store.threads.filter(function (t) { return (t.status || 'open') === 'open'; }).length + extraOpen;
     return n > 1 ? 'Send all (' + n + ')' : 'Send';
+  }
+
+  // Open, the user's word last, and never covered by a send — the thread still
+  // needs its ping. Shared by the card ladder and the commit-edit mark colours
+  // (pending amber/rose vs sent slate).
+  function threadNeedsSend(t) {
+    const msgs = t.messages || [];
+    const last = msgs[msgs.length - 1];
+    const userLast = (t.status || 'open') === 'open' && !!last && (last.author || 'user') === 'user';
+    return userLast && (!sentTs || (last.ts || 0) > sentTs);
   }
 
   function openQuoteComposer(initialText) {
@@ -547,6 +616,9 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     document.querySelectorAll('.rv-row, .rv-filehdr-thread, .rv-quote-thread').forEach(function (e) { e.remove(); });
     anchorRanges = [];
     const threads = (store && store.threads) || [];
+    // Unresolved commit-message edits re-strike their block in place (the marks
+    // ARE the edit); their cards then skip the redundant diff body.
+    if (commitEdit) commitEdit.decorateEditThreads(threads);
     for (let i = 0; i < threads.length; i++) placeThread(threads[i]);
     highlightRanges('cu-anchor', anchorRanges); // mark each comment's exact text, not the whole block
   }
@@ -591,6 +663,16 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
   // to the agent's heading, then the stored section, then main — never dropped.
   function placeRegionThread(t) {
     const a = t.anchor || {};
+    // A decorated commit-edit thread sits under its marked block — the marks
+    // carry the diff, so the card passes hasHighlight and drops its quote.
+    const decoratedBlock = commitEdit ? commitEdit.decoratedBlockFor(t.id) : null;
+    if (decoratedBlock && decoratedBlock.parentNode) {
+      const dbox = document.createElement('div');
+      dbox.className = 'rv-quote-thread';
+      dbox.appendChild(threadCard(t, true));
+      decoratedBlock.parentNode.insertBefore(dbox, decoratedBlock.nextSibling);
+      return;
+    }
     const block = t.anchor_status === 'lost' ? null : findQuoteBlock(a.snippet, a.context);
     // Whole-block anchor → highlight the whole block (the capped snippet would clip
     // a long paragraph). Otherwise highlight just the quoted text.
@@ -652,7 +734,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
   // agent's heading if it still exists, else the stored section's first heading.
   function regionFallbackTarget(a) {
     if (a.heading) {
-      const heads = document.querySelectorAll('.md-render h1,.md-render h2,.md-render h3,.md-render h4,.md-render h5,.md-render h6');
+      const heads = document.querySelectorAll('.md-render h1,.md-render h2,.md-render h3,.md-render h4,.md-render h5,.md-render h6,#commit h2');
       for (let i = 0; i < heads.length; i++) if (normWS(heads[i].textContent) === normWS(a.heading)) return heads[i];
     }
     if (a.path) {
@@ -663,10 +745,20 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     return null;
   }
 
-  // A collapsed row's one-line handle on a thread: its first user comment.
+  // A collapsed row's one-line handle on a thread: its first user comment. An
+  // edit thread's raw body is an [Edit] envelope — read as the suggested NEW
+  // text (text + insertions), which is how the user thinks of their edit.
   function threadGist(t, fallback) {
     const first = (t.messages || []).find(function (m) { return (m.author || 'user') === 'user'; }) || (t.messages || [])[0];
-    const raw = normWS((first && first.body) || '') || fallback;
+    const parsed = first && (first.author || 'user') === 'user' ? parseEditEnvelope(first.body) : null;
+    let raw;
+    if (parsed && parsed.kind === 'merged') {
+      raw = 'Edit: ' + normWS(parsed.segments
+        .filter(function (s) { return s.kind !== 'del'; })
+        .map(function (s) { return s.text; }).join(''));
+    } else {
+      raw = normWS((first && first.body) || '') || fallback;
+    }
     return raw.length > 160 ? raw.slice(0, 159) + '…' : raw;
   }
 
@@ -676,6 +768,13 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     const div = document.createElement('div');
     div.className = 'rv-thread rv-' + (t.status || 'open');
     if (t.id != null) div.setAttribute('data-rv-tid', t.id); // lets applyPulses find this card
+    // An edit thread's first message is an [Edit] envelope (commit-message
+    // editing) — rendered as a del/ins diff, or elided entirely when the marks
+    // are already struck into the commit block above the card.
+    const firstMsg = (t.messages || [])[0];
+    const editParsed = firstMsg && (firstMsg.author || 'user') === 'user'
+      ? parseEditEnvelope(firstMsg.body) : null;
+    const editDecorated = !!(editParsed && commitEdit && commitEdit.decoratedBlockFor(t.id));
     const lost = t.anchor_status === 'lost'
       ? '<div class="rv-lost">↳ ' + (isRegion ? 'quoted text is no longer on the page'
           : ('original ' + esc(a.path) + ':' + esc(a.line) + ' — code changed')) + '</div>' : '';
@@ -684,10 +783,14 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     // The in-place highlight + the card sitting right under its block already show
     // what this is about, so the repeated quote is redundant while anchored — keep
     // it only when there's no highlight (anchor lost / unplaceable), where it's the
-    // only handle on what was commented on.
-    const quote = (isRegion && a.snippet && !hasHighlight)
+    // only handle on what was commented on. An edit's diff body carries its own
+    // original text, so it never needs the quote.
+    const quote = (isRegion && a.snippet && !hasHighlight && !editParsed)
       ? '<blockquote class="rv-qtext">' + esc(a.snippet) + '</blockquote>' : '';
-    const msgs = (t.messages || []).map(function (m) {
+    const msgs = (t.messages || []).map(function (m, i) {
+      if (i === 0 && editParsed) {
+        return '<div class="rv-msg rv-user rv-edit-body" data-rv-edit-slot="1"><span class="rv-who">You</span></div>';
+      }
       return '<div class="rv-msg rv-' + (m.author || 'user') + '"><span class="rv-who">'
         + (m.author === 'agent' ? 'Agent' : 'You') + '</span>' + esc(m.body) + '</div>';
     }).join('');
@@ -710,7 +813,7 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     // back), the way md's waiting rows rest. Recency does the tidying.
     const last = (t.messages || [])[(t.messages || []).length - 1];
     const userLast = (t.status || 'open') === 'open' && !!last && (last.author || 'user') === 'user';
-    const needsSend = userLast && (!sentTs || (last.ts || 0) > sentTs);
+    const needsSend = threadNeedsSend(t);
     const waiting = userLast && !needsSend;
     if (waiting && (last.ts || 0) <= prevSentTs && !expandedSet.has(t.id)) {
       div.classList.add('rv-collapsed', 'rv-waiting');
@@ -735,15 +838,34 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
     // ping. Once covered by a send it rests as "awaiting agent" — the md
     // viewer's model — so a sent thread can't be re-sent by mistake; a fresh
     // follow-up moves past the boundary and brings Send back.
+    // Undo for a pending edit exists only while the thread is wholly the
+    // user's: un-sent and never spoken to by the agent. Once sent it seals
+    // (awaiting), matching the md viewer; once answered, undo is a follow-up.
+    const discardable = !!editParsed && needsSend
+      && (t.messages || []).every(function (m) { return (m.author || 'user') === 'user'; });
     div.innerHTML = badge + lost + moved + quote + msgs
       + '<div class="rv-thread-actions">'
       + '<button class="rv-link" data-act="comment">Comment</button>'
       + (needsSend ? '<button class="rv-link" data-act="send">' + esc(sendLabel(0)) + '</button>' : '')
+      + (discardable ? '<button class="rv-link" data-act="discard">Discard edit</button>' : '')
       + (waiting ? '<span class="rv-awaiting">sent — awaiting agent</span>' : '')
       + '</div>';
+    const slot = div.querySelector('[data-rv-edit-slot]');
+    if (slot) {
+      if (editDecorated) {
+        const note = document.createElement('span');
+        note.className = 'rv-edit-inplace';
+        note.textContent = 'suggested edit — marked in the commit message above';
+        slot.appendChild(note);
+      } else {
+        slot.appendChild(buildEnvelopeDiffNode(editParsed));
+      }
+    }
     div.querySelector('[data-act=comment]').onclick = function () { openReply(div, t.id); };
     const sendBtn = div.querySelector('[data-act=send]');
     if (sendBtn) sendBtn.onclick = function () { sendThread('Sent to agent'); };
+    const discardBtn = div.querySelector('[data-act=discard]');
+    if (discardBtn) discardBtn.onclick = function () { discardEditThread(t.id); };
     const collapseBtn = div.querySelector('[data-act=collapse]');
     if (collapseBtn) collapseBtn.onclick = function () { expandedSet.delete(t.id); renderAndTrack(false); };
     return div;
@@ -891,6 +1013,40 @@ const { getViewerShortcutAction } = require('./viewer-shortcut');
       '.rv-pulse{animation:rv-pulse-kf 3000ms ease-in-out 3;border-radius:4px}',
       // reduced motion: no animation — a strong static tint that clears when the class is removed.
       '@media (prefers-reduced-motion:reduce){.rv-pulse{animation:none;background:rgba(9,105,218,.30);box-shadow:inset 4px 0 0 #0969da}}',
+      // --- commit-message editing (review-commit-edit.js) ---
+      // Track-changes marks, the md viewer's palette: deleted struck rose,
+      // inserted amber underline (never a fill — fills read as highlights);
+      // sent edits rest in slate until the agent resolves them.
+      '#commit del.md-pending-del{color:#9f1239;background:rgba(244,63,94,.12);text-decoration:line-through;border-radius:3px;padding:0 1px}',
+      '#commit ins.md-pending-ins{color:#b45309;background:none;text-decoration:underline;text-decoration-thickness:2px;',
+      'text-underline-offset:2px;text-decoration-color:rgba(217,119,6,.85);white-space:pre-wrap}',
+      '#commit del.md-sent-del{color:#64748b;background:rgba(100,116,139,.14);text-decoration:line-through;border-radius:3px;padding:0 1px}',
+      '#commit ins.md-sent-ins{color:#475569;background:none;text-decoration:underline;text-decoration-thickness:2px;',
+      'text-underline-offset:2px;text-decoration-color:rgba(100,116,139,.7);white-space:pre-wrap}',
+      '#commit ins.md-pending-break{white-space:pre-wrap}',
+      '#commit ins.md-pending-break::before{content:"¶";color:rgba(217,119,6,.55)}',
+      // The editing surface: entry is loud (md's rule) — a soft amber wash says
+      // "this block is now an editor" without restyling the text itself.
+      '#commit .md-rendered-editing{outline:none;background:rgba(217,119,6,.07);border-radius:4px;cursor:text}',
+      // The held click caret: an empty span that blinks where the edit will
+      // begin. Zero-width so it never perturbs the text or anchors.
+      '.rv-edit-caret{display:inline-block;width:0;border-left:1.5px solid #b45309;height:1em;',
+      'vertical-align:text-bottom;animation:rv-caret-blink 1.06s step-end infinite}',
+      '@keyframes rv-caret-blink{0%,100%{opacity:1}50%{opacity:0}}',
+      // The edit's one control: note + Revert + Send under the block. Spans the
+      // commit body's columns (the section is two-column but the control is a
+      // block-level thing, not column content).
+      '.rv-edit-compose{column-span:all;max-width:780px;margin:6px 0;background:#f6f8fa;',
+      'border:1px solid #d1d9e0;border-radius:6px;padding:8px 9px}',
+      // Edit diff inside a card (the un-decorated fallback: lost anchors,
+      // amended text) — same vocabulary at card scale.
+      '.rv-thread .md-pending-diff-body{white-space:pre-wrap;margin-top:2px}',
+      '.rv-thread .md-pending-diff-body del{color:#9f1239;background:rgba(244,63,94,.12);text-decoration:line-through;border-radius:3px;padding:0 1px}',
+      '.rv-thread .md-pending-diff-body ins{color:#b45309;text-decoration:underline;text-decoration-thickness:2px;',
+      'text-underline-offset:2px;text-decoration-color:rgba(217,119,6,.85)}',
+      '.rv-thread .md-pending-diff-old{color:#9f1239;background:rgba(244,63,94,.08)}',
+      '.rv-thread .md-pending-diff-new{color:#1a7f37;background:rgba(26,127,55,.08)}',
+      '.rv-edit-inplace{color:#6e7781;font-style:italic}',
     ].join('');
     document.head.appendChild(st);
   }

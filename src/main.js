@@ -3498,16 +3498,20 @@ function newThreadId() {
 // Guard: only ever touch a *-comments.json path (mirrors the read handler).
 function validCommentsPath(p) { return /-comments\.json$/i.test(p); }
 
-ipcMain.handle('rv-add-thread', async (event, { commentsUrl, anchor, body } = {}) => {
+ipcMain.handle('rv-add-thread', async (event, { commentsUrl, anchor, body, note } = {}) => {
   const p = commentsPathFromUrl(commentsUrl);
   if (!validCommentsPath(p)) return { success: false, error: 'not a comments store' };
   const text = String(body == null ? '' : body).trim();
   if (!text) return { success: false, error: 'Empty comment' };
   const a = anchor || {};
+  // A commit-message edit thread's optional note: rides as a SECOND user
+  // message so the [Edit] envelope stays pure diff (md-add-threads' rule).
+  const noteText = String(note == null ? '' : note).trim();
   return withCommentsLock(p, async () => {
     try {
       const store = await loadCommentStore(p);
       const id = newThreadId();
+      const ts = Date.now();
       store.threads.push({
         id,
         anchor: {
@@ -3528,10 +3532,36 @@ ipcMain.handle('rv-add-thread', async (event, { commentsUrl, anchor, body } = {}
         },
         anchor_status: 'ok',
         status: 'open',
-        messages: [{ author: 'user', body: text, ts: Date.now() }],
+        messages: [
+          { author: 'user', body: text, ts },
+          ...(noteText ? [{ author: 'user', body: noteText, ts }] : []),
+        ],
       });
       await saveCommentStore(p, store);
       return { success: true, data: store, threadId: id };
+    } catch (e) { return { success: false, error: e.message }; }
+  });
+});
+
+// Undo for a pending commit-message edit: drop its thread while it is still
+// wholly the user's — open, every message user-authored. Once the agent has
+// spoken the record is a conversation and undo becomes a follow-up instead.
+ipcMain.handle('rv-discard-thread', async (event, { commentsUrl, threadId } = {}) => {
+  const p = commentsPathFromUrl(commentsUrl);
+  if (!validCommentsPath(p)) return { success: false, error: 'not a comments store' };
+  return withCommentsLock(p, async () => {
+    try {
+      const store = await loadCommentStore(p);
+      const i = store.threads.findIndex((x) => x.id === threadId);
+      if (i === -1) return { success: false, error: 'thread not found' };
+      const t = store.threads[i];
+      const userOnly = (t.messages || []).every((m) => (m.author || 'user') === 'user');
+      if ((t.status || 'open') !== 'open' || !userOnly) {
+        return { success: false, error: 'the agent has this thread — reply instead' };
+      }
+      store.threads.splice(i, 1);
+      await saveCommentStore(p, store);
+      return { success: true, data: store };
     } catch (e) { return { success: false, error: e.message }; }
   });
 });

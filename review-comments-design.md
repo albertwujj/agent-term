@@ -159,3 +159,48 @@ flags are surfaced to it.
 - **Re-anchoring** — `review.py reanchor_comments()` re-stamps every thread's
   `anchor_status` (and `line` for `moved`) against the new diff on each regen,
   touching anchors only (never message bodies / status).
+
+## Commit-message direct editing (2026-08-07)
+
+The md viewer's "edit is a comment" model, on the review page's commit-message
+blocks (`.commit-subject`, `.commit-body p`). The commit section is a frozen
+render regenerated from git, so the frozen-document suggestion model applies
+with no write-back path at all: the user strikes/inserts in place, the marks
+ship as a thread, the agent amends the commit and the regen shows the result.
+
+- **Gestures are md's first-key dispatch, scoped to the commit blocks.** A
+  click arms the block and holds a blinking caret; letters keep the comment
+  path (a whole-block quote comment, seeded); every other unmodified key opens
+  the strike-in-place session with the keystroke applied. A selection inside
+  one block routes edit keys the same way (⌫ strikes the selection; a
+  non-letter printable types over it). While editing: Esc reverts, Enter
+  commits + sends, Shift+Enter breaks the line, ⌘Z steps back, and clicking
+  away commits without sending — the review composer's own rule, so edits and
+  comments share one boundary (store-commit on click-away; the md viewer's
+  in-memory batch has no equivalent here because the guest reloads wholesale).
+- **Data is an ordinary thread.** Region anchor on `(commit message)`
+  (snippet = the block's original text, `wholeBlock`, heading "Commit
+  message"); first message `[Edit]…[/Edit]` with `<del>`/`<ins>` over the
+  rendered text; optional note as a second user message (`rv-add-thread`
+  grew the md store's note rule). The agent-facing semantics are the shared
+  ones in `agent-threads/md/user-intent.md`; the review runbook adds the
+  commit-message specifics (amend, re-wrap, re-scope).
+- **Rendering**: an unresolved edit thread re-strikes its block in place
+  (pending = amber/rose while un-sent, slate once covered by a send — the
+  sent tint), with its card beneath carrying the note/replies and eliding
+  the redundant diff. When the block no longer matches (the agent amended;
+  anchor `lost`), the card carries the del/ins diff itself. A decorated
+  block refuses re-editing: discard first (pending) or wait (sent) — md's
+  sealed-block rule.
+- **Undo of a committed edit** is `rv-discard-thread`, allowed only while the
+  thread is wholly the user's (open, every message user-authored); after that
+  a follow-up is the vehicle, like any thread.
+- **Two-column note**: the commit body is CSS multicol, so the edit's
+  composer strip and the thread cards are `column-span:all` (the
+  `.rv-quote-thread` precedent) — controls are block-level things, not
+  column content.
+- **Shared code**: the mark engine + `[Edit]` envelope moved to
+  `src/edit-marks.js` (the md viewer re-imports it); the session/dispatch
+  lives in `src/review-commit-edit.js`, electron-free and bundled into the
+  preload, with IO injected by `web-viewer-preload.js` (comment-ui pattern —
+  shared after the second real use proved the shape).

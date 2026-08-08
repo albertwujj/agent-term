@@ -374,7 +374,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
   // The band's manual ⟳ stays immediate (and cache-bypassing): explicit user action.
   // On any check failure, fall through to reloading — never hold forever.
   const GUEST_COMPOSING_CHECK =
-    "!!document.querySelector('.rv-quote-compose, .rv-compose-row, .rv-replybox')";
+    "!!document.querySelector('.rv-quote-compose, .rv-compose-row, .rv-replybox, .rv-edit-compose')";
   let heldReloadTimer = null;
   function reload() {
     if (heldReloadTimer) { clearTimeout(heldReloadTimer); heldReloadTimer = null; }
