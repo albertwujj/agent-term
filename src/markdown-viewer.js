@@ -233,6 +233,13 @@ function ensureStyles() {
       background: rgba(250, 204, 21, 0.38);
       color: inherit;
     }
+    /* A submitted comment's quoted text, marked while its thread card is open.
+       Same yellow the selection wore while composing, softened so an armed
+       draft still reads stronger than a readback. */
+    ::highlight(md-thread-anchor) {
+      background: rgba(250, 204, 21, 0.28);
+      color: inherit;
+    }
     /* Hover-only change ranges: green marks changed text, cool blue marks a
        surviving anchor for deletion-only changes (the deleted text itself
        cannot be shown). Settled changes show only the gutter bar below —
@@ -4908,6 +4915,42 @@ function createMarkdownViewer({
     return resolveThreadHeadingTarget(article, anchor.heading);
   }
 
+  // The quoted text a comment thread anchors to, as live Ranges in `target` —
+  // the readback of the selection highlight the draft wore while composing.
+  // Comments on a sub-block selection only: an edit thread shows its marks in
+  // place, and a whole-block or image comment's card already sits under the
+  // block it means. The stored snippet and the DOM disagree on whitespace, so
+  // build the normalized text with per-char offsets back into searchable
+  // space, then map the hit to a Range. A miss (text changed since, heading
+  // fallback) yields no readback.
+  function createThreadAnchorRanges(target, thread) {
+    const anchor = (thread && thread.anchor) || {};
+    const first = (thread && thread.messages && thread.messages[0] && thread.messages[0].body) || '';
+    if (!target || anchor.src || anchor.wholeBlock || parseEditEnvelope(first)) return [];
+    const snip = snippetMatchText(anchor.snippet);
+    if (!snip) return [];
+    const { text } = getSearchableTextNodes(target);
+    let norm = '';
+    const offsets = []; // offsets[i] = searchable-space offset of norm[i]
+    let prevSpace = true; // collapse runs + left-trim, matching normalizeChangeMatchText
+    for (let i = 0; i < text.length; i++) {
+      if (/\s/.test(text[i])) {
+        if (prevSpace) continue;
+        norm += ' ';
+        offsets.push(i);
+        prevSpace = true;
+      } else {
+        norm += text[i];
+        offsets.push(i);
+        prevSpace = false;
+      }
+    }
+    const index = norm.indexOf(snip);
+    if (index < 0) return [];
+    const range = createTextRangeWithin(target, offsets[index], offsets[index + snip.length - 1] + 1);
+    return range ? [range] : [];
+  }
+
   // The agent owns this (contract.md): `resolved` means it finished the user's
   // ask and needs nothing back, so the thread is history and folds into its
   // block's count. Anything else is `open` — the agent is blocked on the user —
@@ -5271,6 +5314,7 @@ function createMarkdownViewer({
     const store = state.threadStore;
     const threads = store && Array.isArray(store.threads) ? store.threads : [];
     const resolvedByBlock = new Map(); // block key → { target, threads[] }, per pane
+    const anchorRanges = []; // quoted-text readback for every card on show, both panes
     if (threads.length) {
       for (const article of [state.article, state.secondaryArticle]) {
         if (!article) continue;
@@ -5340,6 +5384,11 @@ function createMarkdownViewer({
             continue;
           }
           const el = buildOpenThreadElement(thread, !target);
+          // Card-on-show is buildOpenThreadElement's own condition: the
+          // readback highlight exists exactly when a full card does.
+          if (target && (threadNeedsUser(thread) || state.expandedThreads.has(thread.id))) {
+            anchorRanges.push(...createThreadAnchorRanges(target, thread));
+          }
           if (target) insertCommentFlowElementAfterTarget(target, el);
           else article.appendChild(el);
         }
@@ -5358,9 +5407,11 @@ function createMarkdownViewer({
           // hook alone; unfolded is a line per thread (your opening ask), with
           // the full card only for the one you open.
           const rows = expanded
-            ? group.map((thread) => (state.expandedThreads.has(thread.id)
-              ? buildThreadCard(thread, !target)
-              : buildResolvedThreadLine(thread)))
+            ? group.map((thread) => {
+              if (!state.expandedThreads.has(thread.id)) return buildResolvedThreadLine(thread);
+              if (target) anchorRanges.push(...createThreadAnchorRanges(target, thread));
+              return buildThreadCard(thread, !target);
+            })
             : [buildResolvedFoldedRow(group)];
           for (const row of rows) row.classList.add('md-resolved-item');
           if (!single) addResolvedFoldControl(rows[0], key, expanded);
@@ -5368,6 +5419,14 @@ function createMarkdownViewer({
         }
         resolvedByBlock.clear();
       }
+    }
+    // The readback rides the same render that shows the cards: open cards mark
+    // their quoted text in the doc, everything else clears the mark.
+    if (canUseSelectionHighlights()) {
+      try {
+        if (anchorRanges.length) window.CSS.highlights.set('md-thread-anchor', new window.Highlight(...anchorRanges));
+        else window.CSS.highlights.delete('md-thread-anchor');
+      } catch { /* decoration only — never block the thread render */ }
     }
     updateBottomSpacer();
     if (sync) syncSecondaryPane();
