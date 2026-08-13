@@ -34,27 +34,40 @@ check('file:line and its variants wait for a modifier', () => {
   assert.strictEqual(navigationNeedsModifier(m('python_traceback', 'File "app/run.py", line 42')), true);
 });
 
-check('source and diff lines wait for a modifier', () => {
+check('source and diff lines over code wait for a modifier', () => {
   assert.strictEqual(navigationNeedsModifier(m('source_line', '    return bar')), true);
   assert.strictEqual(navigationNeedsModifier(m('diff_line', '+  const x = 1')), true);
   assert.strictEqual(navigationNeedsModifier(m('diff_block', '│ some prose line')), true);
 });
 
-// A content line is something you select and comment on, so the plain click
-// belongs to commenting there whatever the line happens to say or edit.
-check('a content line never takes the plain click', () => {
+// A content line's destination is its resolved context, never its own text.
+const ctx = (patternName, text, contextPath) => ({ patternName, text, contextPath });
+
+check('a content line reads its destination from contextPath, not its text', () => {
   // The path comes from a diff header above, not from this text: the extension
   // here is prose, and the click would land in the IDE.
-  assert.strictEqual(navigationNeedsModifier(m('diff_line', '+ see README.md for details')), true);
-  assert.strictEqual(navigationNeedsModifier(m('source_line', '    open("docs/spec.md")')), true);
-  assert.strictEqual(navigationNeedsModifier(m('diff_block', '│ rewrote notes.html by hand')), true);
-  // And a genuine markdown diff still asks for the modifier, so editing a doc
-  // never costs you the gesture you comment with.
-  assert.strictEqual(navigationNeedsModifier(m('diff_block', '│ ## A heading in launch-plan.md')), true);
-  // Same for the patterns that resolve their file by scanning backwards.
+  assert.strictEqual(navigationNeedsModifier(ctx('diff_line', '+ see README.md for details', 'src/renderer.js')), true);
+  assert.strictEqual(navigationNeedsModifier(ctx('source_line', '    open("docs/spec.md")', 'src/main.js')), true);
+  assert.strictEqual(navigationNeedsModifier(ctx('diff_block', '│ rewrote notes.html by hand', 'src/web-viewer.js')), true);
+  // Unresolved context earns nothing: the click would have to guess.
   assert.strictEqual(navigationNeedsModifier(m('line_ref', 'line 12 of notes.md')), true);
   assert.strictEqual(navigationNeedsModifier(m('comment_line_ref', '# :344')), true);
   assert.strictEqual(navigationNeedsModifier(m('python_traceback', 'File "docs/a.md", line 42')), true);
+});
+
+// A content line whose enclosing file is a doc jumps in-app, so it keeps the
+// plain click: with a reliable jump, commenting on a doc's diff belongs in the
+// viewer itself, where the thread lives with the text.
+check('a doc-context content line takes the plain click into the viewer', () => {
+  assert.strictEqual(navigationNeedsModifier(ctx('diff_block', '│ ## A heading', 'launch-plan.md')), false);
+  assert.strictEqual(navigationNeedsModifier(ctx('diff_block', '- **No or low cost** — same size', 'ai/coding-guide.md')), false);
+  assert.strictEqual(navigationNeedsModifier(ctx('diff_line', '+ prose in a numbered diff', 'notes.markdown')), false);
+  assert.strictEqual(navigationNeedsModifier(ctx('source_line', '    a code block inside a doc', 'docs/spec.md')), false);
+  assert.strictEqual(navigationNeedsModifier(ctx('line_ref', 'lines 74-113', 'ai/coding-guide.md')), false);
+  assert.strictEqual(navigationNeedsModifier(ctx('comment_line_ref', '# :344', 'docs/spec.md')), false);
+  // A source file that merely contains "md" in its name is still code.
+  assert.strictEqual(navigationNeedsModifier(ctx('diff_block', '│ prose', 'src/md-link-target.js')), true);
+  assert.strictEqual(navigationNeedsModifier(ctx('diff_block', '│ prose', 'notes.mdx')), true);
 });
 
 // A built-in viewer keeps the plain click: the terminal stays where it was and
@@ -152,6 +165,14 @@ check('a plain press on an in-app match arms it', () => {
   const doc = m('file_line', 'README.md:42');
   assert.strictEqual(matchForPress(doc, {}), doc);
   assert.strictEqual(matchForPress(null, {}), null);
+});
+
+check('a plain press on a doc-context diff row arms it; code context still waits', () => {
+  const mdRow = ctx('diff_block', '## Matching neighbours, or writing it clean', 'coding-guide.md');
+  assert.strictEqual(matchForPress(mdRow, {}), mdRow);
+  const codeRow = ctx('diff_block', 'a prose row of a code diff', 'src/renderer.js');
+  assert.strictEqual(matchForPress(codeRow, {}), null);
+  assert.strictEqual(matchForPress(codeRow, { ctrlKey: true }), codeRow);
 });
 
 const marked = (patternName, text) => text.slice(0, markedLength(m(patternName, text)));

@@ -3,12 +3,13 @@
 //
 // One rule: a plain click opens something in a built-in viewer. A URL or an
 // .html path in the web band, a review:// package in the diff viewer, an .md
-// path in the md viewer. Those keep the terminal where it is — the scrollback
-// is untouched and Esc puts the band away.
+// path in the md viewer — and a diff or source row whose enclosing file is a
+// doc, which jumps to its line in that viewer. Those keep the terminal where
+// it is — the scrollback is untouched and Esc puts the band away.
 //
 // Everything else hands you to another application, and that takes ctrl/cmd:
-// the IDE for a symbol, a file:line, a source or diff line; the OS for a bare
-// path, a folder, an image or an archive. An application switch is the most
+// the IDE for a symbol, a file:line, a source or diff line over code; the OS
+// for a bare path, a folder, an image or an archive. An application switch is the most
 // expensive thing a stray click can do, and the IDE side is also the widest
 // part of the match surface — the bare-identifier symbol patterns claim most
 // technical words in ordinary agent prose, so a double click meant to select a
@@ -31,11 +32,6 @@ const IN_APP_PATTERN_NAMES = new Set(['url', 'image_attachment']);
 // above, a backward scan for the enclosing file — and an extension appearing in
 // the line is just text: `+ see README.md for details` is a diff line that
 // navigates to code, not a link to a document.
-//
-// Content lines are deliberately absent even when their file is markdown. A diff
-// line, a source line and a bordered prose line are things you select and
-// comment on, so they never take the plain click; the gesture belongs to
-// commenting there and navigation asks for the modifier.
 const PATH_IS_THE_TEXT = new Set([
   'plain_file',
   'wsl_unc_path',
@@ -44,6 +40,23 @@ const PATH_IS_THE_TEXT = new Set([
   'file_line_col',
   'paren_line',
   'github_line',
+]);
+
+// Content lines — diff rows, source rows, line references — name their file by
+// context, not by their own text, so the renderer resolves that context at
+// hit-test time and stamps it on the match as `contextPath`. When it names a
+// doc, the row takes the plain click into the doc viewer: with a reliable jump,
+// commenting on a doc's diff belongs in the viewer itself, where the thread
+// lives with the text, so the gesture the click spends is the one you wanted.
+// When the context is a source file — or didn't resolve — the row still waits
+// for ctrl/cmd, because that click is an application switch to the IDE and the
+// select-to-comment gesture keeps the terminal row.
+const CONTEXT_PATH_PATTERNS = new Set([
+  'diff_line',
+  'source_line',
+  'diff_block',
+  'line_ref',
+  'comment_line_ref',
 ]);
 
 // A document extension at the end of the path portion of a match: .md to the md
@@ -63,9 +76,14 @@ const IMAGE_TARGET = /\.(?:png|jpe?g|gif|svg|webp|bmp|ico)(?=$|[\s:(#,;)\]}'"])/
 function opensInApp(match) {
   if (!match) return false;
   if (IN_APP_PATTERN_NAMES.has(match.patternName)) return true;
-  if (!PATH_IS_THE_TEXT.has(match.patternName)) return false;
-  const text = String(match.text || '');
-  return DOC_TARGET.test(text) || IMAGE_TARGET.test(text);
+  if (PATH_IS_THE_TEXT.has(match.patternName)) {
+    const text = String(match.text || '');
+    return DOC_TARGET.test(text) || IMAGE_TARGET.test(text);
+  }
+  if (CONTEXT_PATH_PATTERNS.has(match.patternName)) {
+    return DOC_TARGET.test(String(match.contextPath || ''));
+  }
+  return false;
 }
 
 // True when this match should sit out a plain click and wait for ctrl/cmd.
@@ -133,6 +151,7 @@ function markedLength(match) {
 
 module.exports = {
   IN_APP_PATTERN_NAMES,
+  CONTEXT_PATH_PATTERNS,
   DOC_TARGET,
   opensInApp,
   navigationNeedsModifier,

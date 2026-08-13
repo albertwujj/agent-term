@@ -11,7 +11,7 @@ const { extractDroppedPaths, hasSupportedPathDropType } = require('./drag-drop-p
 const { handleTerminalKeydown } = require('./terminal-keyboard');
 const { beginDecorationPress, resolveDecorationPress, decorationPressOptions, DEFAULT_DRAG_THRESHOLD_PX } = require('./terminal-decoration-press');
 const { attachTerminalMouseShortcuts } = require('./terminal-mouse');
-const { navigationNeedsModifier, hasNavigationModifier, matchForPress, markedLength } = require('./terminal-nav-destination');
+const { navigationNeedsModifier, hasNavigationModifier, matchForPress, markedLength, CONTEXT_PATH_PATTERNS } = require('./terminal-nav-destination');
 const {
   DEFAULT_SELECTION_CONTEXT_LINES,
   buildTerminalCommentBatchMessage,
@@ -5233,6 +5233,38 @@ function pastedWordNeedsLeadingSpace() {
   return /\S$/.test(line.translateToString(false, 0, buffer.cursorX));
 }
 
+// A content line's destination lives above it in the buffer — the Edited
+// header over a diff box, the enclosing file of a source row — so whether its
+// plain click opens in-app can't be read off the match text. Resolve the same
+// context the click action would use and stamp it on the match for the
+// press/hover logic (opensInApp). Memoized: this runs on every mousemove, and
+// the resolution is a backward buffer scan. The match text is part of the key
+// so a scrollback trim that shifts absolute rows re-resolves instead of
+// serving another line's context.
+const contextPathCache = new Map();
+const CONTEXT_PATH_CACHE_MAX = 200;
+
+function stampContextPath(match) {
+  if (!CONTEXT_PATH_PATTERNS.has(match.patternName)) return match;
+  const key = `${match.bufferRow}:${match.start}:${match.patternName}:${match.text}`;
+  if (contextPathCache.has(key)) {
+    match.contextPath = contextPathCache.get(key);
+    return match;
+  }
+  let contextPath;
+  if (match.patternName === 'diff_block') {
+    contextPath = findCursorDiffHeader(match.bufferRow);
+  } else if (match.patternName === 'line_ref') {
+    contextPath = resolveLineRefFileContext(match.bufferRow, match.start, match.end);
+  } else {
+    contextPath = findFileContext(match.bufferRow, match.start);
+  }
+  if (contextPathCache.size >= CONTEXT_PATH_CACHE_MAX) contextPathCache.clear();
+  contextPathCache.set(key, contextPath);
+  match.contextPath = contextPath;
+  return match;
+}
+
 function getClickableMatchAtMouseEvent(event) {
   const position = getMouseBufferPosition(event);
   if (!position) return null;
@@ -5255,7 +5287,7 @@ function getClickableMatchAtMouseEvent(event) {
     // The hit region is the marked span, so what is underlined is what responds.
     // On README.md:42 that is README.md; the :42 is ordinary text you can select.
     if (charOffset >= match.start && charOffset < match.start + markedLength(match)) {
-      return match;
+      return stampContextPath(match);
     }
   }
 
@@ -5646,6 +5678,7 @@ function clearAllDecorations() {
   }
   decorations.clear();
   processedRows.clear();
+  contextPathCache.clear();
 }
 
 function scheduleDecorationProcessing() {
