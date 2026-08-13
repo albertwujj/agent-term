@@ -3483,22 +3483,10 @@ function looksLikeCode(text) {
 }
 
 function isLikelySourceLine(text) {
-  let content;
+  const span = getSourceRowContentSpan(text);
+  if (!span || !span.content.trim()) return false;
 
-  // Bordered: strip │ borders to get inner content
-  const bordered = /^\s*[│┃|] (.+?)(?:\s+[│┃|])?\s*$/.exec(text);
-  if (bordered) {
-    content = bordered[1];
-  } else {
-    // Borderless: require 4+ leading spaces
-    const trimmed = text.trimStart();
-    if (text.length - trimmed.length < 4) return false;
-    content = trimmed;
-  }
-
-  if (!content || !content.trim()) return false;
-
-  const trimmed = content.trim();
+  const trimmed = span.content.trim();
 
   // Reject file paths
   if (isLikelyFilePath(trimmed)) return false;
@@ -3549,6 +3537,26 @@ function getCursorDiffContentSpan(text) {
     start,
     end: text.length,
   };
+}
+
+// Content of a source-looking row minus its box chrome: │ borders or the ▎
+// diff gutter, plus a leading +/- diff marker. The chrome is not code —
+// leaving it in the span used to put "▎+ " into matchText, text that exists
+// in no file, so every navigation from a ▎-gutter code row missed. Inner
+// indentation is kept: it is part of the code. Borderless rows keep the
+// 4+ space indent requirement as their only evidence.
+function getSourceRowContentSpan(text) {
+  const chrome = getCursorDiffContentSpan(text);
+  if (chrome) {
+    const marker = /^[+-]\s/.exec(chrome.content);
+    const lead = marker ? marker[0].length : 0;
+    const content = chrome.content.slice(lead);
+    if (!content) return null;
+    return { content, start: chrome.start + lead, end: chrome.end };
+  }
+  const content = text.trimStart();
+  if (!content || text.length - content.length < 4) return null;
+  return { content, start: text.length - content.length, end: text.length };
 }
 
 // A changed line allows content flush against the marker (`628 -*prose`), so the
@@ -4544,11 +4552,13 @@ const patterns = [
   {
     name: 'source_line',
     priority: 'low',
-    // Matches source code lines — bordered or indented:
+    // Matches source code lines — bordered, gutter-marked, or indented:
     //   │ def foo():                        │   (bordered)
     //   │     return bar                    │   (bordered, indented)
+    //   ▎+ def foo():                           (Cursor diff gutter; diff_block
+    //                                            takes the prose rows, code lands here)
     //       def foo():                          (borderless, 4+ spaces)
-    regex: /^(?:\s*[│┃|] | {4,}).+$/g,
+    regex: /^(?:\s*[│┃|] |\s*▎| {4,}).+$/g,
     filter: (text, line, index) => {
       if (index !== 0) return false;
       return isLikelySourceLine(text);
@@ -4556,23 +4566,15 @@ const patterns = [
     style: 'hover-only',
     trimToContent: true,
     expand(fullMatch, matchIndex) {
-      // Bordered: narrow to content between │ borders
-      const bordered = /^\s*[│┃|] (.+?)(?:\s+[│┃|])?\s*$/.exec(fullMatch);
-      if (bordered) {
-        const innerStart = fullMatch.indexOf(bordered[1]);
-        return [{
-          text: bordered[1],
-          start: matchIndex + innerStart,
-          end: matchIndex + innerStart + bordered[1].length,
-        }];
-      }
-      // Borderless: narrow to content after leading spaces
-      const leadingSpaces = fullMatch.length - fullMatch.trimStart().length;
-      const content = fullMatch.trimStart();
+      // Narrow to the code itself: past │ borders, the ▎ gutter and its +/-
+      // marker, or plain indentation — chrome in matchText would make the
+      // file-text search miss every time.
+      const span = getSourceRowContentSpan(fullMatch);
+      if (!span) return null;
       return [{
-        text: content,
-        start: matchIndex + leadingSpaces,
-        end: matchIndex + leadingSpaces + content.length,
+        text: span.content,
+        start: matchIndex + span.start,
+        end: matchIndex + span.end,
       }];
     },
     action: async (match, options) => {

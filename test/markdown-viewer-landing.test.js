@@ -33,6 +33,10 @@ const FIXTURE = [
   'Bravo paragraph, near a deletion.',
   '',
   'Charlie context paragraph.',
+  '',
+  '## Delta section, styled',
+  '',
+  'Delta paragraph with **bold emphasis** and a `code span` in it.',
 ].join('\n');
 
 const noop = () => {};
@@ -95,6 +99,24 @@ async function run() {
   // Plain open (no line, no text): a target is marked but nothing flashes.
   const plain = await landing({});
   check('plain open marks a target but does not flash', plain.pulseCount === 0 && plain.targetCount >= 1, plain);
+
+  // matchText quoted from a terminal diff row is RAW markdown source. The
+  // rendered text sheds the syntax (## on headings, ** around bold, backticks),
+  // so these land via the source-text lookup, not the rendered-text scan.
+  const rawHeading = await landing({ matchText: '## Delta section, styled' });
+  check('raw-markdown heading matchText lands on the heading', rawHeading.landedText.includes('Delta section'), rawHeading);
+  check('raw-markdown heading matchText flashes', rawHeading.pulseCount >= 1, rawHeading);
+
+  const rawInline = await landing({ matchText: 'Delta paragraph with **bold emphasis** and a `code span` in it.' });
+  check('raw-markdown inline-styled matchText lands on its paragraph', rawInline.landedText.includes('bold emphasis'), rawInline);
+
+  // Rendered-prose quotes still land through the rendered-text scan.
+  const rendered = await landing({ matchText: 'Bravo paragraph, near a deletion.' });
+  check('plain prose matchText still lands', rendered.landedText.includes('Bravo'), rendered);
+
+  // A matchText that exists nowhere: no flash, viewer falls back to the top.
+  const miss = await landing({ matchText: 'text that is in no version of this doc' });
+  check('missing matchText does not flash', miss.pulseCount === 0, miss);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

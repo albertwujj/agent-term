@@ -5517,6 +5517,24 @@ function createMarkdownViewer({
     return null;
   }
 
+  // matchText quoted from the terminal is raw markdown source — a diff row, a
+  // grep hit — so it still carries the syntax the rendered text sheds: ## on
+  // headings, ** around emphasis, backticks, list markers. Find the source
+  // line it sits on and map that through the anchors; the rendered-text scan
+  // above stays for text quoted from rendered prose.
+  function findAnchorElementBySourceText(matchText) {
+    const needle = String(matchText || '').trim();
+    if (!needle || !state.doc || !state.sourceText) return null;
+    const lines = state.sourceText.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].includes(needle)) continue;
+      const anchor = findAnchorForLine(state.doc.anchors, i + 1);
+      const el = anchor ? getAnchorElement(anchor) : null;
+      if (el) return el;
+    }
+    return null;
+  }
+
   function landAt({ line, matchText, landingKind } = {}) {
     clearLandingTarget();
     if (!state.doc || !state.article || !state.primaryPane) return;
@@ -5545,7 +5563,8 @@ function createMarkdownViewer({
       }
     }
     if (!target) {
-      const textTarget = findAnchorElementByText(requestedText);
+      const textTarget = findAnchorElementBySourceText(requestedText)
+        || findAnchorElementByText(requestedText);
       if (textTarget) { target = textTarget; resolution = 'text'; }
     }
     if (!target) {

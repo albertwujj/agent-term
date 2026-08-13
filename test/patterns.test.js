@@ -78,18 +78,24 @@ function looksLikeCode(text) {
   return signals >= 2;
 }
 
-function isLikelySourceLine(text) {
-  let content;
-  const bordered = /^\s*[│┃|] (.+?)(?:\s+[│┃|])?\s*$/.exec(text);
-  if (bordered) {
-    content = bordered[1];
-  } else {
-    const trimmed = text.trimStart();
-    if (text.length - trimmed.length < 4) return false;
-    content = trimmed;
+function getSourceRowContentSpan(text) {
+  const chrome = getCursorDiffContentSpan(text);
+  if (chrome) {
+    const marker = /^[+-]\s/.exec(chrome.content);
+    const lead = marker ? marker[0].length : 0;
+    const content = chrome.content.slice(lead);
+    if (!content) return null;
+    return { content, start: chrome.start + lead, end: chrome.end };
   }
-  if (!content || !content.trim()) return false;
-  const trimmed = content.trim();
+  const content = text.trimStart();
+  if (!content || text.length - content.length < 4) return null;
+  return { content, start: text.length - content.length, end: text.length };
+}
+
+function isLikelySourceLine(text) {
+  const span = getSourceRowContentSpan(text);
+  if (!span || !span.content.trim()) return false;
+  const trimmed = span.content.trim();
   if (isLikelyFilePath(trimmed)) return false;
   if (trimmed.length > 120) return false;
   return looksLikeCode(trimmed);
@@ -212,7 +218,7 @@ const patterns = [
   {
     name: 'source_line',
     priority: 'low',
-    regex: /^(?:\s*[│┃|] | {4,}).+$/g,
+    regex: /^(?:\s*[│┃|] |\s*▎| {4,}).+$/g,
     filter: (text, line, index) => {
       if (index !== 0) return false;
       return isLikelySourceLine(text);
@@ -220,21 +226,12 @@ const patterns = [
     style: 'hover-only',
     trimToContent: true,
     expand(fullMatch, matchIndex) {
-      const bordered = /^\s*[│┃|] (.+?)(?:\s+[│┃|])?\s*$/.exec(fullMatch);
-      if (bordered) {
-        const innerStart = fullMatch.indexOf(bordered[1]);
-        return [{
-          text: bordered[1],
-          start: matchIndex + innerStart,
-          end: matchIndex + innerStart + bordered[1].length,
-        }];
-      }
-      const leadingSpaces = fullMatch.length - fullMatch.trimStart().length;
-      const content = fullMatch.trimStart();
+      const span = getSourceRowContentSpan(fullMatch);
+      if (!span) return null;
       return [{
-        text: content,
-        start: matchIndex + leadingSpaces,
-        end: matchIndex + leadingSpaces + content.length,
+        text: span.content,
+        start: matchIndex + span.start,
+        end: matchIndex + span.end,
       }];
     },
   },
@@ -1221,6 +1218,29 @@ test('diff_block ignores the header line itself', () => {
 
 test('diff_block defers code lines to source_line', () => {
   assertEqual(parseRow(CURSOR_CODE_ADD).filter(m => m.patternName === 'diff_block').length, 0);
+});
+
+test('source_line claims a bordered code addition without the +/- marker', () => {
+  const m = parseRow(CURSOR_CODE_ADD).find(x => x.patternName === 'source_line');
+  assertEqual(m.text, 'indexer = SearchIndexer()');
+  assertEqual(CURSOR_CODE_ADD.slice(m.start, m.end).trim(), 'indexer = SearchIndexer()');
+});
+
+const CURSOR_GUTTER_CODE_ADD = '    ▎+ result = capture_call(frame)';
+const CURSOR_GUTTER_CODE_CONTEXT = '    ▎      return debug_report(x)';
+
+test('source_line claims a Cursor gutter code addition without gutter chrome', () => {
+  const matches = parseRow(CURSOR_GUTTER_CODE_ADD);
+  assertEqual(matches.filter(x => x.patternName === 'diff_block').length, 0);
+  const m = matches.find(x => x.patternName === 'source_line');
+  assertEqual(m.text, 'result = capture_call(frame)');
+  assertEqual(CURSOR_GUTTER_CODE_ADD.slice(m.start, m.end), 'result = capture_call(frame)');
+});
+
+test('source_line claims a Cursor gutter code context row without gutter chrome', () => {
+  const m = parseRow(CURSOR_GUTTER_CODE_CONTEXT).find(x => x.patternName === 'source_line');
+  assertEqual(m.text.trim(), 'return debug_report(x)');
+  assertEqual(m.text.includes('▎'), false);
 });
 
 test('parseCursorDiffBlockLine reports marker and trimmed content', () => {
