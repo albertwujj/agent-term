@@ -1637,6 +1637,12 @@ function createMarkdownViewer({
     if (state.primaryPane && state.primaryPane.scrollTop !== keepTop) {
       state.primaryPane.scrollTop = keepTop;
     }
+    // The composer bubble lives in ONE article copy (its counterpart is a blank
+    // spacer), so unlike thread cards it cannot continue across the page split —
+    // and layoutSpread is frozen while it's open. When this pass shrinks the
+    // page window (band full→golden, window resize, an image settling), the
+    // page bottom sweeps through the open bubble unless it re-fits here.
+    fitActiveCommentCard();
   }
 
   // Content-anchored counterpart to the pixel-preserving realign above. The
@@ -3337,18 +3343,27 @@ function createMarkdownViewer({
   // the same as one cut by the bottom. The grid follows the scroll.
   function fitSpanOnPane(spanTop, spanBottom, pane) {
     if (!state.primaryPane) return;
+    // Full page height for the fit arithmetic (the flipSpread idiom): a bottom
+    // trim left by the previous alignment pass would shrink both the window and
+    // the page advance here, mis-aiming the fit by up to a line.
+    state.primaryPane.style.height = '';
+    if (state.secondaryPane) state.secondaryPane.style.height = '';
     const paneHeight = state.primaryPane.clientHeight || 0;
     const pageAdvance = getSpreadPageAdvance();
     if (!paneHeight || !pageAdvance) return;
     const margin = 14;
+    // The whole-line top nudge in syncSecondaryPane shifts content down by up
+    // to a line AFTER this fit, so the bottom needs that much extra clearance
+    // or the fitted span still ends up cut at the page bottom.
+    const bottomMargin = margin + getRenderedLineHeight();
     const base = pane === 'right' ? pageAdvance : 0;
     let nextScrollTop = state.primaryPane.scrollTop;
     const start = nextScrollTop + base;
     const end = start + paneHeight;
     if (spanTop < start + margin) {
       nextScrollTop = Math.max(0, spanTop - base - margin);
-    } else if (spanBottom > end - margin) {
-      nextScrollTop = Math.max(0, spanBottom - base - paneHeight + margin);
+    } else if (spanBottom > end - bottomMargin) {
+      nextScrollTop = Math.max(0, spanBottom - base - paneHeight + bottomMargin);
     }
     if (nextScrollTop !== state.primaryPane.scrollTop) {
       state.primaryPane.scrollTop = nextScrollTop;
