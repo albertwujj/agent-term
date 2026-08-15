@@ -1789,13 +1789,14 @@ function isPlainSelectionCommentKey(event) {
     && !event.isComposing;
 }
 
+// Focus-based on purpose — never gated on what happens to be visible. An open
+// search bar must not block typing aimed at the terminal: selecting a search
+// hit and typing IS the comment flow. Keys typed into the search field target
+// the INPUT itself, which the tag check below routes away.
 function isSelectionCommentTypingTarget(target) {
   if (!target || !target.closest) return true;
   if (activePicker || document.querySelector('.at-picker-overlay')) return false;
-  const searchBar = document.getElementById('search-bar');
-  if (searchBar && searchBar.style.display !== 'none') return false;
   if (target.closest('.terminal-comment-bubble, .terminal-comment-footer, .terminal-comment-selection-hint')) return false;
-  if (target.id === 'search-input') return false;
   const tagName = target.tagName ? target.tagName.toUpperCase() : '';
   if (target.isContentEditable) return false;
   if (tagName === 'INPUT' || tagName === 'SELECT') return false;
@@ -2559,6 +2560,11 @@ terminal.onSelectionChange(() => {
 // aimed at the terminal, so Esc still closes a viewer or a picker that has focus.
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
+  // Esc in the search field means "close search", frozen or not — the input's
+  // own handler does that, and closeSearchBar refocuses the terminal so the
+  // next Esc reaches the freeze cancel below. Without this the frozen branch
+  // swallows the key and yanks focus out of the search bar.
+  if (event.target && event.target.closest && event.target.closest('#search-bar')) return;
   const disarmOnly = !terminalOutputFrozen;
   if (disarmOnly && !(terminalCommentSelectionHint && isSelectionCommentTypingTarget(event.target))) return;
   event.preventDefault();
@@ -2977,6 +2983,7 @@ function scrollToCurrentMatch() {
 
 // Navigate to next match (with wrap-around)
 function navigateToNextMatch() {
+  armTerminalFreezeIdleTimer(); // stepping matches is engagement — hold the thaw
   if (searchState.scope === 'markdown') {
     const viewer = getOpenMarkdownViewer();
     if (!viewer || searchState.matches.length === 0) return;
@@ -2996,6 +3003,7 @@ function navigateToNextMatch() {
 
 // Navigate to previous match (with wrap-around)
 function navigateToPrevMatch() {
+  armTerminalFreezeIdleTimer();
   if (searchState.scope === 'markdown') {
     const viewer = getOpenMarkdownViewer();
     if (!viewer || searchState.matches.length === 0) return;
@@ -3151,6 +3159,7 @@ function initSearchBar() {
 
   // Debounced search on input
   input.addEventListener('input', () => {
+    armTerminalFreezeIdleTimer(); // searching a frozen frame is engagement — hold the thaw
     clearTimeout(searchState.debounceTimer);
     searchState.debounceTimer = setTimeout(() => {
       void runSearch(input.value);
