@@ -4,7 +4,7 @@
 
 ![AgentTerm – filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
-Use with any CLI coding agent (Claude Code, Codex, Copilot, Cursor's CLI): the host reaches the agent through open conventions instead of a vendor API. Close to all of its author's daily work runs through it.
+AgentTerm hosts any CLI coding agent (Claude Code, Codex, Copilot, Cursor's CLI); close to all of its author's daily work runs through it.
 
 Coding agents chose the terminal for a reason: nothing is more flexible, and everything composes with it. But the terminal never caught up to what the agent became. AgentTerm keeps the foundation and breaks through the ceiling.
 
