@@ -178,7 +178,9 @@ function ensureStyles() {
       --md-inline-code: #e2e8ef;
       --md-block: #e6ebf1;
       --md-panel: #e5eaf0;
-      --md-landing: #eef2f7;
+      /* Must stay visibly below --md-surface: the brighter full-mode lift once
+         took this to #eef2f7, one step from the #eef1f5 surface — invisible. */
+      --md-landing: #dfe4eb;
       --md-queued: #e2e7ee;
     }
     .md-viewer-scroll {
@@ -383,9 +385,13 @@ function ensureStyles() {
     .md-viewer-body .md-change-bar.md-change-age-2 {
       box-shadow: inset 2px 0 #b5d9d0;
     }
+    /* Residual landing marker: after the arrival flash decays, this is the only
+       answer to "where did I jump to". The bar carries the signal — the same
+       slate the neutral flash pulses, at the change-bar weight — and the tint
+       stays a whisper so the text field remains quiet. */
     .md-viewer-body .md-landing-target {
       background-color: var(--md-landing);
-      box-shadow: inset 2px 0 #cbd5e1;
+      box-shadow: inset 2px 0 #64748b;
     }
     .md-viewer-body .md-comment-target-active {
       background-color: var(--md-block);
@@ -1154,7 +1160,7 @@ function createMarkdownViewer({
     changeFlashToken: 0,
     changeFlashTimer: 0,
     changePulseEls: [],
-    landingPulseEls: [],
+    landingPulse: null, // { ids, variant } — survives layoutSpread rebuilds by anchor id
     fileSignature: '',
     fileStatSignature: '',
     pendingRefreshResult: null,
@@ -3548,6 +3554,7 @@ function createMarkdownViewer({
       for (const id of landingIds) {
         for (const target of getAnchorElementsById(id)) target.classList.add('md-landing-target');
       }
+      reapplyLandingPulse();
       renderThreadLayer(false);
       renderPendingDiffBlocks();
     });
@@ -3574,25 +3581,53 @@ function createMarkdownViewer({
   }
 
   // Transient arrival flash on the landed block. Tracked apart from applyChangePulse
-  // so a live refresh and a jump can't clear each other. Self-terminates via the
-  // animation; the md-landing-target grey stays behind as the residual marker.
+  // so a live refresh and a jump can't clear each other. Recorded by anchor id,
+  // not element, because open() polls the thread store right after landAt and
+  // that layoutSpread rebuilds the article's innerHTML — on an element record
+  // the flash died at birth on any doc with a store. The rebuild re-applies the
+  // classes to the fresh elements, restarting the animation; those rebuilds land
+  // within the flash's first beat, so a restart reads as the flash itself.
+  // animationend retires the record, so a later rebuild can't resurrect a
+  // finished flash; the md-landing-target marker stays behind as the residue.
   function applyLandingPulse(landedEls, kind) {
     clearLandingPulse();
     if (!landedEls || !landedEls.length) return;
     const variant = landingPulseVariant(kind);
+    const ids = Array.from(new Set(
+      landedEls.map((el) => el.getAttribute('data-md-anchor-id')).filter(Boolean),
+    ));
+    state.landingPulse = ids.length ? { ids, variant } : null;
     // Force a reflow so re-adding the class restarts the animation on a repeat jump.
     if (state.article) void state.article.offsetWidth;
-    for (const el of landedEls) {
-      el.classList.add('md-landing-pulse', variant);
-      state.landingPulseEls.push(el);
+    for (const el of landedEls) startLandingPulseOn(el, variant);
+  }
+
+  function startLandingPulseOn(el, variant) {
+    el.classList.add('md-landing-pulse', variant);
+    el.addEventListener('animationend', retireLandingPulse, { once: true });
+  }
+
+  function reapplyLandingPulse() {
+    if (!state.landingPulse) return;
+    const { ids, variant } = state.landingPulse;
+    for (const id of ids) {
+      for (const el of getAnchorElementsById(id)) startLandingPulseOn(el, variant);
     }
   }
 
+  function retireLandingPulse(event) {
+    // animationend bubbles; only the pulse's own keyframes end the record.
+    if (event && event.animationName && event.animationName !== 'md-change-pulse-kf') return;
+    state.landingPulse = null;
+  }
+
   function clearLandingPulse() {
-    for (const el of state.landingPulseEls) {
-      el.classList.remove('md-landing-pulse', 'md-landing-pulse--exact', 'md-landing-pulse--anchor', 'md-landing-pulse--neutral');
+    if (state.spreadLayout) {
+      for (const el of state.spreadLayout.querySelectorAll('.md-landing-pulse')) {
+        el.classList.remove('md-landing-pulse', 'md-landing-pulse--exact', 'md-landing-pulse--anchor', 'md-landing-pulse--neutral');
+      }
     }
-    state.landingPulseEls = [];
+    state.landingPulse = null;
   }
 
   function clearActiveTarget() {

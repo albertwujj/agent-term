@@ -43,6 +43,12 @@ const noop = () => {};
 const viewer = createMarkdownViewer({
   readMarkdownFile: async () => ({ success: true, path: '/fake/doc.md', content: FIXTURE }),
   statMarkdownFile: async () => ({ success: true, mtimeMs: 1, size: FIXTURE.length }),
+  // A sidecar thread store exists for any doc the user comments on, and open()
+  // polls it right after landAt — the resulting layoutSpread rebuilds the
+  // article's innerHTML on landing's heels. Supplying one makes every landing
+  // below run against that rebuild, so the flash checks also lock the pulse's
+  // survival of it (it used to die at birth, leaving no arrival indication).
+  readMarkdownThreads: async () => ({ success: true, data: { threads: [], turn: 0 } }),
   submitInlineComment: noop,
   showToast: noop,
   openURL: noop,
