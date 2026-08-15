@@ -6,7 +6,19 @@
 
 Use with any CLI coding agent (Claude Code, Codex, Copilot, Cursor's CLI): the host reaches the agent through open conventions instead of a vendor API. Close to all of its author's daily work runs through it.
 
-Coding agents chose the terminal for a reason: nothing is more flexible, and everything composes with it. But the terminal never caught up to what the agent became. Everything an agent prints (a diff, a plan, a claim, a link) is dead text you can read but not act on. And once you're running several, each is an identical tab outside and a wall of text inside, with no telling which you meant to get back to. AgentTerm keeps the foundation and breaks through the ceiling: act on what the agent prints, review what it built until it's right, find the right session, steer it mid-run. Where that takes conventions that don't exist yet, it defines them as open protocols: the agent prints a `review://` link, and the review opens right in the terminal.
+Coding agents chose the terminal for a reason: nothing is more flexible, and everything composes with it. But the terminal never caught up to what the agent became. AgentTerm keeps the foundation and breaks through the ceiling.
+
+## What changes
+
+| In a standard terminal | In AgentTerm |
+|---|---|
+| Everything the agent prints (a diff, a plan, a claim, a link) is dead text you can read but not act on. | Select any of it and comment; the agent makes the change. A plain click opens whatever renders (docs, reviews, web pages, images). |
+| Several agents running means identical tabs outside, walls of text inside. | Every session is findable by what you asked it, with live taskbar previews on Windows. |
+| The agent finishes a change and you get a wall of diff. | It hands you a prepared review; you comment inline, it fixes and replies in place. |
+| Its plans and docs are raw markdown in an editor. | They render live; you write in the rendered page and the agent maintains the source. |
+| It sits blocked on a question until you're back at your desk. | Your phone shows the same terminal; unblock it by voice. |
+
+Where that takes conventions that don't exist yet, AgentTerm defines them as open protocols: the agent prints a `review://` link, and the review opens right in the terminal.
 
 **Point at anything the agent shows you** (a line of terminal output, or a diff) and say what you want; the agent makes the change.
 
