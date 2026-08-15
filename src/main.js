@@ -159,24 +159,24 @@ let lockedHue = null;
 let sessionStartTime = null;
 let tooltipInterval = null;
 let firstPrompt = null;
-// Initial OSC title that arrived within the title-grace window after the first
-// prompt was captured — the session's "subject", a short distillation provided
-// by the AI CLI (e.g. "Investigate timeout in worker pool" for a longer
-// verbatim prompt). When present this drives:
-//   · the taskbar icon's 3-4 letters (more distinctive than prompt-leading
-//     letters since the CLI already filtered out filler verbs like "Investigate")
-//   · the window-title rest (matches the icon for continuous reading)
-//   · the thumbnail card's subject line
-//   · the sessions picker's italic third line
-// firstPrompt remains visible in the chrome bar and as the picker's first
-// line — initialTitle is the *short* identity, firstPrompt is the *verbatim*
-// identity. Set once, never overwritten; subsequent OSC title updates only
-// affect `lockedTitle` (which keeps drifting as the conversation evolves).
+// Session subject carried over from a resumed session's stored value
+// (written by the retired `initial:true` promotion). New sessions no longer
+// mint one: the verbatim first prompt is the intentional frozen identity,
+// and the CLI title is captured as drifting title events — the picker shows
+// the latest. Kept for identity fallback on resumed sessions that predate
+// prompt capture, and so their stored subject keeps rendering.
 let initialTitle = null;
-// Deadline after which a CLI-emitted OSC title can no longer be promoted to
-// `initialTitle`. Set when the first prompt is captured. Bounds visible
-// icon-relabeling to the first TITLE_GRACE_MS of a session.
-let titleGraceUntil = 0;
+// Boot vocabulary: dedupe keys of every OSC title seen before the first
+// prompt. A session title worth logging is, by definition, something the
+// CLI could not have said before it saw a prompt — so anything in this set
+// (brand banners like "✳ Claude Code", shell noise, and their spinner-frame
+// variants) stays out of the title event log. CLI-agnostic by construction:
+// no per-CLI knowledge needed here.
+const bootTitleKeys = new Set();
+// Dedupe key of the last title event appended to the sessions log. OSC
+// titles arrive per spinner frame ("✳ Fix bug" / "✻ Fix bug" …); gating
+// appends on the semantic key keeps the log one-event-per-subject-change.
+let lastTitleEventKey = null;
 let promptCapture = null;
 let streamClient = null;
 let streamState = null;
@@ -278,11 +278,6 @@ let progressInterval = null;
 // stale after work actually stops.
 const PROGRESS_IDLE_MS = 5000;
 const PROGRESS_POLL_MS = 500;
-// Window after first-prompt capture during which an arriving CLI-emitted OSC
-// title can be promoted to the session's `initialTitle`. After this expires
-// the icon and window-title are stable for the rest of the session — bounds
-// the "icon re-labels behind my back" surprise to the boot phase.
-const TITLE_GRACE_MS = 8000;
 // UX rule: while the user is at the keyboard composing a prompt, suppress
 // the progress bar — distraction outweighs status info, even if the AI is
 // genuinely working on a previous turn. Detection: "≤ USER_QUIET_MS since
@@ -353,21 +348,6 @@ function isUsableTitle(s) {
   if (/^[~/]/.test(t)) return false;                  // raw path
   if (/[@:].*[$#>]\s*$/.test(t)) return false;        // shell prompt-ish
   if (/^[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+/.test(t)) return false; // user@host
-  return true;
-}
-
-// Stricter check than isUsableTitle — qualifies a CLI-emitted OSC title for
-// promotion to `initialTitle` (session subject). We need more than "looks
-// like a real title": we need a multi-word phrase that's distinct from the
-// CLI name and long enough to be informative when used as the icon's letters
-// + window-title rest. Banner-y titles ("claude", "✻ Welcome to Claude")
-// and one-word labels fail; "Investigate timeout in worker pool" passes.
-function isMeaningfulTitleIdentity(title, cli) {
-  if (!isUsableTitle(title)) return false;
-  const t = title.trim();
-  if (t.length < 12) return false;
-  if (!/\s/.test(t)) return false;                    // single-word: insufficient signal
-  if (cli && t.toLowerCase() === String(cli).toLowerCase()) return false;
   return true;
 }
 
@@ -1090,12 +1070,9 @@ function onPromptCaptured(promptText) {
 
   if (isFirst) {
     firstPrompt = promptText;
-    // Open the title-grace window. A CLI-emitted OSC title that arrives
-    // within this window AND passes isMeaningfulTitleIdentity will be
-    // promoted to `initialTitle` and re-render the icon/window-title from
-    // its letters instead of the prompt's. After the window the icon is
-    // frozen — bounds the visible relabeling to the first few seconds.
-    titleGraceUntil = Date.now() + TITLE_GRACE_MS;
+    // The boot vocabulary closes here — from now on, arriving OSC titles
+    // outside it are logged as the session's drifting title (see the
+    // set-title handler).
     // Window title is the "rest" of the identity string — everything past
     // the first N letters that the icon ended up drawing (N is 3 by default,
     // 4 if there was room). Together: [icon: "Mig"] + "rate the database…" =
@@ -1140,8 +1117,11 @@ function resumeFromSession(picked) {
   firstPrompt = picked.prompt || null;
   detectedCli = picked.cli || null;
   sessionStartTime = Date.now();
-  // Past the grace window — no relabeling on resume.
-  titleGraceUntil = 0;
+  // No boot vocabulary on resume (firstPrompt is inherited, so collection
+  // never opens): banner junk in the title log is instead caught by the
+  // brand-label cleaning at display and match time. The CLI re-emits its
+  // canonical title shortly after resuming (Claude re-sends the topic
+  // title on --resume), so the drifting title recovers on its own.
 
   const userDataDir = app.getPath('userData');
   try {
@@ -2039,48 +2019,37 @@ ipcMain.on('set-title', (event, title) => {
     mainWindow.setTitle(title);
   }
   tryLockIcon(title);
-  // After the initial lock, AI CLIs typically push updated titles as the
-  // user works. Record them as `lockedTitle` (drifts with the conversation).
-  // The FIRST meaningful title that arrives within the grace window after
-  // the first prompt is additionally promoted to `initialTitle` (the
-  // session subject) — that one drives the icon letters and the picker's
-  // italic line, and is frozen for the rest of the session.
+  // Collect the boot vocabulary: every title key seen before the first
+  // prompt. Brand banners and their spinner-frame variants land here and
+  // are filtered from the title event log below.
+  const titleEventKey = aiTitleDedupeKey(title, detectedCli);
+  if (firstPrompt === null && titleEventKey) bootTitleKeys.add(titleEventKey);
+  // After the initial lock, AI CLIs push updated titles as the user works.
+  // Record them as `lockedTitle` and as title events — the picker shows the
+  // latest, which converges on the CLI's own canonical session title (the
+  // string its resume selector shows: Claude's AI topic title, Cursor's
+  // task title). Deliberately unfrozen and undeadlined: the verbatim first
+  // prompt is the intentional frozen identity, while a CLI-distilled title
+  // may only exist once the model generates it — Claude's lands well after
+  // the first response starts, Cursor's within seconds. Both get captured.
   if (iconLocked && isUsableTitle(title) && title !== lockedTitle) {
     lockedTitle = title;
-    const isInitialUpgrade =
-      initialTitle === null
-      && firstPrompt !== null
-      && Date.now() < titleGraceUntil
-      && isMeaningfulTitleIdentity(title, detectedCli);
-    if (isInitialUpgrade) {
-      initialTitle = title;
-      // Close the grace window — subsequent title updates are recorded but
-      // can't relabel the icon.
-      titleGraceUntil = 0;
-    }
     syncChromeState();
-    if (sessionIndex !== null && activeFileWritten) {
+    // Log gating: spinner-frame churn ("✳ Fix bug" → "✻ Fix bug") changes
+    // the raw title every tick — append only when the semantic key moves,
+    // and never for keys the CLI already used before it saw a prompt.
+    const logworthy = titleEventKey
+      && titleEventKey !== lastTitleEventKey
+      && !bootTitleKeys.has(titleEventKey);
+    if (sessionIndex !== null && activeFileWritten && logworthy) {
+      lastTitleEventKey = titleEventKey;
       try {
-        const ev = isInitialUpgrade
-          ? { e: 'title', id: sessionIndex, title: lockedTitle, initial: true }
-          : { e: 'title', id: sessionIndex, title: lockedTitle };
-        sessionsLog.appendEvent(app.getPath('userData'), ev);
-        if (isInitialUpgrade) {
-          // Mirror to the active-file so other windows / the picker see the
-          // subject without re-folding the full event log.
-          try {
-            sessionsLog.updateActiveFile(app.getPath('userData'), sessionIndex, {
-              initialTitle: title,
-            });
-          } catch {}
-        }
+        sessionsLog.appendEvent(app.getPath('userData'), {
+          e: 'title', id: sessionIndex, title: lockedTitle,
+        });
       } catch {}
-    }
-    if (isInitialUpgrade) {
-      // Re-render icon (now using the title's leading letters) and the
-      // window-title rest. The thumbnail card also gets a fresh render so
-      // its new subject header lands without waiting for the next event.
-      renderIdentityIconAndTitle();
+      // A semantic title change lands in the thumbnail card's timeline —
+      // re-render so it shows without waiting for the next prompt event.
       renderAndPushIconicBitmaps();
     }
     refreshTooltip();

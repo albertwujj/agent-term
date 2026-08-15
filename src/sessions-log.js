@@ -373,9 +373,9 @@ function autoRecoveryList(userDataDir, opts = {}) {
 //   · t >= afterTime  — drop boot-banner / pre-first-prompt titles (they're
 //                       not "the session's title," they're the CLI's startup
 //                       banner). Caller passes firstPrompt.t.
-//   · meaningfully shaped — length ≥ 8 chars, contains whitespace. Same
-//                       intent as isMeaningfulTitleIdentity in main.js but
-//                       inlined here so the getter is self-contained.
+//   · meaningfully shaped — length ≥ 8 chars, contains whitespace; keeps
+//                       one-word labels and stray glyphs out of the
+//                       timeline.
 //   · deduped consecutive identical titles — CLIs sometimes re-emit the
 //                       same title; we only want CHANGES in the timeline.
 // Each returned entry is `{ title, t }`. Chronological (oldest first).
