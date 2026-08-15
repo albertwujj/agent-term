@@ -4,7 +4,7 @@
 
 ![AgentTerm – filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
-AgentTerm hosts any CLI coding agent (Claude Code, Codex, Copilot, Cursor's CLI); close to all of its author's daily work runs through it.
+AgentTerm hosts any CLI coding agent (Claude Code, Codex, Copilot, Cursor's CLI). It's a full terminal underneath, so you can replace yours and run your coding agents in it exclusively, as the author does.
 
 Coding agents chose the terminal for a reason: nothing is more flexible, and everything composes with it. But the terminal never caught up to what the agent became. AgentTerm keeps the foundation and breaks through the ceiling.
 
