@@ -141,12 +141,11 @@ function listSessions(userDataDir) {
     switch (ev.e) {
       case 'started': s.startedAt = ev.t; if (typeof ev.hue === 'number') s.hue = ev.hue; break;
       case 'cli':     if (ev.cli) s.cli = ev.cli; break;
-      // Title fold: `s.title` is LAST-WINS (the most recent OSC title from
-      // the CLI; drifts as the conversation evolves). `s.initialTitle` is
-      // FIRST-WINS on the `initial:true` flag — the first *meaningful* title
-      // that arrived within the title-grace window after the first prompt.
-      // initialTitle is the session's frozen subject and drives the icon
-      // letters / picker italic line; title is what the CLI says right now.
+      // Title fold: `s.title` is LAST-WINS — the most recent OSC title from
+      // the CLI, which tracks the string its own resume selector shows.
+      // `s.initialTitle` is FIRST-WINS on the `initial:true` flag, written
+      // by the retired promotion path; folded here so sessions recorded
+      // before its retirement keep their stored subject line.
       case 'title':
         if (ev.title) {
           s.title = ev.title;
