@@ -2004,7 +2004,7 @@ function createMarkdownViewer({
   // store read errors are non-fatal for the reading surface.
   async function pollMarkdownThreadStore(openToken) {
     if (!isOpen() || openToken !== state.openToken || state.threadPollInFlight) return;
-    if (state.threadRenderPending && !hasBlockingMarkdownRefreshState()) {
+    if (state.threadRenderPending && !hasBlockingMarkdownRefreshState() && !spreadLayoutFrozen()) {
       state.threadRenderPending = false;
       layoutSpread();
     }
@@ -2030,7 +2030,10 @@ function createMarkdownViewer({
   }
 
   function scheduleThreadLayerRender() {
-    if (hasBlockingMarkdownRefreshState()) {
+    // A frozen layout has to come back as pending, not be handed to layoutSpread
+    // to swallow: the store signature is already recorded, so no later poll asks
+    // for this render again and the agent's reply would never appear.
+    if (hasBlockingMarkdownRefreshState() || spreadLayoutFrozen()) {
       state.threadRenderPending = true;
       return;
     }
@@ -3526,16 +3529,22 @@ function createMarkdownViewer({
     }
   }
 
+  // What a spread rebuild would wipe if it ran now: an armed block's caret, an
+  // open composer, an editing session, queued marks — all of them live in the
+  // DOM layoutSpread replaces. Named rather than inlined because callers have
+  // to ask it too: whoever mutates state and then asks for a render must know
+  // the render can be refused, or the two drift apart. Thread rows did exactly
+  // that — the set grew, nothing redrew, and the expansion surfaced later on an
+  // unrelated render.
+  function spreadLayoutFrozen() {
+    return !!state.activeTarget
+      || !!state.activeCard
+      || !!state.editing
+      || state.queuedComments.length > 0;
+  }
+
   function layoutSpread() {
-    if (
-      !state.article
-      || !state.secondaryArticle
-      || !state.doc
-      || state.activeTarget
-      || state.activeCard
-      || state.editing
-      || state.queuedComments.length > 0
-    ) return;
+    if (!state.article || !state.secondaryArticle || !state.doc || spreadLayoutFrozen()) return;
     // Shift-aware: the rebuild swaps thread cards/marks in and out of the flow,
     // so hold the page top to content across it. Search refresh runs after —
     // when it jumps to a hit, that jump owns the frame and must land last.
@@ -5090,6 +5099,25 @@ function createMarkdownViewer({
     return line;
   }
 
+  // Open or fold a thread row, moving the state and the pixels together.
+  //
+  // A row's click never reaches handleArticleClick (the row stops propagation,
+  // because the article's own click arms the block under it), so an armed block
+  // would still be sitting in state.activeTarget with layoutSpread refusing to
+  // rebuild — and the click read as dead. A click on a row IS the click
+  // elsewhere that disarms a block, so say so here. Queued marks ride the
+  // rebuild the way a committed edit does (relayoutThroughQueuedComments).
+  //
+  // A composer or an editing session still owns the DOM and outranks a fold, so
+  // the render is left pending for the poll to flush rather than dropped: the
+  // set and the page always converge, at worst one tick later.
+  function applyThreadFold(mutate) {
+    clearActiveTarget();
+    mutate();
+    if (state.activeCard || state.editing) state.threadRenderPending = true;
+    else relayoutThroughQueuedComments();
+  }
+
   // The fold control, by state. Folded, the row itself is the control — one
   // full-width target, no chrome — and its "+N more" already marks it as a
   // fold rather than a thread. Expanded, the first row is a thread line whose
@@ -5101,9 +5129,10 @@ function createMarkdownViewer({
     const toggle = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (state.resolvedExpanded.has(key)) state.resolvedExpanded.delete(key);
-      else state.resolvedExpanded.add(key);
-      layoutSpread();
+      applyThreadFold(() => {
+        if (state.resolvedExpanded.has(key)) state.resolvedExpanded.delete(key);
+        else state.resolvedExpanded.add(key);
+      });
     };
     if (!expanded) {
       el.title = 'Show earlier resolved';
@@ -5195,8 +5224,7 @@ function createMarkdownViewer({
     line.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      state.expandedThreads.add(thread.id);
-      layoutSpread();
+      applyThreadFold(() => state.expandedThreads.add(thread.id));
     });
     return line;
   }
@@ -5215,8 +5243,7 @@ function createMarkdownViewer({
     line.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      state.expandedThreads.add(thread.id);
-      layoutSpread();
+      applyThreadFold(() => state.expandedThreads.add(thread.id));
     });
     return line;
   }
@@ -5255,8 +5282,7 @@ function createMarkdownViewer({
         if (state.threadReply && state.threadReply.threadId === thread.id) return;
         event.preventDefault();
         event.stopPropagation();
-        state.expandedThreads.delete(thread.id);
-        layoutSpread();
+        applyThreadFold(() => state.expandedThreads.delete(thread.id));
       });
     }
 
