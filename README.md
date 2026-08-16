@@ -6,7 +6,7 @@
 
 AgentTerm hosts any CLI coding agent (Claude Code, Codex, Copilot, Cursor's CLI). It's a full terminal underneath, so you can replace yours and run your coding agents in it exclusively, as the author does.
 
-Coding agents chose the terminal for a reason: nothing is more flexible, and everything composes with it. But the terminal was designed for the programs of decades past, and it never grew to fit what an agent is. AgentTerm keeps the foundation and breaks through the ceiling.
+While a terminal starts blank and grows as you ask, it was designed for the programs of decades past, and never grew to fit what an agent is. AgentTerm keeps the foundation and breaks through the ceiling.
 
 ## What changes
 
