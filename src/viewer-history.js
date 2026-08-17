@@ -1,4 +1,12 @@
-const VIEWER_URL_SOURCE = String.raw`(?:https?|file|review):\/\/[^\s<>"'\x60\x00-\x1f]+[^\s<>"'\x60\x00-\x1f.,;:!?\)\]}>]`;
+// review:// is printed by an agent, not typed into a browser: no parser on the
+// emitting side ever checks it, so the host is the only place a malformed link
+// can be caught. The one slip a model actually makes is a space between the
+// scheme and the path — the launch instruction shows `review://<path>`, and a
+// model writing that from memory sometimes separates the placeholder. Admit it,
+// but only ahead of an absolute path: prose about "the review:// link" can then
+// never be read as a package.
+const REVIEW_URL_SOURCE = String.raw`review:\/\/[ \t]*\/[^\s<>"'\x60\x00-\x1f]*[^\s<>"'\x60\x00-\x1f.,;:!?\)\]}>]`;
+const VIEWER_URL_SOURCE = String.raw`(?:${REVIEW_URL_SOURCE}|(?:https?|file|review):\/\/[^\s<>"'\x60\x00-\x1f]+[^\s<>"'\x60\x00-\x1f.,;:!?\)\]}>])`;
 const MARKDOWN_PATH_SOURCE = String.raw`(?:[a-zA-Z]:)?(?:[.\/\\~\u2026]|[a-zA-Z0-9_])[a-zA-Z0-9_.+$~\/\\\u2026-]*\.(?:markdown|mdown|md)\b`;
 // One character that could still extend a candidate of each kind. The match
 // regexes trim trailing punctuation ("https://a.com." matches "https://a.com"),
@@ -41,6 +49,13 @@ function viewerIdentity(entry) {
   return entry ? `${entry.kind}\0${entry.key}` : '';
 }
 
+// The key every consumer sees, with the tolerated whitespace removed, so one
+// package printed both ways is one entry in history and one sighting for
+// auto-open rather than two.
+function canonicalViewerUrl(url) {
+  return String(url || '').replace(/^(review:\/\/)[ \t]+/i, '$1');
+}
+
 function normalizeMarkdownPath(raw) {
   let path = String(raw || '');
   const wslUnc = /^\\\\wsl(?:\.localhost|\$)\\[^\\]+/i;
@@ -57,9 +72,9 @@ function extractViewerCandidateMatches(text) {
   const markdownRe = new RegExp(MARKDOWN_PATH_SOURCE, 'gi');
 
   for (const match of source.matchAll(urlRe)) {
-    const key = match[0];
+    const key = canonicalViewerUrl(match[0]);
     const start = match.index;
-    const end = start + key.length;
+    const end = start + match[0].length;
     const kind = /^review:\/\//i.test(key) ? 'review' : 'url';
     matches.push({ entry: { kind, key }, start, end, tokenEnd: viewerTokenEnd(source, end, URL_CONTINUATION_RE) });
     urlSpans.push({ start, end });
@@ -320,9 +335,11 @@ class ViewerValidationMemory {
 }
 
 module.exports = {
+  VIEWER_URL_SOURCE,
   ViewerHistory,
   ViewerStreamAccumulator,
   ViewerValidationMemory,
+  canonicalViewerUrl,
   collectBufferViewerCandidates,
   extractViewerCandidates,
   sameViewer,

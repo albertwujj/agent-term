@@ -28,13 +28,16 @@ const { createWebViewer } = require('./web-viewer');
 const { createMarkdownViewer } = require('./markdown-viewer');
 const { createComposer, isPasteCommentShortcut } = require('./comment-ui');
 const {
+  VIEWER_URL_SOURCE,
   ViewerHistory,
   ViewerStreamAccumulator,
   ViewerValidationMemory,
+  canonicalViewerUrl,
   collectBufferViewerCandidates,
   sameViewer,
   viewerFileUrlToPath,
 } = require('./viewer-history');
+const { isReviewPackagePath } = require('./review-package-path');
 
 // Custom title-bar / chrome bar — replaces the old session-banner row and
 // the Electron application menu. Mounts once on load and updates in place
@@ -218,7 +221,10 @@ function anyViewerOpen() {
 // Plain click → embedded band; Ctrl/Cmd/Alt-click → system browser. Returns
 // true when the embed handled it. `external` is the modifier verdict from the
 // click site.
-function openUrlFromTerminal(url, source, external, { recordHistory = true } = {}) {
+function openUrlFromTerminal(rawUrl, source, external, { recordHistory = true } = {}) {
+  // One canonical form before anything keys off the URL — a `review://` printed
+  // with a space ahead of its path is the same link as one printed without.
+  const url = canonicalViewerUrl(rawUrl);
   // review:// → render the agent's package via the bundled renderer, then open
   // the rendered page in the viewer (and route any issues back to the agent).
   if (/^review:\/\//i.test(url)) {
@@ -4098,6 +4104,14 @@ async function navigateToFileLine(filePath, line, column, { copyResponse = false
       return;
     }
     if (searchState.isOpen) closeSearchBar({ restoreFocus: false });
+    // A review package named as a plain path is still a review: render it,
+    // rather than opening the agent's prose stripped of the diff it explains.
+    // The scheme is how the agent *announces* one; a click is the user pointing
+    // at it, and the destination is the same either way.
+    if (isReviewPackagePath(navigablePath)) {
+      openUrlFromTerminal(`review://${navigablePath}`, 'review-path', false);
+      return;
+    }
     const opened = await getMarkdownViewer().open({
       filePath: navigablePath,
       line,
@@ -4680,7 +4694,9 @@ const patterns = [
   },
   {
     name: 'url',
-    regex: /(?:https?|file|review):\/\/[^\s<>"'`\x00-\x1f]+[^\s<>"'`\x00-\x1f.,;:!?\)\]}>]/g,
+    // Shared with the stream capture so a link the terminal underlines is the
+    // same link auto-open sees — including the tolerated `review:// /path`.
+    regex: new RegExp(VIEWER_URL_SOURCE, 'gi'),
     action: async (match, options = {}) => {
       const mod = options.modifiers || {};
       // Any modifier (Ctrl/Cmd/Alt) → system browser. Plain click → embedded

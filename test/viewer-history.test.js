@@ -64,6 +64,29 @@ test('does not duplicate markdown paths inside URL candidates', () => {
   );
 });
 
+test('a review link printed with a space before its path is one canonical candidate', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('review:// /home/me/.git/review/work/work.md')),
+    ['review:review:///home/me/.git/review/work/work.md']
+  );
+});
+
+test('the same package printed both ways is one entry', () => {
+  const stream = new ViewerStreamAccumulator();
+  assert.deepStrictEqual(
+    keys(stream.push('review:// /tmp/pkg.md\r\nreview:///tmp/pkg.md\r\n')),
+    ['review:review:///tmp/pkg.md']
+  );
+  assert.deepStrictEqual(keys(stream.entries()), ['review:review:///tmp/pkg.md']);
+});
+
+test('prose about the scheme is not a package', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('Click the review:// link the agent printed.')),
+    []
+  );
+});
+
 test('file URL paths map local and WSL-hosted documents to POSIX paths', () => {
   assert.strictEqual(viewerFileUrlToPath('file:///tmp/report.html'), '/tmp/report.html');
   assert.strictEqual(
