@@ -1005,10 +1005,18 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.rv-waiting-head:hover{color:#1f2328}',
       '.rv-waiting-tag{color:#6e7781;font-style:italic;font-weight:600;margin-right:6px}',
-      // While the agent runs (host forwards its working state as rv-working),
-      // the awaiting note and row tags breathe — md's waiting-line pulse.
-      '@keyframes rv-wait-pulse{0%,100%{opacity:.45}50%{opacity:1}}',
-      'body.rv-agent-working .rv-awaiting,body.rv-agent-working .rv-waiting-tag{animation:rv-wait-pulse 2.4s ease-in-out infinite}',
+      // While the agent runs (host forwards its working state as rv-working), an
+      // awaiting thread breathes its left accent — md's md-thread-working ported
+      // to this palette, tempo-matched at 1.6s so the two viewers read as one
+      // cue. The ACCENT breathes, not the "awaiting" words: this has to register
+      // in peripheral vision while the eye is down in the diff, which takes a
+      // wide luminance swing on a structural element (md learned that on a 2px
+      // border; grey #8b949e → near-black, plus an edge line at peak). Both
+      // presentations are .rv-thread.rv-waiting, so the full card and the folded
+      // row breathe alike.
+      '@keyframes rv-wait-pulse{0%,100%{border-left-color:#8b949e;box-shadow:-1.5px 0 0 rgba(31,35,40,0)}',
+      '50%{border-left-color:#1f2328;box-shadow:-1.5px 0 0 rgba(31,35,40,.5)}}',
+      'body.rv-agent-working .rv-thread.rv-waiting{animation:rv-wait-pulse 1.6s ease-in-out infinite}',
       '.rv-link:hover{text-decoration:underline}',
       '.rv-link:disabled{color:#8c959f;cursor:default;text-decoration:none}',
       // compose / reply
