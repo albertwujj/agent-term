@@ -22,7 +22,8 @@
 // rests an awaiting thread as a one-line row; here it's the full card with a
 // muted "awaiting" note. The send-count grammar IS shared: the primary counts
 // the open threads its pointer will cover (sendLabel), and the secondary is
-// Discard — it destroys the typed draft, never just closes.
+// Discard — it destroys the typed draft, never just closes. A committed but
+// un-sent card carries that same Discard, because here click-away commits.
 
 const { ipcRenderer } = require('electron');
 const { normWS, nearestHeading, toast, createComposer, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
@@ -377,20 +378,21 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
           return res;
         });
       },
-      discardThread: discardEditThread,
+      discardThread: function (id) { discardThread(id, 'Edit'); },
     });
     commitEdit.bind();
   }
 
-  // Undo for a pending edit thread: allowed only while it is wholly the
-  // user's (rv-discard-thread enforces the same rule store-side).
-  function discardEditThread(threadId) {
+  // Undo for a pending thread — a comment or a commit-message edit — allowed
+  // only while it is wholly the user's (rv-discard-thread enforces the same
+  // rule store-side).
+  function discardThread(threadId, what) {
     ipcRenderer.invoke('rv-discard-thread', { commentsUrl: commentsUrl, threadId: threadId })
       .then(function (res) {
         if (!res || !res.success) { toast((res && res.error) || 'Could not discard'); return; }
         store = res.data;
         renderAndTrack(false);
-        toast('Edit discarded');
+        toast((what || 'Comment') + ' discarded');
       });
   }
 
@@ -414,6 +416,19 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     const last = msgs[msgs.length - 1];
     const userLast = (t.status || 'open') === 'open' && !!last && (last.author || 'user') === 'user';
     return userLast && (!sentTs || (last.ts || 0) > sentTs);
+  }
+
+  // Wholly the user's and wholly un-sent: open, every message user-authored,
+  // and not even the FIRST one covered by a send. That is the window in which
+  // a thread is still a draft the user can take back, so it is what Discard
+  // hangs off. Narrower than threadNeedsSend, which a follow-up typed on an
+  // already-pinged thread also satisfies — discarding there would delete words
+  // the agent was already sent.
+  function threadWhollyUnsent(t) {
+    const msgs = t.messages || [];
+    if (!msgs.length || (t.status || 'open') !== 'open') return false;
+    if (!msgs.every(function (m) { return (m.author || 'user') === 'user'; })) return false;
+    return !sentTs || (msgs[0].ts || 0) > sentTs;
   }
 
   function openQuoteComposer(initialText) {
@@ -851,16 +866,19 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     // ping. Once covered by a send it rests as "awaiting agent" — the md
     // viewer's model — so a sent thread can't be re-sent by mistake; a fresh
     // follow-up moves past the boundary and brings Send back.
-    // Undo for a pending edit exists only while the thread is wholly the
-    // user's: un-sent and never spoken to by the agent. Once sent it seals
-    // (awaiting), matching the md viewer; once answered, undo is a follow-up.
-    const discardable = !!editParsed && needsSend
-      && (t.messages || []).every(function (m) { return (m.author || 'user') === 'user'; });
+    // Discard is the way back out of a comment you did not mean to leave:
+    // click-away commits to the store with no composer left behind, so the
+    // card has to carry the undo — there is no empty-the-box delete here the
+    // way md has one. It lives only while the thread is wholly yours and
+    // wholly un-sent; once a send covers it the thread seals (awaiting) and a
+    // follow-up is the vehicle. A pending commit-message edit is the same
+    // thread in the same window, worded for the marks up in the commit block.
+    const discardable = threadWhollyUnsent(t);
     div.innerHTML = badge + lost + moved + quote + msgs
       + '<div class="rv-thread-actions">'
       + '<button class="rv-link" data-act="comment">Comment</button>'
       + (needsSend ? '<button class="rv-link" data-act="send">' + esc(sendLabel(0)) + '</button>' : '')
-      + (discardable ? '<button class="rv-link" data-act="discard">Discard edit</button>' : '')
+      + (discardable ? '<button class="rv-link" data-act="discard">' + (editParsed ? 'Discard edit' : 'Discard') + '</button>' : '')
       + (waiting ? '<span class="rv-awaiting">sent — awaiting agent</span>' : '')
       + '</div>';
     const slot = div.querySelector('[data-rv-edit-slot]');
@@ -878,7 +896,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     const sendBtn = div.querySelector('[data-act=send]');
     if (sendBtn) sendBtn.onclick = function () { sendThread('Sent to agent'); };
     const discardBtn = div.querySelector('[data-act=discard]');
-    if (discardBtn) discardBtn.onclick = function () { discardEditThread(t.id); };
+    if (discardBtn) discardBtn.onclick = function () { discardThread(t.id, editParsed ? 'Edit' : 'Comment'); };
     const collapseBtn = div.querySelector('[data-act=collapse]');
     if (collapseBtn) collapseBtn.onclick = function () { expandedSet.delete(t.id); renderAndTrack(false); };
     return div;
