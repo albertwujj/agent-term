@@ -5056,16 +5056,21 @@ function createMarkdownViewer({
     return msgs.length > 0 && msgs[msgs.length - 1].author === 'agent';
   }
 
-  // The agent's doc-side turn is over when no thread still awaits it: each one
-  // is resolved, or bounced back to the user (an open thread the agent spoke
-  // last on). Strict all-resolved would deadlock on a pre-existing open thread
-  // already handed back, and would keep golden when the agent's last act is a
-  // question — which lives in the doc, exactly where full size puts it.
+  // The agent's doc-side turn is over when every thread is resolved — the
+  // agent's explicit end-of-work mark, and nothing softer. Counting an open
+  // agent-last thread as "bounced back" made this flip mid-turn: the agent
+  // replies to the store before it finishes acting, so the poll caught the
+  // reply and expanded the band while edits were still landing (the review
+  // viewer had the same bug, worse — its regen reload made the expand look
+  // tied to the code change). A thread left open — blocked on the user, or
+  // merely answered — keeps golden: the reply is on screen and pulsing there,
+  // and expanding for it is the user's call. The cost is that such a wave
+  // never auto-resumes full; the cost of the old rule was motion mid-turn,
+  // and of the two only one takes the screen out of the user's hands.
   function agentTurnOverInStore() {
     const threads = (state.threadStore && Array.isArray(state.threadStore.threads))
       ? state.threadStore.threads : [];
-    return threads.length > 0
-      && threads.every((t) => isThreadResolved(t) || threadNeedsUser(t));
+    return threads.length > 0 && threads.every((t) => isThreadResolved(t));
   }
 
   // The resume armed by a full-size send (sendEditBatch): the user chose full
