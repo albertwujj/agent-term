@@ -3377,10 +3377,23 @@ ipcMain.handle('resolve-file-url', async (event, filePath) => {
 // Send. Two stamps ({ts, prev}) so the overlay can also tell the current wave
 // (covered by the latest send — stays a card) from earlier waves (already old
 // context — folds to a line): recency does the tidying.
+//
+// resolvedAtSend is the thread ids already closed when that send went out, so
+// the overlay can hold open a resolution the user has not read yet. It is a SET
+// rather than another timestamp on purpose: the closing message is written by
+// the agent's own process (a different clock, and on Windows a different OS
+// instance), so ordering it against a host stamp is a cross-writer wall-clock
+// comparison — the one comparison here that is not host-vs-host. Membership
+// asks the question directly: was this thread already closed last time I handed
+// work over? No clock involved.
 const reviewSentTs = new Map();
 function reviewSentStamps(p) {
   const s = reviewSentTs.get(p);
-  return { sentTs: (s && s.ts) || 0, prevSentTs: (s && s.prev) || 0 };
+  return {
+    sentTs: (s && s.ts) || 0,
+    prevSentTs: (s && s.prev) || 0,
+    resolvedAtSend: (s && s.resolvedAtSend) || [],
+  };
 }
 
 ipcMain.handle('read-review-comments', async (event, fileUrl) => {
@@ -3631,8 +3644,12 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
   // still pluralizes by the count at paste time (its convention carries no
   // number, so it can't mislead the same way).
   let n = 0;
-  try { const s = await loadCommentStore(p); n = s.threads.filter((t) => (t.status || 'open') === 'open').length; }
-  catch { n = 0; }
+  let resolvedAtSend = [];
+  try {
+    const s = await loadCommentStore(p);
+    n = s.threads.filter((t) => (t.status || 'open') === 'open').length;
+    resolvedAtSend = s.threads.filter((t) => t.status === 'resolved').map((t) => t.id);
+  } catch { n = 0; }
   const text = [
     commentHeader(`review://${pkg}`, n || 1),
     `Read the open threads in ${agentPath} and address them (reply inline by appending an `
@@ -3648,7 +3665,7 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
   // Stamp the sent boundary and hand it back so the overlay can re-derive its
   // cards immediately (the next store read gets it via read-review-comments).
   const was = reviewSentTs.get(p);
-  reviewSentTs.set(p, { ts: Date.now(), prev: (was && was.ts) || 0 });
+  reviewSentTs.set(p, { ts: Date.now(), prev: (was && was.ts) || 0, resolvedAtSend });
   return { success: true, ...reviewSentStamps(p) };
 });
 

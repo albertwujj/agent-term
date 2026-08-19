@@ -47,6 +47,10 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
   // and folds to a line — recency does the tidying.
   let sentTs = 0;
   let prevSentTs = 0;
+  // Thread ids already resolved when the latest send went out (main stamps it
+  // alongside sentTs). A resolved thread missing from this set closed after the
+  // user last handed work over, so they have not read it yet.
+  let resolvedAtSend = new Set();
   // Resolved thread ids the user expanded. Resolved threads collapse to a one-line
   // disclosure by default (less clutter); this remembers the ones clicked open.
   // Guest-local, so a full reload re-collapses them — the intended default.
@@ -128,7 +132,11 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     if (document.querySelector('.rv-compose-row, .rv-replybox, .rv-edit-compose')) return;
     ipcRenderer.invoke('read-review-comments', commentsUrl).then(function (res) {
       store = (res && res.success && res.data) ? res.data : { threads: [] };
-      if (res && res.success) { sentTs = res.sentTs || 0; prevSentTs = res.prevSentTs || 0; }
+      if (res && res.success) {
+        sentTs = res.sentTs || 0;
+        prevSentTs = res.prevSentTs || 0;
+        resolvedAtSend = new Set(res.resolvedAtSend || []);
+      }
       renderAndTrack(opts && opts.pulse);
     }).catch(function () { renderAndTrack(false); });
   }
@@ -853,10 +861,13 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     // until your NEXT send, then folds: the wave rule the awaiting cards
     // already follow, one wave later. No send this session (sentTs 0) folds
     // everything, since nothing resolved while you were watching.
-    // The signal is the closing message's timestamp, so an agent that flips
-    // status with nothing to say folds at once — right, there is nothing to
-    // read — and the badge still folds it by hand any time.
-    const resolvedUnread = resolved && !!sentTs && ((last && last.ts) || 0) > sentTs
+    // The test is set membership, not a timestamp: the closing message comes
+    // from the agent's process, so comparing its ts against a host stamp would
+    // be the one cross-writer clock comparison in this file (every other one —
+    // needsSend, the waiting fold, wholly-un-sent — reads a user message main
+    // stamped itself). "Was it already closed at my last send?" needs no clock.
+    // The badge still folds it by hand any time.
+    const resolvedUnread = resolved && !!sentTs && !resolvedAtSend.has(t.id)
       && !collapsedSet.has(t.id);
     if (resolved && !expandedSet.has(t.id) && !resolvedUnread) {
       div.classList.add('rv-collapsed');
@@ -991,7 +1002,12 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       // The boundary moved: re-derive the cards now, so the just-covered threads
       // flip from Send to awaiting (and earlier waves fold) without waiting for
       // the next store read.
-      if (res.sentTs) { sentTs = res.sentTs; prevSentTs = res.prevSentTs || 0; renderAndTrack(false); }
+      if (res.sentTs) {
+        sentTs = res.sentTs;
+        prevSentTs = res.prevSentTs || 0;
+        resolvedAtSend = new Set(res.resolvedAtSend || []);
+        renderAndTrack(false);
+      }
       // The host recedes a full-size band to golden on a send (web-viewer.js) —
       // the turn just passed to the agent, whose pickup shows in the terminal.
       try { ipcRenderer.sendToHost('rv-sent'); } catch {}
