@@ -3400,25 +3400,36 @@ ipcMain.handle('resolve-file-url', async (event, filePath) => {
 // and the agent process stamping its own messages from a different clock (a
 // different OS instance under WSL).
 //
-// Each send snapshots what it flushed, per thread:
-//   count        — sends so far this session (0 = the agent was never pinged)
-//   covered      — {threadId: user-message count} the LATEST send handed over
-//   prevCovered  — the same for the send before it, so the overlay can tell the
-//                  current wave (a card) from earlier ones (folds to a line)
-//   resolvedAtSend — ids already closed at that send, so a resolution the user
-//                  has not read yet keeps its card for one wave
-// A thread absent from `covered` was never sent; growth past its entry is
-// un-sent user words. No timestamp is consulted anywhere in the ladder.
+// Two different facts live here, and only one of them is session-scoped:
+//
+//   "these words left the user's hands" — a fact about the CONVERSATION, and
+//     durable. It goes in the store: a send stamps every user message it hands
+//     over with `turn`, the md store's field and semantics (turn ticks once per
+//     user send). An un-stamped user message has never been sent, and that
+//     stays true across a restart. This is what Discard hangs off — deleting a
+//     thread the agent already received would take back words it has.
+//
+//   "THIS session's agent has been pinged" — a fact about a PROCESS, and it
+//     dies with it. A ping is a paste into a running CLI; relaunch and the new
+//     agent has never seen any of it, so every unanswered thread should offer
+//     Send again. That is sessionFirstTurn: the store turn of this session's
+//     first send (0 = none yet). A message stamped below it went to an agent
+//     that no longer exists.
+//
+// Collapsing the two into one session-only counter was wrong in the direction
+// that loses work: after a relaunch the store could not tell "never sent" from
+// "sent last session", so Discard reappeared on threads the agent already had.
+// The md viewer never had that bug because sending is what puts a comment in
+// its store at all — presence IS the durable record. This store commits on
+// click-away, so it needs the stamp to say the same thing.
+//
+// resolvedAtSend (ids already closed at the latest send) stays session memory:
+// it tracks what the USER has read, not what the agent received.
 const reviewSends = new Map();
-function userMsgCount(t) {
-  return (t.messages || []).filter((m) => (m.author || 'user') === 'user').length;
-}
 function reviewSendState(p) {
   const s = reviewSends.get(p);
   return {
-    sendCount: (s && s.count) || 0,
-    covered: (s && s.covered) || {},
-    prevCovered: (s && s.prevCovered) || {},
+    sessionFirstTurn: (s && s.firstTurn) || 0,
     resolvedAtSend: (s && s.resolvedAtSend) || [],
   };
 }
@@ -3671,15 +3682,8 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
   // still pluralizes by the count at paste time (its convention carries no
   // number, so it can't mislead the same way).
   let n = 0;
-  let resolvedAtSend = [];
-  const covered = {};
-  try {
-    const s = await loadCommentStore(p);
-    n = s.threads.filter((t) => (t.status || 'open') === 'open').length;
-    resolvedAtSend = s.threads.filter((t) => t.status === 'resolved').map((t) => t.id);
-    // What this send hands over, per thread — the wave's own record of itself.
-    s.threads.forEach((t) => { covered[t.id] = userMsgCount(t); });
-  } catch { n = 0; }
+  try { const s = await loadCommentStore(p); n = s.threads.filter((t) => (t.status || 'open') === 'open').length; }
+  catch { n = 0; }
   const text = [
     commentHeader(`review://${pkg}`, n || 1),
     `Read the open threads in ${agentPath} and address them (reply inline by appending an `
@@ -3692,15 +3696,26 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
   lastInputTime = Date.now();
   lastTypingTime = 0;
   lastInputByte = '';
-  // Tick the wave and hand it back so the overlay can re-derive its cards
-  // immediately (the next store read gets it via read-review-comments).
-  const was = reviewSends.get(p);
-  reviewSends.set(p, {
-    count: ((was && was.count) || 0) + 1,
-    covered,
-    prevCovered: (was && was.covered) || {},
-    resolvedAtSend,
+  // Record the send IN the store, after the ping actually went out: tick the
+  // turn and stamp every user message this hands over. A failed stamp only
+  // costs a re-send, where stamping first and failing to paste would leave
+  // threads claiming they were sent.
+  let turn = 0;
+  let resolvedAtSend = [];
+  await withCommentsLock(p, async () => {
+    try {
+      const s = await loadCommentStore(p);
+      turn = (Number.isFinite(s.turn) ? s.turn : 0) + 1;
+      s.turn = turn;
+      resolvedAtSend = s.threads.filter((t) => t.status === 'resolved').map((t) => t.id);
+      s.threads.forEach((t) => (t.messages || []).forEach((m) => {
+        if ((m.author || 'user') === 'user' && !Number.isFinite(m.turn)) m.turn = turn;
+      }));
+      await saveCommentStore(p, s);
+    } catch { /* the ping is out; an unstamped send just offers Send again */ }
   });
+  const was = reviewSends.get(p);
+  reviewSends.set(p, { firstTurn: (was && was.firstTurn) || turn, resolvedAtSend });
   return { success: true, ...reviewSendState(p) };
 });
 

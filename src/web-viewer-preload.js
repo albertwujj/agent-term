@@ -17,9 +17,11 @@
 // the sent boundary differ by necessity: md's queue holds unsent comments out
 // of the store (store-presence = sent), but this guest reloads wholesale on
 // every re-render, so comments commit to the store on submit and the boundary
-// is a SEND COUNT instead — main snapshots what each send flushed per thread,
-// and the ladder reads those counts (see threadCard). Ordinal, never a clock:
-// the axis is sends, which stand still while the user is at lunch. Remaining divergence is presentation only: md
+// is a TURN STAMP instead — a send marks every user message it hands over with
+// the turn it went out on (md's `turn`, same field and meaning), and the ladder
+// reads those numbers (see threadCard). Ordinal, never a clock: the axis is
+// sends, which stand still while the user is at lunch. Durable too, so a
+// relaunch still knows which words the agent already has. Remaining divergence is presentation only: md
 // rests an awaiting thread as a one-line row; here it's the full card with a
 // muted "awaiting" note. The send-count grammar IS shared: the primary counts
 // the open threads its pointer will cover (sendLabel), and the secondary is
@@ -38,28 +40,39 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
 
   let commentsUrl = null;
   let store = { threads: [] };
-  // The sent boundary, counted in sends (main's reviewSends — session memory).
-  // sendCount 0 = the agent was never pinged this session, so every open
-  // user-last thread offers Send: the right reset for a fresh agent. `covered`
-  // is how many user messages each thread had handed over at the LATEST send,
-  // `prevCovered` the same at the one before it — a thread whose count grew
-  // with the latest send is the current wave and keeps its card; one that did
-  // not was covered earlier, is old context, and folds to a line. Recency does
-  // the tidying, measured in sends rather than seconds.
-  let sendCount = 0;
-  let covered = {};
-  let prevCovered = {};
+  // The turn of this session's FIRST send (0 = the agent was never pinged this
+  // session). Words stamped below it went to an agent that no longer exists, so
+  // they offer Send again — the right reset for a fresh agent — while their
+  // stamp still says they left the user's hands once, which is what keeps
+  // Discard off them. See the reviewSends comment in main.js for the split.
+  let sessionFirstTurn = 0;
   // Thread ids already resolved when the latest send went out. A resolved
   // thread missing from this set closed after the user last handed work over,
   // so they have not read it yet.
   let resolvedAtSend = new Set();
 
-  // User messages only: the agent appending a reply must not read as the user
-  // having spoken again. This is the quantity every send snapshots.
-  function userMsgCount(t) {
-    return (t.messages || []).filter(function (m) { return (m.author || 'user') === 'user'; }).length;
+  // The store's own send counter, ticked once per user send (md's `turn`).
+  function storeTurn() { return Number.isFinite(store.turn) ? store.turn : 0; }
+  // The newest send that covered any of this thread's words (0 = none ever).
+  function maxUserTurn(t) {
+    let max = 0;
+    (t.messages || []).forEach(function (m) {
+      if ((m.author || 'user') === 'user' && Number.isFinite(m.turn) && m.turn > max) max = m.turn;
+    });
+    return max;
   }
-  function coveredCount(t) { return covered[t.id] || 0; }
+  // Words the user has written that no send has covered — an un-stamped user
+  // message. The agent appending a reply adds none, which is why this reads
+  // authorship rather than message count.
+  function hasUnsentWords(t) {
+    return (t.messages || []).some(function (m) {
+      return (m.author || 'user') === 'user' && !Number.isFinite(m.turn);
+    });
+  }
+  // Has THIS session's agent been pinged at all? The pointer names the store
+  // and says "the open threads", so one send covers every open thread at once —
+  // there is no per-thread version of this question.
+  function anySendThisSession() { return !!sessionFirstTurn; }
   // Resolved thread ids the user expanded. Resolved threads collapse to a one-line
   // disclosure by default (less clutter); this remembers the ones clicked open.
   // Guest-local, so a full reload re-collapses them — the intended default.
@@ -142,9 +155,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     ipcRenderer.invoke('read-review-comments', commentsUrl).then(function (res) {
       store = (res && res.success && res.data) ? res.data : { threads: [] };
       if (res && res.success) {
-        sendCount = res.sendCount || 0;
-        covered = res.covered || {};
-        prevCovered = res.prevCovered || {};
+        sessionFirstTurn = res.sessionFirstTurn || 0;
         resolvedAtSend = new Set(res.resolvedAtSend || []);
       }
       renderAndTrack(opts && opts.pulse);
@@ -444,27 +455,30 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     return t && threadNeedsSend(t) ? 0 : 1;
   }
 
-  // Open, the user's word last, and holding words no send has covered — the
-  // thread still needs its ping. Shared by the card ladder and the commit-edit
-  // mark colours (pending amber/rose vs sent slate).
+  // Open, the user's word last, and this session's agent has not had it: either
+  // the thread holds words no send ever covered, or no send has gone out at all
+  // since launch (the fresh-agent reset — the new CLI has seen none of it, and
+  // one ping covers every open thread). Shared by the card ladder and the
+  // commit-edit mark colours (pending amber/rose vs sent slate).
   function threadNeedsSend(t) {
     const msgs = t.messages || [];
     const last = msgs[msgs.length - 1];
     const userLast = (t.status || 'open') === 'open' && !!last && (last.author || 'user') === 'user';
-    return userLast && userMsgCount(t) > coveredCount(t);
+    return userLast && (hasUnsentWords(t) || !anySendThisSession());
   }
 
   // Wholly the user's and wholly un-sent: open, every message user-authored,
-  // and no send ever covered any of it. That is the window in which a thread is
-  // still a draft the user can take back, so it is what Discard hangs off.
-  // Narrower than threadNeedsSend, which a follow-up typed on an already-sent
-  // thread also satisfies — discarding there would delete words the agent
-  // already has.
+  // and not one of them carrying a turn stamp. That is the window in which a
+  // thread is still a draft the user can take back, so it is what Discard hangs
+  // off. Narrower than threadNeedsSend on both sides — a follow-up typed on an
+  // already-sent thread satisfies that, and so does a thread sent to a previous
+  // session's agent; discarding either would delete words the agent has.
+  // Reading the durable stamp is what makes this survive a relaunch.
   function threadWhollyUnsent(t) {
     const msgs = t.messages || [];
     if (!msgs.length || (t.status || 'open') !== 'open') return false;
     if (!msgs.every(function (m) { return (m.author || 'user') === 'user'; })) return false;
-    return coveredCount(t) === 0;
+    return maxUserTurn(t) === 0;
   }
 
   function openQuoteComposer(initialText) {
@@ -869,11 +883,11 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     // it is about, so the answer that ended it is what you came back for —
     // folding it the moment it arrives hides the payload. It keeps its card
     // until your NEXT send, then folds: the wave rule the awaiting cards
-    // already follow, one wave later. No send this session (sendCount 0) folds
-    // everything, since nothing resolved while you were watching.
+    // already follow, one wave later. No send this session folds everything,
+    // since nothing resolved while you were watching.
     // Set membership against the last send's snapshot — "was it already closed
     // when I last handed work over?" The badge still folds it by hand any time.
-    const resolvedUnread = resolved && !!sendCount && !resolvedAtSend.has(t.id)
+    const resolvedUnread = resolved && !!sessionFirstTurn && !resolvedAtSend.has(t.id)
       && !collapsedSet.has(t.id);
     if (resolved && !expandedSet.has(t.id) && !resolvedUnread) {
       div.classList.add('rv-collapsed');
@@ -893,7 +907,9 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     const userLast = (t.status || 'open') === 'open' && !!last && (last.author || 'user') === 'user';
     const needsSend = threadNeedsSend(t);
     const waiting = userLast && !needsSend;
-    const earlierWave = coveredCount(t) === (prevCovered[t.id] || 0);
+    // Covered by a send older than the latest one: old context, folds to a line.
+    const sentTurn = maxUserTurn(t);
+    const earlierWave = sentTurn > 0 && sentTurn < storeTurn();
     if (waiting && earlierWave && !expandedSet.has(t.id)) {
       div.classList.add('rv-collapsed', 'rv-waiting');
       div.innerHTML = '<button class="rv-waiting-head" title="Sent — awaiting agent. Click to open">'
@@ -1009,12 +1025,11 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       // The boundary moved: re-derive the cards now, so the just-covered threads
       // flip from Send to awaiting (and earlier waves fold) without waiting for
       // the next store read.
-      if (res.sendCount) {
-        sendCount = res.sendCount;
-        covered = res.covered || {};
-        prevCovered = res.prevCovered || {};
+      if (res.sessionFirstTurn) {
+        sessionFirstTurn = res.sessionFirstTurn;
         resolvedAtSend = new Set(res.resolvedAtSend || []);
-        renderAndTrack(false);
+        // The stamps live in the store, so re-read rather than re-derive.
+        load();
       }
       // The host recedes a full-size band to golden on a send (web-viewer.js) —
       // the turn just passed to the agent, whose pickup shows in the terminal.
