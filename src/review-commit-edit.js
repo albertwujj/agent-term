@@ -94,7 +94,7 @@ function createCommitEditController(io) {
   //   discardThread(threadId),
   //   openBlockComment(block, seedKey),
   //   composerBlocked() -> bool,
-  //   sendLabel() -> string,
+  //   sendLabel(revisitThreadId|null) -> string,   // null = this edit is new
   //   threadNeedsSend(thread) -> bool,   // pending (amber) vs sent (slate) marks
   //   onToast(msg),
   //   platform,
@@ -390,7 +390,9 @@ function createCommitEditController(io) {
       actions: [
         { label: 'Revert', onClick: () => revert() },
         {
-          label: (io.sendLabel && io.sendLabel()) || 'Send',
+          // A revisit updates a thread that is already in the send tally; a
+          // fresh edit adds one. The host resolves which from the id.
+          label: (io.sendLabel && io.sendLabel(sess.revisit ? sess.revisit.threadId : null)) || 'Send',
           shortcut: sendShortcut,
           primary: true,
           onClick: () => commit(true),

@@ -337,7 +337,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     commitEdit = createCommitEditController({
       platform: process.platform,
       onToast: toast,
-      sendLabel: function () { return sendLabel(1); },
+      sendLabel: function (revisitThreadId) { return sendLabel(sendExtraFor(revisitThreadId)); },
       threadNeedsSend: threadNeedsSend,
       composerBlocked: function () {
         return !!document.querySelector('.rv-quote-compose, .rv-compose-row, .rv-replybox');
@@ -400,12 +400,27 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
   // write), so the primary says what it flushes when that is more than this
   // one — the md viewer's "Send all (n)" grammar, and the same plain "Send":
   // the button's contrast is with moving away (comment kept, agent not
-  // pinged), not with commenting. extraOpen is what THIS action adds to the
-  // open count: 1 for a new thread or a reply that reopens a resolved one,
-  // 0 for a reply on an already-open thread.
-  function sendLabel(extraOpen) {
-    const n = store.threads.filter(function (t) { return (t.status || 'open') === 'open'; }).length + extraOpen;
+  // pinged), not with commenting.
+  //
+  // The tally is the threads carrying UN-SENT words, not every open thread. A
+  // thread you already sent is still open while the agent owes you an answer,
+  // and counting it again made the number climb every time you commented
+  // behind a slow agent — while its own card says "sent — awaiting agent" and
+  // offers no Send. The button describes your action, so it counts what this
+  // action hands over. (The ping itself still points at every open thread;
+  // main deliberately puts no number in it, since any count goes stale between
+  // the paste and the agent's read.)
+  function sendLabel(extra) {
+    const n = store.threads.filter(threadNeedsSend).length + extra;
     return n > 1 ? 'Send all (' + n + ')' : 'Send';
+  }
+
+  // What THIS action adds to that tally. A thread already holding un-sent
+  // words is counted; anything else — a new thread, one awaiting the agent,
+  // a resolved one a follow-up reopens — is one more.
+  function sendExtraFor(threadId) {
+    const t = threadId == null ? null : store.threads.find(function (x) { return x.id === threadId; });
+    return t && threadNeedsSend(t) ? 0 : 1;
   }
 
   // Open, the user's word last, and never covered by a send — the thread still
@@ -907,16 +922,12 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     if (existing) { existing.querySelector('textarea').focus(); return; }
     const box = document.createElement('div');
     box.className = 'rv-replybox'; // mount: appended under the thread
-    // A follow-up on a non-open thread reopens it (main.js), so it adds one
-    // to the open count the send will point at.
-    const target = store.threads.find(function (x) { return x.id === threadId; });
-    const reopens = !target || (target.status || 'open') !== 'open';
     const c = createComposer({
       placeholder: 'Comment…',
       rows: 2,
       onCancel: function () { box.remove(); activeComposer = null; },
       actions: [
-        { label: sendLabel(reopens ? 1 : 0), primary: true, onClick: function (ctx) { activeComposer = null; sendReply(threadId, ctx.textarea, ctx.root, true); } },
+        { label: sendLabel(sendExtraFor(threadId)), primary: true, onClick: function (ctx) { activeComposer = null; sendReply(threadId, ctx.textarea, ctx.root, true); } },
         { label: 'Discard', onClick: function () { box.remove(); activeComposer = null; } },
       ],
     });
