@@ -3367,31 +3367,40 @@ ipcMain.handle('resolve-file-url', async (event, filePath) => {
 // Read a review page's comment store (review/<slug>-comments.json). Takes a
 // file:// URL (derived by the viewer from the page URL); a missing file means
 // "no comments yet" (not an error). Only ever reads a *-comments.json path.
-// Sent boundary per comments store — session memory only, like the diff-pulse
+// Send waves per comments store — session memory only, like the diff-pulse
 // baseline (reviewDiffKeys) and the md viewer's unsent queue: "this terminal's
 // agent has been pinged" is a fact about the live session and dies with it, so
 // a restart correctly re-offers Send to the new agent. Host UI state, not
 // contract — the store file stays pure conversation (protocol.md is untouched).
-// The overlay derives thread state from it: an open user-last thread whose last
-// message predates the stamp is awaiting the agent; newer user words need a
-// Send. Two stamps ({ts, prev}) so the overlay can also tell the current wave
-// (covered by the latest send — stays a card) from earlier waves (already old
-// context — folds to a line): recency does the tidying.
 //
-// resolvedAtSend is the thread ids already closed when that send went out, so
-// the overlay can hold open a resolution the user has not read yet. It is a SET
-// rather than another timestamp on purpose: the closing message is written by
-// the agent's own process (a different clock, and on Windows a different OS
-// instance), so ordering it against a host stamp is a cross-writer wall-clock
-// comparison — the one comparison here that is not host-vs-host. Membership
-// asks the question directly: was this thread already closed last time I handed
-// work over? No clock involved.
-const reviewSentTs = new Map();
-function reviewSentStamps(p) {
-  const s = reviewSentTs.get(p);
+// The boundary is ORDINAL, not temporal. Every question the overlay asks is
+// "how many sends ago", and a wall clock answers a different question: the user
+// goes for coffee mid-review and comes back, and elapsed time has moved while
+// the work has not. A count of sends is the review's own clock — it ticks when
+// work is handed over and stands still otherwise, which is exactly the axis the
+// card ladder is drawn on. It also sidesteps clock hazards for free: NTP steps,
+// and the agent process stamping its own messages from a different clock (a
+// different OS instance under WSL).
+//
+// Each send snapshots what it flushed, per thread:
+//   count        — sends so far this session (0 = the agent was never pinged)
+//   covered      — {threadId: user-message count} the LATEST send handed over
+//   prevCovered  — the same for the send before it, so the overlay can tell the
+//                  current wave (a card) from earlier ones (folds to a line)
+//   resolvedAtSend — ids already closed at that send, so a resolution the user
+//                  has not read yet keeps its card for one wave
+// A thread absent from `covered` was never sent; growth past its entry is
+// un-sent user words. No timestamp is consulted anywhere in the ladder.
+const reviewSends = new Map();
+function userMsgCount(t) {
+  return (t.messages || []).filter((m) => (m.author || 'user') === 'user').length;
+}
+function reviewSendState(p) {
+  const s = reviewSends.get(p);
   return {
-    sentTs: (s && s.ts) || 0,
-    prevSentTs: (s && s.prev) || 0,
+    sendCount: (s && s.count) || 0,
+    covered: (s && s.covered) || {},
+    prevCovered: (s && s.prevCovered) || {},
     resolvedAtSend: (s && s.resolvedAtSend) || [],
   };
 }
@@ -3402,7 +3411,7 @@ ipcMain.handle('read-review-comments', async (event, fileUrl) => {
     let p;
     try { p = fileURLToPath(fileUrl); } catch { p = String(fileUrl || ''); }
     if (!/-comments\.json$/i.test(p)) return { success: false, error: 'not a comments store' };
-    const stamps = reviewSentStamps(p);
+    const stamps = reviewSendState(p);
     let raw;
     try {
       raw = await fs.promises.readFile(p, 'utf8');
@@ -3645,10 +3654,13 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
   // number, so it can't mislead the same way).
   let n = 0;
   let resolvedAtSend = [];
+  const covered = {};
   try {
     const s = await loadCommentStore(p);
     n = s.threads.filter((t) => (t.status || 'open') === 'open').length;
     resolvedAtSend = s.threads.filter((t) => t.status === 'resolved').map((t) => t.id);
+    // What this send hands over, per thread — the wave's own record of itself.
+    s.threads.forEach((t) => { covered[t.id] = userMsgCount(t); });
   } catch { n = 0; }
   const text = [
     commentHeader(`review://${pkg}`, n || 1),
@@ -3662,11 +3674,16 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
   lastInputTime = Date.now();
   lastTypingTime = 0;
   lastInputByte = '';
-  // Stamp the sent boundary and hand it back so the overlay can re-derive its
-  // cards immediately (the next store read gets it via read-review-comments).
-  const was = reviewSentTs.get(p);
-  reviewSentTs.set(p, { ts: Date.now(), prev: (was && was.ts) || 0, resolvedAtSend });
-  return { success: true, ...reviewSentStamps(p) };
+  // Tick the wave and hand it back so the overlay can re-derive its cards
+  // immediately (the next store read gets it via read-review-comments).
+  const was = reviewSends.get(p);
+  reviewSends.set(p, {
+    count: ((was && was.count) || 0) + 1,
+    covered,
+    prevCovered: (was && was.covered) || {},
+    resolvedAtSend,
+  });
+  return { success: true, ...reviewSendState(p) };
 });
 
 // --- Markdown document threads (md viewer → sidecar store; the agent-facing
