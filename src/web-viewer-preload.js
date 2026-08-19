@@ -51,6 +51,9 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
   // disclosure by default (less clutter); this remembers the ones clicked open.
   // Guest-local, so a full reload re-collapses them — the intended default.
   const expandedSet = new Set();
+  // Resolved threads the user folded by hand, overriding the keep-open below.
+  // Guest-local like expandedSet, and cleared by a full reload the same way.
+  const collapsedSet = new Set();
   // Commit-message editing (review-commit-edit.js): strike-in-place marks on
   // the commit blocks, committed as [Edit] threads. Bound on review pages only.
   let commitEdit = null;
@@ -838,14 +841,30 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
         + (m.author === 'agent' ? 'Agent' : 'You') + '</span>' + esc(m.body) + '</div>';
     }).join('');
     const resolved = t.status === 'resolved';
+    const last = (t.messages || [])[(t.messages || []).length - 1];
     // Resolved threads collapse to a single disclosure line — "✓ Resolved: <first
     // comment…>" — so closed threads stop crowding out the active ones. Click to
     // expand (remembered in expandedSet until the next full reload).
-    if (resolved && !expandedSet.has(t.id)) {
+    //
+    // EXCEPT the resolution you have not read yet. A code thread commonly runs
+    // several turns before it closes, and the card sits beside the very lines
+    // it is about, so the answer that ended it is what you came back for —
+    // folding it the moment it arrives hides the payload. It keeps its card
+    // until your NEXT send, then folds: the wave rule the awaiting cards
+    // already follow, one wave later. No send this session (sentTs 0) folds
+    // everything, since nothing resolved while you were watching.
+    // The signal is the closing message's timestamp, so an agent that flips
+    // status with nothing to say folds at once — right, there is nothing to
+    // read — and the badge still folds it by hand any time.
+    const resolvedUnread = resolved && !!sentTs && ((last && last.ts) || 0) > sentTs
+      && !collapsedSet.has(t.id);
+    if (resolved && !expandedSet.has(t.id) && !resolvedUnread) {
       div.classList.add('rv-collapsed');
       div.innerHTML = '<button class="rv-resolved-head" title="Show thread">'
         + '<span class="rv-resolved-tag">✓ Resolved</span>' + esc(threadGist(t, '(resolved)')) + '</button>';
-      div.querySelector('.rv-resolved-head').onclick = function () { expandedSet.add(t.id); renderAndTrack(false); };
+      div.querySelector('.rv-resolved-head').onclick = function () {
+        expandedSet.add(t.id); collapsedSet.delete(t.id); renderAndTrack(false);
+      };
       return div;
     }
     // The state ladder, md's model in diff-native form. Loud amber card = your
@@ -854,7 +873,6 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     // in a diff the card beside the code is the context you just sent; an
     // EARLIER wave is old context and folds to a one-line row (click to read
     // back), the way md's waiting rows rest. Recency does the tidying.
-    const last = (t.messages || [])[(t.messages || []).length - 1];
     const userLast = (t.status || 'open') === 'open' && !!last && (last.author || 'user') === 'user';
     const needsSend = threadNeedsSend(t);
     const waiting = userLast && !needsSend;
@@ -913,7 +931,9 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     const discardBtn = div.querySelector('[data-act=discard]');
     if (discardBtn) discardBtn.onclick = function () { discardThread(t.id, editParsed ? 'Edit' : 'Comment'); };
     const collapseBtn = div.querySelector('[data-act=collapse]');
-    if (collapseBtn) collapseBtn.onclick = function () { expandedSet.delete(t.id); renderAndTrack(false); };
+    if (collapseBtn) collapseBtn.onclick = function () {
+      expandedSet.delete(t.id); collapsedSet.add(t.id); renderAndTrack(false);
+    };
     return div;
   }
 
