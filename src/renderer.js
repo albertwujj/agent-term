@@ -1871,7 +1871,11 @@ function getActiveTerminalCommentText() {
 function buildQueuedTerminalComment(context, comment, highlight, existing = null) {
   return {
     id: existing && Number.isFinite(existing.id) ? existing.id : ++terminalCommentIdSeq,
-    createdAt: existing && Number.isFinite(existing.createdAt) ? existing.createdAt : Date.now() + terminalCommentIdSeq / 1000,
+    // Authoring order, which is what terminal-annotations sorts on — the id
+    // sequence IS that order, so it needs no clock (it used to be a wall-clock
+    // stamp with the sequence as a fractional tiebreaker, which ordered the
+    // same right up until the clock stepped backwards).
+    createdAt: existing && Number.isFinite(existing.createdAt) ? existing.createdAt : terminalCommentIdSeq,
     ...context,
     comment,
     highlight,

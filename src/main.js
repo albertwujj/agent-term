@@ -297,12 +297,24 @@ let lastTypingTime = 0;
 // until they submit (lastTypingTime resets to 0 on submit-Enter). Host
 // injections (job notices, branch warnings) hold during that span — a
 // paste mid-compose would splice into their text and the auto-CR would
-// submit the fragment. The stale-out bounds two rare hazards: an abandoned
-// half-prompt, and terminal-protocol auto-responses bumping lastTypingTime
-// without a human present.
-const COMPOSE_HOLD_MAX_MS = 30 * 60_000;
-function userComposing(now = Date.now()) {
-  return lastTypingTime > 0 && (now - lastTypingTime) < COMPOSE_HOLD_MAX_MS;
+// submit the fragment.
+//
+// "Composing" is a STATE, not an age. lastTypingTime resets to 0 on a submit,
+// so a non-zero value already means typed-and-not-yet-submitted; the old
+// 30-minute stale-out on top of it was a clock answering a question the clock
+// cannot see. It cannot tell an abandoned half-prompt from a coffee break, and
+// it failed in the direction that costs the user: step away mid-sentence, come
+// back past the bound, and a notice has been pasted into the line you were
+// writing. Holding instead costs a late notice, and the notice is queued, not
+// dropped — it lands on the next submit.
+//
+// The other hazard the bound covered — terminal-protocol auto-responses
+// bumping the timer with no human present — is handled at the source
+// (isAutoTerminalProtocol gates the bump). The compositions that end WITHOUT a
+// submit clear the flag themselves (Ctrl+C / Ctrl+U below), so the hold cannot
+// latch on a line the user already wiped.
+function userComposing() {
+  return lastTypingTime > 0;
 }
 // Backslash-Enter (`\<Enter>`) is treated as newline by many AI CLIs (Claude
 // Code at minimum) — the user is still composing, not submitting. We watch
@@ -1956,9 +1968,15 @@ ipcMain.on('pty-input', (event, data) => {
     lastInputTime = now;
     const isEnterByte = (data === '\r' || data === '\n' || data === '\r\n');
     const isBackslashEnter = isEnterByte && lastInputByte === '\\';
+    // Ctrl+C / Ctrl+U end a composition without submitting one: the line is
+    // gone, so the compose hold must not outlive it. This is what lets the
+    // hold be a state rather than a timer (see userComposing).
+    const clearsLine = (data === '\x03' || data === '\x15');
     if (isEnterByte && !isBackslashEnter) {
       lastTypingTime = 0;
       if (ptyProcess) notifyResumeHintSubmit();
+    } else if (clearsLine) {
+      lastTypingTime = 0;
     } else {
       lastTypingTime = now;
     }
@@ -3242,7 +3260,7 @@ async function pollJobWatch() {
     if (!ptyProcess) return;
     const now = Date.now();
     const agentQuietFor = now - lastPtyOutputTime;
-    const composing = userComposing(now);
+    const composing = userComposing();
     const inputAtEntry = lastInputTime;
     // The spool is read every poll — an event ripens by age even mid-turn,
     // and its delivery then rides the CLI's own input queue. The ps

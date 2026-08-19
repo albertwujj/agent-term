@@ -3803,7 +3803,8 @@ function createMarkdownViewer({
     const targetKind = isSelection ? (selectionKind || 'selection') : 'block';
     return {
       id: existing && Number.isFinite(existing.id) ? existing.id : ++state.nextCommentId,
-      createdAt: existing && Number.isFinite(existing.createdAt) ? existing.createdAt : Date.now() + state.nextCommentId / 1000,
+      // Authoring order — the id sequence already is it, no clock needed.
+      createdAt: existing && Number.isFinite(existing.createdAt) ? existing.createdAt : state.nextCommentId,
       anchorId: selection && selection.anchorId ? selection.anchorId : getAnchorIdForTarget(target),
       endAnchorId: selection && selection.endAnchorId ? selection.endAnchorId : (selection && selection.anchorId ? selection.anchorId : getAnchorIdForTarget(target)),
       target,
