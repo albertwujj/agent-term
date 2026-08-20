@@ -657,15 +657,15 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
   // Tell the host where the agent's turn stands after every store snapshot.
   // The host uses the flip to restore full size after a send receded to golden
   // (web-viewer.js), so this must not report "over" mid-turn — and it did,
-  // by counting an open thread with the agent's reply last as handed back.
-  // The agent replies to the store BEFORE it finishes acting (reply inline,
-  // then edit code, then regen — the runbook's order), so agent-last is a
-  // mid-work state the 2s store poll routinely catches; the band expanded to
-  // full while the agent was still editing, right as the regen reload landed.
-  // Only `resolved` is the agent's explicit end-of-work mark, so only
-  // all-resolved reports the turn over. A thread the agent leaves open — a
-  // question back, or merely answered — keeps the band at golden, where the
-  // reply is already visible and pulsing; expanding for it is the user's call.
+  // when the old runbook let the agent reply inline before editing and
+  // committing: agent-last was a mid-work state the store poll routinely
+  // caught, and the band expanded to full while the agent was still editing.
+  // Only `resolved` reports the turn over, and the contract now orders it
+  // last — written only after the commit, so all-resolved arrives with the
+  // work already rendered (agent-threads contract.md, resolve-after-
+  // visibility). A thread the agent leaves open — a question back, or merely
+  // answered — keeps the band at golden, where the reply is already visible
+  // and pulsing; expanding for it is the user's call.
   function reportThreadState() {
     const threads = (store && store.threads) || [];
     const agentTurnOver = threads.length > 0 && threads.every(function (t) {

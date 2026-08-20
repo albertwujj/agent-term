@@ -5057,16 +5057,18 @@ function createMarkdownViewer({
   }
 
   // The agent's doc-side turn is over when every thread is resolved — the
-  // agent's explicit end-of-work mark, and nothing softer. Counting an open
-  // agent-last thread as "bounced back" made this flip mid-turn: the agent
-  // replies to the store before it finishes acting, so the poll caught the
-  // reply and expanded the band while edits were still landing (the review
-  // viewer had the same bug, worse — its regen reload made the expand look
-  // tied to the code change). A thread left open — blocked on the user, or
-  // merely answered — keeps golden: the reply is on screen and pulsing there,
-  // and expanding for it is the user's call. The cost is that such a wave
-  // never auto-resumes full; the cost of the old rule was motion mid-turn,
-  // and of the two only one takes the screen out of the user's hands.
+  // agent's explicit end-of-work mark, and the contract orders it after the
+  // doc write (agent-threads contract.md, resolve-after-visibility), so
+  // all-resolved lands with the last change already on disk. Counting an open
+  // agent-last thread as "bounced back" made this flip mid-turn: a reply can
+  // land before the acting is done, so the poll caught the reply and expanded
+  // the band while edits were still landing (the review viewer had the same
+  // bug, worse — its regen reload made the expand look tied to the code
+  // change). A thread left open — blocked on the user, or merely answered —
+  // keeps golden: the reply is on screen and pulsing there, and expanding for
+  // it is the user's call. The cost is that such a wave never auto-resumes
+  // full; the cost of the old rule was motion mid-turn, and of the two only
+  // one takes the screen out of the user's hands.
   function agentTurnOverInStore() {
     const threads = (state.threadStore && Array.isArray(state.threadStore.threads))
       ? state.threadStore.threads : [];
