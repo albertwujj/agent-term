@@ -3686,9 +3686,13 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
   catch { n = 0; }
   const text = [
     commentHeader(`review://${pkg}`, n || 1),
+    // "then commit": the viewer renders the committed range, so code edits the
+    // agent leaves uncommitted flag the review out of date (red banner) rather
+    // than appearing in it. A bare "refreshes on its own" read as "nothing more
+    // to do" and agents stopped short of committing.
     `Read the open threads in ${agentPath} and address them (reply inline by appending an `
-      + '{"author":"agent",...} message and updating status, and edit code where needed; '
-      + 'the open review refreshes on its own).',
+      + '{"author":"agent",...} message and updating status, and edit code where needed, '
+      + 'then commit — the open review renders the committed range and refreshes on its own).',
   ].join('\n');
   const ok = writeAsBracketedPasteSubmission(text);
   if (!ok) return { success: false, error: 'No active terminal process' };
