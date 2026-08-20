@@ -164,10 +164,9 @@ mini-diff-card idea and parts of Pending batch / Margin UI.
   text — the user watches edits get consumed. It also substitutes for the
   per-thread `read` stamp when an agent skips it (turn ≤ agent_seen_turn ⇒
   ingested).
-- **Incremental consumption tool** (agent-threads, and the md+script
-  pairing in the kits): one verb — enumerate the messages with
-  turn > agent_seen_turn, and advance the baseline to the store's current
-  turn in the same atomic
+- **Incremental consumption tool** (agent-threads, and the md+script pairing
+  in the kits): one verb — enumerate the messages with turn > agent_seen_turn,
+  and advance the baseline to the store's current turn in the same atomic
   write. Enumeration IS advancement: separate bookkeeping gets skipped
   (validated — the cold agent skipped the read stamp), fused behavior
   always happens. Premature advance (agent dies after enumerating)
