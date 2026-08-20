@@ -124,17 +124,17 @@ test('stream accumulator commits a boundary candidate when its delimiter arrives
 test('per-keystroke echo records no truncated ghost candidates', () => {
   const stream = new ViewerStreamAccumulator();
   // Interactive typing: every character is its own PTY chunk. The dots after
-  // "gerrit" and "example" used to commit "https://gerrit" and
-  // "https://gerrit.example" as ghosts (the regex trims trailing punctuation,
+  // "code" and "example" used to commit "https://code" and
+  // "https://code.example" as ghosts (the regex trims trailing punctuation,
   // so those matches looked delimiter-terminated).
-  for (const ch of 'echo https://gerrit.example.com/c/agent-term/+/42') {
+  for (const ch of 'echo https://code.example.com/c/agent-term/+/42') {
     assert.deepStrictEqual(stream.push(ch), []);
   }
   assert.deepStrictEqual(
     keys(stream.push('\r\n')),
-    ['url:https://gerrit.example.com/c/agent-term/+/42']
+    ['url:https://code.example.com/c/agent-term/+/42']
   );
-  assert.deepStrictEqual(keys(stream.entries()), ['url:https://gerrit.example.com/c/agent-term/+/42']);
+  assert.deepStrictEqual(keys(stream.entries()), ['url:https://code.example.com/c/agent-term/+/42']);
 });
 
 test('sentence-final punctuation inside one chunk still commits immediately', () => {

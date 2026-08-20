@@ -415,11 +415,11 @@ test('bare path with slash and extension strips unicode partially elided prefix 
 });
 
 test('Cursor Edited header exposes the edited markdown path', () => {
-  assertEqual(extractFileContextFromLine('  Edited gerrit-review-guide.md +21 -4'), 'gerrit-review-guide.md');
+  assertEqual(extractFileContextFromLine('  Edited api-style-guide.md +21 -4'), 'api-style-guide.md');
 });
 
 test('Cursor Edited add-only header exposes the edited markdown path', () => {
-  assertEqual(extractFileContextFromLine('  Edited gerrit-review-guide.md +5'), 'gerrit-review-guide.md');
+  assertEqual(extractFileContextFromLine('  Edited api-style-guide.md +5'), 'api-style-guide.md');
 });
 
 test('absolute path is a file path', () => {
@@ -563,13 +563,13 @@ test('split edit header beats bare directory context', () => {
 
 test('split edit add-only header joins filename row with following directory row', () => {
   const lines = [
-    '  gerrit-review-guide.md +5',
+    '  api-style-guide.md +5',
     '  /home/dev/project/ai',
     '    ▎+ ### Preview before posting',
   ];
   assertEqual(
     findFileContextFromLines(lines, 2),
-    '/home/dev/project/ai/gerrit-review-guide.md',
+    '/home/dev/project/ai/api-style-guide.md',
   );
 });
 

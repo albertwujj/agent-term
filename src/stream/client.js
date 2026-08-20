@@ -7,7 +7,7 @@
 //
 // Transport: Electron's session.defaultSession.fetch (Chromium net stack),
 // not Node's undici fetch. Chromium honors the OS trust store and any
-// configured system proxy, so corporate-MITM environments like Zscaler
+// configured system proxy, so networks behind a TLS-intercepting proxy
 // "just work" without NODE_EXTRA_CA_CERTS gymnastics. Plain Mac/Linux is
 // unaffected.
 //
@@ -273,7 +273,7 @@ class StreamClient {
         opts.body = JSON.stringify(item.body);
       }
       // Chromium's fetch via Electron's session — respects the OS trust
-      // store (Zscaler-style MITM works) and system proxy settings.
+      // store (TLS interception works) and system proxy settings.
       const res = await session.defaultSession.fetch(url, opts);
       if (res.ok) {
         if (item._isReregister) this.reregisterPending = false;

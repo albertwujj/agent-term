@@ -18,21 +18,21 @@ console.log('ai-title');
 test('collapses repeated Claude title segments from OSC title', () => {
   assert.strictEqual(
     cleanAiTitle(
-      '✳ Claude Code · Debug failing build at Jenkins pipeline · Debug failing build at Jenkins pipeline',
+      '✳ Claude Code · Debug failing build at CI pipeline · Debug failing build at CI pipeline',
       'claude'
     ),
-    'Debug failing build at Jenkins pipeline'
+    'Debug failing build at CI pipeline'
   );
 });
 
 test('spinner variants share one dedupe key', () => {
   assert.strictEqual(
-    aiTitleDedupeKey('✳ Debug failing build at Jenkins pipeline', 'claude'),
-    aiTitleDedupeKey('* Debug failing build at Jenkins pipeline', 'claude')
+    aiTitleDedupeKey('✳ Debug failing build at CI pipeline', 'claude'),
+    aiTitleDedupeKey('* Debug failing build at CI pipeline', 'claude')
   );
   assert.strictEqual(
-    aiTitleDedupeKey('⠦ Debug failing build at Jenkins pipeline', 'claude'),
-    aiTitleDedupeKey('Debug failing build at Jenkins pipeline', 'claude')
+    aiTitleDedupeKey('⠦ Debug failing build at CI pipeline', 'claude'),
+    aiTitleDedupeKey('Debug failing build at CI pipeline', 'claude')
   );
 });
 
@@ -43,8 +43,8 @@ test('drops brand-only and agent-term status titles', () => {
 
 test('keeps distinct title segments in order', () => {
   assert.strictEqual(
-    cleanAiTitle('✳ Investigate CI failure · Check Gerrit patch', 'claude'),
-    'Investigate CI failure · Check Gerrit patch'
+    cleanAiTitle('✳ Investigate CI failure · Check the patch', 'claude'),
+    'Investigate CI failure · Check the patch'
   );
 });
 

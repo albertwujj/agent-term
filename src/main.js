@@ -122,7 +122,7 @@ let userClosed = false;
 let relaunchStarted = false;
 // The real OS color scheme, captured before we force the app's UI dark. The
 // embedded web viewer emulates this for guest pages so they render the way they
-// do in a normal browser (e.g. Gerrit light) instead of inheriting our dark.
+// do in a normal browser instead of inheriting our dark.
 let guestColorScheme = 'light';
 
 function notifyResumeHintSubmit() {
@@ -4023,8 +4023,8 @@ ipcMain.handle('open-resource', async (event, filePath) => {
 
 // --- Embedded web viewer: corporate-auth diagnostics ---
 // The renderer hosts remote pages in a <webview>. These app-level handlers
-// surface whether corporate auth completes inside the embed — the open
-// question for Gerrit (SSO + Zscaler TLS + client cert). They only log; they
+// surface whether corporate auth completes inside the embed, where the moving
+// parts are SSO, TLS interception, and client certificates. They only log; they
 // never weaken trust (a certificate-error is reported, never bypassed).
 app.on('select-client-certificate', (event, webContents, url, list, callback) => {
   log(`[webview/client-cert] ${url} requested a client certificate; ${list.length} available`);
@@ -4045,9 +4045,9 @@ app.on('login', (event, webContents, request, authInfo) => {
   log(`[webview/login] auth challenge isProxy=${authInfo.isProxy} scheme=${authInfo.scheme} host=${authInfo.host}`);
 });
 
-// Gerrit content-negotiates its index document to `application/xhtml+xml` for
-// clients that advertise it in Accept. Chromium then parses HTML with its XML
-// parser — but Gerrit's markup is HTML, not well-formed XHTML (`<body unresolved>`,
+// Some servers content-negotiate their index document to `application/xhtml+xml`
+// for clients that advertise it in Accept. Chromium then parses HTML with its XML
+// parser — but the markup is HTML, not well-formed XHTML (`<body unresolved>`,
 // unclosed `<meta>`/`<link>`, unescaped `&`), so the parse bails at the first error
 // and renders "the page up to the first error": the head's inline <style>/<script>
 // dumped as raw source on a white page. It renders fine at first (a normal top-level
@@ -4059,12 +4059,12 @@ app.on('login', (event, webContents, request, authInfo) => {
 // Runs from whenReady — session.fromPartition needs the app ready.
 function normalizeViewerContentType() {
   const viewerSession = session.fromPartition('persist:webviewer');
-  // Request side: stop advertising application/xhtml+xml on document loads, so Gerrit
-  // never negotiates it in the first place. The response-side rewrite below only sees
-  // network responses — the HTTP cache stores the ORIGIN's headers, and a later cache
-  // hit / 304 revalidation (whose response carries no Content-Type) resurfaces the
-  // original application/xhtml+xml, XML-parsing the page into raw source. Killing the
-  // advertisement keeps a poisoned entry from ever being written.
+  // Request side: stop advertising application/xhtml+xml on document loads, so the
+  // server never negotiates it in the first place. The response-side rewrite below
+  // only sees network responses — the HTTP cache stores the ORIGIN's headers, and a
+  // later cache hit / 304 revalidation (whose response carries no Content-Type)
+  // resurfaces the original application/xhtml+xml, XML-parsing the page into raw
+  // source. Killing the advertisement keeps a poisoned entry from ever being written.
   viewerSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const isDoc = details.resourceType === 'mainFrame' || details.resourceType === 'subFrame';
     const headers = details.requestHeaders || {};
@@ -4136,7 +4136,7 @@ app.whenReady().then(async () => {
   // Read the OS preference while themeSource is still 'system', then force dark.
   guestColorScheme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
   nativeTheme.themeSource = 'dark';
-  // Keep the embedded viewer parsing Gerrit (and friends) as HTML, never XHTML.
+  // Keep the embedded viewer parsing guest pages as HTML, never XHTML.
   try { normalizeViewerContentType(); } catch (e) { log('[webview] content-type normalization unavailable: ' + (e && e.message)); }
   // No application menu — the menu line is gone. Session management happens
   // from a fresh Agent Term's startup picker so an active PTY is not reused

@@ -152,8 +152,8 @@ test('Slash inside a URL is not double-shortened', () => {
 
 test('@ file mention drops marker, scope, and extension', () => {
   assert.strictEqual(
-    truncatePathsForTaskbar('Read @ai/jenkins-api-guide.md'),
-    'Read jenkins-api-guide'
+    truncatePathsForTaskbar('Read @ai/build-api-guide.md'),
+    'Read build-api-guide'
   );
 });
 

@@ -125,7 +125,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
   // device-auth broker (unlike Edge). When an SSO redirect lands on one, hand the ORIGINAL
   // clicked url back so the host can route it to the system browser and tear this down.
   //
-  // IdP-agnostic on purpose, but it must PRESERVE the one-time in-viewer login (Gerrit etc.):
+  // IdP-agnostic on purpose, but it must PRESERVE the one-time in-viewer login:
   // fire only on (1) an auth/SSO host — so content pages that merely mention these terms
   // aren't scraped — AND (2) a hard device-wall signature, never a plain login form (which the
   // viewer can complete, its cookie persisting). The signal is in the page body, not the URL
@@ -172,7 +172,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     backBtn = band.makeBtn('◀', 'Back', () => { try { view && view.goBack(); } catch {} });
     fwdBtn = band.makeBtn('▶', 'Forward', () => { try { view && view.goForward(); } catch {} });
     // Hard reload: the user reaches for ⟳ when the page looks wrong, and the wrongness can
-    // live in the partition's disk cache (e.g. a Gerrit index cached under its original
+    // live in the partition's disk cache (e.g. an index page cached under its original
     // application/xhtml+xml content-type — see normalizeViewerContentType in main.js). A
     // cache-bypassing refetch replaces the poisoned entry while cookies (the login) survive.
     const reloadBtn = band.makeBtn('⟳', 'Reload', () => { try { view && view.reloadIgnoringCache(); } catch {} });
@@ -189,7 +189,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     ensureNavButtons();
     view = document.createElement('webview');
     view.className = 'web-viewer-view';
-    // Persistent partition → log in to Gerrit/SSO once; cookies survive teardown.
+    // Persistent partition → clear an SSO wall once; cookies survive teardown.
     view.setAttribute('partition', 'persist:webviewer');
     // Keep allowpopups: it's what routes a target=_blank / window.open through
     // main's window-open handler, which denies the window and sends the URL to the

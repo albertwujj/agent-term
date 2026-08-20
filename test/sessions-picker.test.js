@@ -59,7 +59,7 @@ await test('renders deduped AI title segments once', () => {
     sessions: [{
       id: 1,
       cli: 'claude',
-      title: '✳ Claude Code · Debug failing build at Jenkins pipeline · Debug failing build at Jenkins pipeline',
+      title: '✳ Claude Code · Debug failing build at CI pipeline · Debug failing build at CI pipeline',
       prompt: 'and other docs in ai/',
       lastEventAt: Date.now(),
     }],
@@ -70,7 +70,7 @@ await test('renders deduped AI title segments once', () => {
 
   const titleLines = [...document.querySelectorAll('.at-picker-title-line')];
   assert.strictEqual(titleLines.length, 1);
-  assert.strictEqual(titleLines[0].textContent.trim(), 'Debug failing build at Jenkins pipeline');
+  assert.strictEqual(titleLines[0].textContent.trim(), 'Debug failing build at CI pipeline');
   assert.ok(!titleLines[0].textContent.includes('Claude Code'));
 
   picker.destroy();

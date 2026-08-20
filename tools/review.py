@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """review - generate a self-contained HTML page to review a git diff.
 
-Renders any git diff as a single offline HTML file: light GitHub/Gerrit-style
+Renders any git diff as a single offline HTML file: light GitHub-style
 theme, side-by-side (split) view with old/new line numbers, offline syntax
 highlighting (comments/docstrings/strings stand out from code), a collapsible
 left index, and two-column prose for the commit message and explanatory notes.

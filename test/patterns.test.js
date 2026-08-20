@@ -1135,8 +1135,8 @@ test('FP guard: numbered prose with a single space does not match', () => {
 console.log('\n--- diff_block pattern ---\n');
 
 const CURSOR_HEADER = '│ ...settings/resolution/pf-unaware-rsi-collision.md +3 -6                    │';
-const CURSOR_EDIT_HEADER = 'Edited gerrit-review-guide.md +21 -4';
-const CURSOR_EDIT_ADD_ONLY_HEADER = 'Edited gerrit-review-guide.md +5';
+const CURSOR_EDIT_HEADER = 'Edited api-style-guide.md +21 -4';
+const CURSOR_EDIT_ADD_ONLY_HEADER = 'Edited api-style-guide.md +5';
 const CURSOR_DEL = '│ - - The outcome depends only on the numeric value, not on the code spaces   │';
 const CURSOR_ADD = '│ + - The outcome depends only on the RSI number, not the code spaces. For    │';
 const CURSOR_DEL_CONT = "│ -   neighbour's RSI is applied to a bitmap sized to the source's own range  │";
@@ -1154,13 +1154,13 @@ test('parseCursorDiffHeader extracts the file path from a +N -M header', () => {
 test('parseCursorDiffHeader extracts the file path from an Edited +N -M header', () => {
   const header = parseCursorDiffHeader(CURSOR_EDIT_HEADER);
   assertEqual(header !== null, true);
-  assertEqual(header.path, 'gerrit-review-guide.md');
+  assertEqual(header.path, 'api-style-guide.md');
 });
 
 test('parseCursorDiffHeader accepts an Edited add-only header', () => {
   const header = parseCursorDiffHeader(CURSOR_EDIT_ADD_ONLY_HEADER);
   assertEqual(header !== null, true);
-  assertEqual(header.path, 'gerrit-review-guide.md');
+  assertEqual(header.path, 'api-style-guide.md');
 });
 
 test('findCursorDiffHeader scans backward through Cursor gutter rows', () => {
@@ -1171,7 +1171,7 @@ test('findCursorDiffHeader scans backward through Cursor gutter rows', () => {
     '    ▎ ',
     CURSOR_GUTTER_ADD,
   ];
-  assertEqual(findCursorDiffHeaderFromLines(lines, 4), 'gerrit-review-guide.md');
+  assertEqual(findCursorDiffHeaderFromLines(lines, 4), 'api-style-guide.md');
 });
 
 test('parseCursorDiffHeader rejects prose that merely ends in +N -M', () => {

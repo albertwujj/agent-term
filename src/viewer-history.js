@@ -154,7 +154,7 @@ class ViewerStreamAccumulator {
 
     for (const match of extractViewerCandidateMatches(clean)) {
       // Both checks use the surrounding token's end, not the match's: the
-      // regexes trim trailing punctuation, so "https://gerrit" + "." parses as
+      // regexes trim trailing punctuation, so "https://code" + "." parses as
       // a complete-looking match one character short of the boundary while the
       // user is still typing ".example.com". Only a character the candidate
       // could never contain proves the token is over.

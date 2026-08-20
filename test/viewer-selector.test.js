@@ -48,7 +48,7 @@ function input(el, value) {
 
 const ENTRIES = [
   { kind: 'md', key: '/home/user/notes/design.md' },
-  { kind: 'url', key: 'https://gerrit.example.com/c/repo/+/42' },
+  { kind: 'url', key: 'https://code.example.com/c/repo/+/42' },
   { kind: 'review', key: 'review:///home/user/pkg/review.md' },
   { kind: 'url', key: 'file:///home/user/report.html' },
 ];
@@ -73,11 +73,11 @@ await test('filter matches any part of the key and highlights it', () => {
   const selector = createViewerSelector({ entries: ENTRIES, onPick: () => {} });
   const el = document.querySelector('.at-vsel-input');
 
-  input(el, 'gerrit');
+  input(el, 'code');
 
   const rows = [...document.querySelectorAll('.at-vsel-row')];
   assert.strictEqual(rows.length, 1);
-  assert.strictEqual(rows[0].querySelector('mark.at-vsel-match').textContent, 'gerrit');
+  assert.strictEqual(rows[0].querySelector('mark.at-vsel-match').textContent, 'code');
 
   selector.destroy();
 });
@@ -133,7 +133,7 @@ await test('Enter picks the selected entry', () => {
   key(el, 'ArrowDown');
   key(el, 'Enter');
 
-  assert.deepStrictEqual(picked, { kind: 'url', key: 'https://gerrit.example.com/c/repo/+/42' });
+  assert.deepStrictEqual(picked, { kind: 'url', key: 'https://code.example.com/c/repo/+/42' });
 
   selector.destroy();
 });
@@ -146,7 +146,7 @@ await test('click picks the clicked entry', () => {
     new window.MouseEvent('click', { bubbles: true })
   );
 
-  assert.deepStrictEqual(picked, { kind: 'url', key: 'https://gerrit.example.com/c/repo/+/42' });
+  assert.deepStrictEqual(picked, { kind: 'url', key: 'https://code.example.com/c/repo/+/42' });
 
   selector.destroy();
 });

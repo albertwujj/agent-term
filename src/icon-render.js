@@ -302,7 +302,7 @@ function truncatePathsForTaskbar(text) {
 //   · path:    /a/b/c/file.ext          → file
 //   · mention: @scope/file.ext          → file        (scope and @ dropped)
 // The @-mention form covers Claude Code / Cursor style file refs like
-// "@ai/jenkins-api-guide.md": scope and marker are collapsible noise when
+// "@ai/build-api-guide.md": scope and marker are collapsible noise when
 // space is tight, and the filename stem is the human identifier.
 function extractPathsAndUrls(text) {
   if (typeof text !== 'string' || !text) return { text: '', refs: [] };
