@@ -37,9 +37,13 @@ const FIXTURE = [
   '## Delta section, styled',
   '',
   'Delta paragraph with **bold emphasis** and a `code span` in it.',
+  '',
+  '- tight bullet one',
+  '- tight bullet two',
 ].join('\n');
 
 const noop = () => {};
+const toasts = [];
 const viewer = createMarkdownViewer({
   readMarkdownFile: async () => ({ success: true, path: '/fake/doc.md', content: FIXTURE }),
   statMarkdownFile: async () => ({ success: true, mtimeMs: 1, size: FIXTURE.length }),
@@ -50,7 +54,7 @@ const viewer = createMarkdownViewer({
   // survival of it (it used to die at birth, leaving no arrival indication).
   readMarkdownThreads: async () => ({ success: true, data: { threads: [], turn: 0 } }),
   submitInlineComment: noop,
-  showToast: noop,
+  showToast: (message, opts) => toasts.push({ message, variant: (opts && opts.variant) || 'info' }),
   openURL: noop,
   getTerminalMetrics: () => ({ cols: 80, rows: 24, cellWidth: 8, cellHeight: 16 }),
   openSearchBar: noop,
@@ -63,6 +67,7 @@ const viewer = createMarkdownViewer({
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function landing(opts) {
+  toasts.length = 0;
   await viewer.open({ filePath: '/fake/doc.md', ...opts });
   await sleep(20); // let the open() rAF run landAt, plus the layout rAF
   const targets = Array.from(document.querySelectorAll('.md-landing-target'));
@@ -73,6 +78,7 @@ async function landing(opts) {
     targetCount: targets.length,
     pulseCount: pulsed.length,
     variant: first ? Array.from(first.classList).find((c) => /^md-landing-pulse--/.test(c)) : null,
+    toasts: toasts.slice(),
   };
 }
 
@@ -119,6 +125,20 @@ async function run() {
   // Rendered-prose quotes still land through the rendered-text scan.
   const rendered = await landing({ matchText: 'Bravo paragraph, near a deletion.' });
   check('plain prose matchText still lands', rendered.landedText.includes('Bravo'), rendered);
+
+  // A diff row inside a tight list: markdown-it hides the item's paragraph and
+  // the <li> carries the text. The jump must land on the <li>, silently; it
+  // used to resolve to the hidden paragraph, find no element, and raise the
+  // sticky "Line N not found" error over the viewer.
+  const tightLine = await landing({ line: 14, matchText: '- tight bullet two', landingKind: 'exact' });
+  check('tight-list line jump lands on the list item', tightLine.landedText === 'tight bullet two', tightLine);
+  check('tight-list line jump raises no toast', tightLine.toasts.length === 0, tightLine);
+  check('tight-list line jump flashes', tightLine.pulseCount >= 1, tightLine);
+
+  // The same row quoted without a line number lands through the source-text path.
+  const tightText = await landing({ matchText: '- tight bullet two' });
+  check('tight-list raw-markdown matchText lands on the list item', tightText.landedText === 'tight bullet two', tightText);
+  check('tight-list raw-markdown matchText raises no toast', tightText.toasts.length === 0, tightText);
 
   // A matchText that exists nowhere: no flash, viewer falls back to the top.
   const miss = await landing({ matchText: 'text that is in no version of this doc' });

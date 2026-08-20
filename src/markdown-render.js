@@ -203,8 +203,14 @@ function rewriteImageSources(tokens, imageOptions) {
   }
 }
 
+// A hidden token renders nothing (markdown-it hides the paragraph inside a
+// tight list item, leaving the <li> to carry the text), so an anchor on it
+// would name an element that never exists: a line jump into a tight list
+// would resolve to that paragraph, find no element, and report the line as
+// not found. The list item is the block for those lines.
 function isAnchorableToken(token) {
   return token
+    && !token.hidden
     && ANCHORABLE_BLOCK_TYPES.has(token.type)
     && Array.isArray(token.map)
     && Number.isFinite(token.map[0])

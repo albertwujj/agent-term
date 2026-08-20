@@ -233,4 +233,33 @@ test('a p wrapper without any img in its run stays literal text', () => {
   assert(doc.html.includes('&lt;p&gt;'), `bare p should stay literal, got: ${doc.html}`);
 });
 
+test('every anchor names an element the renderer actually emits', () => {
+  // markdown-it hides the paragraph inside a tight list item (the <li> carries
+  // the text), so anchoring it would point a line jump at nothing. A loose
+  // list's paragraphs render and keep their own anchors.
+  const doc = renderMarkdownDocument([
+    '# Title',
+    '',
+    '- tight one',
+    '- tight two',
+    '',
+    '1. loose one',
+    '',
+    '2. loose two',
+  ].join('\n'));
+
+  for (const anchor of doc.anchors) {
+    assert(
+      doc.html.includes(`data-md-anchor-id="${anchor.id}"`),
+      `anchor ${anchor.id} (${anchor.type} L${anchor.startLine}) has no rendered element`,
+    );
+  }
+  const tight = findAnchorForLine(doc.anchors, 4);
+  assertEqual(tight.type, 'list_item_open', 'tight list line should resolve to its <li>');
+  assertEqual(tight.startLine, 4);
+  const loose = findAnchorForLine(doc.anchors, 8);
+  assertEqual(loose.type, 'paragraph_open', 'loose list line should resolve to its rendered <p>');
+  assertEqual(loose.startLine, 8);
+});
+
 runTests();
