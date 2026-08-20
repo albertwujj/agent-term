@@ -213,3 +213,42 @@ ship as a thread, the agent amends the commit and the regen shows the result.
   lives in `src/review-commit-edit.js`, electron-free and bundled into the
   preload, with IO injected by `web-viewer-preload.js` (comment-ui pattern —
   shared after the second real use proved the shape).
+
+## Context blocks: `:::code` (2026-08-20)
+
+A package directive that embeds a slice of a file as it stands at the range
+tip, with no diff: code the change depends on or copies, which the diff cannot
+show because it did not change. `tools/review.py` renders it; the viewer needed
+two small fixes.
+
+- **The geometry is the diff's.** The block is a grid of `50% | 48px + rest`;
+  the split table is `48px + rest | 48px + rest`, so both code columns come
+  out at `W/2 − 48` and code is one width page-wide. The code is unchanged, so
+  the old side would only repeat it: that column carries the paragraphs the
+  agent wrote right before the directive (sticky inside the block), and the
+  code takes the new side's column. Code right because new is right in every
+  diff, and the block then reads why, then what. Without a preceding paragraph
+  the left column is the blank of a new-file diff. (A first cut put a prose
+  pane beside the whole page and let context code run full width; two code
+  widths read worse, and this replaced it.)
+- **Headings render above the cards** (`.sec-head`: a prose-region without
+  card chrome, so the quote affordance survives). The prose run before a
+  `:::code` splits at its last heading; the text after it becomes the block's
+  text column.
+- **The pill is computed, never asserted.** `unchanged` when no line of the
+  slice is in the diff; otherwise amber `N lines changed`, with added lines
+  tinted as in a diff and a renderer note. A context block cannot hide a
+  change.
+- **Anchors are diff anchors.** Cells carry `data-side="new"` + `data-line`;
+  the store schema is unchanged; the re-anchor index includes the slice's
+  lines. The viewer now searches every section of a path for a code anchor
+  (the first match used to win, so a comment on a second block of the same
+  file floated to the first block's header) and spans compose/thread rows by
+  the table's own column count (2 here, 4 in a diff).
+- Range required; tip version only; markdown files render as source; only
+  tinted lines pulse on a re-render; `● uncommitted` as on a diff; errors
+  render inline (no range, no file at the tip, start past the end; an end past
+  the end clips with a note).
+- Class names avoid `ctx`, review.py's class for unchanged diff cells: the
+  block is `.cv`, `.cv-text`, `.cv-code`, `.cv-tag`, and `.toc-cv` in the
+  outline.

@@ -54,6 +54,18 @@ line of that block), rather than per-line cells. Comment threads anchor the same
 way (`path/side/line/snippet`); only the *compose* affordance differs (block vs
 line gutter). The commit-message block is anchored the same way.
 
+**Context (code-view) sections.** A generator MAY embed a slice of a file as it
+stands at the range tip, with no diff (the package's `:::code` directive). Such a
+section carries `data-path` like a diff section and one code column whose cells
+carry `data-side="new"` + `data-line`; there is no old side. The host treats the
+cells exactly like diff cells: compose, anchor, re-anchor. The generator MAY put
+the agent's explanation beside the code as a nested
+`<section data-path="(note N)">` prose region; a thread quoted from it is an
+ordinary region anchor. Several sections may share one `data-path` (two ranges
+of a file, or a diff plus a context slice): the host locates a code anchor by
+searching every section of that path for its `data-side`/`data-line` cell, and
+floats a `lost` thread to the first one's header.
+
 ## 2. The comment store — `<page-stem>-comments.json`
 
 **Location is by convention, not configuration.** The host derives the store
@@ -141,6 +153,9 @@ same `path` + `side`:
 - **`ok`** — snippet still at the same line.
 - **`moved`** — snippet found at a different line → update `anchor.line` to it.
 - **`lost`** — snippet no longer in that file's diff.
+
+Context-section lines are indexed on the `new` side like diff lines, so a thread
+on one re-anchors the same way.
 
 The generator touches **only** `anchor_status` and `anchor.line`; it MUST NOT
 alter `messages` or `status`. The host renders `ok`/`moved` inline at the line

@@ -510,10 +510,12 @@ def render_markdown_diff(git, diff_args, repo, path):
 
 # ----------------------- review package (markdown data model) -----------------
 # A package is a markdown file: YAML-ish frontmatter (scope) + body of headings /
-# prose / `:::diff` directives. We render it to the same HTML the host parses
-# (commit message + the agent's organized, explained diff). See authoring.md.
+# prose / `:::diff` and `:::code` directives. We render it to the same HTML the
+# host parses (commit message + the agent's organized, explained diff). See
+# authoring.md.
 
 _DIFF_DIRECTIVE = re.compile(r"^:::diff\s+(\S+)(?:\s+L(\d+)-(\d+))?\s*$")
+_CODE_DIRECTIVE = re.compile(r"^:::code\s+(\S+)(?:\s+L(\d+)-(\d+))?\s*$")
 
 
 def parse_frontmatter(text):
@@ -532,11 +534,15 @@ def parse_frontmatter(text):
     return meta, body
 
 
-def parse_diff_directive(line):
-    m = _DIFF_DIRECTIVE.match(line.strip())
-    if not m:
-        return None
-    return m.group(1), m.group(2), m.group(3)  # path, lo, hi (lo/hi None for whole file)
+def parse_directive(line):
+    """(kind, path, lo, hi) for a `:::diff` / `:::code` line, else None. lo/hi are
+    None when no range was given (a whole-file diff; an error for :::code)."""
+    text = line.strip()
+    for kind, rx in (("diff", _DIFF_DIRECTIVE), ("code", _CODE_DIRECTIVE)):
+        m = rx.match(text)
+        if m:
+            return kind, m.group(1), m.group(2), m.group(3)
+    return None
 
 
 def _index_recs(index, path, recs):
@@ -606,6 +612,106 @@ def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
             out.append(f'<div class="diff">{render_split(header, recs)}</div>')
     out.append("</section>")
     return "\n".join(out)
+
+
+def _changed_in_range(hunks, lo, hi):
+    """New-side line numbers the diff added within [lo, hi], plus how many
+    deletions fall strictly inside the slice (between two of its lines). A
+    :::code block renders the tip's text, so additions show as lines and can be
+    tinted; deletions have no line to tint and only count toward the pill."""
+    added, deleted = set(), 0
+    for h in hunks:
+        lines = h.splitlines()
+        m = HUNK_RE.match(lines[0])
+        new_no = int(m.group(2)) if m else 0
+        for line in lines[1:]:
+            if line.startswith("\\"):
+                continue
+            if line.startswith("+"):
+                if lo <= new_no <= hi:
+                    added.add(new_no)
+                new_no += 1
+            elif line.startswith("-"):
+                if lo < new_no <= hi:
+                    deleted += 1
+            else:
+                new_no += 1
+    return added, deleted
+
+
+def render_code_embed(git, diff_args, repo, tip, path, lo, hi, text_html, note_n, index, errors):
+    """Render one `:::code` embed: the slice of `path` as it stands at the range
+    tip, in the split diff's own geometry. The code is unchanged by definition, so
+    the old side would only repeat it — that column carries the paragraphs the
+    agent wrote right before the directive instead, and the code takes the new
+    side's column at exactly a diff side's width (one code width page-wide).
+    Cells carry data-side="new" + data-line like diff cells, so the host comments
+    on them and re-anchors them the same way. A line the diff added inside the
+    slice keeps the diff's tint, and the header pill says whether the slice is
+    unchanged: a context block can never hide a change."""
+    sid = block_anchor(path, lo, hi, "code")
+    out = [f'<section id="{sid}" class="card file" data-path="{html.escape(path)}">']
+    rng = f' <span class="stat">L{lo}-{hi}</span>' if lo and hi else ''
+    dirty = (' <span class="dirty" title="working tree differs from this snapshot — '
+             'uncommitted changes are not shown here">● uncommitted</span>'
+             if _is_dirty(git, diff_args, path) else '')
+
+    def finish(pill, body):
+        out.append(f'<h2><code>{html.escape(path)}</code>{rng}{pill}{dirty}</h2>')
+        out.append(body)
+        out.append("</section>")
+        return "\n".join(out)
+
+    def problem(msg):
+        errors.append(f"{path}: {msg}")
+        return finish('', f'<div class="why muted">({html.escape(msg)})</div>')
+
+    if not (lo and hi):
+        return problem(":::code needs a line range: L<start>-<end>")
+    lo_i, hi_i = int(lo), int(hi)
+    if hi_i < lo_i:
+        return problem(f"L{lo}-{hi} is an empty range")
+    if not git("ls-tree", "--name-only", tip, "--", path).strip():
+        return problem(f"no such file at {tip}")
+    text = git_show(git, tip, path)
+    lines = text.splitlines()
+    n = len(lines)
+    if lo_i > n:
+        return problem(f"L{lo}-{hi} starts past the end of the file ({n} lines)")
+    clipped = hi_i > n
+    if clipped:
+        errors.append(f"{path}: L{lo}-{hi} ends past the end of the file ({n} lines); rendered to line {n}.")
+        hi_i = n
+
+    lang = lang_for(path)
+    st = state_at(prefix_states(text, lang), lo_i)
+    added, deleted = _changed_in_range(split_hunks(git("diff", *diff_args, "--", path)), lo_i, hi_i)
+    rows, recs = [], []
+    for ln in range(lo_i, hi_i + 1):
+        toks, st = highlight_line(lines[ln - 1], st, lang)
+        code = toks_to_html(toks)
+        recs.append(("ctx", None, ln, code))  # new side only: that is the side it shows
+        cls = " add" if ln in added else ""
+        attr = f' data-side="new" data-line="{ln}"'
+        rows.append(f'<tr><td class="ln{cls}"{attr}>{ln}</td><td class="code{cls}"{attr}>{code}</td></tr>')
+    _index_recs(index, path, recs)
+    if clipped:
+        rows.append(f'<tr class="meta"><td class="ln empty"></td><td class="code">(file ends at line {n})</td></tr>')
+
+    changed = len(added) + deleted
+    if changed:
+        noun = "line" if changed == 1 else "lines"
+        pill = f' <span class="cv-tag warn">{changed} {noun} changed</span>'
+        errors.append(f"{path}: :::code L{lo}-{hi} overlaps the diff ({changed} changed {noun}); "
+                      f"show changed code with :::diff.")
+    else:
+        pill = ' <span class="cv-tag">unchanged</span>'
+    left = (f'<section class="cv-text prose-region" data-path="(note {note_n})">'
+            f'<div class="md-render">{text_html}</div></section>'
+            if text_html else '<div class="cv-text cv-empty"></div>')
+    body = (f'<div class="cv">{left}<div class="cv-code"><table class="d-code">'
+            f'{"".join(rows)}</table></div></div>')
+    return finish(pill, body)
 
 
 _REF_SUFFIX = re.compile(r"[~^].*$")
@@ -777,39 +883,66 @@ def render_package(git, repo, meta, body, slug):
     note_n = [0]
     sec_n = [0]
 
-    def flush_prose():
-        if prose:
-            text = "\n".join(prose).strip()
-            if text:
-                # Wrap prose in an addressable region so the reviewer can quote and
-                # comment on the agent's reasoning, not just the diff. The id shifts
-                # as prose is added/removed, but the quote (snippet) is the anchor.
-                note_n[0] += 1
-                # Spread long prose into two columns; keep short blurbs single
-                # column at a readable measure (.md-render:not(.pkg-prose)).
-                prose_cls = 'md-render pkg-prose' if prose_wants_spread(text) else 'md-render'
-                # Decorate headings with ids + add them to the TOC, so the package's
-                # section structure (not just its diff blocks) is navigable.
-                body_html = _decorate_headings(md_render(text), nav_links, sec_n)
-                main.append(
-                    f'<section class="card prose-region" data-path="(note {note_n[0]})">'
-                    f'<div class="{prose_cls}">{body_html}</div></section>')
-            prose.clear()
+    # Every piece of prose is an addressable region so the reviewer can quote and
+    # comment on the agent's reasoning, not just the diff. The note id shifts as
+    # prose is added/removed, but the quote (snippet) is the anchor.
+    def emit_heading(lines):
+        # A bare heading above the cards: no card chrome, but the same .md-render
+        # + note path as a card, so the quote affordance still works on it.
+        note_n[0] += 1
+        body_html = _decorate_headings(md_render("\n".join(lines)), nav_links, sec_n)
+        main.append(
+            f'<section class="prose-region sec-head" data-path="(note {note_n[0]})">'
+            f'<div class="md-render">{body_html}</div></section>')
+
+    def emit_prose_card(lines):
+        text = "\n".join(lines).strip()
+        if not text:
+            return
+        note_n[0] += 1
+        # Spread long prose into two columns; keep short blurbs single column at a
+        # readable measure (.md-render:not(.pkg-prose)).
+        prose_cls = 'md-render pkg-prose' if prose_wants_spread(text) else 'md-render'
+        body_html = _decorate_headings(md_render(text), nav_links, sec_n)
+        main.append(
+            f'<section class="card prose-region" data-path="(note {note_n[0]})">'
+            f'<div class="{prose_cls}">{body_html}</div></section>')
+
+    def flush_prose(keep_tail=False):
+        """Emit the pending prose: headings bare, text runs as cards. With
+        keep_tail, the text after the last heading is rendered and returned
+        (html, note id) instead of emitted — it becomes the text column of the
+        :::code block that follows."""
+        segs = split_prose_run(prose)
+        prose.clear()
+        tail = segs.pop() if keep_tail and segs and segs[-1][0] == "prose" else None
+        for kind, lines in segs:
+            (emit_heading if kind == "heading" else emit_prose_card)(lines)
+        if not tail:
+            return "", 0
+        note_n[0] += 1
+        return md_render("\n".join(tail[1]).strip()), note_n[0]
 
     for line in body.splitlines():
-        directive = parse_diff_directive(line)
-        if directive:
+        directive = parse_directive(line)
+        if not directive:
+            prose.append(line)
+            continue
+        kind, path, lo, hi = directive
+        # Label blocks by path + range so two blocks of one file are distinct in
+        # the TOC, nested (toc-sub) under the section above; a context block
+        # carries a glyph so the map keeps change and context apart.
+        rng = f" L{lo}-{hi}" if lo and hi else ""
+        label = html.escape(path.split("/")[-1] + rng)
+        if kind == "diff":
             flush_prose()
-            path, lo, hi = directive
-            # Label diff blocks by path + range so two blocks of one file are
-            # distinct in the TOC, nested (toc-sub) under the section above.
-            rng = f" L{lo}-{hi}" if lo and hi else ""
-            nav_links.append(
-                f'<a class="toc-link toc-sub" href="#{block_anchor(path, lo, hi)}">'
-                f'{html.escape(path.split("/")[-1] + rng)}</a>')
+            nav_links.append(f'<a class="toc-link toc-sub" href="#{block_anchor(path, lo, hi)}">{label}</a>')
             main.append(render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors))
         else:
-            prose.append(line)
+            text_html, tnote = flush_prose(keep_tail=True)
+            nav_links.append(
+                f'<a class="toc-link toc-sub toc-cv" href="#{block_anchor(path, lo, hi, "code")}">{label}</a>')
+            main.append(render_code_embed(git, diff_args, repo, tip, path, lo, hi, text_html, tnote, index, errors))
     flush_prose()
     main.append("</main>")
 
@@ -969,11 +1102,40 @@ def anchor_for(path):
     return re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")
 
 
-def block_anchor(path, lo, hi):
-    """A unique id per :::diff block — the path slug plus its line range — so two
-    blocks of the same file get distinct anchors (the nav links to each)."""
+def block_anchor(path, lo, hi, kind="diff"):
+    """A unique id per embed — the path slug plus its line range, and the kind
+    for a :::code block — so two blocks of the same file get distinct anchors
+    (the nav links to each)."""
     a = anchor_for(path)
-    return f"{a}-L{lo}-{hi}" if lo and hi else a
+    if lo and hi:
+        a = f"{a}-L{lo}-{hi}"
+    return a if kind == "diff" else f"{a}-{kind}"
+
+
+_HEADING_LINE = re.compile(r"^ {0,3}#{1,6}\s")
+_FENCE_LINE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def split_prose_run(lines):
+    """Split a prose run into segments: ("heading", [line]) for each markdown
+    heading and ("prose", [lines]) for the text between. Headings render above
+    the cards — they are structure, not card content — and the text after the
+    last heading is what a following :::code block takes as its text column.
+    Fenced code is left alone, so a `# comment` inside it is not a heading."""
+    segs, cur, in_fence = [], [], False
+    for line in lines:
+        if _FENCE_LINE.match(line):
+            in_fence = not in_fence
+        if not in_fence and _HEADING_LINE.match(line):
+            if any(l.strip() for l in cur):
+                segs.append(("prose", cur))
+            cur = []
+            segs.append(("heading", [line]))
+        else:
+            cur.append(line)
+    if any(l.strip() for l in cur):
+        segs.append(("prose", cur))
+    return segs
 
 
 _HEADING_RE = re.compile(r'<h([1-6])((?:\s[^>]*)?)>(.*?)</h\1>', re.S)
@@ -1152,6 +1314,9 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .toc-link.top{font-weight:600;margin-bottom:4px}
 .toc-link.toc-sub{padding-left:20px;font-size:11.5px;color:var(--muted)}
 .toc-link.toc-sub:hover{color:var(--fg)}
+/* A :::code (context) block in the outline carries a quiet glyph, so the map keeps
+   change and context apart. */
+.toc-link.toc-cv::before{content:"\\2261";display:inline-block;width:13px;margin-left:-13px;opacity:.55}
 #navshow{position:fixed;top:12px;left:12px;z-index:50;display:none;border:1px solid var(--border);
 background:#fff;color:var(--fg);border-radius:8px;cursor:pointer;font-size:15px;padding:6px 11px;
 box-shadow:0 1px 4px rgba(31,35,40,.12)}
@@ -1212,25 +1377,51 @@ background:var(--canvas);border:1px solid var(--border);border-radius:6px;paddin
 .pkg-prose h1,.pkg-prose h2,.pkg-prose h3,.pkg-prose h4,.pkg-prose h5,.pkg-prose h6,
 .pkg-prose pre,.pkg-prose table{column-span:all}
 .pkg-prose p,.pkg-prose li{break-inside:avoid}
-.pkg-prose>:first-child{margin-top:0}
+.prose-region .md-render>:first-child{margin-top:0}
+.prose-region .md-render>:last-child{margin-bottom:0}
+/* Section headings sit above the cards: they are structure, not card content. The
+   wrapper keeps a card's quote affordance (.md-render + a note path) without its chrome. */
+.sec-head .md-render{padding:0 2px;max-width:none}
+.sec-head .md-render h1,.sec-head .md-render h2,.sec-head .md-render h3,
+.sec-head .md-render h4,.sec-head .md-render h5,.sec-head .md-render h6{border:0;padding:0;margin:30px 0 2px;line-height:1.35}
+.sec-head .md-render h1{font-size:19px}
+.sec-head .md-render h2{font-size:17px}
+.sec-head .md-render h3,.sec-head .md-render h4,.sec-head .md-render h5,.sec-head .md-render h6{font-size:15px}
+.sec-head+.card{margin-top:8px}
+/* Context block (:::code): the agent's text where the old side would be, the unchanged
+   code in the new side's column. 50% | 48px + rest reproduces the split table's columns
+   exactly (code width = W/2 - 48 on both), so code is one width page-wide. overflow:clip
+   rounds the corners without becoming the sticky text's scrollport. */
+.cv{display:grid;grid-template-columns:50% minmax(0,1fr);border:1px solid var(--border);
+border-radius:6px;overflow:clip;margin:6px 0 2px;background:#fff}
+.cv-text{padding:8px 16px 10px;align-self:start;position:sticky;top:8px}
+.cv-text .md-render{padding:0;max-width:60ch}
+.cv-text .md-render>:first-child{margin-top:0}
+.cv-empty{background:var(--empty)}
+.cv-code{border-left:1px solid var(--border);min-width:0}
+/* The computed pill: `unchanged`, or amber with the count when the slice overlaps the diff. */
+.cv-tag{font-size:10.5px;font-weight:600;line-height:1;letter-spacing:.04em;text-transform:uppercase;
+padding:3px 7px;border-radius:999px;border:1px solid var(--border);color:var(--muted);
+background:var(--empty);margin-left:8px;vertical-align:middle}
+.cv-tag.warn{color:#7d4e00;background:#fff8c5;border-color:#f5e08a}
 .hunknote{background:#ddf4ff;border:1px solid #b6e3ff;border-radius:6px;padding:7px 13px;margin:12px 0 0;
 font-size:12.5px;color:#0a3069;columns:2 44ch;column-gap:32px}
 .hunknote code{background:#cdeafc}
 .diff{border:1px solid var(--border);border-radius:6px;overflow:hidden;margin:6px 0 2px;background:#fff}
-.diff table{width:100%;border-collapse:collapse;table-layout:fixed;
+.diff table,.cv-code table{width:100%;border-collapse:collapse;table-layout:fixed;
 font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
-.diff td{vertical-align:top}
-.diff .ln{width:48px;min-width:48px;text-align:right;padding:0 8px;color:var(--muted);
+.diff td,.cv-code td{vertical-align:top}
+.diff .ln,.cv-code .ln{width:48px;min-width:48px;text-align:right;padding:0 8px;color:var(--muted);
 user-select:none;background:var(--canvas);border-right:1px solid var(--border)}
-.diff .code{padding:0 10px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+.diff .code,.cv-code .code{padding:0 10px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
 .diff tr.hh td{background:var(--hh-bg);color:var(--hh-fg)}
 .diff tr.hh .ln{background:var(--hh-bg);color:var(--hh-fg);border-right-color:#b6e3ff}
-.diff tr.meta td{background:var(--canvas);color:var(--muted)}
-.d-split .code.add{background:var(--add-bg)}
-.d-split .ln.add{background:var(--add-ln)}
+.diff tr.meta td,.cv-code tr.meta td{background:var(--canvas);color:var(--muted)}
+.d-split .code.add,.d-code .code.add{background:var(--add-bg)}
+.d-split .ln.add,.d-code .ln.add{background:var(--add-ln)}
 .d-split .code.del{background:var(--del-bg)}
 .d-split .ln.del{background:var(--del-ln)}
-.d-split .code.empty,.d-split .ln.empty{background:var(--empty)}
+.d-split .code.empty,.d-split .ln.empty,.d-code .ln.empty{background:var(--empty)}
 .d-split .code.del,.d-split .ln.del{border-right:1px solid var(--border)}
 /* rendered ("preview") markdown diff */
 .md-render{padding:6px 16px 16px;font-size:14px;line-height:1.65}
@@ -1316,7 +1507,7 @@ def main(argv=None):
                     help="validate that PAGE conforms to the review anchoring contract "
                          "(see PROTOCOL.md), then exit. Use after changing the generator.")
     ap.add_argument("package", nargs="?",
-                    help="path to a review package (markdown: frontmatter + :::diff directives). "
+                    help="path to a review package (markdown: frontmatter + :::diff / :::code directives). "
                          "When given, renders the package model (see authoring.md).")
     args = ap.parse_args(argv)
 
@@ -1375,11 +1566,11 @@ def main(argv=None):
     print(f"wrote {out}")
     print(f"open: {url}")
 
-    # Bad/empty :::diff embeds render an inline "(no changes)" note and are logged here
-    # for anyone running the renderer directly — they do NOT fail the render (the page is
-    # fine; review is about highlights, not completeness validation).
+    # Bad/empty embeds render an inline note and are logged here for anyone running
+    # the renderer directly — they do NOT fail the render (the page is fine; review is
+    # about highlights, not completeness validation).
     if errors:
-        print("note — empty/bad :::diff embeds:", file=sys.stderr)
+        print("note — package embed issues:", file=sys.stderr)
         for e in errors:
             print(f"  - {e}", file=sys.stderr)
 

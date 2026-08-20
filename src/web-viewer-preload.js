@@ -539,6 +539,12 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     activeComposer = null;
   }
 
+  // A compose/thread row spans whatever table it sits in: 4 cells in a split
+  // diff, 2 in a :::code context block (one gutter, one code column).
+  function rowCellCount(row) {
+    return (row && row.children && row.children.length) || 4;
+  }
+
   function openComposer(lnCell) {
     closeComposer();
     const sec = lnCell.closest('section[data-path]');
@@ -554,7 +560,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     const tr = document.createElement('tr');
     tr.className = 'rv-compose-row'; // mount: inline diff-table row
     const td = document.createElement('td');
-    td.colSpan = 4;
+    td.colSpan = rowCellCount(row);
     const c = createComposer({
       anchorLabel: anchor.path + ':' + anchor.line + ' (' + anchor.side + ')',
       placeholder: 'Comment on this line…',
@@ -715,19 +721,26 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     // Code anchor: locate the file section, then the specific line.
     if (!a.path) return;
     const key = (window.CSS && CSS.escape) ? CSS.escape(a.path) : a.path;
-    const sec = document.querySelector('section[data-path="' + key + '"]');
-    if (!sec) return;
+    // A file can appear in several blocks — two :::diff ranges, or a :::diff plus
+    // a :::code context block — each its own section with the same data-path.
+    // The line lives in one of them, so search them all; the first section is
+    // only the fallback home for a thread whose line is gone.
+    const secs = document.querySelectorAll('section[data-path="' + key + '"]');
+    if (!secs.length) return;
+    let sec = secs[0];
     let row = null;
     if (t.anchor_status !== 'lost' && a.line != null && a.side) {
-      const cell = sec.querySelector('[data-side="' + a.side + '"][data-line="' + a.line + '"]');
-      row = cell ? cell.closest('tr') : null;
+      for (let i = 0; i < secs.length && !row; i++) {
+        const cell = secs[i].querySelector('[data-side="' + a.side + '"][data-line="' + a.line + '"]');
+        if (cell) { row = cell.closest('tr'); sec = secs[i]; }
+      }
     }
     const card = threadCard(t);
     if (row && row.parentNode) {
       const tr = document.createElement('tr');
       tr.className = 'rv-row';
       const td = document.createElement('td');
-      td.colSpan = 4;
+      td.colSpan = rowCellCount(row);
       td.appendChild(card);
       tr.appendChild(td);
       insertAfterRvRows(row, tr);
