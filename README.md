@@ -26,9 +26,10 @@ Where that takes conventions that don't exist yet, AgentTerm defines them as ope
 Run many agents and AgentTerm tracks them at two levels. The ones you're **actively juggling** become **Windows taskbar buttons**, each with a working indicator and two levels of live preview showing what the session's for and what it's doing. (On a Mac, run each session full screen: each window pins its initial prompt at the top, readable in a Mission Control swipe.) The ones you've **set aside** are a keystroke away: open the picker and filter your past sessions by **what you asked them**, or what the agent called the work, while a deeper pass searches every prompt you typed; resume any of them (the hero above). No hunting through look-alike terminals, and no back-and-forth with an agent to find it for you.
 
 ![your active agent sessions: each a live taskbar button with a thumbnail preview](assets/taskbar-preview.png)
+<sub>Session text blurred; the layout is what matters here.</sub>
 
 ## Watch and steer from your phone
-Add the companion viewer (**[agent-stream-hub](https://github.com/albertwujj/agent-stream-hub)**) to your phone's home screen as a web app. It shows **which agents need you across all your machines** ("your turn"), and drills into any live session **as the terminal itself**: the same screen you left at your desk, recognizable at a glance, with even its menus drivable key-by-key. **Steer it by voice**: speak, and your words reach the agent as text it knows came from voice, so it repairs the mishears and false starts against the session before acting. That's the part phone dictation can't do: with no view of your code it hears "pie test" and leaves it there; the agent turns it into `pytest`. Type instead when voice isn't right. And everything travels over plain outbound HTTPS, so it works even from networks that allow nothing else.
+Add the companion viewer (**[agent-stream-hub](https://github.com/albertwujj/agent-stream-hub)**) to your phone's home screen as a web app. It shows **which agents need you across all your machines** ("your turn"), and drills into any live session **as the terminal itself**: the same screen you left at your desk, recognizable at a glance, with even its menus drivable key-by-key. **Steer it by voice**: speak, and your words reach the agent as text it knows came from voice, so it repairs the mishears and false starts against the session before acting. That's the part phone dictation can't do: with no view of your code it hears "pie test" and leaves it there; the agent turns it into `pytest`. Type instead when voice isn't right. The viewer is self-hosted and opt-in: you run the relay on a machine you own, and everything travels over plain outbound HTTPS, so there are no inbound ports to open and no VPN to stand up.
 
 <p>
   <img src="assets/phone-machines.jpg" width="235" alt="which machines have agents waiting on you ('your turn')">
@@ -95,12 +96,14 @@ Each capability is a small, documented protocol, not a feature sealed in the app
 - **Voice input**: a source injects a raw speech-to-text transcript prefixed with a pointer to a vendored guide ([voice-to-agent](https://github.com/albertwujj/voice-to-agent)); the agent, holding the whole session, reconstructs the dictation against context and acts, so no hub-side model has to.
 
 ## Install
-- **Windows:** download the installer (`AgentTerm-x.x.x-setup.exe`) from the [Releases page](https://github.com/albertwujj/agent-term/releases). Requires [WSL](https://learn.microsoft.com/en-us/windows/wsl/install); your agents run in it.
+- **Windows:** download the installer (`AgentTerm-x.x.x-setup.exe`) from the [Releases page](https://github.com/albertwujj/agent-term/releases). Requires [WSL](https://learn.microsoft.com/en-us/windows/wsl/install); your agents run in it. The build is unsigned, so Windows will show a SmartScreen "unknown publisher" warning the first time: **More info → Run anyway**.
 - **macOS (from source):** `git clone https://github.com/albertwujj/agent-term && cd agent-term && npm install && npm run start`. That first `npm run start` is the only one: from then on `Ctrl/Cmd+Shift+N` opens the next window, and closing the last window respawns a fresh one, so AgentTerm keeps itself running. To close it for good, type `exit`.
 
-These are the paths we run daily and verify with each release. If setup snags anywhere, ask your agent to fix it.
+These are the paths the author runs daily and verifies with each release. If setup snags anywhere, ask your agent to fix it.
 - **IDE plugins (for click-to-IDE):** the two `intellij-navigator` zips are on the same [Releases page](https://github.com/albertwujj/agent-term/releases), with step-by-step install in the release notes.
 - **Phone/web viewer:** self-host [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) and add it to your home screen.
+
+**What it does on your machine:** spawns your shell and your agent, and reads and writes files in the projects you open. No telemetry, no account, no auto-update, and no network calls of its own. The embedded viewer loads only pages you click, and the phone viewer above is a separate component you host yourself.
 
 ## Shortcuts
 The few worth learning (`Ctrl` on Windows, `Cmd` on Mac):
