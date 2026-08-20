@@ -1,4 +1,4 @@
-"""Pins the package directive grammar and the structural-issues surface.
+"""Pins the package directive grammar and the directive-errors surface.
 
 Run from the repo root:  python3 -m unittest tools.review_test
 (needs git and markdown-it-py, like review.py itself).
@@ -38,7 +38,7 @@ class DirectiveGrammar(unittest.TestCase):
         self.assertIsNone(review._DIRECTIVE_HEAD.match("::: code a.py L1-2"))
 
 
-class PackageIssues(unittest.TestCase):
+class DirectiveErrors(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name).resolve()
@@ -55,7 +55,7 @@ class PackageIssues(unittest.TestCase):
         self.tip = sh(self.repo, "git", "rev-parse", "HEAD").strip()
         self.pkg = self.repo / "rv" / "rv.md"
         self.pkg.parent.mkdir()
-        self.issues = self.pkg.with_name("rv-issues.json")
+        self.errors_file = self.pkg.with_name("rv-errors.json")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -69,24 +69,24 @@ class PackageIssues(unittest.TestCase):
 
     def test_malformed_and_bad_ranges_surface(self):
         page, err = self.render("## S\nwhy\n\n:::code a.py L2\n:::code a.py\n:::diff a.py L8-8\n")
-        self.assertIn('class="rv-banner rv-issues"', page)
-        self.assertIn("2 package issues", page)
-        self.assertIn('data-rv-regen="issues"', page)
+        self.assertIn('class="rv-banner rv-errors"', page)
+        self.assertIn("2 directive errors", page)
+        self.assertIn('data-rv-regen="errors"', page)
         self.assertIn("malformed directive", page)
         self.assertNotIn("<p>:::code a.py L2", page)  # a bad directive is never prose
-        issues = json.loads(self.issues.read_text())
-        self.assertEqual(len(issues), 2, issues)
-        self.assertTrue(issues[0].startswith(":::code a.py L2: malformed directive"), issues)
-        self.assertIn("needs a line range", issues[1])
-        self.assertIn("package issues", err)
+        errors = json.loads(self.errors_file.read_text())
+        self.assertEqual(len(errors), 2, errors)
+        self.assertTrue(errors[0].startswith(":::code a.py L2: malformed directive"), errors)
+        self.assertIn("needs a line range", errors[1])
+        self.assertIn("directive errors", err)
 
     def test_clean_package_has_no_banner_and_removes_sidecar(self):
         self.render(":::code a.py L2\n")
-        self.assertTrue(self.issues.exists())
+        self.assertTrue(self.errors_file.exists())
         page, err = self.render("## S\nwhy\n\n:::code a.py L2-3\n:::diff a.py L8-8\n")
-        self.assertNotIn('class="rv-banner rv-issues"', page)
-        self.assertNotIn('data-rv-regen="issues"', page)
-        self.assertFalse(self.issues.exists())
+        self.assertNotIn('class="rv-banner rv-errors"', page)
+        self.assertNotIn('data-rv-regen="errors"', page)
+        self.assertFalse(self.errors_file.exists())
         self.assertEqual(err.strip(), "")
 
 

@@ -3656,17 +3656,19 @@ const REVIEW_REGEN_PROMPTS = {
   diverged: "HEAD has diverged from this review's range (likely a different branch). Confirm the intended branch, then update the review package to the latest commit — or switch back.",
   scope: "This review's scope is unusable — a base: scope (base → working tree) or a missing range. Set a committed `range: A..B` (pinned refs, not HEAD) in the package; the review updates once it's valid.",
 };
-// The `issues` prompt is a pointer, like every other host → agent message: the
-// renderer writes the package's structural issues beside the page as
-// <stem>-issues.json, and the package is the one this host is syncing. The list
+// The `errors` prompt is a pointer, like every other host → agent message: the
+// renderer writes the directives that failed as written beside the page as
+// <stem>-errors.json, and the package is the one this host is syncing. The list
 // itself never rides in the prompt (it changes with every re-render, and the agent
-// never runs the renderer, so the file is the only place it can read it).
+// never runs the renderer, so the file is the only place it can read it). This is
+// not the coverage nudge that was dropped — a changed line no directive shows is
+// never an error.
 function reviewRegenPrompt(kind) {
-  if (kind !== 'issues') return REVIEW_REGEN_PROMPTS[kind] || REVIEW_REGEN_PROMPTS.refresh;
+  if (kind !== 'errors') return REVIEW_REGEN_PROMPTS[kind] || REVIEW_REGEN_PROMPTS.refresh;
   const pkg = reviewSync && reviewSync.pkg;
   const subject = pkg ? `Review package ${pkg}` : "This review's package";
-  const list = pkg ? pkg.replace(/\.md$/i, '-issues.json') : 'its -issues.json sibling';
-  return `${subject} has structural issues (malformed :::diff/:::code directives, bad line ranges, or embeds with nothing to show). `
+  const list = pkg ? pkg.replace(/\.md$/i, '-errors.json') : 'its -errors.json sibling';
+  return `${subject} has directive errors (a :::diff/:::code line that fails to parse, a bad line range, or an embed with nothing to show). `
     + `Read the list in ${list}, fix each one in the package, and save; the open review re-renders on its own.`;
 }
 ipcMain.handle('rv-regenerate', async (event, { kind } = {}) => {

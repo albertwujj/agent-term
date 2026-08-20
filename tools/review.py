@@ -551,7 +551,7 @@ def parse_directive(line):
 
 def render_bad_directive(line, errors):
     """A `:::diff` / `:::code` line that doesn't parse renders as a problem card
-    where its block would be, and lands in the package issues."""
+    where its block would be, and joins the directive errors."""
     text = line.strip()
     kind = _DIRECTIVE_HEAD.match(text).group(1)
     form = f":::{kind} <path> " + ("[L<start>-<end>]" if kind == "diff" else "L<start>-<end>")
@@ -588,7 +588,7 @@ def _recs_in_range(all_recs, lo, hi):
 
 def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
     """Render one `:::diff` embed as a file section, pulling the diff from git.
-    Records structural problems into `errors` (the page's issues banner + sidecar)."""
+    Records structural problems into `errors` (the page's errors banner + sidecar)."""
     out = [f'<section id="{block_anchor(path, lo, hi)}" class="card file" data-path="{html.escape(path)}">']
     rng = f' <span class="stat">L{lo}-{hi}</span>' if lo and hi else ''
     dirty = (' <span class="dirty" title="working tree differs from this snapshot — '
@@ -815,18 +815,19 @@ def _mismatch_banner(dirty, drift, head_label="", tip=""):
             f'<button class="rv-regen" data-rv-regen="{kind}">Notify agent</button></div></details>')
 
 
-def _issues_banner(errors):
-    """Amber banner listing the package's structural issues (malformed directives,
-    bad ranges, embeds with nothing to show) with a 'Notify agent' button. Returns
-    '' when there are none. main() writes the same list beside the page as
-    <stem>-issues.json; the button's fixed prompt points the agent at that file."""
+def _errors_banner(errors):
+    """Amber banner listing the directives that failed as written (malformed, a bad
+    range, an embed with nothing to show) with a 'Notify agent' button. Returns ''
+    when there are none. This is not a coverage check — the one that flagged
+    changed lines no directive showed was dropped (highlights, not completeness). main() writes the same list beside the page as
+    <stem>-errors.json; the button's fixed prompt points the agent at that file."""
     if not errors:
         return ""
     n = len(errors)
     items = "".join(f"<li>{html.escape(e)}</li>" for e in errors)
-    return (f'<details class="rv-banner rv-issues"><summary>⚠ {n} package issue{"s" if n != 1 else ""}</summary>'
-            f'<div class="rv-banner-body"><ul class="rv-issues-list">{items}</ul>'
-            f'<button class="rv-regen" data-rv-regen="issues">Notify agent</button></div></details>')
+    return (f'<details class="rv-banner rv-errors"><summary>⚠ {n} directive error{"s" if n != 1 else ""}</summary>'
+            f'<div class="rv-banner-body"><ul class="rv-errors-list">{items}</ul>'
+            f'<button class="rv-regen" data-rv-regen="errors">Notify agent</button></div></details>')
 
 
 def _is_dirty(git, diff_args, path):
@@ -981,10 +982,11 @@ def render_package(git, repo, meta, body, slug):
     flush_prose()
     main.append("</main>")
 
-    # Top banners (sticky): out of date (dirty / behind / diverged) and the package's
-    # structural issues. Both are the agent's to fix; neither auto-prompts. There is
-    # no coverage check — self-review is about highlights, not completeness.
-    banners = [b for b in (mismatch_banner, _issues_banner(errors)) if b]
+    # Top banners (sticky): out of date (dirty / behind / diverged) and directives
+    # that failed as written. Both are the agent's to fix; neither auto-prompts. There
+    # is no coverage check — self-review is about highlights, not completeness, so a
+    # changed line no directive shows is never flagged.
+    banners = [b for b in (mismatch_banner, _errors_banner(errors)) if b]
     main[main.index('__BANNERS__')] = (
         f'<div class="rv-banners">{"".join(banners)}</div>' if banners else '')
 
@@ -1380,11 +1382,11 @@ padding:7px 14px;font:600 13px/1.2 inherit;user-select:none}
 .rv-banner[open]>summary::after{transform:rotate(90deg)}
 .rv-banner-body{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:2px 14px 12px;font-size:13px;font-weight:600}
 .rv-dirty{background:#cf222e;box-shadow:0 2px 10px rgba(207,34,46,.4)}
-.rv-issues{background:#9a6700;box-shadow:0 2px 10px rgba(154,103,0,.4)}
-.rv-issues .rv-regen{color:#7a5200}
-.rv-issues .rv-regen:hover{background:#fff3c4}
-.rv-issues-list{flex:1 1 260px;margin:0;padding:0 0 0 18px;font-weight:500;line-height:1.45}
-.rv-issues-list li{overflow-wrap:anywhere}
+.rv-errors{background:#9a6700;box-shadow:0 2px 10px rgba(154,103,0,.4)}
+.rv-errors .rv-regen{color:#7a5200}
+.rv-errors .rv-regen:hover{background:#fff3c4}
+.rv-errors-list{flex:1 1 260px;margin:0;padding:0 0 0 18px;font-weight:500;line-height:1.45}
+.rv-errors-list li{overflow-wrap:anywhere}
 .rv-regen{margin-left:auto;background:#fff;color:#b3252f;border:0;border-radius:6px;
 padding:6px 12px;font:600 13px/1.1 inherit;cursor:pointer;white-space:nowrap}
 .rv-regen:hover{background:#ffe9ea}
@@ -1607,19 +1609,19 @@ def main(argv=None):
     print(f"wrote {out}")
     print(f"open: {url}")
 
-    # Structural issues (malformed directives, bad ranges, empty embeds) never fail
-    # the render: each renders an inline note, the page lists them in a banner, and
-    # the same list lands beside the page as <stem>-issues.json — the file the
+    # Directive errors (malformed, bad ranges, empty embeds) never fail the render:
+    # each renders an inline note, the page lists them in a banner, and the same
+    # list lands beside the page as <stem>-errors.json — the file the
     # host's Notify prompt points the agent at (the agent never runs this tool).
     # Removed when the package is clean, so a stale list can't outlive its fix.
-    issues_path = out.with_name(out.stem + "-issues.json")
+    errors_path = out.with_name(out.stem + "-errors.json")
     if errors:
-        issues_path.write_text(json.dumps(errors, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print("note — package issues:", file=sys.stderr)
+        errors_path.write_text(json.dumps(errors, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print("note — directive errors:", file=sys.stderr)
         for e in errors:
             print(f"  - {e}", file=sys.stderr)
-    elif issues_path.exists():
-        issues_path.unlink()
+    elif errors_path.exists():
+        errors_path.unlink()
 
 
 if __name__ == "__main__":

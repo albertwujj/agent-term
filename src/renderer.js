@@ -301,7 +301,7 @@ async function renderAndOpenReview(reviewUrl) {
   }
   if (opened) openReviewUrl = reviewUrl;
   // Never auto-prompt the agent — any problem surfaces as an in-page banner with a
-  // Notify button (the scope-error page, the out-of-date and package-issues banners),
+  // Notify button (the scope-error page, the out-of-date and directive-errors banners),
   // pinged only on click.
   if (res && res.reject) {
     showToast('Review needs a fix — see the banner');

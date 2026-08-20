@@ -171,12 +171,12 @@ pointer. A conforming agent recognizes such a pointer and reads the store.
 **Notify buttons.** A page MAY carry `<button class="rv-regen"
 data-rv-regen="<kind>">` in a banner; a click makes the host type the fixed
 prompt for that kind — `refresh` (uncommitted changes), `diverged` (HEAD off the
-range's branch), `scope` (unusable scope), `issues` (structural problems in the
-package: a directive that fails to parse, a bad range, an embed with nothing to
-show). The page sends only the kind, never text. For `issues` the generator
-MUST write the list beside the page as `<page-stem>-issues.json` (a JSON array
-of strings) and remove it once the package is clean; the prompt points the
-agent at that file.
+range's branch), `scope` (unusable scope), `errors` (directives that failed as
+written: a line that fails to parse, a bad range, an embed with nothing to
+show; never a changed line the package leaves out). The page sends only the
+kind, never text. For `errors` the generator MUST write the list beside the
+page as `<page-stem>-errors.json` (a JSON array of strings) and remove it once
+the package is clean; the prompt points the agent at that file.
 
 ## 5. The agent's round-trip
 
