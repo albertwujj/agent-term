@@ -3648,16 +3648,29 @@ ipcMain.handle('rv-add-message', async (event, { commentsUrl, threadId, author, 
 // render-internal "(note N)" label — the agent authors only markdown and never
 // runs the renderer — so we locate by the heading it wrote. The quoted text is
 // added separately by the caller so the message can be multi-line like md/terminal.
-// The review's red banner carries a "Regenerate with latest" button. Clicking it
-// forwards a fixed prompt to the agent — chosen by `kind` (the page sends only the
-// kind, never free text, so a page can't inject an arbitrary prompt).
+// The review's banners carry a "Notify agent" button. Clicking it forwards a
+// fixed prompt to the agent — chosen by `kind` (the page sends only the kind,
+// never free text, so a page can't inject an arbitrary prompt).
 const REVIEW_REGEN_PROMPTS = {
   refresh: 'This review is out of date — commit any uncommitted changes, then update the review package to the latest commit.',
   diverged: "HEAD has diverged from this review's range (likely a different branch). Confirm the intended branch, then update the review package to the latest commit — or switch back.",
   scope: "This review's scope is unusable — a base: scope (base → working tree) or a missing range. Set a committed `range: A..B` (pinned refs, not HEAD) in the package; the review updates once it's valid.",
 };
+// The `issues` prompt is a pointer, like every other host → agent message: the
+// renderer writes the package's structural issues beside the page as
+// <stem>-issues.json, and the package is the one this host is syncing. The list
+// itself never rides in the prompt (it changes with every re-render, and the agent
+// never runs the renderer, so the file is the only place it can read it).
+function reviewRegenPrompt(kind) {
+  if (kind !== 'issues') return REVIEW_REGEN_PROMPTS[kind] || REVIEW_REGEN_PROMPTS.refresh;
+  const pkg = reviewSync && reviewSync.pkg;
+  const subject = pkg ? `Review package ${pkg}` : "This review's package";
+  const list = pkg ? pkg.replace(/\.md$/i, '-issues.json') : 'its -issues.json sibling';
+  return `${subject} has structural issues (malformed :::diff/:::code directives, bad line ranges, or embeds with nothing to show). `
+    + `Read the list in ${list}, fix each one in the package, and save; the open review re-renders on its own.`;
+}
 ipcMain.handle('rv-regenerate', async (event, { kind } = {}) => {
-  const ok = writeAsBracketedPasteSubmission(REVIEW_REGEN_PROMPTS[kind] || REVIEW_REGEN_PROMPTS.refresh);
+  const ok = writeAsBracketedPasteSubmission(reviewRegenPrompt(kind));
   return ok ? { success: true } : { success: false, error: 'no active terminal process' };
 });
 

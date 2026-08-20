@@ -516,6 +516,10 @@ def render_markdown_diff(git, diff_args, repo, path):
 
 _DIFF_DIRECTIVE = re.compile(r"^:::diff\s+(\S+)(?:\s+L(\d+)-(\d+))?\s*$")
 _CODE_DIRECTIVE = re.compile(r"^:::code\s+(\S+)(?:\s+L(\d+)-(\d+))?\s*$")
+# Any line that opens like a directive. One that then fails the strict form above
+# is a malformed directive, never prose: falling through silently would hide an
+# agent's typo (`L42`, `L42:50`) inside a paragraph.
+_DIRECTIVE_HEAD = re.compile(r"^:::(diff|code)\b")
 
 
 def parse_frontmatter(text):
@@ -545,6 +549,19 @@ def parse_directive(line):
     return None
 
 
+def render_bad_directive(line, errors):
+    """A `:::diff` / `:::code` line that doesn't parse renders as a problem card
+    where its block would be, and lands in the package issues."""
+    text = line.strip()
+    kind = _DIRECTIVE_HEAD.match(text).group(1)
+    form = f":::{kind} <path> " + ("[L<start>-<end>]" if kind == "diff" else "L<start>-<end>")
+    msg = f"malformed directive; write {form}; a single line is L42-42"
+    errors.append(f"{text}: {msg}")
+    return (f'<section class="card file"><h2><code>{html.escape(text)}</code>'
+            f' <span class="cv-tag warn">malformed</span></h2>'
+            f'<div class="why muted">({html.escape(msg)})</div></section>')
+
+
 def _index_recs(index, path, recs):
     fidx = index.setdefault(path, {"old": {}, "new": {}})
     for kind, old, new, code in recs:
@@ -571,7 +588,7 @@ def _recs_in_range(all_recs, lo, hi):
 
 def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
     """Render one `:::diff` embed as a file section, pulling the diff from git.
-    Records structural problems into `errors` (for the host to route back)."""
+    Records structural problems into `errors` (the page's issues banner + sidecar)."""
     out = [f'<section id="{block_anchor(path, lo, hi)}" class="card file" data-path="{html.escape(path)}">']
     rng = f' <span class="stat">L{lo}-{hi}</span>' if lo and hi else ''
     dirty = (' <span class="dirty" title="working tree differs from this snapshot — '
@@ -798,6 +815,20 @@ def _mismatch_banner(dirty, drift, head_label="", tip=""):
             f'<button class="rv-regen" data-rv-regen="{kind}">Notify agent</button></div></details>')
 
 
+def _issues_banner(errors):
+    """Amber banner listing the package's structural issues (malformed directives,
+    bad ranges, embeds with nothing to show) with a 'Notify agent' button. Returns
+    '' when there are none. main() writes the same list beside the page as
+    <stem>-issues.json; the button's fixed prompt points the agent at that file."""
+    if not errors:
+        return ""
+    n = len(errors)
+    items = "".join(f"<li>{html.escape(e)}</li>" for e in errors)
+    return (f'<details class="rv-banner rv-issues"><summary>⚠ {n} package issue{"s" if n != 1 else ""}</summary>'
+            f'<div class="rv-banner-body"><ul class="rv-issues-list">{items}</ul>'
+            f'<button class="rv-regen" data-rv-regen="issues">Notify agent</button></div></details>')
+
+
 def _is_dirty(git, diff_args, path):
     """True if `path` has uncommitted changes that the snapshot under review does
     NOT show — i.e. a committed range (A..B); a base-ref diff already shows the
@@ -926,7 +957,11 @@ def render_package(git, repo, meta, body, slug):
     for line in body.splitlines():
         directive = parse_directive(line)
         if not directive:
-            prose.append(line)
+            if _DIRECTIVE_HEAD.match(line.strip()):
+                flush_prose()
+                main.append(render_bad_directive(line, errors))
+            else:
+                prose.append(line)
             continue
         kind, path, lo, hi = directive
         # Label blocks by path + range so two blocks of one file are distinct in
@@ -946,9 +981,10 @@ def render_package(git, repo, meta, body, slug):
     flush_prose()
     main.append("</main>")
 
-    # Top banner (sticky): out-of-date only (dirty / behind / diverged). Self-review is
-    # about highlights, not completeness — there's no coverage/"package issues" check.
-    banners = [b for b in (mismatch_banner,) if b]
+    # Top banners (sticky): out of date (dirty / behind / diverged) and the package's
+    # structural issues. Both are the agent's to fix; neither auto-prompts. There is
+    # no coverage check — self-review is about highlights, not completeness.
+    banners = [b for b in (mismatch_banner, _issues_banner(errors)) if b]
     main[main.index('__BANNERS__')] = (
         f'<div class="rv-banners">{"".join(banners)}</div>' if banners else '')
 
@@ -1344,6 +1380,11 @@ padding:7px 14px;font:600 13px/1.2 inherit;user-select:none}
 .rv-banner[open]>summary::after{transform:rotate(90deg)}
 .rv-banner-body{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:2px 14px 12px;font-size:13px;font-weight:600}
 .rv-dirty{background:#cf222e;box-shadow:0 2px 10px rgba(207,34,46,.4)}
+.rv-issues{background:#9a6700;box-shadow:0 2px 10px rgba(154,103,0,.4)}
+.rv-issues .rv-regen{color:#7a5200}
+.rv-issues .rv-regen:hover{background:#fff3c4}
+.rv-issues-list{flex:1 1 260px;margin:0;padding:0 0 0 18px;font-weight:500;line-height:1.45}
+.rv-issues-list li{overflow-wrap:anywhere}
 .rv-regen{margin-left:auto;background:#fff;color:#b3252f;border:0;border-radius:6px;
 padding:6px 12px;font:600 13px/1.1 inherit;cursor:pointer;white-space:nowrap}
 .rv-regen:hover{background:#ffe9ea}
@@ -1566,13 +1607,19 @@ def main(argv=None):
     print(f"wrote {out}")
     print(f"open: {url}")
 
-    # Bad/empty embeds render an inline note and are logged here for anyone running
-    # the renderer directly — they do NOT fail the render (the page is fine; review is
-    # about highlights, not completeness validation).
+    # Structural issues (malformed directives, bad ranges, empty embeds) never fail
+    # the render: each renders an inline note, the page lists them in a banner, and
+    # the same list lands beside the page as <stem>-issues.json — the file the
+    # host's Notify prompt points the agent at (the agent never runs this tool).
+    # Removed when the package is clean, so a stale list can't outlive its fix.
+    issues_path = out.with_name(out.stem + "-issues.json")
     if errors:
-        print("note — package embed issues:", file=sys.stderr)
+        issues_path.write_text(json.dumps(errors, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print("note — package issues:", file=sys.stderr)
         for e in errors:
             print(f"  - {e}", file=sys.stderr)
+    elif issues_path.exists():
+        issues_path.unlink()
 
 
 if __name__ == "__main__":
