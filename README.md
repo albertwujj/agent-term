@@ -121,7 +121,7 @@ The few worth learning (`Ctrl` on Windows, `Cmd` on Mac):
 Plus the open specs (bring your own host/agent):
 - **[agent-threads](https://github.com/albertwujj/agent-threads)**: the review-thread spec the review loop (and live-markdown commenting) runs on.
 - **[agent-lock](https://github.com/yunxin/agent-lock)**: a lock so several agents share one git checkout without clobbering each other (the working tree, branches, and the host-global ports their tests grab).
-- **[agent-jobs](https://github.com/yunxin/agent-jobs)**: a background job the agent launched reports its own completion, so the agent ends its turn and is re-engaged when the result lands (the [job-events](job-events.md) contract).
+- **[agent-jobs](https://github.com/yunxin/agent-jobs)**: a long job the agent started reports its own completion, so the agent can end its turn and hand the terminal back to you; when the job finishes, AgentTerm prompts the agent to pick the result up (the [job-events](job-events.md) contract; mainly for CLIs that don't wake themselves).
 - **[voice-to-agent](https://github.com/albertwujj/voice-to-agent)**: the vendored guide that tells an agent to reconstruct and act on a raw speech-to-text transcript (what the phone's voice input runs on).
 
 Built with Electron · xterm.js (WebGL) · node-pty · esbuild. MIT licensed. A ⭐ helps others find it.
