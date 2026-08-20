@@ -5,7 +5,8 @@ finishes. The common case needs no cooperation: jobs that stay in the
 session's process tree are noticed from the host side. This file documents
 the *optional* contract a script can implement to make that signal explicit,
 durable, and richer — and what the host does in return. Any tool can adopt
-it; [agent-cicd](https://github.com/albertwujj/agent-cicd) is the first client.
+it, by pasting the reference stanza below or sourcing
+[agent-jobs](https://github.com/yunxin/agent-jobs).
 
 Agents need no knowledge of any of this. Whatever re-engagement duty an
 agent's runbook imposes stands unchanged; everything here is insurance

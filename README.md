@@ -91,7 +91,7 @@ Each capability is a small, documented protocol, not a feature sealed in the app
 - **Review**: the agent writes a markdown review that organizes and explains the diff, per the open [agent-threads](https://github.com/albertwujj/agent-threads) spec; agent-term renders it and carries your inline comments back to the agent. Other hosts welcome.
 - **Viewers by URL**: one convention routes whatever the agent prints. A `review://` link auto-opens the rendered review, `http(s)` opens the embedded web viewer, and a markdown file renders with the same inline commenting. The URL is the whole API: an agent needs no SDK to drive the host; it prints a line of text.
 - **Fleet coordination**: a lock / ownership / HEAD-guard convention so many agents can share one checkout without clobbering each other ([agent-lock](https://github.com/yunxin/agent-lock)).
-- **Conventions by filename**: agents bind to docs by name, resolving to the nearest such file up the directory tree (`commit-message.md`, the kits' config; [agent-cicd's CONFIG](https://github.com/albertwujj/agent-cicd/blob/main/CONFIG.md) shows the rule). No central config. agent-term itself just listens for the references: a `proceed-by-branching.md` going by is its cue to start watching the work branch and lock.
+- **Conventions by filename**: agents bind to docs by name, resolving to the nearest such file up the directory tree (`commit-message.md`, the kits' config; [agent-lock's `coding-guide.md` handoff](https://github.com/yunxin/agent-lock/blob/main/proceed-by-branching.md) shows the rule). No central config. agent-term itself just listens for the references: a `proceed-by-branching.md` going by is its cue to start watching the work branch and lock.
 - **Voice input**: a source injects a raw speech-to-text transcript prefixed with a pointer to a vendored guide ([voice-to-agent](https://github.com/albertwujj/voice-to-agent)); the agent, holding the whole session, reconstructs the dictation against context and acts, so no hub-side model has to.
 
 ## Install
@@ -118,7 +118,7 @@ The few worth learning (`Ctrl` on Windows, `Cmd` on Mac):
 Plus the open specs (bring your own host/agent):
 - **[agent-threads](https://github.com/albertwujj/agent-threads)**: the review-thread spec the review loop (and live-markdown commenting) runs on.
 - **[agent-lock](https://github.com/yunxin/agent-lock)**: a lock so several agents share one git checkout without clobbering each other (the working tree, branches, and the host-global ports their tests grab).
-- **[agent-cicd](https://github.com/albertwujj/agent-cicd)**: scripts that watch a Gerrit change's Jenkins build to a verdict and auto-retry infra flakes, pushes serialized through agent-lock; the kits composing in practice.
+- **[agent-jobs](https://github.com/yunxin/agent-jobs)**: a background job the agent launched reports its own completion, so the agent ends its turn and is re-engaged when the result lands (the [job-events](job-events.md) contract).
 - **[voice-to-agent](https://github.com/albertwujj/voice-to-agent)**: the vendored guide that tells an agent to reconstruct and act on a raw speech-to-text transcript (what the phone's voice input runs on).
 
 Built with Electron · xterm.js (WebGL) · node-pty · esbuild. MIT licensed. A ⭐ helps others find it.
