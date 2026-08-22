@@ -64,12 +64,16 @@ Unknown fields are ignored; fields may be added over time.
 AgentTerm polls the spool every minute, and the session's process list
 while the agent is quiet.
 
-- Every event for its session is delivered, exactly once: a one-line
-  notice into the agent's input, then the event file is deleted. Delivery
-  is prompt — the next poll — and held only while the user is mid-compose;
-  it then lands right after their submit, riding the CLI's own input queue
-  if a turn is running. On self-waking CLIs a notice can be redundant by
-  design — it ends with "ignore if already handled".
+- An event for its session is delivered at most once, as a one-line
+  notice into the agent's input, and only to an agent that was idle when
+  the job finished and stays idle for the quiet period after it (two
+  minutes by default). An agent that was awake at the finish, or that woke
+  within the period, already has the result from its own environment (a
+  self-waking CLI's background-task notice, its own check) or is mid-turn,
+  where a queued notice would land after the turn as a stale second
+  report; its event is consumed silently instead. A notice is held while
+  the user is mid-compose. Either way the event file is deleted once
+  decided.
 
       [Notice from terminal host] Background job report: <msg> (ran 52m).
       Ignore if already handled.

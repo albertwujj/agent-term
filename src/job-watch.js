@@ -1,8 +1,8 @@
 // job-watch.js — pure decision logic for the background-job monitor (the
 // "job-done nudge"). Host contract: job-events.md. I/O-free: main.js feeds
-// it one ps snapshot + one spool dump per idle poll; this decides which
-// event files to remove and what notice (at most one per idle window) to
-// inject. Three signals, each covering the others' blind spot:
+// it one ps snapshot + one spool dump per poll; this decides which event
+// files to remove, which to keep pending, and what notice (at most one per
+// poll) to inject. Three signals, each covering the others' blind spot:
 //   events  — a participating script announced its own completion (rich,
 //             durable, topology-proof); the primary signal.
 //   labeled — a process carrying our [sess:<token>] label vanished with NO
@@ -125,18 +125,33 @@ function oneLine(s, max = 200) {
 }
 
 // One poll step. input: { now, agentQuietFor (ms since last PTY output),
-// composing (keys typed since the last submit), snapshot, events (this
-// session's only), idleMs, fuseMs, psOk (the ps snapshot is trustworthy —
-// ps ran and exited cleanly) }. Returns { state, notice|null,
-// remove: [files] }.
+// agentActiveAt (ms timestamp of the last PTY output not attributable to the
+// user's own typing echo), composing (keys typed since the last submit),
+// snapshot, events (this session's only), pending (Map file →
+// { finishedAt, awakeAfter } from earlier polls), prevPollAt (the last completed poll, 0 if none),
+// windowStartAt (when this window's shell came up), quietMs, idleMs, fuseMs,
+// psOk (the ps snapshot is trustworthy — ps ran and exited cleanly) }.
+// Returns { state, pending, notice|null, remove: [files], superseded: [files] }.
 //
-// Completion events deliver ALWAYS — exactly once each, at the first poll
-// where the user is not mid-compose. No fuse: an explicit event is a
-// reliable signal, so a slept agent is re-engaged on the next poll. A user
-// steer or a running turn only holds delivery to the poll after their
-// submit, where the paste rides the CLI's own input queue. Redundant
-// deliveries to self-waking CLIs are accepted by design — the notice
-// carries an "ignore if already handled" tail.
+// Completion events deliver only to an agent that was idle WHEN the job
+// finished and stays idle for quietMs AFTER it. An agent that was awake at
+// the finish, or woke within the quiet period, learned of it from its own
+// environment (a self-waking CLI's background-task notice, its own check) or
+// is busy with something a queued notice would only confuse: a pasted notice
+// rides the CLI's input queue and lands after the running turn, as a stale
+// second report. Such an event is superseded: consumed, logged, never pasted.
+// "Idle" is the absence of agent output, the same test the working dot and
+// the vanish tiers rely on. The user composing holds a ripe event; if they
+// then submit, the turn's output supersedes it at the next poll.
+//
+// The finish time is the event's ts, clamped into (prevPollAt, now] (the file
+// was not in the spool at the previous poll; WSL's clock can be minutes off
+// after a host sleep). A job that finished before this window existed had no
+// agent here to be awake at it, and the resumed CLI's startup burst must not
+// read as waking to it: its finish is pinned to the agent's last activity at
+// first sight, so the quiet period runs from there and only NEW activity
+// supersedes. Fixed at first sight, so the quiet period is measured from one
+// point; `awakeAfter` is the activity threshold that supersedes.
 //
 // The vanish tiers still need a quiet-agent window: their baselines are
 // only meaningful when no foreground tool has been running (idleMs of
@@ -144,20 +159,50 @@ function oneLine(s, max = 200) {
 // changes no process state. They also need a trustworthy snapshot: a
 // vanish is inferred from ABSENCE, so an empty/failed ps read must never
 // stand in for "everything died" (see the psOk guard).
+const FINISH_MARGIN_MS = 5000; // output this close before the finish = awake at it
+
 function evaluate(input, state) {
   const { now, agentQuietFor, composing, snapshot, events, idleMs, fuseMs, psOk } = input;
+  const agentActiveAt = input.agentActiveAt || 0;
+  const quietMs = input.quietMs || idleMs;
+  const prevPollAt = input.prevPollAt || 0;
+  const windowStartAt = input.windowStartAt || 0;
+  const pendingIn = input.pending || new Map();
+  const pending = new Map();
   const remove = [];
+  const superseded = [];
   let notice = null;
 
-  if (!composing && events.length) {
-    for (const e of events) remove.push(e.file);
+  const ripe = [];
+  for (const e of events) {
+    let p = pendingIn.get(e.file);
+    if (!p) {
+      const lo = Math.max(prevPollAt, windowStartAt);
+      let finishedAt = Math.min(Math.max(e.tsMs, lo), now);
+      let awakeAfter = finishedAt - FINISH_MARGIN_MS;
+      if (e.tsMs < windowStartAt) {
+        finishedAt = Math.min(Math.max(finishedAt, agentActiveAt), now);
+        awakeAfter = finishedAt + 1;
+      }
+      p = { finishedAt, awakeAfter };
+    }
+    if (agentActiveAt >= p.awakeAfter) {
+      superseded.push(e.file);
+      remove.push(e.file);
+      continue;
+    }
+    if (now - p.finishedAt >= quietMs && !composing) { ripe.push(e); continue; }
+    pending.set(e.file, p);
+  }
+  if (ripe.length) {
+    for (const e of ripe) remove.push(e.file);
     notice = {
       kind: 'job-report', notice: true,
-      items: events.map((e) => ({ msg: oneLine(e.msg), tsMs: e.tsMs, startedMs: e.startedMs })),
+      items: ripe.map((e) => ({ msg: oneLine(e.msg), tsMs: e.tsMs, startedMs: e.startedMs })),
     };
   }
 
-  if (agentQuietFor < idleMs) return { state: null, notice, remove };
+  if (agentQuietFor < idleMs) return { state: null, pending, notice, remove, superseded };
 
   // Vanish is inferred from a process's ABSENCE, so it is sound only against
   // a known-good snapshot. An empty/failed ps read (a WSL hiccup, or the
@@ -165,7 +210,7 @@ function evaluate(input, state) {
   // job vanished at once" and fire a false report. When the snapshot is not
   // trustworthy, keep the baseline intact and skip the vanish tiers this
   // poll — events were already handled above and don't depend on ps.
-  if (!psOk) return { state: state || null, notice, remove };
+  if (!psOk) return { state: state || null, pending, notice, remove, superseded };
 
   const st = state || {
     baselineAt: now,
@@ -174,8 +219,8 @@ function evaluate(input, state) {
     nudged: false,
   };
 
-  // An event writer exited normally — deliverable or not yet, its labeled
-  // process must never also be reported as vanished.
+  // An event writer exited normally — delivered, pending, or superseded, its
+  // labeled process must never also be reported as vanished.
   for (const e of events) {
     if (e.pid) st.baseLabeled.delete(e.pid);
   }
@@ -209,10 +254,10 @@ function evaluate(input, state) {
     }
   }
 
-  return { state: st, notice, remove };
+  return { state: st, pending, notice, remove, superseded };
 }
 
 module.exports = {
   parseEtime, parsePs, findAgentPid, selectLabeled, selectGeneric,
-  parseEvents, oneLine, evaluate, GENERIC_DENYLIST,
+  parseEvents, oneLine, evaluate, GENERIC_DENYLIST, FINISH_MARGIN_MS,
 };

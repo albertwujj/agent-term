@@ -269,6 +269,13 @@ function writeAsBracketedPasteSubmission(body) {
 
 // "AI working" indicator state — drives the taskbar progress bar.
 let lastPtyOutputTime = 0;
+// The same clock minus the user's own typing echo: output that lands within
+// USER_QUIET_MS of a keystroke is the CLI echoing the composer, not the agent
+// working. This is the "agent active" signal the job-done nudge gates on.
+let lastAgentOutputTime = 0;
+// When this window's shell came up: a job that finished earlier counts as
+// finishing now for the nudge's quiet period (job-watch.js).
+let ptyStartedAt = 0;
 let progressBarOn = false;
 let progressInterval = null;
 // PTY quiet for >this → considered idle (no progress bar / isWorking=false
@@ -1838,6 +1845,7 @@ function createPty(cols, rows) {
     ptyProcess.write(`echo $$ > ${wslPidFile}\n`);
   }
 
+  ptyStartedAt = Date.now();
   startLockWatch(); // poll the repo for agent-lock's lock/agent → padlock in the chrome bar
   startJobWatch(); // nudge the agent when a background job ends while it idles
 
@@ -1855,6 +1863,7 @@ function createPty(cols, rows) {
     // Track recent output time for the "AI working" progress bar indicator
     // and for window-cap eviction scoring (lastWorkingAt in the active-file).
     lastPtyOutputTime = Date.now();
+    if (lastPtyOutputTime - lastTypingTime > USER_QUIET_MS) lastAgentOutputTime = lastPtyOutputTime;
     // Auto-show: if we're hidden and the AI is producing output (something
     // worth attention happened), pop ourselves back into the taskbar so the
     // user can see/find us. Don't steal focus — they may be in another
@@ -3194,12 +3203,15 @@ function agentNoticeFor(m) {
 // --- Background-job monitor (the job-done nudge) ---
 // Contract: job-events.md; pure logic + tests: job-watch.js. Each poll
 // reads the spool (cheap) and, only once the agent has gone quiet, takes one
-// ps snapshot for the vanish tiers. Notices ride the same bracketed-paste
-// submission as the branch warnings. Completion events are delivered
-// promptly — the next poll, held only while the user is mid-compose; a
-// slept agent is re-engaged without waiting out a fuse. The fuse gates only
-// the vanish tiers, which infer a job's death from a process's absence and
-// so need the agent settled-idle first, lest mid-work churn false-fire.
+// ps snapshot for the vanish tiers. Notices are bracketed-paste submissions.
+// A completion event is delivered only to an agent that was idle when the
+// job finished and stays idle JOB_IDLE_MS after it; an agent awake at the
+// finish, or woken within that window, already has the result from its own
+// environment (or is mid-turn, where a queued paste would land late and
+// read as a stale second report), so the event is consumed as superseded.
+// The fuse gates only the vanish tiers, which infer a job's death from a
+// process's absence and so need the agent settled-idle first, lest mid-work
+// churn false-fire.
 const JOB_IDLE_MS = Number(process.env.AGENT_TERM_JOB_IDLE_MS) || 120_000;
 const JOB_FUSE_MS = Number(process.env.AGENT_TERM_JOB_FUSE_MS) || 15 * 60_000;
 const JOB_POLL_MS = Number(process.env.AGENT_TERM_JOB_POLL_MS) || 60_000;
@@ -3213,6 +3225,8 @@ let agentSessionId = crypto.randomBytes(4).toString('hex');
 const JOB_SPOOL = '"${TMPDIR:-/tmp}/agent-events"';
 let jobWatchState = null;
 let jobWatchTimer = null;
+let jobWatchPending = new Map(); // event file → finish time fixed at first sight
+let jobWatchPrevPollAt = 0;      // last COMPLETED poll (a skipped cycle must not advance it)
 
 async function jobShellPid() {
   if (process.platform !== 'win32') return ptyProcess ? ptyProcess.pid : null;
@@ -3257,7 +3271,9 @@ async function pollJobWatch() {
     const events = jobWatch.parseEvents(spoolR.stdout)
       .filter((e) => e.session === agentSessionId);
     const res = jobWatch.evaluate(
-      { now, agentQuietFor, composing, snapshot, events, idleMs: JOB_IDLE_MS, fuseMs: JOB_FUSE_MS, psOk },
+      { now, agentQuietFor, agentActiveAt: lastAgentOutputTime, composing, snapshot, events,
+        pending: jobWatchPending, prevPollAt: jobWatchPrevPollAt, windowStartAt: ptyStartedAt,
+        quietMs: JOB_IDLE_MS, idleMs: JOB_IDLE_MS, fuseMs: JOB_FUSE_MS, psOk },
       jobWatchState);
     // The composing check ran before the shell reads above; a first
     // keystroke could have landed since. Drop the cycle wholesale rather
@@ -3265,6 +3281,11 @@ async function pollJobWatch() {
     // the events and the next poll re-resolves.
     if (lastInputTime !== inputAtEntry) return;
     jobWatchState = res.state;
+    jobWatchPending = res.pending;
+    jobWatchPrevPollAt = now;
+    if (res.superseded.length) {
+      log('[job-watch] superseded (agent active at or after the finish): ' + res.superseded.join(', '));
+    }
     if (res.remove.length) {
       await posixSh(`rm -f ${res.remove.map(shellEscape).join(' ')}`);
     }
@@ -3292,6 +3313,8 @@ async function pollJobWatch() {
 function startJobWatch() {
   if (jobWatchTimer) clearTimeout(jobWatchTimer);
   jobWatchState = null;
+  jobWatchPending = new Map();
+  jobWatchPrevPollAt = 0;
   log(`[job-watch] armed (session ${agentSessionId}, poll ${JOB_POLL_MS}ms, fuse ${JOB_FUSE_MS}ms)`);
   // GC events no session ever claimed (their window is gone for good).
   posixSh(`find ${JOB_SPOOL} -name '*.event' -mtime +7 -delete 2>/dev/null || true`);
