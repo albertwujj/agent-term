@@ -529,5 +529,24 @@ test('searchHiddenPromptMatches counts each matching hidden prompt once', (dir) 
   );
 });
 
+test('listSessions folds the session token from started and token events', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 24, token: 'aaaa11' });
+  log.appendEvent(dir, { e: 'started', id: 2, hue: 48 });
+  log.appendEvent(dir, { e: 'token', id: 2, token: 'bbbb22' });
+  const byId = new Map(log.listSessions(dir).map(s => [s.id, s]));
+  assert.strictEqual(byId.get(1).token, 'aaaa11');
+  assert.strictEqual(byId.get(2).token, 'bbbb22');
+});
+
+test('findActiveByToken returns the active record carrying the token', (dir) => {
+  log.writeActiveFile(dir, 3, { pid: process.pid, bootTime: FROZEN_BOOT, token: 'cccc33', lastWorkingAt: 5, hue: 200 });
+  log.writeActiveFile(dir, 4, { pid: process.pid, bootTime: FROZEN_BOOT });
+  const rec = log.findActiveByToken(dir, 'cccc33');
+  assert.strictEqual(rec.id, 3);
+  assert.strictEqual(rec.hue, 200);
+  assert.strictEqual(log.findActiveByToken(dir, 'nope'), null);
+  assert.strictEqual(log.findActiveByToken(dir, ''), null);
+});
+
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
 process.exit(testsFailed > 0 ? 1 : 0);

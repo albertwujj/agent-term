@@ -134,12 +134,16 @@ function listSessions(userDataDir) {
     if (typeof ev.id !== 'number') continue;
     let s = map.get(ev.id);
     if (!s) {
-      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, initialTitle: null, prompt: null, lastPrompt: null, capturedBranches: [], closedAt: null };
+      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, initialTitle: null, prompt: null, lastPrompt: null, capturedBranches: [], closedAt: null, token: null };
       map.set(ev.id, s);
     }
     s.lastEventAt = ev.t;
     switch (ev.e) {
-      case 'started': s.startedAt = ev.t; if (typeof ev.hue === 'number') s.hue = ev.hue; break;
+      case 'started': s.startedAt = ev.t; if (typeof ev.hue === 'number') s.hue = ev.hue; if (ev.token) s.token = ev.token; break;
+      // The window's AGENT_SESSION_ID, stored so a resume inherits it (agent-lock's
+      // owner record and agent-jobs' events carry it). 'started' records it for
+      // new sessions; 'token' backfills one recorded before tokens were stored.
+      case 'token':   if (ev.token) s.token = ev.token; break;
       case 'cli':     if (ev.cli) s.cli = ev.cli; break;
       // Title fold: `s.title` is LAST-WINS — the most recent OSC title from
       // the CLI, which tracks the string its own resume selector shows.
@@ -194,6 +198,8 @@ function activeFilePath(userDataDir, id) {
 //   lastInputAt   timestamp of the most recent user keystroke into this window
 //   lastWorkingAt timestamp of the most recent PTY output (proxy for "AI working")
 //   lastPromptAt  timestamp of the most recent captured prompt event
+//   token         the window's AGENT_SESSION_ID; lets a window find the holder of
+//                 agent-lock's lock/agent (its owner record stores the token)
 // The window-cap module uses the last three to score visible windows for
 // eviction when a new window pushes over the cap.
 
@@ -236,6 +242,17 @@ function listActiveIds(userDataDir) {
     if (m) ids.push(parseInt(m[1], 10));
   }
   return ids;
+}
+
+// The active record carrying this session token (plus its id), or null. The
+// caller judges liveness with isSessionActive.
+function findActiveByToken(userDataDir, token) {
+  if (!token) return null;
+  for (const id of listActiveIds(userDataDir)) {
+    const rec = readActiveFile(userDataDir, id);
+    if (rec && rec.token === token) return { id, ...rec };
+  }
+  return null;
 }
 
 // `record` is the result of readActiveFile (may be null). Returns true iff the
@@ -529,6 +546,7 @@ module.exports = {
   readActiveFile,
   deleteActiveFile,
   listActiveIds,
+  findActiveByToken,
   isSessionActive,
   isSessionReapable,
   gcActiveFiles,

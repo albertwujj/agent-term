@@ -24,7 +24,7 @@ const promptThumbnail = require('./prompt-thumbnail');
 const dwm = require('./dwm-thumbnail');
 const sessionsLog = require('./sessions-log');
 const guiSession = require('./gui-session');
-const branchWatch = require('./branch-watch'); // pure work-branch/lock decision logic
+const lockStatus = require('./lock-status'); // pure lock-icon decision (agent-lock)
 const jobWatch = require('./job-watch'); // pure background-job monitor logic (job-events.md)
 const {
   ICON_OKLCH_L,
@@ -981,6 +981,7 @@ function assignSessionIdentity() {
       pid: process.pid,
       bootTime: sessionsLog.currentBootTime(),
       guiSession: getOwnGuiSession(),
+      token: agentSessionId,
       hue,
       lastInputAt: lastInputTime,
       lastWorkingAt: lastPtyOutputTime,
@@ -988,7 +989,7 @@ function assignSessionIdentity() {
       hiddenAt: null,
     });
     activeFileWritten = true;
-    sessionsLog.appendEvent(userDataDir, { e: 'started', id: sessionIndex, hue });
+    sessionsLog.appendEvent(userDataDir, { e: 'started', id: sessionIndex, hue, token: agentSessionId });
     if (detectedCli) {
       sessionsLog.appendEvent(userDataDir, { e: 'cli', id: sessionIndex, cli: detectedCli });
     }
@@ -1137,11 +1138,18 @@ function resumeFromSession(picked) {
   // title on --resume), so the drifting title recovers on its own.
 
   const userDataDir = app.getPath('userData');
+  // The token is part of the identity a resume inherits: agent-lock's owner
+  // record and agent-jobs' events carry it, so the resumed window keeps
+  // answering to it. A session recorded before tokens were stored keeps this
+  // process's fresh token and records it now, for the next resume.
+  if (picked.token) agentSessionId = picked.token;
+  else sessionsLog.appendEvent(userDataDir, { e: 'token', id: picked.id, token: agentSessionId });
   try {
     sessionsLog.writeActiveFile(userDataDir, picked.id, {
       pid: process.pid,
       bootTime: sessionsLog.currentBootTime(),
       guiSession: getOwnGuiSession(),
+      token: agentSessionId,
       lastInputAt: lastInputTime,
       lastWorkingAt: lastPtyOutputTime,
       lastPromptAt: lastPromptTime,
@@ -1211,6 +1219,7 @@ function syncChromeState() {
     cli: detectedCli || null,
     prompt: firstPrompt || null,
     isWorking,
+    lock: lockState,
   };
   try {
     mainWindow.webContents.send('chrome-state', payload);
@@ -1296,6 +1305,7 @@ function refreshActivityTimestamps(extra = {}) {
   sessionsLog.writeActiveFile(userDataDir, sessionIndex, {
     pid: process.pid,
     guiSession: getOwnGuiSession(),
+    token: agentSessionId,
     ...(lockedHue !== null ? { hue: lockedHue } : {}),
     ...beat,
   });
@@ -1808,9 +1818,10 @@ function createPty(cols, rows) {
       // for Terminal.app on every prompt.
       TERM_PROGRAM: 'AgentTerm',
       TERM_PROGRAM_VERSION: app.getVersion(),
-      // Session identity for the background-job contract (job-events.md):
-      // ordinary env inheritance scopes it to this window's process tree.
-      AGENT_SESSION_ID,
+      // Session identity for the background-job contract (job-events.md) and
+      // for agent-lock's owner record: ordinary env inheritance scopes it to
+      // this window's process tree.
+      AGENT_SESSION_ID: agentSessionId,
       // Windows env does not cross into WSL by default; WSLENV lists the
       // variables that do.
       ...(process.platform === 'win32'
@@ -1827,7 +1838,7 @@ function createPty(cols, rows) {
     ptyProcess.write(`echo $$ > ${wslPidFile}\n`);
   }
 
-  startRepoWatch(); // poll the primary folder for work-branch / lock warnings
+  startLockWatch(); // poll the repo for agent-lock's lock/agent → padlock in the chrome bar
   startJobWatch(); // nudge the agent when a background job ends while it idles
 
   // Runs on node-pty's threadsafe-function callback. An exception thrown here
@@ -1841,7 +1852,6 @@ function createPty(cols, rows) {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('pty-output', data);
     }
-    scanForBranchArm(data); // arm the work-branch watcher on @…proceed-by-branching.md
     // Track recent output time for the "AI working" progress bar indicator
     // and for window-cap eviction scoring (lastWorkingAt in the active-file).
     lastPtyOutputTime = Date.now();
@@ -2208,7 +2218,11 @@ ipcMain.on('picker-pick', (event, id) => {
   // /resume submission — see the pty-input handler. User-as-timing-
   // signal is reliable in a way that no programmatic "CLI ready" signal is.
   if (ptyProcess) {
-    try { ptyProcess.write(picked.cli + '\r'); } catch {}
+    // The shell was spawned with this process's fresh token; a stored one
+    // reaches the resumed CLI (and every tool shell under it) through its
+    // environment instead. `env` works in every shell the pty may run.
+    const launch = picked.token ? `env AGENT_SESSION_ID=${agentSessionId} ${picked.cli}` : picked.cli;
+    try { ptyProcess.write(launch + '\r'); } catch {}
     pendingResumeIntercept = true;
     log('[resume] armed intercept after picker-pick id=' + id +
         ' cli=' + picked.cli);
@@ -2993,27 +3007,20 @@ ipcMain.handle('rv-diff-baseline', (_e, arg) => {
 // The viewer closed (GC) → stop the review auto-refresh poll/watch.
 ipcMain.on('review-viewer-closed', () => { stopReviewSync(); reviewDiffKeys.clear(); });
 
-// --- Work-branch / lock watcher (agent-lock) ---
-// Poll the session's primary folder with git only (no terminal/CLI sniffing).
-// When on a work/<slug> branch, warn via the bar — and notify the agent once per
-// new detection — if HEAD left the tracked work branch (incl. work→work), the
-// lock/agent is held by another branch, or the tree has uncommitted
-// tracked changes with no lock held. The pure decision logic + its tests live in
-// branch-watch.js; this is the git I/O and the debounced poll. Off a work branch
-// (e.g. developing agent-term on main) it stays silent.
-const BRANCH_WATCH_FAST_MS = 4000;   // cadence while on a work branch
-const BRANCH_WATCH_SLOW_MS = 12000;  // cadence otherwise (just watching for engagement)
-let repoWatch = null;
-let cachedBootId;
-
-async function getBootId() {
-  if (cachedBootId !== undefined) return cachedBootId;
-  // boot_id is a Linux concept (no /proc on macOS, so this is null there — stale
-  // detection just degrades). Same command on both via the seam.
-  const r = await posixSh('cat /proc/sys/kernel/random/boot_id 2>/dev/null');
-  cachedBootId = r.code === 0 ? (r.stdout.trim() || null) : null;
-  return cachedBootId;
-}
+// --- Lock status (agent-lock) ---
+// Poll the session's repo root with git only and show who holds agent-lock's
+// lock/agent as a padlock in the chrome bar (src/chrome-bar.js). Status only:
+// no notice, no interrupt. The decision is pure (src/lock-status.js); this is
+// the git I/O, the holder-window lookup, and the poll. Design, and why there
+// are no warnings: .git/discussion/lock-warnings.md.
+const LOCK_POLL_HELD_MS = 4000;   // cadence while there is something to show
+const LOCK_POLL_QUIET_MS = 12000; // cadence while there is not
+// A holder whose window produced no output for this long shows hollow
+// ("idle"). Windows refresh lastWorkingAt at most every ACTIVITY_REFRESH_MS
+// (30 s), so the threshold sits above that to keep a working holder filled.
+const LOCK_IDLE_MS = 60_000;
+let lockWatch = null;               // { repoRoot, timer }
+let lockState = { state: 'none' };  // the latest decision; rides the chrome-state payload
 
 // The session's primary folder = the live shell cwd (WSL: /proc/<pid>/cwd; else
 // the pty's cwd via lsof, falling back to the spawn cwd).
@@ -3029,93 +3036,118 @@ async function getPrimaryCwd() {
   return ptyStartingCwd();
 }
 
+// Last non-empty stdout line: the probes run in a login shell, so profile /
+// MOTD noise can precede the value.
+function lastLine(stdout) {
+  return String(stdout || '').split('\n').map((s) => s.trim()).filter(Boolean).pop() || '';
+}
+
+// agent-lock's owner record (.git/agent-lock-owner): key=value lines. `session`
+// is the holder's AGENT_SESSION_ID when a host set one (lock-mechanics.md).
 function parseOwnerFile(text) {
   const o = {};
   for (const line of String(text).split('\n')) {
     const i = line.indexOf('=');
     if (i > 0) o[line.slice(0, i).trim()] = line.slice(i + 1).trim();
   }
-  return { branch: o.branch || '', boot: o.boot || '', acquired: o.acquired || '', pid: o.pid || '' };
+  return { branch: o.branch || '', session: o.session || '', acquired: o.acquired || '', pid: o.pid || '' };
 }
 
 async function readLockOwner(folder) {
-  const gd = await gitIn(folder, ['rev-parse', '--git-dir']);
-  if (gd.code !== 0) return null;
-  let dir = gd.stdout.trim();
-  if (!dir.startsWith('/')) dir = `${folder}/${dir}`;
-  const file = `${dir}/agent-lock-owner`;
+  // Resolved the way agent-lock.sh resolves it, so a linked worktree reads its
+  // own record.
+  const gp = await gitIn(folder, ['rev-parse', '--git-path', 'agent-lock-owner']);
+  if (gp.code !== 0) return null;
+  let file = lastLine(gp.stdout);
+  if (!file) return null;
+  if (!file.startsWith('/')) file = `${folder}/${file}`;
   const cat = await posixSh(`cat ${shellEscape(file)} 2>/dev/null`);
   return cat.code === 0 ? parseOwnerFile(cat.stdout) : null;
 }
 
-// Resolve a folder to its git repo ROOT (toplevel). Takes the LAST non-empty line so
-// login-shell profile noise prepended to stdout can't corrupt the path; null if it isn't
-// a repo / can't resolve.
+// Resolve a folder to its git repo ROOT (toplevel); null if it isn't a repo /
+// can't resolve.
 async function gitTopLevel(folder) {
   if (!folder) return null;
   const r = await gitIn(folder, ['rev-parse', '--show-toplevel']);
   if (r.code !== 0) return null;
-  const top = r.stdout.split('\n').map((s) => s.trim()).filter(Boolean).pop();
+  const top = lastLine(r.stdout);
   return top && top.startsWith('/') ? top : null;
 }
 
-// Read the folder's git facts in as few calls as possible. Any git error leaves
-// the field unknown (null/false), so a transient mid-operation read can't warn.
-async function gitFolderState(folder) {
-  if (!folder) return { isRepo: false };
-  const st = await gitIn(folder, ['status', '--porcelain=v2', '--branch', '--untracked-files=no']);
-  if (st.code !== 0) return { isRepo: false };
-  let branch = null;
-  let dirtyTracked = false;
-  for (const line of st.stdout.split('\n')) {
-    if (line.startsWith('# branch.head ')) {
-      const b = line.slice('# branch.head '.length).trim();
-      branch = (b && b !== '(detached)') ? b : null;
-    } else if (/^[12u] /.test(line)) {
-      // A real porcelain-v2 change entry: 1=ordinary, 2=rename/copy, u=unmerged. NOT
-      // "any non-# line" — the probe runs in a LOGIN shell (bash -lc), so profile / tool
-      // / MOTD stdout would otherwise read as a change and falsely flag a clean tree.
-      dirtyTracked = true;
-    }
-  }
+// The git facts the icon needs. Any git error leaves the whole read unknown
+// (null), so a transient mid-operation read can't flip the icon.
+async function gitLockFacts(folder) {
+  if (!folder) return null;
+  const head = await gitIn(folder, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (head.code !== 0) return null;
+  const ref = lastLine(head.stdout);
+  const headBranch = ref && ref !== 'HEAD' ? ref : null; // 'HEAD' = detached
   const lock = await gitIn(folder, ['show-ref', '--verify', '--quiet', 'refs/heads/lock/agent']);
   const lockHeld = lock.code === 0;
   const owner = lockHeld ? await readLockOwner(folder) : null;
-  return { isRepo: true, branch, dirtyTracked, lockHeld, owner };
+  return { headBranch, lockHeld, owner };
 }
 
-function stopRepoWatch() {
-  if (repoWatch && repoWatch.timer) { try { clearTimeout(repoWatch.timer); } catch {} }
-  repoWatch = null;
+// The live window whose session token is `token`, or null. Liveness is the
+// same test the picker and the window cap apply to active records.
+function findHolderWindow(token) {
+  if (!token) return null;
+  try {
+    const userDataDir = app.getPath('userData');
+    const rec = sessionsLog.findActiveByToken(userDataDir, token);
+    if (!rec || !sessionsLog.isSessionActive(rec, { guiSession: getOwnGuiSession() })) return null;
+    return rec;
+  } catch { return null; }
 }
 
-// The watcher arms only when the agent @-references proceed-by-branching.md — matched
-// by FILENAME (agent-lock can be installed at any path) and only as a real path-like
-// reference (leading @, no spaces). Scan the pty output for it; a rolling buffer bridges
-// chunk splits, ANSI is stripped, and scanning stops once armed or stamped. armBase is
-// the branch we were on at arm time — evaluate() waits until HEAD switches off it (the
-// workflow always cuts a fresh branch) before stamping, so we never claim the branch a
-// fresh agent merely booted onto.
-const PROCEED_BY_BRANCHING_RE = /@(?:\S*\/)?proceed-by-branching\.md\b/;
-const ANSI_CSI_RE = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
-let branchArmScanTail = '';
-function scanForBranchArm(data) {
-  if (!repoWatch || repoWatch.armed || repoWatch.tracked) return; // already armed or stamped
-  branchArmScanTail = (branchArmScanTail + data).slice(-512);
-  if (PROCEED_BY_BRANCHING_RE.test(branchArmScanTail.replace(ANSI_CSI_RE, ''))) {
-    repoWatch.armed = true;
-    repoWatch.armBase = (repoWatch.lastState && repoWatch.lastState.branch) || null;
-    branchArmScanTail = '';
+function stopLockWatch() {
+  if (lockWatch && lockWatch.timer) { try { clearTimeout(lockWatch.timer); } catch {} }
+  lockWatch = null;
+}
+
+function startLockWatch() {
+  stopLockWatch();
+  lockWatch = { repoRoot: null, timer: null };
+  lockWatch.timer = setTimeout(pollLockStatus, LOCK_POLL_HELD_MS);
+}
+
+async function pollLockStatus() {
+  const w = lockWatch;
+  if (!w) return;
+  let next = lockState;
+  try {
+    // Anchor to the session's repo ROOT and always probe there, so the shell
+    // wandering into a subdir / a different repo / a transient cwd can't make
+    // us report the wrong repo. Resolved once + cached; re-resolved if the
+    // anchor stops being a repo (it moved).
+    const cwd = await getPrimaryCwd();
+    if (!w.repoRoot) {
+      const top = await gitTopLevel(cwd);
+      if (top) w.repoRoot = top;
+    }
+    const facts = await gitLockFacts(w.repoRoot || cwd);
+    if (lockWatch !== w) return; // stopped mid-flight
+    if (!facts) {
+      w.repoRoot = null; // anchor lost → re-resolve next tick
+      next = { state: 'none' };
+    } else {
+      const session = facts.lockHeld && facts.owner ? facts.owner.session : '';
+      const holder = session && session !== agentSessionId ? findHolderWindow(session) : null;
+      next = lockStatus.decide(facts, { token: agentSessionId, now: Date.now() }, holder, { idleMs: LOCK_IDLE_MS });
+    }
+  } catch { /* transient read error: keep what is shown, try again next tick */ }
+  finally {
+    if (lockWatch === w) {
+      if (JSON.stringify(next) !== JSON.stringify(lockState)) {
+        lockState = next;
+        syncChromeState();
+      }
+      w.timer = setTimeout(pollLockStatus, lockState.state === 'none' ? LOCK_POLL_QUIET_MS : LOCK_POLL_HELD_MS);
+    }
   }
 }
 
-function startRepoWatch() {
-  stopRepoWatch();
-  repoWatch = { tracked: null, repoRoot: null, armed: false, armBase: null, prevKinds: '', shownKinds: '', alerted: new Set(), lastState: null, engaged: false, timer: null };
-  repoWatch.timer = setTimeout(pollRepoWatch, BRANCH_WATCH_FAST_MS);
-}
-
-const AGENT_NOTICE_KINDS = new Set(['branch', 'lock-missing-dirty', 'lock-collision']);
 function fmtDuration(ms) {
   if (!(ms >= 0)) return '?';
   const s = Math.round(ms / 1000);
@@ -3131,16 +3163,15 @@ function fmtClock(d = new Date()) {
 function agentNoticeFor(m) {
   // One envelope for everything the host tells the agent: severity word +
   // provenance, then the fact stamped with its observation time ("as of HH:MM"),
-  // then the instruction. Warnings end with an escalation boundary; job notices
-  // with an idempotence clause (a self-waking CLI may have beaten us). The stamp
-  // is inline in the fact (not tucked in the bracket, where it reads as chrome
-  // the agent skips) and absolute, not a duration: this is a bracketed-paste
-  // that waits in the agent's input until its current turn ends, so it may be
-  // read minutes later, and "agent quiet" can't tell true idle from a poll-loop
-  // gap. An absolute "as of" survives that queueing (a relative "2m ago" would
-  // freeze and mislead); the agent gauges staleness against it and re-checks
-  // live state before acting. Run durations stay relative — intrinsic, they
-  // don't drift.
+  // then the instruction, ending with an idempotence clause (a self-waking CLI
+  // may have beaten us). The stamp is inline in the fact (not tucked in the
+  // bracket, where it reads as chrome the agent skips) and absolute, not a
+  // duration: this is a bracketed paste that waits in the agent's input until
+  // its current turn ends, so it may be read minutes later, and "agent quiet"
+  // can't tell true idle from a poll-loop gap. An absolute "as of" survives
+  // that queueing (a relative "2m ago" would freeze and mislead); the agent
+  // gauges staleness against it and re-checks live state before acting. Run
+  // durations stay relative — intrinsic, they don't drift.
   const prefix = `[${m.notice ? 'Notice' : 'Warning'} from terminal host]`;
   const at = fmtClock();
   if (m.kind === 'job-report') {
@@ -3157,75 +3188,7 @@ function agentNoticeFor(m) {
     const parts = m.items.map((it) => `"${it.command}"`).join(', ');
     return `${prefix} A background job you started (${parts}) exited while you were idle (as of ${at}). Check its result and continue; ignore if already handled.`;
   }
-  if (m.kind === 'branch') return `${prefix} Watch out — as of ${at}, git branch changed from "${m.from}" to "${m.to}"; re-check the current branch before acting. If this wasn't you, another task may be involved that you can't see — stop and report to the user rather than fixing it yourself.`;
-  if (m.kind === 'lock-missing-dirty') return `${prefix} Watch out — as of ${at}, uncommitted tracked changes with no lock/agent held. Check the git state and repair if needed; if a fix would overwrite work from another task, stop and report to the user.`;
-  if (m.kind === 'lock-collision') return `${prefix} Watch out — as of ${at}, another task ("${m.owner}") holds lock/agent; proceeding would collide with work you can't see. Stop and report to the user.`;
   return `${prefix} As of ${at} — ${m.text}`;
-}
-
-async function pollRepoWatch() {
-  const w = repoWatch;
-  if (!w) return;
-  try {
-    // Anchor to the session's repo ROOT and always probe there, so the shell wandering
-    // into a subdir / a different repo / a transient cwd (e.g. the pid file rewritten
-    // mid-resume) can't make us report the wrong repo. Resolved once + cached; re-resolved
-    // if the anchor stops being a repo (it moved) or on Reset.
-    const cwd = await getPrimaryCwd();
-    if (!w.repoRoot) {
-      const top = await gitTopLevel(cwd);
-      if (top) w.repoRoot = top;
-    }
-    const state = await gitFolderState(w.repoRoot || cwd);
-    if (repoWatch !== w) return; // stopped mid-flight
-    if (!state.isRepo) w.repoRoot = null; // anchor lost (repo moved / not a repo) → re-resolve
-    const ctx = { bootId: await getBootId(), now: Date.now(), armed: w.armed, armBase: w.armBase };
-    const res = branchWatch.evaluate(state, w.tracked, ctx);
-    if (res.tracked && !w.tracked) w.armed = false; // stamped on the post-@-ref switch — arm consumed
-    w.tracked = res.tracked;
-    w.lastState = state;
-    w.engaged = branchWatch.isEngaged(state.branch);
-    const messages = res.messages;
-
-    // Debounce: only act when this poll's result matches the previous poll's, so
-    // a transient mid-git-operation snapshot never reaches the bar or the agent.
-    const kinds = messages.map((m) => m.kind).sort().join(',');
-    const stable = kinds === w.prevKinds;
-    w.prevKinds = kinds;
-    if (stable) {
-      if (kinds !== w.shownKinds) {
-        w.shownKinds = kinds;
-        if (mainWindow && mainWindow.webContents) {
-          // `resettable` only when a branch warning is present — Reset re-baselines the
-          // tracked branch, which is meaningless for the lock/dirty warnings (live git
-          // facts that clear on their own), so the bar hides the button for those.
-          if (messages.length) mainWindow.webContents.send('review-branch-changed', {
-            texts: messages.map((m) => m.text),
-            resettable: messages.some((m) => m.kind === 'branch'),
-          });
-          else mainWindow.webContents.send('review-branch-synced', {});
-        }
-      }
-      // Notify the agent once per new detection (branch change + missing lock);
-      // re-arm a kind once it clears.
-      const present = new Set(messages.map((m) => m.kind));
-      for (const m of messages) {
-        if (AGENT_NOTICE_KINDS.has(m.kind) && !w.alerted.has(m.kind)) {
-          // Hold while the user is composing (not yet alerted → the next
-          // poll retries a few seconds after their submit).
-          if (userComposing()) continue;
-          w.alerted.add(m.kind);
-          writeAsBracketedPasteSubmission(agentNoticeFor(m));
-        }
-      }
-      for (const k of [...w.alerted]) if (!present.has(k)) w.alerted.delete(k);
-    }
-  } catch { /* transient read error: try again next tick */ }
-  finally {
-    if (repoWatch === w) {
-      w.timer = setTimeout(pollRepoWatch, w.engaged ? BRANCH_WATCH_FAST_MS : BRANCH_WATCH_SLOW_MS);
-    }
-  }
 }
 
 // --- Background-job monitor (the job-done nudge) ---
@@ -3240,7 +3203,11 @@ async function pollRepoWatch() {
 const JOB_IDLE_MS = Number(process.env.AGENT_TERM_JOB_IDLE_MS) || 120_000;
 const JOB_FUSE_MS = Number(process.env.AGENT_TERM_JOB_FUSE_MS) || 15 * 60_000;
 const JOB_POLL_MS = Number(process.env.AGENT_TERM_JOB_POLL_MS) || 60_000;
-const AGENT_SESSION_ID = crypto.randomBytes(4).toString('hex');
+// This window's session token (job-events.md; agent-lock records it as
+// session= in its owner file). Fresh per process, then replaced by the stored
+// one when this window resumes a recorded session, so the token means the
+// session, not the process (resumeFromSession).
+let agentSessionId = crypto.randomBytes(4).toString('hex');
 // Spool path resolves inside the shell (WSL on Windows) — same rule the
 // writing scripts use, so both sides land on the same directory.
 const JOB_SPOOL = '"${TMPDIR:-/tmp}/agent-events"';
@@ -3284,11 +3251,11 @@ async function pollJobWatch() {
     // vanish (see evaluate). Event delivery does not depend on ps.
     const psOk = shellPid != null && psR.code === 0;
     const snapshot = {
-      labeled: jobWatch.selectLabeled(rows, AGENT_SESSION_ID),
-      generic: jobWatch.selectGeneric(rows, agentPid, AGENT_SESSION_ID),
+      labeled: jobWatch.selectLabeled(rows, agentSessionId),
+      generic: jobWatch.selectGeneric(rows, agentPid, agentSessionId),
     };
     const events = jobWatch.parseEvents(spoolR.stdout)
-      .filter((e) => e.session === AGENT_SESSION_ID);
+      .filter((e) => e.session === agentSessionId);
     const res = jobWatch.evaluate(
       { now, agentQuietFor, composing, snapshot, events, idleMs: JOB_IDLE_MS, fuseMs: JOB_FUSE_MS, psOk },
       jobWatchState);
@@ -3325,7 +3292,7 @@ async function pollJobWatch() {
 function startJobWatch() {
   if (jobWatchTimer) clearTimeout(jobWatchTimer);
   jobWatchState = null;
-  log(`[job-watch] armed (session ${AGENT_SESSION_ID}, poll ${JOB_POLL_MS}ms, fuse ${JOB_FUSE_MS}ms)`);
+  log(`[job-watch] armed (session ${agentSessionId}, poll ${JOB_POLL_MS}ms, fuse ${JOB_FUSE_MS}ms)`);
   // GC events no session ever claimed (their window is gone for good).
   posixSh(`find ${JOB_SPOOL} -name '*.event' -mtime +7 -delete 2>/dev/null || true`);
   jobWatchTimer = setTimeout(pollJobWatch, JOB_POLL_MS);
@@ -3343,24 +3310,6 @@ ipcMain.handle('capture-review-branch', async (event, reviewUrl) => {
     sessionsLog.appendEvent(app.getPath('userData'), { e: 'branches', id: sessionIndex, repo, branch });
     return { ok: true, repo, branch };
   } catch (e) { return { ok: false, error: e.message }; }
-});
-
-// The bar's Reset = re-baseline to the current branch (accept an intentional task
-// switch). It only addresses the `branch` warning, so it re-arms ONLY that notice —
-// the lock/dirty warnings are live git facts independent of `tracked`, so re-baselining
-// must not re-ping the agent about an unresolved lock. (The bar only offers Reset when a
-// branch warning is present anyway.)
-ipcMain.handle('reset-branch-watch', async () => {
-  if (repoWatch && repoWatch.lastState) {
-    repoWatch.tracked = branchWatch.rebaseline(repoWatch.lastState);
-    repoWatch.armed = false;          // manual re-baseline supersedes any pending arm
-    repoWatch.armBase = null;
-    branchArmScanTail = '';           // and re-enables scanning when tracked clears to null
-    repoWatch.alerted.delete('branch'); // only the branch notice re-arms; lock notices stay put
-    repoWatch.prevKinds = '';
-    repoWatch.shownKinds = '';
-  }
-  return { ok: true };
 });
 
 ipcMain.handle('resolve-file-url', async (event, filePath) => {

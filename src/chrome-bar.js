@@ -9,6 +9,13 @@
 //     (same font as the terminal body below). Dim italic fallback when
 //     no prompt yet ("waiting for prompt…" / "Sessions").
 //   · Working dot — small green circle when AI producing output.
+//   · Lock icon — who holds agent-lock's lock/agent on the session's repo:
+//     shape = what the lock is doing (open outline free on a work branch,
+//     filled held by an active holder, outline held by an idle one, dashed
+//     held with no window open), color = whose (the dot's green with a
+//     check for this window, the holder window's hue otherwise, greys for
+//     the rest). Status only, tooltip carries the words; never animates.
+//     State comes from main's git poll via src/lock-status.js.
 //
 // Per-session identity color: rendered as a thin (3px) hue-colored line
 // at the BOTTOM of the chrome bar — a delineator between chrome and the
@@ -98,7 +105,40 @@ const BAR_CSS = `
   background: #a3d977;
   box-shadow: 0 0 5px rgba(163,217,119,0.6);
 }
+.at-chrome-lock {
+  flex: 0 0 auto;
+  width: 14px; height: 14px;
+  margin: 0 6px 0 2px;
+  display: inline-block;
+  -webkit-app-region: no-drag;
+}
+.at-chrome-lock svg { width: 14px; height: 14px; display: block; }
 `;
+
+// Padlock glyphs, 16x16; `currentColor` is set per state on the wrapper.
+const LOCK_SHACKLE = '<path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>';
+const LOCK_SHACKLE_OPEN = '<path d="M11 7V5a3 3 0 0 0-6 0v0.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>';
+const LOCK_BODY_FILL = '<rect x="3" y="7" width="10" height="7" rx="1.6" fill="currentColor"/>';
+const LOCK_BODY_OUTLINE = '<rect x="3.5" y="7.5" width="9" height="6" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"/>';
+const LOCK_CHECK = '<path d="M5.6 10.4l1.7 1.7 3.3-3.5" fill="none" stroke="#0c0c0c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
+const DASHED = ' stroke-dasharray="1.8 1.3"/>';
+const LOCK_GLYPHS = {
+  free: LOCK_SHACKLE_OPEN + LOCK_BODY_OUTLINE,
+  mine: LOCK_SHACKLE + LOCK_BODY_FILL + LOCK_CHECK,
+  'other-active': LOCK_SHACKLE + LOCK_BODY_FILL,
+  'other-idle': LOCK_SHACKLE + LOCK_BODY_OUTLINE,
+  'no-window': (LOCK_SHACKLE + LOCK_BODY_OUTLINE).split('/>').join(DASHED),
+};
+const LOCK_COLORS = { free: '#909090', mine: '#a3d977', 'no-window': '#7a7a7a' };
+
+// Markup for the lock icon, or '' when there is nothing to coordinate.
+// lock: { state, hue, tooltip } from src/lock-status.js.
+function renderLockMarkup(lock) {
+  if (!lock || !lock.state || lock.state === 'none' || !LOCK_GLYPHS[lock.state]) return '';
+  const color = LOCK_COLORS[lock.state] || hueColor(lock.hue) || '#909090';
+  return `<span class="at-chrome-lock ${lock.state}" style="color:${color}" title="${escapeHtml(lock.tooltip || '')}">`
+    + `<svg viewBox="0 0 16 16" aria-hidden="true">${LOCK_GLYPHS[lock.state]}</svg></span>`;
+}
 
 let mountedRoot = null;
 let stylesInjected = false;
@@ -173,7 +213,7 @@ function renderBarMarkup(state) {
     : '';
   return `
     <span class="at-chrome-text${dim ? ' dim' : ''}">${escapeHtml(text)}</span>
-    ${dotMarkup}
+    ${dotMarkup}${renderLockMarkup(s.lock)}
   `;
 }
 
@@ -184,7 +224,7 @@ function hueColor(hue) {
   return `oklch(65% 0.27 ${hue})`;
 }
 
-// Update the bar state. payload: { hue, cli, prompt, isWorking }
+// Update the bar state. payload: { hue, cli, prompt, isWorking, lock }
 function update(payload) {
   lastState = payload || {};
   if (!mountedRoot) return;
@@ -213,6 +253,7 @@ module.exports = {
   BAR_HEIGHT_PX,
   BAR_CSS,
   renderBarMarkup,
+  renderLockMarkup,
   hueColor,
   mount,
   update,

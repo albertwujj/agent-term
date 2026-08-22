@@ -21,7 +21,10 @@ spawns (on Windows also listed in `WSLENV`, so it crosses into WSL), and
 normal parent-to-child inheritance carries it to every process in the
 session — which is exactly what scopes it to one window. The token is the
 routing key: several sessions run at once, and it decides which window's
-agent a signal re-engages. When it is unset, no host is listening, and the
+agent a signal re-engages. It names the session, not the process: when
+AgentTerm resumes a recorded session in a new window, that window keeps the
+session's token, so a job (or an agent-lock owner record) started before the
+resume still routes to it. When it is unset, no host is listening, and the
 reference stanza below is a no-op by design.
 
 ## What a script can do

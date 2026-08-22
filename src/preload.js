@@ -65,15 +65,9 @@ contextBridge.exposeInMainWorld('pty', {
   onReviewCommentsChanged: (cb) => ipcRenderer.on('review-comments-changed', () => cb()),
   // Viewer closed → main stops the review auto-refresh poll/watch.
   reviewViewerClosed: () => ipcRenderer.send('review-viewer-closed'),
-  // A review:// was captured → record the reviewed repo's branch and start
-  // watching it. Returns { ok, repo, branch }.
+  // A review:// was captured → record the reviewed repo's branch in the
+  // session log (picker search). Returns { ok, repo, branch }.
   captureReviewBranch: (reviewUrl) => ipcRenderer.invoke('capture-review-branch', reviewUrl),
-  // The flash bar's Reset → re-baseline the watch to the current branch.
-  resetBranchWatch: () => ipcRenderer.invoke('reset-branch-watch'),
-  // Main's primary-folder poll has warnings → show the bar. payload: { texts:[] }.
-  onReviewBranchChanged: (cb) => ipcRenderer.on('review-branch-changed', (e, payload) => cb(payload)),
-  // Warnings cleared (back in sync / clean) → drop the flash bar.
-  onReviewBranchSynced: (cb) => ipcRenderer.on('review-branch-synced', () => cb()),
   // file:// URL of the webview comment-overlay preload (set as the <webview>
   // preload attribute by the web viewer).
   getWebviewPreloadUrl: () => ipcRenderer.invoke('get-webview-preload-url'),
