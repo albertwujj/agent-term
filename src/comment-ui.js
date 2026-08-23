@@ -97,6 +97,12 @@ function modEnterLabel() { return isMac() ? '⌘↩' : 'Ctrl↩'; }
 function isModEnter(e) {
   return e.key === 'Enter' && (isMac() ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey;
 }
+// Shift+mod+Enter is Send from anywhere: page-wide in the md viewer, and in
+// any composer (below) so a button advertising it works wherever focus sits.
+function shiftModEnterLabel() { return isMac() ? '⇧⌘↩' : 'Ctrl⇧↩'; }
+function isShiftModEnter(e) {
+  return e.key === 'Enter' && (isMac() ? e.metaKey : e.ctrlKey) && e.shiftKey && !e.altKey;
+}
 
 // The To prompt action, shared by every composer: Send's sibling that pastes
 // the same message into the CLI input and leaves it there, cursor on a fresh
@@ -150,6 +156,7 @@ function createComposer({ quote = '', anchorLabel = '', placeholder = '', seed =
   ta.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { e.preventDefault(); if (onCancel) onCancel(); return; }
     if (modEnter && isModEnter(e)) { e.preventDefault(); modEnter.onClick(ctx); return; }
+    if (primary && isShiftModEnter(e)) { e.preventDefault(); primary.onClick(ctx); return; }
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey && primary) { e.preventDefault(); primary.onClick(ctx); }
   });
   if (onInput) ta.addEventListener('input', function () { onInput(ctx); });
@@ -244,7 +251,7 @@ function isPasteCommentShortcut(event) {
 }
 
 module.exports = {
-  normWS, nearestHeading, toast, createComposer, toPromptAction, modEnterLabel, isModEnter,
+  normWS, nearestHeading, toast, createComposer, toPromptAction, modEnterLabel, isModEnter, shiftModEnterLabel,
   highlightRange, clearHighlight, highlightRanges, rangeOfText,
   isPasteCommentShortcut,
 };

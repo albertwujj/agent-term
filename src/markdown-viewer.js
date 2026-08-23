@@ -11,7 +11,7 @@ const {
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { createViewerBand } = require('./viewer-band');
-const { createComposer, toPromptAction, isPasteCommentShortcut } = require('./comment-ui');
+const { createComposer, toPromptAction, shiftModEnterLabel, isPasteCommentShortcut } = require('./comment-ui');
 const {
   isPlainCommentKey,
   isCommentEntryKey,
@@ -4407,7 +4407,7 @@ function createMarkdownViewer({
       onInput: () => { autoGrowTextarea(composer.textarea); session.note = composer.textarea.value; },
       actions: [
         { label: 'Revert', onClick: () => revertBlockEditor() },
-        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', primary: true, title: 'Enter', onClick: () => { commitBlockEditor(); sendEditBatch(); } },
+        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: shiftModEnterLabel(), primary: true, title: 'Enter', onClick: () => { commitBlockEditor(); sendEditBatch(); } },
         toPromptAction(() => { commitBlockEditor(); sendEditBatch({ toPrompt: true }); }),
       ],
     });
@@ -4732,7 +4732,7 @@ function createMarkdownViewer({
       },
       actions: [
         { label: 'Revert', onClick: () => undoOverlay(anchorId) },
-        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', primary: true, title: 'Enter', onClick: () => sendEditBatch() },
+        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: shiftModEnterLabel(), primary: true, title: 'Enter', onClick: () => sendEditBatch() },
         toPromptAction(() => sendEditBatch({ toPrompt: true })),
       ],
     });
