@@ -9,7 +9,10 @@
 //
 //   facts:  { lockHeld, owner: { branch, session } | null, headBranch }
 //           owner is the parsed .git/agent-lock-owner record; null when the
-//           lock ref exists without one (a lock made by hand).
+//           lock ref exists without one (a lock made by hand). headBranch is
+//           live HEAD: the lock is a mutex on the whole checkout, so the
+//           holder may have moved on from the branch it acquired on, and
+//           the tooltip names where the checkout is now.
 //   me:     { token, now }   this window's AGENT_SESSION_ID and the clock
 //   holder: the active-file record of the live window whose token equals
 //           owner.session, or null when no live window carries it
@@ -49,25 +52,23 @@ function decide(facts, me, holder, opts) {
   }
 
   const owner = f.owner || {};
-  const branch = owner.branch || '?';
   const session = owner.session || '';
-  const label = `${LOCK_NAME} · ${branch}`;
+  const branch = (typeof f.headBranch === 'string' && f.headBranch) ? f.headBranch : null;
+  const where = branch ? `on ${branch}` : 'HEAD detached';
+  const tip = (who) => `${LOCK_NAME} · ${who} · ${where}`;
 
   if (session && token && session === token) {
-    return { state: 'mine', branch, hue: null, idleMs: null, tooltip: `${label} · you` };
+    return { state: 'mine', branch, hue: null, idleMs: null, tooltip: tip('you') };
   }
   if (!session || !holder) {
-    return { state: 'no-window', branch, hue: null, idleMs: null,
-      tooltip: `${label} · no window open` };
+    return { state: 'no-window', branch, hue: null, idleMs: null, tooltip: tip('no window open') };
   }
   const hue = (typeof holder.hue === 'number') ? holder.hue : null;
   const quiet = now - (typeof holder.lastWorkingAt === 'number' ? holder.lastWorkingAt : 0);
   if (quiet > idleMs) {
-    return { state: 'other-idle', branch, hue, idleMs: quiet,
-      tooltip: `${label} · other window, idle ${fmtIdle(quiet)}` };
+    return { state: 'other-idle', branch, hue, idleMs: quiet, tooltip: tip(`other window, idle ${fmtIdle(quiet)}`) };
   }
-  return { state: 'other-active', branch, hue, idleMs: null,
-    tooltip: `${label} · other window, active` };
+  return { state: 'other-active', branch, hue, idleMs: null, tooltip: tip('other window, active') };
 }
 
 module.exports = { WORK_BRANCH_RE, decide, fmtIdle };

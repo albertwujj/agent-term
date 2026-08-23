@@ -26,23 +26,27 @@ test('free, HEAD elsewhere (develop, detached): nothing', () => {
 test('held by this window (token match): mine, no holder lookup needed', () => {
   const r = decide({ lockHeld: true, owner: { branch: 'work/a', session: 'aaaa11' }, headBranch: 'work/a' }, me, null, opts);
   assert.equal(r.state, 'mine');
-  assert.equal(r.tooltip, 'lock/agent · work/a · you');
+  assert.equal(r.tooltip, 'lock/agent · you · on work/a');
+  // The hold is a mutex on the checkout: the tooltip names live HEAD, which the holder may have moved.
+  const moved = decide({ lockHeld: true, owner: { branch: 'work/a', session: 'aaaa11' }, headBranch: 'work/a-r24' }, me, null, opts);
+  assert.equal(moved.tooltip, 'lock/agent · you · on work/a-r24');
+  assert.equal(decide({ lockHeld: true, owner: { branch: 'work/a', session: 'aaaa11' }, headBranch: null }, me, null, opts).tooltip, 'lock/agent · you · HEAD detached');
 });
 
 test('held by another window that is working: other-active with its hue', () => {
   const holder = { lastWorkingAt: NOW - 10_000, hue: 330 };
-  const r = decide({ lockHeld: true, owner: { branch: 'work/b', session: 'bbbb22' } }, me, holder, opts);
+  const r = decide({ lockHeld: true, owner: { branch: 'work/b', session: 'bbbb22' }, headBranch: 'work/b' }, me, holder, opts);
   assert.equal(r.state, 'other-active');
   assert.equal(r.hue, 330);
-  assert.equal(r.tooltip, 'lock/agent · work/b · other window, active');
+  assert.equal(r.tooltip, 'lock/agent · other window, active · on work/b');
 });
 
 test('held by another window that went quiet: other-idle with the duration', () => {
   const holder = { lastWorkingAt: NOW - 12 * 60_000, hue: 120 };
-  const r = decide({ lockHeld: true, owner: { branch: 'work/b', session: 'bbbb22' } }, me, holder, opts);
+  const r = decide({ lockHeld: true, owner: { branch: 'work/b', session: 'bbbb22' }, headBranch: 'work/b' }, me, holder, opts);
   assert.equal(r.state, 'other-idle');
   assert.equal(r.idleMs, 12 * 60_000);
-  assert.equal(r.tooltip, 'lock/agent · work/b · other window, idle 12m');
+  assert.equal(r.tooltip, 'lock/agent · other window, idle 12m · on work/b');
 });
 
 test('idle threshold is exclusive: exactly idleMs quiet still counts as active', () => {
@@ -51,16 +55,16 @@ test('idle threshold is exclusive: exactly idleMs quiet still counts as active',
 });
 
 test('held, no live window carries the token: no-window', () => {
-  const r = decide({ lockHeld: true, owner: { branch: 'work/b', session: 'bbbb22' } }, me, null, opts);
+  const r = decide({ lockHeld: true, owner: { branch: 'work/b', session: 'bbbb22' }, headBranch: 'work/b' }, me, null, opts);
   assert.equal(r.state, 'no-window');
-  assert.equal(r.tooltip, 'lock/agent · work/b · no window open');
+  assert.equal(r.tooltip, 'lock/agent · no window open · on work/b');
 });
 
 test('held with no session in the record (no host), or no record at all: no-window', () => {
   assert.equal(decide({ lockHeld: true, owner: { branch: 'work/b', session: '' } }, me, { lastWorkingAt: NOW }, opts).state, 'no-window');
-  const r = decide({ lockHeld: true, owner: null }, me, null, opts);
+  const r = decide({ lockHeld: true, owner: null, headBranch: 'develop' }, me, null, opts);
   assert.equal(r.state, 'no-window');
-  assert.equal(r.tooltip, 'lock/agent · ? · no window open');
+  assert.equal(r.tooltip, 'lock/agent · no window open · on develop');
 });
 
 test('this window has no token yet: a held lock is never "mine"', () => {
