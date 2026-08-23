@@ -63,9 +63,10 @@ test('tooltip is escaped', () => {
   assert.ok(m.includes('title="a &quot;b&quot; &lt;c&gt;"'));
 });
 
-test('renderBarMarkup places the icon after the dot', () => {
+test('renderBarMarkup draws the icon and no working dot', () => {
   const m = bar.renderBarMarkup({ cli: 'claude', prompt: 'fix login', isWorking: true, lock: { state: 'mine', tooltip: 'you' } });
-  assert.ok(m.indexOf('at-chrome-dot working') < m.indexOf('at-chrome-lock mine'));
+  assert.ok(m.includes('at-chrome-lock mine'));
+  assert.ok(!m.includes('at-chrome-dot'));
 });
 
 console.log(`\nchrome-bar lock: ${passed} passed, ${failed} failed`);

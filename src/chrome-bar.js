@@ -8,14 +8,18 @@
 //   · Prompt text — the verbatim user prompt, full 16px Cascadia Mono
 //     (same font as the terminal body below). Dim italic fallback when
 //     no prompt yet ("waiting for prompt…" / "Sessions").
-//   · Working dot — small green circle when AI producing output.
 //   · Lock icon — who holds agent-lock's lock/agent on the session's repo:
 //     shape = what the lock is doing (open outline free on a work branch,
 //     filled held by an active holder, outline held by an idle one, dashed
-//     held with no window open), color = whose (the dot's green with a
-//     check for this window, the holder window's hue otherwise, greys for
-//     the rest). Status only, tooltip carries the words; never animates.
-//     State comes from main's git poll via src/lock-status.js.
+//     held with no window open), color = whose (green with a check for
+//     this window, the holder window's hue otherwise, greys for the rest).
+//     Status only, tooltip carries the words; never animates. State comes
+//     from main's git poll via src/lock-status.js.
+//
+// There is deliberately no "agent working" indicator here: the console
+// below shows that itself, and the bar should hold nothing that moves on
+// its own. The working signal still drives the taskbar, the phone viewer,
+// the padlock's filled/hollow holder and the job nudge; it just isn't drawn.
 //
 // Per-session identity color: rendered as a thin (3px) hue-colored line
 // at the BOTTOM of the chrome bar — a delineator between chrome and the
@@ -93,22 +97,10 @@ const BAR_CSS = `
   color: #909090;
   font-style: italic;
 }
-.at-chrome-dot {
-  flex: 0 0 auto;
-  width: 6px; height: 6px; border-radius: 50%;
-  background: #2a2a2a;
-  margin: 0 8px 0 6px;
-  transition: background-color 0.15s ease;
-  -webkit-app-region: no-drag;
-}
-.at-chrome-dot.working {
-  background: #a3d977;
-  box-shadow: 0 0 5px rgba(163,217,119,0.6);
-}
 .at-chrome-lock {
   flex: 0 0 auto;
   width: 14px; height: 14px;
-  margin: 0 6px 0 2px;
+  margin: 0 6px 0 10px;
   display: inline-block;
   -webkit-app-region: no-drag;
 }
@@ -165,7 +157,6 @@ function ensureMounted({ onContextMenu } = {}) {
   el.className = 'at-chrome';
   el.innerHTML = `
     <span class="at-chrome-text dim">Sessions</span>
-    <span class="at-chrome-dot"></span>
   `;
   document.body.appendChild(el);
   el.style.webkitAppRegion = 'drag';
@@ -208,12 +199,9 @@ function renderBarMarkup(state) {
     text = 'Sessions';
     dim = true;
   }
-  const dotMarkup = s.cli
-    ? `<span class="at-chrome-dot${s.isWorking ? ' working' : ''}"></span>`
-    : '';
   return `
     <span class="at-chrome-text${dim ? ' dim' : ''}">${escapeHtml(text)}</span>
-    ${dotMarkup}${renderLockMarkup(s.lock)}
+    ${renderLockMarkup(s.lock)}
   `;
 }
 
@@ -224,7 +212,8 @@ function hueColor(hue) {
   return `oklch(65% 0.27 ${hue})`;
 }
 
-// Update the bar state. payload: { hue, cli, prompt, isWorking, lock }
+// Update the bar state. payload: { hue, cli, prompt, isWorking, lock };
+// isWorking is carried for other consumers and not drawn here.
 function update(payload) {
   lastState = payload || {};
   if (!mountedRoot) return;
