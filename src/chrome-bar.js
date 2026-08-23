@@ -99,12 +99,12 @@ const BAR_CSS = `
 }
 .at-chrome-lock {
   flex: 0 0 auto;
-  width: 14px; height: 14px;
+  width: 16px; height: 16px;
   margin: 0 6px 0 10px;
   display: inline-block;
   -webkit-app-region: no-drag;
 }
-.at-chrome-lock svg { width: 14px; height: 14px; display: block; }
+.at-chrome-lock svg { width: 16px; height: 16px; display: block; }
 `;
 
 // Padlock glyphs, 16x16; `currentColor` is set per state on the wrapper.
