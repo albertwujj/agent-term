@@ -22,7 +22,7 @@
 //   -> { state, branch, hue, idleMs, tooltip }
 //      state: none | free | mine | other-active | other-idle | no-window
 
-// A task branch per proceed-by-branching.md. Only the "free" state reads it,
+// A task branch per proceed-by-lock-and-branch.md. Only the "free" state reads it,
 // to show the open padlock when there is something to coordinate.
 const WORK_BRANCH_RE = /^work\//;
 
