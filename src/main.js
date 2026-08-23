@@ -276,8 +276,9 @@ function writeAsBracketedPasteSubmission(body) {
 // in any TUI, where a bare LF could mean submit and would fire the batch
 // early. Same wire format either way: batch, blank line, the user's words.
 // Verify a CLI (paste, write '\n', watch: newline or submit?) before adding
-// it here. claude: 2.1.241, 2026-08-23.
-const LF_INSERTS_NEWLINE_CLIS = new Set(['claude']);
+// it here. claude: 2.1.241; agent (cursor-agent): 2026.08.11-e8db854;
+// codex: 0.144.6 — all live, 2026-08-23.
+const LF_INSERTS_NEWLINE_CLIS = new Set(['claude', 'agent', 'codex']);
 
 // "To prompt": the same message, pasted into the CLI's input and left there
 // for the user to finish — no CR. The renderer is told so it can roll the
