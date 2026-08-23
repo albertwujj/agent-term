@@ -4876,9 +4876,11 @@ function createMarkdownViewer({
         const result = await submitMarkdownThreads({ docPath: doc, threads, batchKind, allowMissingRunbook, toPrompt });
         if (!result || !result.success) throw new Error((result && result.error) || 'Could not send the batch');
         adoptThreadStore(result.data);
-        // To prompt is the user's hand taking the layout: main's 'to-prompt'
-        // event rolls the band up and no resume is armed.
-        if (!toPrompt) recedeForAgentTurn();
+        // To prompt is the user's hand taking the layout — often the review's
+        // last turn before implementation. Main's 'to-prompt' event rolls the
+        // band up, and any armed resume is disarmed: full terminal, staying.
+        if (toPrompt) state.resumeFullPending = false;
+        else recedeForAgentTurn();
       }
       state.blockOverlays = new Map();
       state.expandedHunkKey = null;
@@ -5585,7 +5587,8 @@ function createMarkdownViewer({
       // rests as the waiting line rather than staying expanded.
       state.expandedThreads.delete(thread.id);
       adoptThreadStore(result.data);
-      if (!toPrompt) recedeForAgentTurn();
+      if (toPrompt) state.resumeFullPending = false;
+      else recedeForAgentTurn();
       layoutSpread();
       if (typeof showToast === 'function') showToast('Reply sent');
     } catch (error) {

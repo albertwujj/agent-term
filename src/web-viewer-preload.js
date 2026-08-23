@@ -1058,8 +1058,9 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       }
       // The host recedes a full-size band to golden on a send (web-viewer.js) —
       // the turn just passed to the agent, whose pickup shows in the terminal.
-      // To prompt instead rolls the band up via main's 'to-prompt' event.
-      if (!toPrompt) { try { ipcRenderer.sendToHost('rv-sent'); } catch {} }
+      // To prompt instead rolls the band up via main's 'to-prompt' event and
+      // disarms any resume an earlier send left armed: full terminal, staying.
+      try { ipcRenderer.sendToHost(toPrompt ? 'rv-to-prompt' : 'rv-sent'); } catch {}
     });
   }
 

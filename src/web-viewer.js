@@ -230,6 +230,9 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
         band.toggleFullSize();
         resumeFullPending = true;
       }
+      // A To prompt send is often the review's last turn: the band rolled up
+      // (main's 'to-prompt'), and no armed resume may bring it back.
+      if (e.channel === 'rv-to-prompt') resumeFullPending = false;
       // The guest re-reads the store on every refresh and reports where the
       // agent's turn stands. One-shot at the moment it turns: the flag clears
       // whether or not motion happens, and motion only if the band is open at
