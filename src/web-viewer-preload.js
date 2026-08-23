@@ -29,7 +29,7 @@
 // un-sent card carries that same Discard, because here click-away commits.
 
 const { ipcRenderer } = require('electron');
-const { normWS, nearestHeading, toast, createComposer, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
+const { normWS, nearestHeading, toast, createComposer, toPromptAction, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
 const { getViewerShortcutAction } = require('./viewer-shortcut');
 const { createCommitEditController } = require('./review-commit-edit');
 const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
@@ -393,7 +393,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
           if (!res || !res.success) return res;
           store = res.data;
           renderAndTrack(false);
-          if (item.alsoSend) sendThread('Edit sent to agent');
+          if (item.alsoSend) sendThread('Edit sent to agent', { toPrompt: !!item.toPrompt });
           else toast('Edit added');
           return res;
         });
@@ -405,7 +405,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
           if (!res || !res.success) return res;
           store = res.data;
           renderAndTrack(false);
-          if (item.alsoSend) sendThread('Edit sent to agent');
+          if (item.alsoSend) sendThread('Edit sent to agent', { toPrompt: !!item.toPrompt });
           else toast('Edit updated');
           return res;
         });
@@ -503,7 +503,8 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       seed: initialText || '',
       onCancel: closeQuoteComposer,
       actions: [
-        { label: sendLabel(1), primary: true, onClick: function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeQuoteComposer); } },
+        { label: sendLabel(1), primary: true, title: 'Enter', onClick: function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeQuoteComposer); } },
+        toPromptAction(function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeQuoteComposer, { toPrompt: true }); }),
         { label: 'Discard', onClick: closeQuoteComposer },
       ],
     });
@@ -566,7 +567,8 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       placeholder: 'Comment on this line…',
       onCancel: closeComposer,
       actions: [
-        { label: sendLabel(1), primary: true, onClick: function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeComposer); } },
+        { label: sendLabel(1), primary: true, title: 'Enter', onClick: function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeComposer); } },
+        toPromptAction(function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeComposer, { toPrompt: true }); }),
         { label: 'Discard', onClick: closeComposer },
       ],
     });
@@ -581,7 +583,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     c.focus();
   }
 
-  function submitNew(anchor, ta, el, alsoSend, onClose) {
+  function submitNew(anchor, ta, el, alsoSend, onClose, opts) {
     const body = ta.value.trim();
     if (!body) return;
     const btns = el.querySelectorAll('button');
@@ -596,7 +598,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       if (onClose) onClose();
       renderAndTrack(false);
       // The Send primary composes and pings the agent in one action.
-      if (alsoSend) sendThread('Comment sent to agent');
+      if (alsoSend) sendThread('Comment sent to agent', opts);
       else toast('Comment added');
     });
   }
@@ -963,6 +965,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       + '<div class="rv-thread-actions">'
       + '<button class="rv-link" data-act="comment">Comment</button>'
       + (needsSend ? '<button class="rv-link" data-act="send">' + esc(sendLabel(0)) + '</button>' : '')
+      + (needsSend ? '<button class="rv-link" data-act="toprompt" title="' + esc(toPromptAction(function(){}).title) + '">To prompt</button>' : '')
       + (discardable ? '<button class="rv-link" data-act="discard">' + (editParsed ? 'Discard edit' : 'Discard') + '</button>' : '')
       + (waiting ? '<span class="rv-awaiting">sent — awaiting agent</span>' : '')
       + '</div>';
@@ -980,6 +983,8 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     div.querySelector('[data-act=comment]').onclick = function () { openReply(div, t.id); };
     const sendBtn = div.querySelector('[data-act=send]');
     if (sendBtn) sendBtn.onclick = function () { sendThread('Sent to agent'); };
+    const toPromptBtn = div.querySelector('[data-act=toprompt]');
+    if (toPromptBtn) toPromptBtn.onclick = function () { sendThread(null, { toPrompt: true }); };
     const discardBtn = div.querySelector('[data-act=discard]');
     if (discardBtn) discardBtn.onclick = function () { discardThread(t.id, editParsed ? 'Edit' : 'Comment'); };
     const collapseBtn = div.querySelector('[data-act=collapse]');
@@ -999,7 +1004,8 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       rows: 2,
       onCancel: function () { box.remove(); activeComposer = null; },
       actions: [
-        { label: sendLabel(sendExtraFor(threadId)), primary: true, onClick: function (ctx) { activeComposer = null; sendReply(threadId, ctx.textarea, ctx.root, true); } },
+        { label: sendLabel(sendExtraFor(threadId)), primary: true, title: 'Enter', onClick: function (ctx) { activeComposer = null; sendReply(threadId, ctx.textarea, ctx.root, true); } },
+        toPromptAction(function (ctx) { activeComposer = null; sendReply(threadId, ctx.textarea, ctx.root, true, { toPrompt: true }); }),
         { label: 'Discard', onClick: function () { box.remove(); activeComposer = null; } },
       ],
     });
@@ -1013,7 +1019,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     c.focus();
   }
 
-  function sendReply(threadId, ta, box, alsoSend) {
+  function sendReply(threadId, ta, box, alsoSend, opts) {
     const body = ta.value.trim();
     if (!body) return;
     box.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
@@ -1027,7 +1033,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
         store = res.data;
         renderAndTrack(false);
         // The Send primary posts the follow-up and pings the agent in one action.
-        if (alsoSend) sendThread('Comment sent to agent');
+        if (alsoSend) sendThread('Comment sent to agent', opts);
         else toast('Comment added');
       });
   }
@@ -1036,10 +1042,11 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
   // <file>") into its terminal. Pure pointer — the store is the single source
   // of truth, so no thread content (not even the one just composed) rides in
   // the prompt; the count covers everything pending.
-  function sendThread(okMsg) {
-    ipcRenderer.invoke('rv-send-to-agent', { commentsUrl: commentsUrl }).then(function (res) {
+  function sendThread(okMsg, opts) {
+    const toPrompt = !!(opts && opts.toPrompt);
+    ipcRenderer.invoke('rv-send-to-agent', { commentsUrl: commentsUrl, toPrompt: toPrompt }).then(function (res) {
       if (!res || !res.success) { toast((res && res.error) || 'Could not send'); return; }
-      toast(okMsg || 'Sent to agent');
+      toast(toPrompt ? 'In the prompt — finish and press Enter' : (okMsg || 'Sent to agent'));
       // The boundary moved: re-derive the cards now, so the just-covered threads
       // flip from Send to awaiting (and earlier waves fold) without waiting for
       // the next store read.
@@ -1051,7 +1058,8 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       }
       // The host recedes a full-size band to golden on a send (web-viewer.js) —
       // the turn just passed to the agent, whose pickup shows in the terminal.
-      try { ipcRenderer.sendToHost('rv-sent'); } catch {}
+      // To prompt instead rolls the band up via main's 'to-prompt' event.
+      if (!toPrompt) { try { ipcRenderer.sendToHost('rv-sent'); } catch {} }
     });
   }
 

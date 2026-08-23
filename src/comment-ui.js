@@ -87,9 +87,36 @@ function ensureComposerStyle() {
   document.head.appendChild(st);
 }
 
+// The modifier-Enter chord as the user reads it on their platform. Cmd/Ctrl+
+// Enter is the one chord the composers advertise: it fires the To prompt
+// action (below), the only key a first use would not teach.
+function isMac() {
+  return typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(String(navigator.platform || ''));
+}
+function modEnterLabel() { return isMac() ? '⌘↩' : 'Ctrl↩'; }
+function isModEnter(e) {
+  return e.key === 'Enter' && (isMac() ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey;
+}
+
+// The To prompt action, shared by every composer: Send's sibling that pastes
+// the same message into the CLI input and leaves it there, cursor on a fresh
+// line, for the user to finish typing (an overall comment, say) and press
+// Enter themselves. Quiet like Discard; carries its chord, since nothing else
+// would teach it. Send carries no key: Enter is the CLI's own, learned once.
+function toPromptAction(onClick) {
+  return {
+    label: 'To prompt',
+    shortcut: modEnterLabel(),
+    modEnter: true,
+    title: 'Put the message in the prompt without sending; type the rest there and press Enter',
+    onClick: onClick,
+  };
+}
+
 // One composer widget for all comment surfaces: optional quote + heading preview,
 // a textarea (seeded, focus-at-end), and action buttons. Key contract: plain
-// Enter fires the primary action; Shift/Alt+Enter = newline; Esc = onCancel.
+// Enter fires the primary action; Shift/Alt+Enter = newline; Esc = onCancel;
+// Cmd/Ctrl+Enter fires the action flagged modEnter (see toPromptAction).
 // Each action's onClick gets { root, textarea } so the caller can disable buttons
 // and read the value. Optional onInput(ctx) fires on every keystroke (autogrow /
 // fit / footer for the queue surfaces). Returns { root, textarea, primaryButton,
@@ -105,7 +132,9 @@ function createComposer({ quote = '', anchorLabel = '', placeholder = '', seed =
   html += '<textarea class="cu-ta" rows="' + rows + '"></textarea>'
     + '<div class="cu-actions">'
     + actions.map(function (a, i) {
-        return '<button class="cu-btn' + (a.primary ? ' cu-primary' : '') + '" data-i="' + i + '">' + escHtml(a.label) + (a.shortcut ? '<span class="cu-kbd">' + escHtml(a.shortcut) + '</span>' : '') + '</button>';
+        return '<button class="cu-btn' + (a.primary ? ' cu-primary' : '') + '" data-i="' + i + '"'
+          + (a.title ? ' title="' + escHtml(a.title) + '"' : '') + '>'
+          + escHtml(a.label) + (a.shortcut ? '<span class="cu-kbd">' + escHtml(a.shortcut) + '</span>' : '') + '</button>';
       }).join('')
     + '</div>';
   root.innerHTML = html;
@@ -114,12 +143,14 @@ function createComposer({ quote = '', anchorLabel = '', placeholder = '', seed =
   if (seed) ta.value = seed;
   const ctx = { root: root, textarea: ta };
   const primary = actions.find(function (a) { return a.primary; });
+  const modEnter = actions.find(function (a) { return a.modEnter; });
   actions.forEach(function (a, i) {
     root.querySelector('[data-i="' + i + '"]').onclick = function () { a.onClick(ctx); };
   });
   ta.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { e.preventDefault(); if (onCancel) onCancel(); return; }
-    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && primary) { e.preventDefault(); primary.onClick(ctx); }
+    if (modEnter && isModEnter(e)) { e.preventDefault(); modEnter.onClick(ctx); return; }
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey && primary) { e.preventDefault(); primary.onClick(ctx); }
   });
   if (onInput) ta.addEventListener('input', function () { onInput(ctx); });
   return {
@@ -213,7 +244,7 @@ function isPasteCommentShortcut(event) {
 }
 
 module.exports = {
-  normWS, nearestHeading, toast, createComposer,
+  normWS, nearestHeading, toast, createComposer, toPromptAction, modEnterLabel, isModEnter,
   highlightRange, clearHighlight, highlightRanges, rangeOfText,
   isPasteCommentShortcut,
 };

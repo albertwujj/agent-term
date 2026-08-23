@@ -17,7 +17,7 @@
 //
 // Electron-free: the host supplies IO; esbuild bundles this into the preload.
 
-const { createComposer, normWS } = require('./comment-ui');
+const { createComposer, normWS , toPromptAction } = require('./comment-ui');
 const {
   isCommentEntryKey,
   isEditEntryKey,
@@ -380,7 +380,6 @@ function createCommitEditController(io) {
   function attachStrip(sess, block) {
     const wrap = document.createElement('div');
     wrap.className = 'rv-edit-compose';
-    const sendShortcut = io.platform === 'darwin' ? '↩' : 'Enter';
     const composer = createComposer({
       placeholder: 'Note for the agent about this edit...',
       seed: sess.note || '',
@@ -393,10 +392,11 @@ function createCommitEditController(io) {
           // A revisit updates a thread that is already in the send tally; a
           // fresh edit adds one. The host resolves which from the id.
           label: (io.sendLabel && io.sendLabel(sess.revisit ? sess.revisit.threadId : null)) || 'Send',
-          shortcut: sendShortcut,
+          title: 'Enter',
           primary: true,
           onClick: () => commit(true),
         },
+        toPromptAction(() => commit(true, { toPrompt: true })),
       ],
     });
     wrap.appendChild(composer.root);
@@ -465,7 +465,7 @@ function createCommitEditController(io) {
     }
   }
 
-  function commit(alsoSend) {
+  function commit(alsoSend, { toPrompt = false } = {}) {
     if (!session) return;
     const sess = session;
     const hasMarks = !!sess.block.querySelector('del.md-pending-del, ins.md-pending-ins');
@@ -487,7 +487,7 @@ function createCommitEditController(io) {
     // decoration pass re-marks it from the store on the next render.
     teardown(sess.cleanHtml);
     const write = sess.revisit
-      ? io.updateEditThread({ threadId: sess.revisit.threadId, body, note, alsoSend: !!alsoSend })
+      ? io.updateEditThread({ threadId: sess.revisit.threadId, body, note, alsoSend: !!alsoSend, toPrompt })
       : io.addEditThread({
           anchor: {
             path: '(commit message)',
@@ -496,7 +496,7 @@ function createCommitEditController(io) {
             wholeBlock: true,
             heading: 'Commit message',
           },
-          body, note, alsoSend: !!alsoSend,
+          body, note, alsoSend: !!alsoSend, toPrompt,
         });
     Promise.resolve(write).then((res) => {
       if (!res || !res.success) {

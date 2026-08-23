@@ -267,6 +267,27 @@ function writeAsBracketedPasteSubmission(body) {
   return writeBodyThenSubmit(`\x1b[200~${text}\x1b[201~`);
 }
 
+// "To prompt": the same message, pasted into the CLI's input and left there
+// for the user to finish — no CR. The trailing blank line puts their cursor on
+// its own line, so what they type reads as a paragraph after the message
+// rather than gluing onto its last line. The renderer is told so it can roll
+// the viewer up and focus the terminal: the user is about to type there.
+function writeAsBracketedPasteToPrompt(body) {
+  const text = normalizeInlineCommentSubmission(body);
+  if (!text || !ptyProcess) return false;
+  try { ptyProcess.write(`\x1b[200~${text}\n\n\x1b[201~`); } catch (e) {
+    log('[to-prompt] body write FAILED: ' + (e && e.message));
+    return false;
+  }
+  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('to-prompt'); } catch {}
+  return true;
+}
+
+// One writer for every comment send: submit, or hand to the prompt.
+function pasteCommentMessage(body, { toPrompt = false } = {}) {
+  return toPrompt ? writeAsBracketedPasteToPrompt(body) : writeAsBracketedPasteSubmission(body);
+}
+
 // "AI working" indicator state — drives the taskbar progress bar.
 let lastPtyOutputTime = 0;
 // The same clock minus the user's own typing echo: output that lands within
@@ -2014,11 +2035,11 @@ ipcMain.on('pty-input', (event, data) => {
   }
 });
 
-ipcMain.handle('submit-inline-comment', async (event, body) => {
+ipcMain.handle('submit-inline-comment', async (event, body, { toPrompt = false } = {}) => {
   const text = normalizeInlineCommentSubmission(body);
   if (!text) return { success: false, error: 'Empty comment' };
 
-  const ok = writeAsBracketedPasteSubmission(text);
+  const ok = pasteCommentMessage(text, { toPrompt });
   if (!ok) return { success: false, error: 'No active terminal process' };
 
   pendingResumeIntercept = false;
@@ -3652,7 +3673,7 @@ ipcMain.handle('rv-regenerate', async (event, { kind } = {}) => {
 // sandboxed <webview> preload has no clipboard module of its own.
 ipcMain.handle('rv-clipboard-text', () => clipboard.readText());
 
-ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
+ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false } = {}) => {
   const p = commentsPathFromUrl(commentsUrl);
   if (!validCommentsPath(p)) return { success: false, error: 'not a comments store' };
   const agentPath = agentPathFromCommentsUrl(commentsUrl);
@@ -3681,7 +3702,7 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl } = {}) => {
       + '{"author":"agent",...} message and updating status, and edit code where needed, '
       + 'then commit — the open review renders the committed range and refreshes on its own).',
   ].join('\n');
-  const ok = writeAsBracketedPasteSubmission(text);
+  const ok = pasteCommentMessage(text, { toPrompt });
   if (!ok) return { success: false, error: 'No active terminal process' };
   pendingResumeIntercept = false;
   lastInputTime = Date.now();
@@ -3837,8 +3858,8 @@ function buildMdPointerText(doc, storePosix, runbook, batchKind) {
   ].join('\n');
 }
 
-function pasteMdPointer(doc, storePosix, runbook, batchKind) {
-  const ok = writeAsBracketedPasteSubmission(buildMdPointerText(doc, storePosix, runbook, batchKind));
+function pasteMdPointer(doc, storePosix, runbook, batchKind, { toPrompt = false } = {}) {
+  const ok = pasteCommentMessage(buildMdPointerText(doc, storePosix, runbook, batchKind), { toPrompt });
   if (!ok) return false;
   pendingResumeIntercept = false;
   lastInputTime = Date.now();
@@ -3849,7 +3870,7 @@ function pasteMdPointer(doc, storePosix, runbook, batchKind) {
 
 // One user send-batch of md comments: tick the store's turn clock, append one
 // open thread per comment, then paste the pointer.
-ipcMain.handle('md-add-threads', async (event, { docPath, threads, batchKind, allowMissingRunbook } = {}) => {
+ipcMain.handle('md-add-threads', async (event, { docPath, threads, batchKind, allowMissingRunbook, toPrompt = false } = {}) => {
   const doc = String(docPath || '');
   if (!doc.startsWith('/') || !isMarkdownFilePath(doc)) {
     return { success: false, error: 'Not a markdown document path' };
@@ -3894,7 +3915,7 @@ ipcMain.handle('md-add-threads', async (event, { docPath, threads, batchKind, al
         });
       }
       await saveCommentStore(p, store);
-      if (!pasteMdPointer(doc, storePosix, runbook, batchKind)) {
+      if (!pasteMdPointer(doc, storePosix, runbook, batchKind, { toPrompt })) {
         return { success: false, error: 'No active terminal process' };
       }
       return { success: true, data: store };
@@ -3935,7 +3956,7 @@ ipcMain.handle('md-read-threads', async (event, { docPath } = {}) => {
 // A follow-up on an existing thread. Same send semantics as a new batch —
 // Enter always sends in the md grammar — so it reopens the thread, ticks the
 // turn clock, and pastes the pointer.
-ipcMain.handle('md-add-message', async (event, { docPath, threadId, body, allowMissingRunbook } = {}) => {
+ipcMain.handle('md-add-message', async (event, { docPath, threadId, body, allowMissingRunbook, toPrompt = false } = {}) => {
   const doc = String(docPath || '');
   if (!doc.startsWith('/') || !isMarkdownFilePath(doc)) {
     return { success: false, error: 'Not a markdown document path' };
@@ -3956,7 +3977,7 @@ ipcMain.handle('md-add-message', async (event, { docPath, threadId, body, allowM
       t.messages.push({ author: 'user', body: text, ts: Date.now(), turn: store.turn });
       if (t.status !== 'open') t.status = 'open';
       await saveCommentStore(p, store);
-      if (!pasteMdPointer(doc, storePosix, runbook)) {
+      if (!pasteMdPointer(doc, storePosix, runbook, undefined, { toPrompt })) {
         return { success: false, error: 'No active terminal process' };
       }
       return { success: true, data: store };

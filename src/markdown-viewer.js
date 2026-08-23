@@ -11,7 +11,7 @@ const {
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { createViewerBand } = require('./viewer-band');
-const { createComposer, isPasteCommentShortcut } = require('./comment-ui');
+const { createComposer, toPromptAction, isPasteCommentShortcut } = require('./comment-ui');
 const {
   isPlainCommentKey,
   isCommentEntryKey,
@@ -4395,7 +4395,6 @@ function createMarkdownViewer({
     const holder = document.createElement('div');
     holder.className = 'md-pending-strip md-editing-strip';
     holder.addEventListener('mousedown', (event) => event.stopPropagation());
-    const sendShortcut = platform === 'darwin' ? '⌘↩' : 'Ctrl↩';
     // Send flushes the whole batch — this edit plus everything queued — so the
     // label counts when that is more than one (the comment composer's grammar).
     // A revisited block is already in blockOverlays; a fresh edit is not yet.
@@ -4408,7 +4407,8 @@ function createMarkdownViewer({
       onInput: () => { autoGrowTextarea(composer.textarea); session.note = composer.textarea.value; },
       actions: [
         { label: 'Revert', onClick: () => revertBlockEditor() },
-        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: sendShortcut, primary: true, onClick: () => { commitBlockEditor(); sendEditBatch(); } },
+        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', primary: true, title: 'Enter', onClick: () => { commitBlockEditor(); sendEditBatch(); } },
+        toPromptAction(() => { commitBlockEditor(); sendEditBatch({ toPrompt: true }); }),
       ],
     });
     // Buttons must not steal focus from the editor (that blur would commit
@@ -4719,7 +4719,6 @@ function createMarkdownViewer({
     holder.className = 'md-pending-strip';
     holder.addEventListener('mousedown', (event) => event.stopPropagation());
     holder.addEventListener('click', (event) => event.stopPropagation());
-    const sendShortcut = platform === 'darwin' ? '⌘↩' : 'Ctrl↩';
     // This overlay is already in the batch; count everything Send will flush.
     const batchCount = state.queuedComments.length + state.blockOverlays.size;
     const composer = createComposer({
@@ -4733,7 +4732,8 @@ function createMarkdownViewer({
       },
       actions: [
         { label: 'Revert', onClick: () => undoOverlay(anchorId) },
-        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: sendShortcut, primary: true, onClick: () => sendEditBatch() },
+        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', primary: true, title: 'Enter', onClick: () => sendEditBatch() },
+        toPromptAction(() => sendEditBatch({ toPrompt: true })),
       ],
     });
     holder.appendChild(composer.root);
@@ -4843,7 +4843,7 @@ function createMarkdownViewer({
   // as a comment thread carrying its exact marks, keyed to the frozen block;
   // queued comments ride along. Preflight the runbook first (found: send with it;
   // missing: send-anyway ack or cancel), then hand off as one turn.
-  async function sendEditBatch() {
+  async function sendEditBatch({ toPrompt = false } = {}) {
     const doc = state.resolvedPath || state.filePath;
     if (!doc || typeof submitMarkdownThreads !== 'function') return false;
     const commentRecords = getPendingMarkdownCommentRecords();
@@ -4873,10 +4873,12 @@ function createMarkdownViewer({
         const batchKind = editCount && threads.length > editCount
           ? 'mixed'
           : (editCount ? 'edits' : 'comments');
-        const result = await submitMarkdownThreads({ docPath: doc, threads, batchKind, allowMissingRunbook });
+        const result = await submitMarkdownThreads({ docPath: doc, threads, batchKind, allowMissingRunbook, toPrompt });
         if (!result || !result.success) throw new Error((result && result.error) || 'Could not send the batch');
         adoptThreadStore(result.data);
-        recedeForAgentTurn();
+        // To prompt is the user's hand taking the layout: main's 'to-prompt'
+        // event rolls the band up and no resume is armed.
+        if (!toPrompt) recedeForAgentTurn();
       }
       state.blockOverlays = new Map();
       state.expandedHunkKey = null;
@@ -5539,7 +5541,8 @@ function createMarkdownViewer({
       onInput: () => autoGrowTextarea(composer.textarea),
       actions: [
         { label: 'Discard', onClick: () => closeThreadReply() },
-        { label: 'Send', primary: true, onClick: () => submitThreadReply(thread, composer) },
+        { label: 'Send', primary: true, title: 'Enter', onClick: () => submitThreadReply(thread, composer) },
+        toPromptAction(() => submitThreadReply(thread, composer, { toPrompt: true })),
       ],
     });
     composer.textarea.spellcheck = true;
@@ -5551,7 +5554,7 @@ function createMarkdownViewer({
     composer.focus();
   }
 
-  async function submitThreadReply(thread, composer) {
+  async function submitThreadReply(thread, composer, { toPrompt = false } = {}) {
     if (typeof addMarkdownThreadMessage !== 'function') return;
     const text = composer.textarea.value.trim();
     if (!text || composer.primaryButton.disabled) return;
@@ -5569,6 +5572,7 @@ function createMarkdownViewer({
         threadId: thread.id,
         body: text,
         allowMissingRunbook,
+        toPrompt,
       });
       if (!result || !result.success) {
         if (typeof showToast === 'function') showToast((result && result.error) || 'Could not send reply');
@@ -5581,7 +5585,7 @@ function createMarkdownViewer({
       // rests as the waiting line rather than staying expanded.
       state.expandedThreads.delete(thread.id);
       adoptThreadStore(result.data);
-      recedeForAgentTurn();
+      if (!toPrompt) recedeForAgentTurn();
       layoutSpread();
       if (typeof showToast === 'function') showToast('Reply sent');
     } catch (error) {
@@ -6011,7 +6015,8 @@ function createMarkdownViewer({
       },
       actions: [
         { label: 'Discard', onClick: discard },
-        { label: primaryLabel, primary: true, onClick: () => submitComment() },
+        { label: primaryLabel, primary: true, title: 'Enter', onClick: () => submitComment() },
+        toPromptAction(() => submitComment({ toPrompt: true })),
       ],
     });
     composer.textarea.spellcheck = true;
@@ -6110,13 +6115,13 @@ function createMarkdownViewer({
   // One send: the composer's Enter, the pill, and ⌘↩ are the same action —
   // everything pending (edit hunks with notes + comment drafts, the active
   // composer's text included) hands off as one turn.
-  async function submitComment() {
+  async function submitComment({ toPrompt = false } = {}) {
     if (!state.activeCard) return;
     const { textarea, sendButton } = state.activeCard;
     if (sendButton.disabled) return;
     if (!textarea.value.trim() && !state.queuedComments.length && state.blockOverlays.size === 0) return;
     sendButton.disabled = true; // also guards against a double Enter
-    const sent = await sendEditBatch();
+    const sent = await sendEditBatch({ toPrompt });
     if (!sent && state.activeCard) sendButton.disabled = false; // failed; still open
   }
 
@@ -6215,13 +6220,18 @@ function createMarkdownViewer({
       band.hide();
       return;
     }
-    // Cmd/Ctrl+Enter ends the user's turn: commit any open editor, then hand
-    // the batch off (write + threads + pointer). Empty batch = no-op.
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      if (state.editing || state.blockOverlays.size > 0) {
+    // The page-wide finishing chords, live only while a batch is pending and
+    // only outside a composer (a composer's textarea handles its own keys and
+    // the event still bubbles here). Cmd/Ctrl+Enter puts the batch in the
+    // prompt for the user to finish typing — the composers' To prompt, page-
+    // wide; with Shift it sends, the old end-of-turn. Both commit any open
+    // editor first. Empty batch = no-op.
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter'
+      && !(event.target && event.target.closest && event.target.closest('.cu-composer'))) {
+      if (state.editing || state.blockOverlays.size > 0 || state.queuedComments.length > 0) {
         event.preventDefault();
         if (state.editing) commitBlockEditor();
-        sendEditBatch();
+        sendEditBatch({ toPrompt: !event.shiftKey });
         return;
       }
     }

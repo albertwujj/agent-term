@@ -26,7 +26,7 @@ const streamIndicator = require('./stream/stream-indicator');
 const { createHttpUrlOpener } = require('./url-open');
 const { createWebViewer } = require('./web-viewer');
 const { createMarkdownViewer } = require('./markdown-viewer');
-const { createComposer, isPasteCommentShortcut } = require('./comment-ui');
+const { createComposer, toPromptAction, isPasteCommentShortcut } = require('./comment-ui');
 const {
   VIEWER_URL_SOURCE,
   ViewerHistory,
@@ -617,6 +617,14 @@ function handleViewerShortcut(action) {
 
 // Open-the-most-recent channel: no chord sends it, but the e2e harness does.
 window.pty.onOpenRecentViewerUrl(() => { queueRecentViewerOpen(); });
+// A batch went to the prompt unsubmitted (any surface): the user types there
+// next, so the same withdraw as typing — viewers roll up, terminal focused.
+if (typeof window.pty.onToPrompt === 'function') {
+  window.pty.onToPrompt(() => {
+    withdrawViewersOnInput();
+    try { terminal.focus(); } catch {}
+  });
+}
 if (typeof window.pty.onViewerShortcut === 'function') {
   window.pty.onViewerShortcut((action) => { handleViewerShortcut(action); });
 }
@@ -1910,25 +1918,36 @@ function ensureTerminalCommentFooter() {
   sendButton.className = 'terminal-comment-footer-send';
   sendButton.textContent = 'Send';
 
+  // Send's sibling: the same batch into the CLI input, unsubmitted, for the
+  // user to finish (comment-ui's toPromptAction; the composer carries the chord).
+  const toPromptButton = document.createElement('button');
+  toPromptButton.type = 'button';
+  toPromptButton.textContent = 'To prompt';
+  toPromptButton.title = toPromptAction(() => {}).title;
+
   const discardButton = document.createElement('button');
   discardButton.type = 'button';
   discardButton.textContent = 'Discard';
 
-  footer.append(count, sendButton, discardButton);
+  footer.append(count, sendButton, toPromptButton, discardButton);
   footer._count = count;
   footer._sendButton = sendButton;
+  footer._toPromptButton = toPromptButton;
   footer._discardButton = discardButton;
 
   const stopTerminalEvent = (e) => e.stopPropagation();
   footer.addEventListener('mousedown', stopTerminalEvent);
   footer.addEventListener('click', stopTerminalEvent);
   footer.addEventListener('dblclick', stopTerminalEvent);
-  sendButton.addEventListener('click', () => {
+  const flush = (opts) => {
     sendButton.disabled = true; // guards a double click through the async send
-    Promise.resolve(submitTerminalCommentBatch()).finally(() => {
-      if (terminalCommentFooter === footer) sendButton.disabled = false;
+    toPromptButton.disabled = true;
+    Promise.resolve(submitTerminalCommentBatch(opts)).finally(() => {
+      if (terminalCommentFooter === footer) { sendButton.disabled = false; toPromptButton.disabled = false; }
     });
-  });
+  };
+  sendButton.addEventListener('click', () => flush());
+  toPromptButton.addEventListener('click', () => flush({ toPrompt: true }));
   discardButton.addEventListener('click', () => discardTerminalCommentBatch());
 
   document.body.appendChild(footer);
@@ -2024,7 +2043,7 @@ function discardTerminalCommentBatch() {
   clearQueuedTerminalComments();
 }
 
-async function submitTerminalCommentBatch() {
+async function submitTerminalCommentBatch({ toPrompt = false } = {}) {
   const comments = getPendingTerminalCommentRecords();
   if (comments.length === 0) return;
 
@@ -2032,7 +2051,7 @@ async function submitTerminalCommentBatch() {
   // not from a footer button anymore, so there's nothing here to toggle.
   const message = buildTerminalCommentBatchMessage(comments);
   try {
-    const result = await window.pty.submitInlineComment(message);
+    const result = await window.pty.submitInlineComment(message, { toPrompt });
     if (!result || !result.success) {
       showToast((result && result.error) || 'Could not send comments');
       return;
@@ -2046,7 +2065,9 @@ async function submitTerminalCommentBatch() {
     updateTerminalCommentFooter();
     clearTerminalSelection();
     unfreezeTerminalOutput();
-    showToast(comments.length === 1 ? 'Comment sent' : `${comments.length} comments sent`);
+    showToast(toPrompt
+      ? 'In the prompt — finish and press Enter'
+      : (comments.length === 1 ? 'Comment sent' : `${comments.length} comments sent`));
     try { terminal.focus(); } catch {}
   } catch (error) {
     showToast(error && error.message ? error.message : 'Could not send comments');
@@ -2126,7 +2147,8 @@ function openTerminalCommentEditor({
     onInput: () => updateTerminalCommentFooter(),
     actions: [
       { label: 'Discard', onClick: discard },
-      { label: primaryLabel, primary: true, onClick: () => submit() },
+      { label: primaryLabel, primary: true, title: 'Enter', onClick: () => submit() },
+      toPromptAction(() => submit({ toPrompt: true })),
     ],
   });
   composer.textarea.spellcheck = true;
@@ -2183,7 +2205,7 @@ function openTerminalCommentEditor({
     document.addEventListener('keydown', onDocumentKeyDown, true);
   }, 0);
 
-  const submit = async () => {
+  const submit = async ({ toPrompt = false } = {}) => {
     const comment = composer.textarea.value.trim();
     if (!comment || composer.primaryButton.disabled) return;
     composer.primaryButton.disabled = true; // also guards against a double Enter
@@ -2191,14 +2213,14 @@ function openTerminalCommentEditor({
     // Enter always sends. If earlier comments were queued (by moving away from
     // them), flush the whole batch with this one; otherwise send this one alone.
     if (queuedTerminalComments.length > 0) {
-      await submitTerminalCommentBatch();
+      await submitTerminalCommentBatch({ toPrompt });
       if (activeTerminalComment) composer.primaryButton.disabled = false; // batch failed; still open
       return;
     }
 
     const message = buildTerminalCommentMessage({ ...context, comment });
     try {
-      const result = await window.pty.submitInlineComment(message);
+      const result = await window.pty.submitInlineComment(message, { toPrompt });
       if (!result || !result.success) {
         showToast((result && result.error) || 'Could not send comment');
         composer.primaryButton.disabled = false;
@@ -2206,7 +2228,7 @@ function openTerminalCommentEditor({
       }
       closeTerminalComment();
       unfreezeTerminalOutput();
-      showToast('Comment sent');
+      showToast(toPrompt ? 'In the prompt — finish and press Enter' : 'Comment sent');
     } catch (error) {
       showToast(error && error.message ? error.message : 'Could not send comment');
       composer.primaryButton.disabled = false;

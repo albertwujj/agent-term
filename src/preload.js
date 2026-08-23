@@ -4,7 +4,9 @@ contextBridge.exposeInMainWorld('pty', {
   platform: process.platform,
   start: (cols, rows) => ipcRenderer.send('pty-start', { cols, rows }),
   write: (data) => ipcRenderer.send('pty-input', data),
-  submitInlineComment: (body) => ipcRenderer.invoke('submit-inline-comment', body),
+  // opts.toPrompt: paste the message into the CLI input and leave it there
+  // (no Enter) for the user to finish typing; main then emits 'to-prompt'.
+  submitInlineComment: (body, opts) => ipcRenderer.invoke('submit-inline-comment', body, opts),
   // One md comment batch → sidecar threads + pointer paste (md viewer; see
   // ~/agent-threads/md/user-intent.md).
   mdAddThreads: (payload) => ipcRenderer.invoke('md-add-threads', payload),
@@ -18,6 +20,9 @@ contextBridge.exposeInMainWorld('pty', {
   mdWriteFile: (payload) => ipcRenderer.invoke('md-write-file', payload),
   resize: (cols, rows) => ipcRenderer.send('pty-resize', { cols, rows }),
   onData: (callback) => ipcRenderer.on('pty-output', (event, data) => callback(data)),
+  // A comment batch was handed to the prompt unsubmitted (any surface): roll
+  // the viewers up and focus the terminal, the user types there next.
+  onToPrompt: (callback) => ipcRenderer.on('to-prompt', () => callback()),
   onExit: (callback) => ipcRenderer.on('pty-exit', (event, code) => callback(code)),
   onResize: (callback) => ipcRenderer.on('resize', (event, size) => callback(size)),
   // Navigate to file:line in PyCharm via the navigator plugin
