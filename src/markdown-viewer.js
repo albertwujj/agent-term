@@ -4876,18 +4876,7 @@ function createMarkdownViewer({
         const result = await submitMarkdownThreads({ docPath: doc, threads, batchKind, allowMissingRunbook });
         if (!result || !result.success) throw new Error((result && result.error) || 'Could not send the batch');
         adoptThreadStore(result.data);
-        // Sending hands the turn to the agent. At full size that leaves the user
-        // blind to the pickup, so recede to the golden split: the terminal slides
-        // into view underneath (the receipt) while the doc keeps the major share,
-        // where the replies land. The user chose full mode, so the recede arms a
-        // resume: when the store says the agent's turn is over (no thread awaits
-        // it — see maybeResumeFullSize), full size comes back. The store is the
-        // one true done signal; PTY quiet can't tell a finished turn from a
-        // permission prompt, so no auto-expand rides the working heuristics.
-        if (band.isFull()) {
-          band.toggleFullSize();
-          state.resumeFullPending = true;
-        }
+        recedeForAgentTurn();
       }
       state.blockOverlays = new Map();
       state.expandedHunkKey = null;
@@ -5081,6 +5070,23 @@ function createMarkdownViewer({
   // the moment the store turns: if the user has meanwhile taken the layout into
   // their own hands (band hidden by terminal typing or Esc, or already resized),
   // the moment passes and nothing moves — their hand wins over the restoration.
+  // Sending hands the turn to the agent. At full size that leaves the user
+  // blind to the pickup, so recede to the golden split: the terminal slides
+  // into view underneath (the receipt) while the doc keeps the major share,
+  // where the replies land. The user chose full mode, so the recede arms a
+  // resume: when the store says the agent's turn is over (no thread awaits
+  // it — see maybeResumeFullSize), full size comes back. The store is the
+  // one true done signal; PTY quiet can't tell a finished turn from a
+  // permission prompt, so no auto-expand rides the working heuristics.
+  // Every hand-over takes this path — a batch send and a thread reply alike:
+  // a reply from full size used to leave the band up, so the user typed a
+  // follow-up and never saw the agent pick it up.
+  function recedeForAgentTurn() {
+    if (!band.isFull()) return;
+    band.toggleFullSize();
+    state.resumeFullPending = true;
+  }
+
   function maybeResumeFullSize() {
     if (!state.resumeFullPending || !agentTurnOverInStore()) return;
     state.resumeFullPending = false;
@@ -5575,6 +5581,7 @@ function createMarkdownViewer({
       // rests as the waiting line rather than staying expanded.
       state.expandedThreads.delete(thread.id);
       adoptThreadStore(result.data);
+      recedeForAgentTurn();
       layoutSpread();
       if (typeof showToast === 'function') showToast('Reply sent');
     } catch (error) {
