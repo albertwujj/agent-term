@@ -230,6 +230,12 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
         band.toggleFullSize();
         resumeFullPending = true;
       }
+      // A banner nudge (Notify agent) pastes its prompt the same way, so a
+      // full-size band recedes the same way — but no threads changed hands, so
+      // it never arms the resume: with the review's threads possibly already
+      // all-resolved, an armed resume would fire on the next store snapshot,
+      // mid-agent-work. An earlier send's armed resume stays armed.
+      if (e.channel === 'rv-nudged' && band.isFull()) band.toggleFullSize();
       // A To prompt send is often the review's last turn: the band rolled up
       // (main's 'to-prompt'), and no armed resume may bring it back.
       if (e.channel === 'rv-to-prompt') resumeFullPending = false;

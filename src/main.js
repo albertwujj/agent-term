@@ -308,6 +308,20 @@ function pasteCommentMessage(body, { toPrompt = false } = {}) {
   return toPrompt ? writeAsBracketedPasteToPrompt(body) : writeAsBracketedPasteSubmission(body);
 }
 
+// One finisher for every user-initiated agent ping (inline comment, review
+// send, review banner nudge, md pointer): paste, then the bookkeeping the
+// paste implies — the prompt went to a live CLI, so a still-armed resume
+// intercept is stale; the click was real engagement (window cap); and the
+// typing suppression releases so the progress bar can show the pickup.
+function pasteAgentPing(body, { toPrompt = false } = {}) {
+  if (!pasteCommentMessage(body, { toPrompt })) return false;
+  pendingResumeIntercept = false;
+  lastInputTime = Date.now();
+  lastTypingTime = 0;
+  lastInputByte = '';
+  return true;
+}
+
 // "AI working" indicator state — drives the taskbar progress bar.
 let lastPtyOutputTime = 0;
 // The same clock minus the user's own typing echo: output that lands within
@@ -2059,13 +2073,8 @@ ipcMain.handle('submit-inline-comment', async (event, body, { toPrompt = false }
   const text = normalizeInlineCommentSubmission(body);
   if (!text) return { success: false, error: 'Empty comment' };
 
-  const ok = pasteCommentMessage(text, { toPrompt });
+  const ok = pasteAgentPing(text, { toPrompt });
   if (!ok) return { success: false, error: 'No active terminal process' };
-
-  pendingResumeIntercept = false;
-  lastInputTime = Date.now();
-  lastTypingTime = 0;
-  lastInputByte = '';
   return { success: true };
 });
 
@@ -3685,8 +3694,8 @@ function reviewRegenPrompt(kind) {
     + `Read the list in ${list}, fix each one in the package, and save; the open review re-renders on its own.`;
 }
 ipcMain.handle('rv-regenerate', async (event, { kind } = {}) => {
-  const ok = writeAsBracketedPasteSubmission(reviewRegenPrompt(kind));
-  return ok ? { success: true } : { success: false, error: 'no active terminal process' };
+  const ok = pasteAgentPing(reviewRegenPrompt(kind));
+  return ok ? { success: true } : { success: false, error: 'No active terminal process' };
 });
 
 // Clipboard text for the review guest's Cmd/Ctrl+V type-to-comment: the
@@ -3722,12 +3731,8 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false
       + '{"author":"agent",...} message and updating status, and edit code where needed, '
       + 'then commit — the open review renders the committed range and refreshes on its own).',
   ].join('\n');
-  const ok = pasteCommentMessage(text, { toPrompt });
+  const ok = pasteAgentPing(text, { toPrompt });
   if (!ok) return { success: false, error: 'No active terminal process' };
-  pendingResumeIntercept = false;
-  lastInputTime = Date.now();
-  lastTypingTime = 0;
-  lastInputByte = '';
   // Record the send IN the store, after the ping actually went out: tick the
   // turn and stamp every user message this hands over. A failed stamp only
   // costs a re-send, where stamping first and failing to paste would leave
@@ -3879,13 +3884,7 @@ function buildMdPointerText(doc, storePosix, runbook, batchKind) {
 }
 
 function pasteMdPointer(doc, storePosix, runbook, batchKind, { toPrompt = false } = {}) {
-  const ok = pasteCommentMessage(buildMdPointerText(doc, storePosix, runbook, batchKind), { toPrompt });
-  if (!ok) return false;
-  pendingResumeIntercept = false;
-  lastInputTime = Date.now();
-  lastTypingTime = 0;
-  lastInputByte = '';
-  return true;
+  return pasteAgentPing(buildMdPointerText(doc, storePosix, runbook, batchKind), { toPrompt });
 }
 
 // One user send-batch of md comments: tick the store's turn clock, append one

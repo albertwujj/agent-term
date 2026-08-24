@@ -115,14 +115,18 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
     ipcRenderer.on('rv-working', function (_e, on) {
       document.body.classList.toggle('rv-agent-working', !!on);
     });
-    // The out-of-date banner's "Regenerate with latest" button (rendered into the
-    // page by review.py) → forward its kind to the host, which prompts the
-    // agent with a fixed message. Delegated, so it survives the comment re-renders.
+    // The banners' "Notify agent" button (rendered into the page by review.py)
+    // → forward its kind to the host, which prompts the agent with a fixed
+    // message. Delegated, so it survives the comment re-renders. The paste is
+    // an agent ping like Send's, so it lands like one (pingFinished) — but on
+    // its own channel: a nudge hands no threads over, so it recedes without
+    // arming Send's resume-to-full.
     document.addEventListener('click', function (e) {
       var btn = e.target && e.target.closest ? e.target.closest('.rv-regen') : null;
       if (!btn) return;
       e.preventDefault();
-      ipcRenderer.invoke('rv-regenerate', { kind: btn.getAttribute('data-rv-regen') || 'refresh' });
+      ipcRenderer.invoke('rv-regenerate', { kind: btn.getAttribute('data-rv-regen') || 'refresh' })
+        .then(function (res) { pingFinished(res, 'rv-nudged', 'Sent to agent'); });
     });
   });
 
@@ -1038,6 +1042,21 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       });
   }
 
+  // How every agent ping lands, Send and banner nudge alike: a failure toasts
+  // the reason; success toasts okMsg and tells the host on `channel`, which
+  // recedes a full-size band to golden (web-viewer.js) — the pasted prompt,
+  // the receipt, shows in the terminal sliding in underneath. Channels:
+  // 'rv-sent' (a send — the host also arms the resume-to-full), 'rv-nudged'
+  // (a banner nudge — recede only), 'rv-to-prompt' (rolls the band up via
+  // main's 'to-prompt' event and disarms any resume an earlier send left
+  // armed: full terminal, staying).
+  function pingFinished(res, channel, okMsg) {
+    if (!res || !res.success) { toast((res && res.error) || 'Could not send'); return false; }
+    toast(okMsg);
+    try { ipcRenderer.sendToHost(channel); } catch {}
+    return true;
+  }
+
   // Ping the agent: pastes a pointer prompt ("read the N open threads in
   // <file>") into its terminal. Pure pointer — the store is the single source
   // of truth, so no thread content (not even the one just composed) rides in
@@ -1045,8 +1064,9 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
   function sendThread(okMsg, opts) {
     const toPrompt = !!(opts && opts.toPrompt);
     ipcRenderer.invoke('rv-send-to-agent', { commentsUrl: commentsUrl, toPrompt: toPrompt }).then(function (res) {
-      if (!res || !res.success) { toast((res && res.error) || 'Could not send'); return; }
-      toast(toPrompt ? 'In the prompt — finish and press Enter' : (okMsg || 'Sent to agent'));
+      const landed = pingFinished(res, toPrompt ? 'rv-to-prompt' : 'rv-sent',
+        toPrompt ? 'In the prompt — finish and press Enter' : (okMsg || 'Sent to agent'));
+      if (!landed) return;
       // The boundary moved: re-derive the cards now, so the just-covered threads
       // flip from Send to awaiting (and earlier waves fold) without waiting for
       // the next store read.
@@ -1056,11 +1076,6 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
         // The stamps live in the store, so re-read rather than re-derive.
         load();
       }
-      // The host recedes a full-size band to golden on a send (web-viewer.js) —
-      // the turn just passed to the agent, whose pickup shows in the terminal.
-      // To prompt instead rolls the band up via main's 'to-prompt' event and
-      // disarms any resume an earlier send left armed: full terminal, staying.
-      try { ipcRenderer.sendToHost(toPrompt ? 'rv-to-prompt' : 'rv-sent'); } catch {}
     });
   }
 
