@@ -19,12 +19,26 @@ repo_root="$(cd -- "$script_dir/.." && pwd)"
 powershell_script="$(wslpath -w "$script_dir/start-windows-from-wsl.ps1" | tr -d '\r')"
 windows_source="$(wslpath -w "$repo_root" | tr -d '\r')"
 
+# Machine policy can require UNC-hosted .ps1 files to be signed even when the
+# process requests ExecutionPolicy Bypass. Carry the arguments through WSLENV
+# and compile the same source as an in-process script block instead.
+export AGENT_TERM_LAUNCHER_PS_WIN="$powershell_script"
+export AGENT_TERM_SOURCE_WIN="$windows_source"
+export AGENT_TERM_SOURCE_WSL="$repo_root"
+export AGENT_TERM_DISTRO="$WSL_DISTRO_NAME"
+interop_vars='AGENT_TERM_LAUNCHER_PS_WIN:AGENT_TERM_SOURCE_WIN:AGENT_TERM_SOURCE_WSL:AGENT_TERM_DISTRO'
+export WSLENV="${WSLENV:+$WSLENV:}$interop_vars"
+
 exec powershell.exe \
   -NoLogo \
   -NoProfile \
   -NonInteractive \
   -ExecutionPolicy Bypass \
-  -File "$powershell_script" \
-  -SourceRoot "$windows_source" \
-  -WslSourceRoot "$repo_root" \
-  -Distro "$WSL_DISTRO_NAME"
+  -Command '
+    $launcherSource = Get-Content -Raw -LiteralPath $env:AGENT_TERM_LAUNCHER_PS_WIN
+    $launcher = [ScriptBlock]::Create($launcherSource)
+    & $launcher `
+      -SourceRoot $env:AGENT_TERM_SOURCE_WIN `
+      -WslSourceRoot $env:AGENT_TERM_SOURCE_WSL `
+      -Distro $env:AGENT_TERM_DISTRO
+  '

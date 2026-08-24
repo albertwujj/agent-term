@@ -25,8 +25,9 @@ function Get-RunnerKey([string]$Identity) {
 $sourcePackage = Join-Path $SourceRoot 'package.json'
 $sourceLock = Join-Path $SourceRoot 'package-lock.json'
 $sourceBootstrap = Join-Path $SourceRoot 'scripts\windows-dev-bootstrap.js'
-$sourcePostinstall = Join-Path $SourceRoot 'scripts\fix-pty-perms.js'
-foreach ($required in @($sourcePackage, $sourceLock, $sourceBootstrap, $sourcePostinstall)) {
+$sourcePostinstall = Join-Path $SourceRoot 'scripts\postinstall.js'
+$sourcePtyPerms = Join-Path $SourceRoot 'scripts\fix-pty-perms.js'
+foreach ($required in @($sourcePackage, $sourceLock, $sourceBootstrap, $sourcePostinstall, $sourcePtyPerms)) {
   if (-not (Test-Path -LiteralPath $required)) {
     throw "Required development file is missing: $required"
   }
@@ -50,7 +51,8 @@ $manifest.main = 'bootstrap.js'
 Write-Utf8NoBom $runnerPackage ($manifest | ConvertTo-Json -Depth 100)
 Copy-Item -Force -LiteralPath $sourceLock -Destination $runnerLock
 Copy-Item -Force -LiteralPath $sourceBootstrap -Destination $runnerBootstrap
-Copy-Item -Force -LiteralPath $sourcePostinstall -Destination (Join-Path $runnerScripts 'fix-pty-perms.js')
+Copy-Item -Force -LiteralPath $sourcePostinstall -Destination (Join-Path $runnerScripts 'postinstall.js')
+Copy-Item -Force -LiteralPath $sourcePtyPerms -Destination (Join-Path $runnerScripts 'fix-pty-perms.js')
 
 $packageHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourcePackage).Hash
 $lockHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceLock).Hash
@@ -65,6 +67,8 @@ $currentStamp = if (Test-Path -LiteralPath $installStamp) {
 if ($currentStamp -ne $wantedStamp -or -not (Test-Path -LiteralPath $electronExe)) {
   $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
   $npmPath = if ($npmCommand) { $npmCommand.Source } else { '' }
+  $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+  $nodePath = if ($nodeCommand) { $nodeCommand.Source } else { '' }
   if (-not $npmPath) {
     # A WSL session opened before Node was installed can carry an old Windows
     # PATH. The MSI's standard location still makes the first launch work
@@ -74,8 +78,33 @@ if ($currentStamp -ne $wantedStamp -or -not (Test-Path -LiteralPath $electronExe
       $npmPath = $standardNpm
     }
   }
-  if (-not $npmPath) {
+  if (-not $nodePath -and $npmPath) {
+    $siblingNode = Join-Path (Split-Path -Parent $npmPath) 'node.exe'
+    if (Test-Path -LiteralPath $siblingNode) {
+      $nodePath = $siblingNode
+    }
+  }
+  if (-not $npmPath -or -not $nodePath) {
     throw 'Windows Node.js/npm is required. Install Windows Node.js, then run this WSL command again.'
+  }
+
+  # npm.cmd can be found by its absolute path while package lifecycle scripts
+  # still fail to resolve bare `node`. This happens when WSL was opened before
+  # the Windows Node MSI was installed, so refresh PATH for this process.
+  $nodeDirectory = Split-Path -Parent $nodePath
+  $pathEntries = @($env:Path -split ';' | Where-Object { $_ })
+  if ($pathEntries -notcontains $nodeDirectory) {
+    $env:Path = "$nodeDirectory;$env:Path"
+  }
+
+  # Corporate TLS roots normally live in the Windows certificate store. Newer
+  # Node LTS releases can combine that store with Node's bundled roots, which
+  # lets Electron's postinstall download work without weakening TLS checks.
+  $originalNodeOptions = $env:NODE_OPTIONS
+  $nodeHelp = (& $nodePath --help 2>$null) -join "`n"
+  if ($nodeHelp -match '--use-system-ca' -and $originalNodeOptions -notmatch '(^|\s)--use-system-ca($|\s)') {
+    $env:NODE_OPTIONS = @($originalNodeOptions, '--use-system-ca') -join ' '
+    $env:NODE_OPTIONS = $env:NODE_OPTIONS.Trim()
   }
 
   Write-Host "Preparing isolated Windows Electron dependencies in $runnerRoot"
@@ -85,6 +114,7 @@ if ($currentStamp -ne $wantedStamp -or -not (Test-Path -LiteralPath $electronExe
     if ($LASTEXITCODE -ne 0) { throw "Windows npm ci failed with exit code $LASTEXITCODE" }
   } finally {
     Pop-Location
+    $env:NODE_OPTIONS = $originalNodeOptions
   }
   Write-Utf8NoBom $installStamp $wantedStamp
 }

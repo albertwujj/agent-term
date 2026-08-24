@@ -2,7 +2,11 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { RUNTIME_ENTRIES, stageSource } = require('../scripts/windows-dev-bootstrap');
+const {
+  RUNTIME_ENTRIES,
+  shouldRun,
+  stageSource,
+} = require('../scripts/windows-dev-bootstrap');
 
 let testsPassed = 0, testsFailed = 0;
 
@@ -79,6 +83,45 @@ test('fails clearly when a runtime source directory is missing', () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('runs only as the Electron entry point with a configured source', () => {
+  assert.strictEqual(shouldRun({
+    versions: { electron: '43.4.1' },
+    env: { AGENT_TERM_DEV_SOURCE_WIN: 'C:\\source' },
+  }), true);
+  assert.strictEqual(shouldRun({
+    versions: { electron: '43.4.1' },
+    env: {},
+  }), false);
+  assert.strictEqual(shouldRun({
+    versions: { node: '24.19.0' },
+    env: { AGENT_TERM_DEV_SOURCE_WIN: 'C:\\source' },
+  }), false);
+});
+
+test('Windows dependency install refreshes Node PATH and uses system CA trust', () => {
+  const launcher = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'start-windows-from-wsl.ps1'),
+    'utf8',
+  );
+
+  assert.match(launcher, /Join-Path \(Split-Path -Parent \$npmPath\) 'node\.exe'/);
+  assert.match(launcher, /\$env:Path = "\$nodeDirectory;\$env:Path"/);
+  assert.match(launcher, /\$nodePath --help/);
+  assert.match(launcher, /\$env:NODE_OPTIONS = \$originalNodeOptions/);
+  assert.doesNotMatch(launcher, /strict-ssl\s*=\s*false/i);
+});
+
+test('WSL launcher does not load the UNC PowerShell file through -File', () => {
+  const launcher = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'start-windows-from-wsl.sh'),
+    'utf8',
+  );
+
+  assert.match(launcher, /\[ScriptBlock\]::Create\(\$launcherSource\)/);
+  assert.match(launcher, /AGENT_TERM_LAUNCHER_PS_WIN/);
+  assert.doesNotMatch(launcher, /\s-File\s/);
 });
 
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);

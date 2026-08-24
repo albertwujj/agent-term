@@ -38,6 +38,15 @@ function run() {
   require(path.join(stageRoot, 'src', 'main.js'));
 }
 
-if (require.main === module) run();
+function shouldRun(processApi = process) {
+  return Boolean(
+    processApi.versions &&
+    processApi.versions.electron &&
+    processApi.env &&
+    processApi.env.AGENT_TERM_DEV_SOURCE_WIN
+  );
+}
 
-module.exports = { RUNTIME_ENTRIES, stageSource };
+if (shouldRun()) run();
+
+module.exports = { RUNTIME_ENTRIES, shouldRun, stageSource };
