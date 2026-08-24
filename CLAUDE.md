@@ -11,7 +11,13 @@ Run `./scripts/release.sh --refresh` to rebuild and replace assets on the curren
 ## Build
 
 - `npm run start` — dev: build + launch locally
+- `npm run start:wsl` — from a native-WSL checkout, launch the Windows Electron app against that source without packaging
 - `npm run dist:win -- --x64` — produce Windows x64 .exe in `release/`
+
+## Test
+
+- `npm run test:all` — full WSL/macOS non-E2E suite
+- `npm run test:e2e` — Electron UI suite (requires a graphical session such as WSLg on WSL)
 
 ## Streaming (planned)
 

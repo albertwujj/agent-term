@@ -95,12 +95,15 @@ Each capability is a small, documented protocol, not a feature sealed in the app
 - **Conventions by filename**: agents bind to docs by name, resolving to the nearest such file up the directory tree (`commit-message.md`, the kits' config; [agent-lock's `coding-guide.md` handoff](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) shows the rule). No central config.
 - **Voice input**: a source injects a raw speech-to-text transcript prefixed with a pointer to a vendored guide ([voice-to-agent](https://github.com/albertwujj/voice-to-agent)); the agent, holding the whole session, reconstructs the dictation against context and acts, so no hub-side model has to.
 
-## Install
-- **Windows:** download the installer (`AgentTerm-x.x.x-setup.exe`) from the [Releases page](https://github.com/albertwujj/agent-term/releases). Requires [WSL](https://learn.microsoft.com/en-us/windows/wsl/install); your agents run in it. The build is unsigned, so Windows will show a SmartScreen "unknown publisher" warning the first time: **More info → Run anyway**.
-- **macOS (from source):** `git clone https://github.com/albertwujj/agent-term && cd agent-term && npm install && npm run start`. That first `npm run start` is the only one: from then on `Ctrl/Cmd+Shift+N` opens the next window, and closing the last window respawns a fresh one, so AgentTerm keeps itself running. To close it for good, type `exit`.
+## Run from source
 
-These are the paths the author runs daily and verifies with each release. If setup snags anywhere, ask your agent to fix it.
-- **IDE plugins (for click-to-IDE):** the two `intellij-navigator` zips are on the same [Releases page](https://github.com/albertwujj/agent-term/releases), with step-by-step install in the release notes.
+- **macOS:** `git clone https://github.com/albertwujj/agent-term && cd agent-term && npm ci && npm run start`. `Cmd+Shift+N` opens the next window; type `exit` to quit for good.
+- **Windows:** clone into WSL's native filesystem, then run `npm ci && npm run start:wsl` from the checkout. The UI runs as a native Windows app while its shell and coding agents stay in WSL.
+
+See the **[development guide](DEVELOPMENT.md)** for prerequisites, Windows Node.js setup, platform differences, the test workflow, and troubleshooting.
+
+Optional companions:
+- **IDE plugins (for click-to-IDE):** the two `intellij-navigator` zips are on the [Releases page](https://github.com/albertwujj/agent-term/releases), with step-by-step installation in the release notes.
 - **Phone/web viewer:** self-host [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) and add it to your home screen.
 
 **What it does on your machine:** spawns your shell and your agent, and reads and writes files in the projects you open. No telemetry, no account, no auto-update, and no network calls of its own. The embedded viewer loads only pages you click, and the phone viewer above is a separate component you host yourself.

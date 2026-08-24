@@ -56,6 +56,11 @@ const {
   orderedRunbookCandidates,
   repoRunbookRoots,
 } = require('./runbook-resolution');
+const {
+  bashLauncher,
+  wslCommandArgs,
+  wslShellArgs,
+} = require('./wsl-launch');
 
 // Anchor for the very first session ever (when there are no other live
 // sessions to space against). 210° = sky/cyan at the L=65 / C=0.27 ring,
@@ -1866,7 +1871,7 @@ function ptyStartingCwd() {
 function createPty(cols, rows) {
   const shell = getShell();
 
-  ptyProcess = pty.spawn(shell, [], {
+  ptyProcess = pty.spawn(shell, process.platform === 'win32' ? wslShellArgs() : [], {
     name: 'xterm-256color',
     cols: cols || 80,
     rows: rows || 24,
@@ -2476,7 +2481,7 @@ function openInSystemBrowser(rawUrl, source) {
 
 function wslExecRaw(args, options = {}) {
   return new Promise((resolve, reject) => {
-    execFile('wsl', args, {
+    execFile('wsl', wslCommandArgs(args), {
       timeout: options.timeout || 3000,
       maxBuffer: options.maxBuffer || 20 * 1024 * 1024,
     }, (err, stdout) => {
@@ -2812,9 +2817,6 @@ function runProc(cmd, args, opts = {}) {
 // code, and a macOS run exercises the same path WSL will. (Process-cwd resolution
 // is the one thing that stays branched — Linux /proc vs macOS lsof is a different
 // mechanism, not the same command behind a different shell.)
-function bashLauncher() {
-  return process.platform === 'win32' ? ['wsl', 'bash'] : ['bash'];
-}
 function posixSh(command, opts = {}) {
   const [cmd, ...prefix] = bashLauncher();
   if (process.platform === 'win32') {
