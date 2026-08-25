@@ -153,5 +153,19 @@ test('WSL launcher does not load the UNC PowerShell file through -File', () => {
   assert.doesNotMatch(launcher, /\s-File\s/);
 });
 
+test('Windows source launch inherits its shell cwd instead of pinning the checkout', () => {
+  const bashLauncher = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'start-windows-from-wsl.sh'),
+    'utf8',
+  );
+  const powershellLauncher = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'start-windows-from-wsl.ps1'),
+    'utf8',
+  );
+
+  assert.doesNotMatch(bashLauncher, /AGENT_TERM_SOURCE_WSL/);
+  assert.doesNotMatch(powershellLauncher, /AGENT_TERM_WSL_CWD|WslSourceRoot/);
+});
+
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
 process.exit(testsFailed > 0 ? 1 : 0);

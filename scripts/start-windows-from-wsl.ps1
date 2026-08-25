@@ -1,6 +1,5 @@
 param(
   [Parameter(Mandatory = $true)][string]$SourceRoot,
-  [Parameter(Mandatory = $true)][string]$WslSourceRoot,
   [Parameter(Mandatory = $true)][string]$Distro
 )
 
@@ -124,7 +123,6 @@ if (-not (Test-Path -LiteralPath $electronExe)) {
 }
 
 $env:AGENT_TERM_DEV_SOURCE_WIN = $SourceRoot
-$env:AGENT_TERM_WSL_CWD = $WslSourceRoot
 $env:AGENT_TERM_WSL_DISTRO = $Distro
 # Existing file-URL paths use this standard name when choosing the UNC share.
 $env:WSL_DISTRO_NAME = $Distro

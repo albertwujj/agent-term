@@ -17,9 +17,9 @@ function wslCommandArgs(args, env = process.env) {
     : command;
 }
 
-// Arguments for AgentTerm's interactive WSL shell. `--cd` lets a Windows
-// Electron process whose code/dependencies live in a cache still open the
-// terminal in the original native-WSL checkout.
+// Arguments for AgentTerm's interactive WSL shell. By default, development
+// launches only pin the distro and inherit the Windows working directory,
+// matching installed builds and letting shell startup files choose a workspace.
 function wslShellArgs(env = process.env) {
   const args = [];
   const distro = configuredWslDistro(env);

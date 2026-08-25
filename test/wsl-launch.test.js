@@ -39,9 +39,13 @@ test('WSL development commands stay in the invoking distro', () => {
     bashLauncher('win32', env),
     ['wsl', '--distribution', 'Ubuntu-24.04', '--exec', 'bash'],
   );
+  assert.deepStrictEqual(
+    wslShellArgs(env),
+    ['--distribution', 'Ubuntu-24.04'],
+  );
 });
 
-test('interactive development shell opens in the native-WSL checkout', () => {
+test('an explicit cwd override is passed through when configured', () => {
   const env = {
     AGENT_TERM_WSL_DISTRO: 'Ubuntu',
     AGENT_TERM_WSL_CWD: '/home/me/src/agent-term',
