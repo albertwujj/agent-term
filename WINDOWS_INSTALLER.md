@@ -94,7 +94,7 @@ This checklist is retained as historical knowledge, not a claim that any item st
 
 ## Former publishing workflow
 
-The publishing script was `scripts/release.sh`. It required `gh`, npm, Node.js, a clean releasable checkout, permission to push `main` and tags, and permission to create or modify releases in `albertwujj/agent-term`.
+The publishing script at the time was `scripts/release.sh`. It required `gh`, npm, Node.js, a clean releasable checkout, permission to push `main` and tags, and permission to create or modify releases in `albertwujj/agent-term`. The current script has since been replaced with a plugin-only publisher; the behavior below is a historical snapshot, not its current interface.
 
 Its former modes were:
 
@@ -102,7 +102,7 @@ Its former modes were:
 - `./scripts/release.sh --refresh` — rebuild the current version, replace its setup executable, and force-move the existing tag to `HEAD` without deleting the GitHub release.
 - `./scripts/release.sh --patch-plugin <zip> [tag]` — replace only one IntelliJ plugin asset. This mode is independent of building the AgentTerm installer.
 
-The first two modes publish externally and must not be run as a way to test whether this frozen pipeline still works. Use `npm run dist:win -- --x64` for a local archaeological attempt; publish only after the pipeline has deliberately been brought back under test.
+The first two modes are no longer implemented by the current release script. Use `npm run dist:win -- --x64` only for a local archaeological attempt; publish an installer only after the pipeline has deliberately been brought back under test.
 
 ## Files that formed the pipeline
 
@@ -112,7 +112,7 @@ The first two modes publish externally and must not be run as a way to test whet
 - `build/launcher.nsi` — root/stable launcher implementation.
 - `build/installer.nsh` — side-by-side install, atomic pointer publication, cleanup, and uninstall hooks.
 - `src/relaunch.js` — installed and portable successor selection at runtime.
-- `scripts/release.sh` — former versioning and GitHub publishing orchestration.
+- `scripts/release.sh` — its Git history contains the former versioning and installer publishing orchestration; the current script publishes plugins only.
 - `test/relaunch.test.js` — pure contract coverage for relaunch selection and the installer/launcher handshake.
 
 These files may remain in the repository after installer retirement so the design is recoverable. Their presence does not make the installer supported.
