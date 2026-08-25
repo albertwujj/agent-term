@@ -1,6 +1,6 @@
 {
   "name": "agent-term",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Terminal for Claude Code with intelligent clickable spans",
   "main": "src/main.js",
   "scripts": {
