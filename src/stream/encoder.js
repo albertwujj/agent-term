@@ -154,4 +154,38 @@ function rowsTextEqual(a, b) {
   return true;
 }
 
-module.exports = { encodeLine, encodeRange, encodeViewport, rowsTextEqual };
+// Substantial-vs-churn classifier for the host's "agent active" clock
+// (job-watch's supersede gate). A repaint that brings no new content — a
+// spinner frame, a token counter, a status line clearing when a task
+// finishes — must not read as the agent waking: exactly such a repaint at
+// a background job's finish is what used to consume the job's completion
+// notice as "agent awake at the finish". Same near-duplicate idea the hub
+// uses to compact snapshot rings (server.js nearlyIdentical), but counted
+// on row TEXT membership rather than row position: status churn shifts
+// the bottom strip (a status line clearing moves the input box up), which
+// an index-wise compare misreads as many changed rows. Undercounting —
+// a streamed row repeating text already on screen — errs toward churn,
+// the cheap direction: a false "churn" at worst delivers a notice the
+// agent also learned of itself; a false "substantial" silently drops one.
+function countNewRows(prevRows, nextRows) {
+  const seen = new Set();
+  for (const r of prevRows || []) {
+    const t = (r && r.text) || '';
+    if (t) seen.add(t);
+  }
+  let n = 0;
+  for (const r of nextRows || []) {
+    const t = (r && r.text) || '';
+    if (t && !seen.has(t)) n++;
+  }
+  return n;
+}
+
+// The floor lets a multi-row status area (frame glyph + counter + hint
+// line, each with fresh text per frame) stay churn on short windows; the
+// ratio scales the allowance on tall ones.
+function isSubstantialChange(prevRows, nextRows, screenRows) {
+  return countNewRows(prevRows, nextRows) > Math.max(3, Math.ceil(0.1 * (screenRows || 0)));
+}
+
+module.exports = { encodeLine, encodeRange, encodeViewport, rowsTextEqual, countNewRows, isSubstantialChange };

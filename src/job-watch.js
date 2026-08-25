@@ -124,9 +124,11 @@ function oneLine(s, max = 200) {
   return String(s).replace(/\x1b/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-// One poll step. input: { now, agentQuietFor (ms since last PTY output),
-// agentActiveAt (ms timestamp of the last PTY output not attributable to the
-// user's own typing echo), composing (keys typed since the last submit),
+// One poll step. input: { now, agentQuietFor (ms since last PTY output,
+// raw — any byte counts), agentActiveAt (ms timestamp of the last
+// SUBSTANTIAL screen change: real content, not spinner/status churn, and
+// not the user's own typing echo — classified in stream/renderer-watch.js),
+// composing (keys typed since the last submit),
 // snapshot, events (this session's only), pending (Map file →
 // { finishedAt, awakeAfter } from earlier polls), prevPollAt (the last completed poll, 0 if none),
 // windowStartAt (when this window's shell came up), quietMs, idleMs, fuseMs,
@@ -140,9 +142,14 @@ function oneLine(s, max = 200) {
 // is busy with something a queued notice would only confuse: a pasted notice
 // rides the CLI's input queue and lands after the running turn, as a stale
 // second report. Such an event is superseded: consumed, logged, never pasted.
-// "Idle" is the absence of agent output, the same test the working dot and
-// the vanish tiers rely on. The user composing holds a ripe event; if they
-// then submit, the turn's output supersedes it at the next poll.
+// "Awake" is judged on substantial screen output (agentActiveAt): a spinner
+// frame, token counter, or a status line clearing at the finish is churn,
+// not waking — a CLI wiping its task-stats display the moment the job ends
+// must not eat the report. The vanish tiers gate on the raw output clock
+// (agentQuietFor) instead: ANY churn means a foreground tool may still be
+// running, so their absence-based baselines aren't safe yet. The user
+// composing holds a ripe event; if they then submit, the turn's output
+// supersedes it at the next poll.
 //
 // The finish time is the event's ts, clamped into (prevPollAt, now] (the file
 // was not in the spool at the previous poll; WSL's clock can be minutes off

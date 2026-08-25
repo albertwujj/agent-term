@@ -16,11 +16,20 @@
 //     repaints in place and keeps no scrollback, so there is no delta to
 //     recover — the viewport IS the complete state.
 //
+// Each update push also carries a `substantial` classification for the
+// host's "agent active" clock (job-watch's supersede gate): a scroll
+// (baseY advanced — real lines entered scrollback) or a screen change
+// with enough new text rows is substantial; a near-duplicate repaint —
+// spinner frame, token counter, a status line clearing when a task
+// finishes — is churn and must not read as the agent waking (see
+// isSubstantialChange in encoder.js). Buffer flips are substantial by
+// definition — main treats streamBufferFlip that way without a flag.
+//
 // Text-only change detection is intentional — style-only changes are rare
 // in practice and not worth the per-frame deep compare. They get picked up
 // on the next text change.
 
-const { encodeRange, encodeViewport, rowsTextEqual } = require('./encoder');
+const { encodeRange, encodeViewport, rowsTextEqual, isSubstantialChange } = require('./encoder');
 
 const POLL_MS = 500;
 // Cap on rows captured in a single delta. Matches the viewer's logical-
@@ -29,8 +38,9 @@ const POLL_MS = 500;
 // bytes. Beyond the cap we ship the tail and the stitcher marks a BREAK.
 const MAX_SNAPSHOT_ROWS = 1000;
 
-function start(terminal) {
+function start(terminal, opts) {
   if (!terminal || !terminal.buffer) return () => {};
+  const pollMs = (opts && opts.pollMs) || POLL_MS;
 
   let lastType = terminal.buffer.active.type;
   let lastRows = null;
@@ -39,6 +49,10 @@ function start(terminal) {
   // still included. Reset to null across flips (and while in alt-screen)
   // so the first normal poll after a transition starts a fresh delta.
   let lastBaseY = null;
+  // Viewport as of the previous push, kept separately from lastRows
+  // (which holds the scroll DELTA in the normal buffer) so the
+  // substantial-vs-churn classification always compares screen to screen.
+  let lastViewport = null;
 
   function snapshot(buffer) {
     return encodeViewport(buffer, terminal.rows, terminal.cols);
@@ -65,14 +79,18 @@ function start(terminal) {
       } catch {}
       lastType = nowType;
       lastRows = newRows;
+      lastViewport = newRows;
       lastBaseY = null;
       return;
     }
 
     const buf = terminal.buffer.active;
     let rows;
+    let viewport;
+    let scrolled = false;
     if (nowType === 'normal') {
       const baseY = buf.baseY;
+      scrolled = lastBaseY !== null && baseY > lastBaseY;
       const bottom = Math.min(buf.length, baseY + terminal.rows);
       // Start at the previous poll's viewport top (min() guards the
       // unexpected case of baseY moving backwards). Clamp the height so a
@@ -80,24 +98,30 @@ function start(terminal) {
       let begin = (lastBaseY === null) ? baseY : Math.min(lastBaseY, baseY);
       if (bottom - begin > MAX_SNAPSHOT_ROWS) begin = bottom - MAX_SNAPSHOT_ROWS;
       try { rows = encodeRange(buf, begin, bottom, terminal.cols); } catch { return; }
+      viewport = rows.slice(Math.max(0, baseY - begin));
       lastBaseY = baseY;
     } else {
       try { rows = encodeViewport(buf, terminal.rows, terminal.cols); } catch { return; }
+      viewport = rows;
     }
 
     if (!rowsTextEqual(rows, lastRows)) {
+      const substantial = scrolled || lastViewport === null ||
+        isSubstantialChange(lastViewport, viewport, terminal.rows);
       try {
         window.pty.streamBufferUpdate({
           rows,
           cols: terminal.cols,
           type: nowType,
+          substantial,
         });
       } catch {}
       lastRows = rows;
+      lastViewport = viewport;
     }
   }
 
-  const timer = setInterval(tick, POLL_MS);
+  const timer = setInterval(tick, pollMs);
   return () => clearInterval(timer);
 }
 

@@ -71,7 +71,9 @@ while the agent is quiet.
   within the period, already has the result from its own environment (a
   self-waking CLI's background-task notice, its own check) or is mid-turn,
   where a queued notice would land after the turn as a stale second
-  report; its event is consumed silently instead. A notice is held while
+  report; its event is consumed silently instead. Awake is judged on
+  substantive screen output: spinner frames, token counters, and
+  status-line repaints don't count as waking. A notice is held while
   the user is mid-compose. Either way the event file is deleted once
   decided.
 

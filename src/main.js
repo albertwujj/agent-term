@@ -329,9 +329,15 @@ function pasteAgentPing(body, { toPrompt = false } = {}) {
 
 // "AI working" indicator state — drives the taskbar progress bar.
 let lastPtyOutputTime = 0;
-// The same clock minus the user's own typing echo: output that lands within
-// USER_QUIET_MS of a keystroke is the CLI echoing the composer, not the agent
-// working. This is the "agent active" signal the job-done nudge gates on.
+// The "agent active" signal the job-done nudge gates on. Fed by the stream
+// pipeline's screen watcher (renderer-watch.js), not the raw byte clock
+// above: only a SUBSTANTIAL screen change — real content, judged by
+// isSubstantialChange in stream/encoder.js — counts, so spinner frames,
+// token counters, and a status line clearing don't read as the agent
+// waking. (A CLI clearing its task-stats line at the exact moment a
+// background job finished is what used to consume the job's completion
+// notice as superseded.) Changes within USER_QUIET_MS of a keystroke are
+// the CLI echoing the composer, not the agent — see noteAgentScreenActivity.
 let lastAgentOutputTime = 0;
 // When this window's shell came up: a job that finished earlier counts as
 // finishing now for the nudge's quiet period (job-watch.js).
@@ -1922,8 +1928,10 @@ function createPty(cols, rows) {
     }
     // Track recent output time for the "AI working" progress bar indicator
     // and for window-cap eviction scoring (lastWorkingAt in the active-file).
+    // lastAgentOutputTime is deliberately NOT bumped here: raw bytes can't
+    // tell content from status churn — the screen watcher's classified
+    // pushes feed it instead (see the stream:buffer-update handler).
     lastPtyOutputTime = Date.now();
-    if (lastPtyOutputTime - lastTypingTime > USER_QUIET_MS) lastAgentOutputTime = lastPtyOutputTime;
     // Auto-show: if we're hidden and the AI is producing output (something
     // worth attention happened), pop ourselves back into the taskbar so the
     // user can see/find us. Don't steal focus — they may be in another
@@ -1969,12 +1977,26 @@ function isPlainEnter(data) {
 }
 
 // Stream pipeline IPC — renderer pushes buffer state to main, which
-// forwards to stream-state (see src/stream/renderer-watch.js).
+// forwards to stream-state (see src/stream/renderer-watch.js). The same
+// pushes feed the job-watch "agent active" clock: the watcher classifies
+// each change (payload.substantial), so status-churn repaints don't count
+// — see lastAgentOutputTime.
+function noteAgentScreenActivity() {
+  const now = Date.now();
+  if (now - lastTypingTime > USER_QUIET_MS) lastAgentOutputTime = now;
+}
 ipcMain.on('stream:buffer-update', (event, payload) => {
-  try { if (streamState) streamState.onBufferUpdate(payload); } catch {}
+  try {
+    if (payload && payload.substantial) noteAgentScreenActivity();
+    if (streamState) streamState.onBufferUpdate(payload);
+  } catch {}
 });
 ipcMain.on('stream:buffer-flip', (event, payload) => {
-  try { if (streamState) streamState.onBufferFlip(payload); } catch {}
+  try {
+    // An alt-screen enter/exit is real activity by definition.
+    noteAgentScreenActivity();
+    if (streamState) streamState.onBufferFlip(payload);
+  } catch {}
 });
 
 // IPC handlers
