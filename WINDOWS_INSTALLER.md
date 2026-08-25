@@ -1,6 +1,6 @@
 # Windows installer (frozen)
 
-> **Frozen historical documentation — no longer tested.** This records the Windows installer pipeline as it existed on 2026-08-24. AgentTerm is moving to running from source, and future releases will not exercise or publish this installer. The commands and implementation below remain as a reference, but they may gradually stop working as Electron, Node.js, native dependencies, NSIS, GitHub Releases, or Windows change.
+> **Frozen historical documentation — no longer tested.** This records the Windows installer pipeline as it existed on 2026-08-24. AgentTerm now runs from the rolling `main` branch and has no application release workflow. The commands and implementation below remain as a reference, but they may gradually stop working as Electron, Node.js, native dependencies, NSIS, GitHub Releases, or Windows change.
 
 For the supported workflow, use [DEVELOPMENT.md](DEVELOPMENT.md). Do not restore the installer to a release merely because these notes still exist; doing so first requires owning and re-establishing its build and Windows validation coverage.
 
@@ -115,7 +115,7 @@ This checklist is retained as historical knowledge, not a claim that any item st
 
 ## Former publishing workflow
 
-The publishing script at the time was `scripts/release.sh`. It required `gh`, npm, Node.js, a clean releasable checkout, permission to push `main` and tags, and permission to create or modify releases in `albertwujj/agent-term`. The current script has since been replaced with a plugin-only publisher; the behavior below is a historical snapshot, not its current interface.
+The publishing script at the time was `scripts/release.sh`. It required `gh`, npm, Node.js, a clean releasable checkout, permission to push `main` and tags, and permission to create or modify releases in `albertwujj/agent-term`. AgentTerm no longer has a release script; the behavior below is a historical snapshot recoverable from the `v0.1.15` tag.
 
 Its former modes were:
 
@@ -123,7 +123,7 @@ Its former modes were:
 - `./scripts/release.sh --refresh` — rebuild the current version, replace its setup executable, and force-move the existing tag to `HEAD` without deleting the GitHub release.
 - `./scripts/release.sh --patch-plugin <zip> [tag]` — replace only one IntelliJ plugin asset. This mode is independent of building the AgentTerm installer.
 
-The first two modes are no longer implemented by the current release script. Use `npm run dist:win -- --x64` only for a local archaeological attempt; publish an installer only after the pipeline has deliberately been brought back under test.
+These modes are no longer implemented on `main`. Use `npm run dist:win -- --x64` only for a local archaeological attempt; publish an installer only after the pipeline has deliberately been brought back under test.
 
 ## Files that formed the pipeline
 
@@ -133,7 +133,7 @@ The first two modes are no longer implemented by the current release script. Use
 - `build/launcher.nsi` — root/stable launcher implementation.
 - `build/installer.nsh` — side-by-side install, atomic pointer publication, cleanup, and uninstall hooks.
 - `src/relaunch.js` — installed and portable successor selection at runtime.
-- `scripts/release.sh` — its Git history contains the former versioning and installer publishing orchestration; the current script publishes plugins only.
+- `scripts/release.sh` — removed from `main`; retrieve the former versioning and installer publisher with `git show v0.1.15:scripts/release.sh`.
 - `test/relaunch.test.js` — pure contract coverage for relaunch selection and the installer/launcher handshake.
 
 These files may remain in the repository after installer retirement so the design is recoverable. Their presence does not make the installer supported.

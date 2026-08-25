@@ -1,6 +1,6 @@
 # Develop AgentTerm from source
 
-AgentTerm runs directly from its source checkout; no installer or application package is needed. The Electron UI must run on the host operating system. On Windows, the shell and the coding agents still run inside WSL.
+AgentTerm runs directly from the rolling `main` branch of its source checkout; it has no application release channel, installer, or package. The Electron UI must run on the host operating system. On Windows, the shell and the coding agents still run inside WSL.
 
 The former Windows installer pipeline is frozen and no longer tested. Its last-known design and build procedure are preserved only as historical reference in [WINDOWS_INSTALLER.md](WINDOWS_INSTALLER.md).
 
@@ -63,6 +63,18 @@ npm run start:wsl
 `start:wsl` invokes Windows PowerShell for the host-side seam. On its first run it creates an isolated Windows dependency cache under `%LOCALAPPDATA%\AgentTermWslDev`, takes a per-process snapshot of the current source, and launches Windows Electron from that snapshot. It neither reads nor modifies WSL's Linux `node_modules`. The terminal opens in the original checkout, and all later WSL probes stay pinned to the distro that launched it.
 
 Do not use `npm run start` from WSL for the Windows app. That starts Linux Electron through WSLg, so AgentTerm sees Linux rather than Windows and cannot provide its Windows taskbar integration.
+
+## Update an existing checkout
+
+Stop AgentTerm, then update the rolling source installation from its checkout:
+
+```bash
+git switch main
+git pull --ff-only
+npm ci
+```
+
+Start it again with `npm run start` on macOS or `npm run start:wsl` on Windows. Running `npm ci` on every update keeps native dependencies and generated tooling aligned with the checked-in lockfile.
 
 ## Daily development
 

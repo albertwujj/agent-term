@@ -100,10 +100,12 @@ Each capability is a small, documented protocol, not a feature sealed in the app
 - **macOS:** `git clone https://github.com/albertwujj/agent-term && cd agent-term && npm ci && npm run start`. `Cmd+Shift+N` opens the next window; type `exit` to quit for good.
 - **Windows:** clone into WSL's native filesystem, then run `npm ci && npm run start:wsl` from the checkout. The UI runs as a native Windows app while its shell and coding agents stay in WSL.
 
+AgentTerm has no packaged release channel; `main` is the rolling source distribution. To update an existing checkout, pull `main`, run `npm ci`, and start it again.
+
 See the **[development guide](DEVELOPMENT.md)** for prerequisites, Windows Node.js setup, platform differences, the test workflow, and troubleshooting.
 
 Optional companions:
-- **IDE plugins (for click-to-IDE):** the two `intellij-navigator` zips are on the [Releases page](https://github.com/albertwujj/agent-term/releases), with step-by-step installation in the release notes.
+- **IDE plugins (for click-to-IDE):** download both ZIPs from the [IntelliJ Navigator releases page](https://github.com/albertwujj/intellij-navigator/releases), with step-by-step installation in its release notes.
 - **Phone/web viewer:** self-host [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) and add it to your home screen.
 
 **What it does on your machine:** spawns your shell and your agent, and reads and writes files in the projects you open. No telemetry, no account, no auto-update, and no network calls of its own. The embedded viewer loads only pages you click, and the phone viewer above is a separate component you host yourself.

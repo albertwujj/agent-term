@@ -2,15 +2,15 @@
 
 Electron terminal app that spawns a WSL shell on Windows.
 
-## Releases
+## Distribution
 
-GitHub Releases distribute only the two JetBrains IDE plugin ZIPs. AgentTerm itself runs from source; do not publish an application installer or package.
+AgentTerm has no release workflow. Users run the rolling `main` branch directly from source.
 
-- `./scripts/release.sh --check` — verify the current release inputs and run the non-GUI test suite without changing anything
-- `./scripts/release.sh` — repeat those checks, bump the patch version, commit/tag/push, carry forward the two latest plugin ZIPs, and publish a release named `AgentTerm IDE Plugins v<version>`
-- `./scripts/release.sh --patch-plugin <zip> [tag]` — replace one plugin ZIP on a release, removing the superseded ZIP for the same host/client role
+- Do not create GitHub releases or tags for normal AgentTerm distribution.
+- Do not bump `package.json` merely to mark a release; its version is retained as historical/build metadata.
+- JetBrains plugin builds and releases belong to [`albertwujj/intellij-navigator`](https://github.com/albertwujj/intellij-navigator).
 
-The former Windows installer pipeline is frozen in `WINDOWS_INSTALLER.md`. `--refresh` is retired and intentionally fails.
+The former Windows installer pipeline and its `v0.1.15` recovery baseline are frozen in `WINDOWS_INSTALLER.md`.
 
 ## Build
 
