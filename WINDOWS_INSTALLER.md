@@ -4,6 +4,27 @@
 
 For the supported workflow, use [DEVELOPMENT.md](DEVELOPMENT.md). Do not restore the installer to a release merely because these notes still exist; doing so first requires owning and re-establishing its build and Windows validation coverage.
 
+## Recovery starting point
+
+The last published installer baseline is the immutable `v0.1.15` tag. Start recovery work from that tag rather than assuming the installer files on a later `main` still compose correctly:
+
+```bash
+git clone https://github.com/albertwujj/agent-term
+cd agent-term
+git switch -c recover-windows-installer v0.1.15
+npm ci
+npm test
+npm run dist:win -- --x64
+```
+
+That tag preserves the package lock, Electron Builder configuration, NSIS sources, relaunch code, tests, and the last installer-publishing implementation together. To inspect the former publisher without replacing the current plugin-only script:
+
+```bash
+git show v0.1.15:scripts/release.sh
+```
+
+Treat a successful build as only the beginning of recovery. The resulting unsigned artifacts must pass the Windows checklist below before the pipeline is considered supported or publishable again.
+
 ## What the pipeline produced
 
 The package configuration requested two x64 Windows targets from Electron Builder:

@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// Frozen Windows installer support. Before using or changing this path, read
+// WINDOWS_INSTALLER.md for the v0.1.15 recovery baseline and validation scope.
+
 const path = require('path');
 const { spawn } = require('child_process');
 const {

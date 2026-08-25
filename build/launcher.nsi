@@ -1,3 +1,6 @@
+; Frozen Windows installer support. See WINDOWS_INSTALLER.md for the v0.1.15
+; recovery baseline and the validation required before publishing it again.
+
 ; ---------------------------------------------------------------------------
 ; AgentTerm stub launcher
 ;
