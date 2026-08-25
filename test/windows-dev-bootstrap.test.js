@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
+  RUNTIME_ASSETS,
   RUNTIME_ENTRIES,
   shouldRun,
   stageSource,
@@ -24,7 +25,15 @@ function test(name, fn) {
 
 console.log('windows-dev-bootstrap');
 
-test('stages only runtime source beneath a process-specific directory', () => {
+function writeRunnerAssets(runner, contents = 'xterm-css') {
+  for (const asset of RUNTIME_ASSETS) {
+    const target = path.join(runner, asset);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, contents);
+  }
+}
+
+test('stages runtime source and browser assets beneath a process-specific directory', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-win-dev-'));
   const source = path.join(root, 'source');
   const runner = path.join(root, 'runner');
@@ -36,13 +45,15 @@ test('stages only runtime source beneath a process-specific directory', () => {
     fs.writeFileSync(path.join(source, 'tools', 'review.py'), 'review-v1');
     fs.writeFileSync(path.join(source, 'package.json'), '{"version":"1.2.3"}');
     fs.writeFileSync(path.join(source, 'node_modules', 'linux-only', 'binding.node'), 'linux');
+    writeRunnerAssets(runner);
 
     const staged = stageSource(source, runner, 1234);
     assert.strictEqual(staged, path.join(runner, 'stage', '1234'));
     assert.strictEqual(fs.readFileSync(path.join(staged, 'src', 'main.js'), 'utf8'), 'main-v1');
     assert.strictEqual(fs.readFileSync(path.join(staged, 'tools', 'review.py'), 'utf8'), 'review-v1');
     assert.strictEqual(fs.readFileSync(path.join(staged, 'package.json'), 'utf8'), '{"version":"1.2.3"}');
-    assert.strictEqual(fs.existsSync(path.join(staged, 'node_modules')), false);
+    assert.strictEqual(fs.readFileSync(path.join(staged, RUNTIME_ASSETS[0]), 'utf8'), 'xterm-css');
+    assert.strictEqual(fs.existsSync(path.join(staged, 'node_modules', 'linux-only')), false);
     assert.deepStrictEqual(RUNTIME_ENTRIES, ['src', 'tools']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -59,6 +70,7 @@ test('a new process snapshot reads fresh source without replacing another snapsh
     fs.writeFileSync(path.join(source, 'src', 'main.js'), 'main-v1');
     fs.writeFileSync(path.join(source, 'tools', 'review.py'), 'review');
     fs.writeFileSync(path.join(source, 'package.json'), '{}');
+    writeRunnerAssets(runner);
 
     const first = stageSource(source, runner, 100);
     fs.writeFileSync(path.join(source, 'src', 'main.js'), 'main-v2');
@@ -66,6 +78,23 @@ test('a new process snapshot reads fresh source without replacing another snapsh
 
     assert.strictEqual(fs.readFileSync(path.join(first, 'src', 'main.js'), 'utf8'), 'main-v1');
     assert.strictEqual(fs.readFileSync(path.join(second, 'src', 'main.js'), 'utf8'), 'main-v2');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('fails clearly when the staged browser stylesheet is missing', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-win-dev-'));
+  const source = path.join(root, 'source');
+  const runner = path.join(root, 'runner');
+  try {
+    fs.mkdirSync(path.join(source, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'tools'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'package.json'), '{}');
+    assert.throws(
+      () => stageSource(source, runner, 42),
+      /development dependency asset is missing.*xterm\.css/,
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

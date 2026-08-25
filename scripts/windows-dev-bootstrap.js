@@ -2,6 +2,10 @@ const fs = require('fs');
 const path = require('path');
 
 const RUNTIME_ENTRIES = ['src', 'tools'];
+// Browser file URLs do not use Node's ancestor-based module resolution.
+const RUNTIME_ASSETS = [
+  path.join('node_modules', '@xterm', 'xterm', 'css', 'xterm.css'),
+];
 
 function stageSource(sourceRoot, runnerRoot, pid = process.pid, fsApi = fs) {
   if (!sourceRoot) throw new Error('AGENT_TERM_DEV_SOURCE_WIN is not set');
@@ -14,6 +18,13 @@ function stageSource(sourceRoot, runnerRoot, pid = process.pid, fsApi = fs) {
     const source = path.join(sourceRoot, entry);
     if (!fsApi.existsSync(source)) throw new Error(`development source is missing ${entry}/`);
     fsApi.cpSync(source, path.join(stageRoot, entry), { recursive: true });
+  }
+  for (const asset of RUNTIME_ASSETS) {
+    const source = path.join(runnerRoot, asset);
+    if (!fsApi.existsSync(source)) throw new Error(`development dependency asset is missing ${asset}`);
+    const destination = path.join(stageRoot, asset);
+    fsApi.mkdirSync(path.dirname(destination), { recursive: true });
+    fsApi.copyFileSync(source, destination);
   }
   fsApi.copyFileSync(
     path.join(sourceRoot, 'package.json'),
@@ -49,4 +60,4 @@ function shouldRun(processApi = process) {
 
 if (shouldRun()) run();
 
-module.exports = { RUNTIME_ENTRIES, shouldRun, stageSource };
+module.exports = { RUNTIME_ASSETS, RUNTIME_ENTRIES, shouldRun, stageSource };
