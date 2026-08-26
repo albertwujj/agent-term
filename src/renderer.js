@@ -2219,7 +2219,11 @@ function openTerminalCommentEditor({
 
   const submit = async ({ toPrompt = false } = {}) => {
     const comment = composer.textarea.value.trim();
-    if (!comment || composer.primaryButton.disabled) return;
+    if (composer.primaryButton.disabled) return;
+    // An empty box is no comment, but "Send all" still means the queued ones:
+    // flush them and let the empty draft close with the batch (the md
+    // viewer's rule). Empty with nothing queued has nothing to send.
+    if (!comment && queuedTerminalComments.length === 0) return;
     composer.primaryButton.disabled = true; // also guards against a double Enter
 
     // Enter always sends. If earlier comments were queued (by moving away from

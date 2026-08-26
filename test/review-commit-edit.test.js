@@ -38,6 +38,7 @@ const [p1, p2] = document.querySelectorAll('.commit-body p');
 const addCalls = [];
 const updateCalls = [];
 const discardCalls = [];
+const sendPendingCalls = [];
 const blockComments = [];
 const toasts = [];
 let needsSendFlag = true;
@@ -45,7 +46,8 @@ const io = {
   platform: 'darwin',
   addEditThread: (item) => { addCalls.push(item); return Promise.resolve({ success: true }); },
   updateEditThread: (item) => { updateCalls.push(item); return Promise.resolve({ success: true }); },
-  discardThread: (id) => { discardCalls.push(id); },
+  discardThread: (id) => { discardCalls.push(id); return Promise.resolve({ success: true }); },
+  sendPending: (opts) => { sendPendingCalls.push(opts); },
   openBlockComment: (block, seed) => { blockComments.push({ block, seed }); },
   composerBlocked: () => false,
   sendLabel: () => 'Send',
@@ -229,6 +231,36 @@ async function run() {
   check('dissolving every mark on a revisit discards the thread',
     !ctl.isEditing() && discardCalls.length === 1 && discardCalls[0] === 'e2'
     && updateCalls.length === 1 && p2.innerHTML === P2, { discardCalls, html: p2.innerHTML });
+  check('a click-away commit never flushes pending threads', sendPendingCalls.length === 0);
+  ctl.decorateEditThreads([]);
+
+  // — Send on a mark-less session still keeps its "Send all" promise: nothing
+  //   is written for THIS edit, but the host is asked to flush what's pending —
+  click(p2);
+  key(p2, { key: 'ArrowLeft' }); // arrows enter the editor without inserting
+  check('arrow entry opens a mark-less session',
+    ctl.isEditing() && !p2.querySelector('del.md-pending-del, ins.md-pending-ins'));
+  key(p2, { key: 'Enter' });
+  await sleep(5);
+  check('send on a mark-less fresh session adds nothing and flushes pending',
+    !ctl.isEditing() && addCalls.length === 2 && sendPendingCalls.length === 1
+    && p2.innerHTML === P2, { addCalls: addCalls.length, sendPendingCalls });
+
+  // — Send on a dissolved revisit discards the thread, then flushes —
+  ctl.decorateEditThreads([insThread]);
+  const insEl2 = p2.querySelector('ins.md-pending-ins');
+  const insRange2 = document.createRange();
+  insRange2.selectNodeContents(insEl2);
+  sel2.removeAllRanges();
+  sel2.addRange(insRange2);
+  key(p2, { key: 'Backspace' }); // dissolve the only mark
+  await sleep(5);
+  key(p2, { key: 'Enter' }); // Send
+  await sleep(5);
+  check('send on a dissolved revisit discards the thread, then flushes pending',
+    !ctl.isEditing() && discardCalls.length === 2 && discardCalls[1] === 'e2'
+    && sendPendingCalls.length === 2 && p2.innerHTML === P2,
+    { discardCalls, sendPendingCalls });
   ctl.decorateEditThreads([]);
 
   // — undo restores the caret where the undone action began —

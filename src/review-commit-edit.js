@@ -91,7 +91,8 @@ function createCommitEditController(io) {
   // io: {
   //   addEditThread({anchor, body, note, alsoSend}) -> Promise<{success,...}>,
   //   updateEditThread({threadId, body, note, alsoSend}) -> Promise<{success,...}>,
-  //   discardThread(threadId),
+  //   discardThread(threadId) -> Promise (or undefined),
+  //   sendPending({toPrompt}),   // flush pending threads; no-op when none
   //   openBlockComment(block, seedKey),
   //   composerBlocked() -> bool,
   //   sendLabel(revisitThreadId|null) -> string,   // null = this edit is new
@@ -474,11 +475,15 @@ function createCommitEditController(io) {
     const marked = /<del>|<ins>/.test(inner);
     if (!marked) {
       // A revisit whose marks all dissolved IS the discard; a fresh session
-      // with no marks was never an edit.
+      // with no marks was never an edit. Send still keeps its "Send all (n)"
+      // promise: once the discard settles, the host flushes any threads
+      // still pending (a no-op when nothing is).
+      let done = null;
       if (sess.revisit) {
         teardown(sess.cleanHtml);
-        if (io.discardThread) io.discardThread(sess.revisit.threadId);
+        if (io.discardThread) done = io.discardThread(sess.revisit.threadId);
       } else revert();
+      if (alsoSend && io.sendPending) Promise.resolve(done).then(() => io.sendPending({ toPrompt }));
       return;
     }
     const body = wrapEditEnvelope(inner);

@@ -398,7 +398,6 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
           store = res.data;
           renderAndTrack(false);
           if (item.alsoSend) sendThread('Edit sent to agent', { toPrompt: !!item.toPrompt });
-          else toast('Edit added');
           return res;
         });
       },
@@ -410,11 +409,15 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
           store = res.data;
           renderAndTrack(false);
           if (item.alsoSend) sendThread('Edit sent to agent', { toPrompt: !!item.toPrompt });
-          else toast('Edit updated');
           return res;
         });
       },
-      discardThread: function (id) { discardThread(id, 'Edit'); },
+      discardThread: function (id) { return discardThread(id, 'Edit'); },
+      // "Send all" on a mark-less edit session still means the rest: ping
+      // only if something is pending.
+      sendPending: function (opts) {
+        if (store.threads.some(threadNeedsSend)) sendThread('Sent to agent', opts);
+      },
     });
     commitEdit.bind();
   }
@@ -423,7 +426,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
   // only while it is wholly the user's (rv-discard-thread enforces the same
   // rule store-side).
   function discardThread(threadId, what) {
-    ipcRenderer.invoke('rv-discard-thread', { commentsUrl: commentsUrl, threadId: threadId })
+    return ipcRenderer.invoke('rv-discard-thread', { commentsUrl: commentsUrl, threadId: threadId })
       .then(function (res) {
         if (!res || !res.success) { toast((res && res.error) || 'Could not discard'); return; }
         store = res.data;
@@ -589,7 +592,16 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
 
   function submitNew(anchor, ta, el, alsoSend, onClose, opts) {
     const body = ta.value.trim();
-    if (!body) return;
+    if (!body) {
+      // An empty box is no comment, but Send keeps the "Send all (n)" the
+      // label promised: close the box and flush the threads already pending.
+      // Empty with nothing pending has nothing to do.
+      if (alsoSend && store.threads.some(threadNeedsSend)) {
+        if (onClose) onClose();
+        sendThread('Sent to agent', opts);
+      }
+      return;
+    }
     const btns = el.querySelectorAll('button');
     btns.forEach(function (b) { b.disabled = true; });
     ipcRenderer.invoke('rv-add-thread', { commentsUrl: commentsUrl, anchor: anchor, body: body }).then(function (res) {
@@ -601,9 +613,10 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       store = res.data;
       if (onClose) onClose();
       renderAndTrack(false);
-      // The Send primary composes and pings the agent in one action.
+      // The Send primary composes and pings the agent in one action. The
+      // no-send commit stays silent: the card rendering in place is the
+      // receipt, and a toast would land after the user has moved on.
       if (alsoSend) sendThread('Comment sent to agent', opts);
-      else toast('Comment added');
     });
   }
 
@@ -1025,7 +1038,14 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
 
   function sendReply(threadId, ta, box, alsoSend, opts) {
     const body = ta.value.trim();
-    if (!body) return;
+    if (!body) {
+      // Empty follow-up = no follow-up; Send still flushes what's pending.
+      if (alsoSend && store.threads.some(threadNeedsSend)) {
+        box.remove();
+        sendThread('Sent to agent', opts);
+      }
+      return;
+    }
     box.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
     ipcRenderer.invoke('rv-add-message', { commentsUrl: commentsUrl, threadId: threadId, author: 'user', body: body })
       .then(function (res) {
@@ -1036,9 +1056,9 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
         }
         store = res.data;
         renderAndTrack(false);
-        // The Send primary posts the follow-up and pings the agent in one action.
+        // The Send primary posts the follow-up and pings the agent in one
+        // action; a no-send commit shows itself as the new message in place.
         if (alsoSend) sendThread('Comment sent to agent', opts);
-        else toast('Comment added');
       });
   }
 
