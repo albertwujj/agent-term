@@ -184,8 +184,17 @@ function countNewRows(prevRows, nextRows) {
 // The floor lets a multi-row status area (frame glyph + counter + hint
 // line, each with fresh text per frame) stay churn on short windows; the
 // ratio scales the allowance on tall ones.
+//
+// The growth clause covers the fill phase before a screen's first scroll
+// (fresh session, after a clear): output persisting DOWNWARD grows the
+// trimmed viewport without moving baseY, and a slow stream can add rows
+// below the new-rows floor indefinitely. Growth of one row stays churn so
+// a blink-style spinner (row erased, then redrawn across a poll boundary)
+// can't read as content.
 function isSubstantialChange(prevRows, nextRows, screenRows) {
-  return countNewRows(prevRows, nextRows) > Math.max(3, Math.ceil(0.1 * (screenRows || 0)));
+  const fresh = countNewRows(prevRows, nextRows);
+  if (fresh > Math.max(3, Math.ceil(0.1 * (screenRows || 0)))) return true;
+  return (nextRows || []).length - (prevRows || []).length >= 2 && fresh >= 2;
 }
 
 module.exports = { encodeLine, encodeRange, encodeViewport, rowsTextEqual, countNewRows, isSubstantialChange };

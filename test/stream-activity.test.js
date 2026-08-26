@@ -70,20 +70,44 @@ test('full TUI repaint is substantial', () => {
   if (!isSubstantialChange(prev, next, 24)) throw new Error('classified churn');
 });
 
-test('threshold floor: up to 3 new rows is churn on a short window', () => {
-  const prev = R('a', 'b');
-  const churn = R('a', 'b', 'n1', 'n2', 'n3');
+test('threshold floor: up to 3 in-place new rows is churn on a short window', () => {
+  // In-place repaints (same length — a multi-row status area) get the
+  // floor; appended rows are the growth clause's business.
+  const prev = R('a', 'b', 'x1', 'x2', 'x3', 'x4');
+  const churn = R('a', 'b', 'n1', 'n2', 'n3', 'x4');
   const substantial = R('a', 'b', 'n1', 'n2', 'n3', 'n4');
   if (isSubstantialChange(prev, churn, 10)) throw new Error('3 new rows should be churn');
   if (!isSubstantialChange(prev, substantial, 10)) throw new Error('4 new rows should be substantial');
 });
 
 test('threshold scales with screen height', () => {
-  const prev = R('a');
+  const prev = R('a', 'x1', 'x2', 'x3', 'x4', 'x5', 'x6');
   const six = R('a', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6');
   // 60-row screen: threshold max(3, ceil(6)) = 6 → 6 new rows still churn.
   if (isSubstantialChange(prev, six, 60)) throw new Error('6 new rows on 60 rows should be churn');
   if (!isSubstantialChange(prev, six, 24)) throw new Error('6 new rows on 24 rows should be substantial');
+});
+
+test('fill-phase stream (viewport grows by 2+ new rows) is substantial', () => {
+  // Before the first scroll, output persists downward instead of moving
+  // baseY — growth must count even below the new-rows floor.
+  const prev = R('$ make test', 'compiling a');
+  const next = R('$ make test', 'compiling a', 'compiling b', 'linking');
+  if (!isSubstantialChange(prev, next, 24)) throw new Error('classified churn');
+});
+
+test('single-row growth is churn (blink-spinner guard)', () => {
+  // A spinner row erased then redrawn across a poll boundary shows up as
+  // shrink, then one-row growth with fresh text — neither is content.
+  const mid = R('output a', 'output b');
+  const redrawn = R('output a', 'output b', '✳ Thinking (14s)');
+  if (isSubstantialChange(mid, redrawn, 24)) throw new Error('regrow classified substantial');
+});
+
+test('growth of repeated text is churn', () => {
+  const prev = R('tick', 'tock');
+  const next = R('tick', 'tock', 'tick', 'tock');
+  if (isSubstantialChange(prev, next, 24)) throw new Error('repeats classified substantial');
 });
 
 test('repeated text does not count as new (undercount errs toward churn)', () => {
