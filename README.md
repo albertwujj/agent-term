@@ -100,6 +100,8 @@ Each capability is a small, documented protocol, not a feature sealed in the app
 - **macOS:** `git clone https://github.com/albertwujj/agent-term && cd agent-term && npm ci && npm run start`. `Cmd+Shift+N` opens the next window; type `exit` to quit for good.
 - **Windows:** clone into WSL's native filesystem, then run `npm ci && npm run start:wsl` from the checkout. The UI runs as a native Windows app while its shell and coding agents stay in WSL.
 
+The directory where you invoke npm is the terminal and agent workspace. To launch the AgentTerm checkout from another workspace, use `npm --prefix /path/to/agent-term run start` on macOS or `npm --prefix /path/to/agent-term run start:wsl` on WSL. Source launches fail if npm does not provide a valid invocation directory.
+
 AgentTerm has no packaged release channel; `main` is the rolling source distribution. To update an existing checkout, pull `main`, run `npm ci`, and start it again.
 
 See the **[development guide](DEVELOPMENT.md)** for prerequisites, Windows Node.js setup, platform differences, the test workflow, and troubleshooting.

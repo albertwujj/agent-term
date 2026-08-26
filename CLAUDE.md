@@ -14,9 +14,11 @@ The former Windows installer pipeline and its `v0.1.15` recovery baseline are fr
 
 ## Build
 
-- `npm run start` — dev: build + launch locally
-- `npm run start:wsl` — from a native-WSL checkout, launch the Windows Electron app against that source without packaging
+- `npm run start` — dev: build + launch locally, using npm's invocation directory as the terminal workspace
+- `npm run start:wsl` — from WSL, launch the Windows Electron app against this source, using npm's invocation directory as the WSL workspace
 - `npm run build` — rebuild generated runtime bundles without launching
+
+From the AgentTerm checkout, run the commands normally to develop AgentTerm itself. To use the source checkout from another workspace, run `npm --prefix /path/to/agent-term run start` on macOS or `npm --prefix /path/to/agent-term run start:wsl` on WSL. Source launchers require npm's `INIT_CWD` and fail rather than guessing a workspace.
 
 The historical `npm run dist:win` command is no longer tested or used for releases; see `WINDOWS_INSTALLER.md` before attempting it.
 

@@ -64,6 +64,11 @@ $currentStamp = if (Test-Path -LiteralPath $installStamp) {
 }
 
 if ($currentStamp -ne $wantedStamp -or -not (Test-Path -LiteralPath $electronExe)) {
+  # Invalidate before mutating node_modules. If npm ci is interrupted or a
+  # running Electron process holds a file open, the next launch must retry the
+  # install instead of trusting the stamp from the previous successful run.
+  Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $installStamp
+
   $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
   $npmPath = if ($npmCommand) { $npmCommand.Source } else { '' }
   $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue

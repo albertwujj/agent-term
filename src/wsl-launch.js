@@ -17,13 +17,15 @@ function wslCommandArgs(args, env = process.env) {
     : command;
 }
 
-// Arguments for AgentTerm's interactive WSL shell. By default, development
-// launches only pin the distro and inherit the Windows working directory,
-// matching installed builds and letting shell startup files choose a workspace.
+// Arguments for AgentTerm's interactive WSL shell. Source launches carry npm's
+// invocation directory explicitly so the app source and agent workspace remain
+// independent.
 function wslShellArgs(env = process.env) {
   const args = [];
   const distro = configuredWslDistro(env);
-  const cwd = cleanSetting(env.AGENT_TERM_WSL_CWD);
+  const cwd = typeof env.AGENT_TERM_START_CWD === 'string'
+    ? env.AGENT_TERM_START_CWD
+    : '';
   if (distro) args.push('--distribution', distro);
   if (cwd) args.push('--cd', cwd);
   return args;

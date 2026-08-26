@@ -16,6 +16,8 @@ fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
+source "$script_dir/source-start-cwd.sh"
+agent_term_require_source_start_cwd
 powershell_script="$(wslpath -w "$script_dir/start-windows-from-wsl.ps1" | tr -d '\r')"
 windows_source="$(wslpath -w "$repo_root" | tr -d '\r')"
 
@@ -25,7 +27,7 @@ windows_source="$(wslpath -w "$repo_root" | tr -d '\r')"
 export AGENT_TERM_LAUNCHER_PS_WIN="$powershell_script"
 export AGENT_TERM_SOURCE_WIN="$windows_source"
 export AGENT_TERM_DISTRO="$WSL_DISTRO_NAME"
-interop_vars='AGENT_TERM_LAUNCHER_PS_WIN:AGENT_TERM_SOURCE_WIN:AGENT_TERM_DISTRO'
+interop_vars='AGENT_TERM_LAUNCHER_PS_WIN:AGENT_TERM_SOURCE_WIN:AGENT_TERM_DISTRO:AGENT_TERM_START_CWD'
 export WSLENV="${WSLENV:+$WSLENV:}$interop_vars"
 
 exec powershell.exe \

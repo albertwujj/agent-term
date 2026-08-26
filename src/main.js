@@ -61,6 +61,7 @@ const {
   wslCommandArgs,
   wslShellArgs,
 } = require('./wsl-launch');
+const { requireSourceStartCwd } = require('./source-start-cwd');
 
 // Anchor for the very first session ever (when there are no other live
 // sessions to space against). 210° = sky/cyan at the L=65 / C=0.27 ring,
@@ -1863,14 +1864,14 @@ function createWindow() {
 let wslPidFile = null;
 
 function ptyStartingCwd() {
-  // In dev (npm start), the working directory is typically the repo root —
-  // that's where you actually want the AI CLI to operate. In production
-  // (packaged .exe), process.cwd() is usually the install dir which is not
-  // a useful place to drop the user, so fall back to HOME.
+  // A source launch explicitly carries npm's invocation directory. On Windows
+  // this option belongs to the Win32 wsl.exe process while wslShellArgs passes
+  // the POSIX workspace through --cd; native PTYs use the workspace directly.
   if (!app.isPackaged) {
-    const cwd = process.cwd();
-    if (cwd && cwd !== '/' && cwd !== os.homedir()) return cwd;
+    if (process.platform === 'win32') return process.cwd();
+    return requireSourceStartCwd();
   }
+  // Packaged GUI launches have no npm invocation directory.
   return process.env.HOME || os.homedir();
 }
 
@@ -4195,6 +4196,19 @@ app.whenReady().then(async () => {
   // Standard Edit accelerators (Copy/Paste/etc.) on the terminal are handled
   // by src/terminal-keyboard.js, so removing the menu doesn't break them.
   Menu.setApplicationMenu(null);
+
+  if (!app.isPackaged) {
+    try {
+      requireSourceStartCwd();
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      log('[dev] invalid source launch: ' + message);
+      dialog.showErrorBox('AgentTerm source launch failed', message);
+      app.quit();
+      return;
+    }
+  }
+
   // Sweep stale active-window registry entries (dead pids / past boots) and
   // compact the events log so the picker stays fast over months of history.
   try {

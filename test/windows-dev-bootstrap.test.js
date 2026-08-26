@@ -142,6 +142,19 @@ test('Windows dependency install refreshes Node PATH and uses system CA trust', 
   assert.doesNotMatch(launcher, /strict-ssl\s*=\s*false/i);
 });
 
+test('Windows dependency install invalidates its stamp before npm ci', () => {
+  const launcher = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'start-windows-from-wsl.ps1'),
+    'utf8',
+  );
+  const invalidateAt = launcher.indexOf('Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $installStamp');
+  const installAt = launcher.indexOf('& $npmPath ci');
+
+  assert.ok(invalidateAt >= 0, 'dependency stamp is not invalidated');
+  assert.ok(installAt >= 0, 'npm ci invocation is missing');
+  assert.ok(invalidateAt < installAt, 'dependency stamp must be invalidated before npm ci');
+});
+
 test('WSL launcher does not load the UNC PowerShell file through -File', () => {
   const launcher = fs.readFileSync(
     path.join(__dirname, '..', 'scripts', 'start-windows-from-wsl.sh'),
@@ -153,7 +166,7 @@ test('WSL launcher does not load the UNC PowerShell file through -File', () => {
   assert.doesNotMatch(launcher, /\s-File\s/);
 });
 
-test('Windows source launch inherits its shell cwd instead of pinning the checkout', () => {
+test('Windows source launch passes npm invocation cwd instead of pinning the checkout', () => {
   const bashLauncher = fs.readFileSync(
     path.join(__dirname, '..', 'scripts', 'start-windows-from-wsl.sh'),
     'utf8',
@@ -163,6 +176,8 @@ test('Windows source launch inherits its shell cwd instead of pinning the checko
     'utf8',
   );
 
+  assert.match(bashLauncher, /agent_term_require_source_start_cwd/);
+  assert.match(bashLauncher, /AGENT_TERM_START_CWD/);
   assert.doesNotMatch(bashLauncher, /AGENT_TERM_SOURCE_WSL/);
   assert.doesNotMatch(powershellLauncher, /AGENT_TERM_WSL_CWD|WslSourceRoot/);
 });
