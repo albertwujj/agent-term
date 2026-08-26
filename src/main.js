@@ -1552,8 +1552,9 @@ function launchNewInstance() {
   }
   // Boot watch: a spawn can succeed and still die before its window shows (a
   // bad execPath arrives as an async 'error', a boot crash as an early exit).
-  // A healthy instance keeps running, so any exit inside the watch window is a
-  // failure. Past the window the child is on its own.
+  // Only an unclean exit inside the watch window is a failure — exit 0 is the
+  // user closing the new window right away. Past the window the child is on
+  // its own.
   let bootWatchSettled = false;
   let bootWatchTimer = null;
   const settle = (message) => {
@@ -1564,7 +1565,10 @@ function launchNewInstance() {
   };
   bootWatchTimer = setTimeout(() => settle(null), 15000);
   child.once('error', (err) => settle('launch failed: ' + (err && err.message)));
-  child.once('exit', (code) => settle('exited during startup (code ' + code + ')'));
+  child.once('exit', (code, signal) => {
+    if (code === 0) { settle(null); return; }
+    settle('exited during startup (' + (code === null ? 'signal ' + signal : 'code ' + code) + ')');
+  });
 }
 
 function writeClosedSessionEvent() {
