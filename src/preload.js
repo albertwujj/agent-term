@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld('pty', {
   onOpenRecentViewerUrl: (callback) => ipcRenderer.on('open-recent-viewer-url', () => callback()),
   // Viewer chords: selector (Cmd/Ctrl+Shift+U) / shrink (...+I) / expand (...+O).
   onViewerShortcut: (callback) => ipcRenderer.on('viewer-shortcut', (_event, action) => callback(action)),
+  // Cmd/Ctrl+Shift+N: the fresh instance is a separate process that takes
+  // seconds to show a window, so main announces the launch and any failure.
+  onNewInstanceLaunching: (callback) => ipcRenderer.on('new-instance-launching', () => callback()),
+  onNewInstanceLaunchFailed: (callback) => ipcRenderer.on('new-instance-launch-failed', (_event, message) => callback(message)),
   // Open a URL in the default browser
   openURL: (url) => ipcRenderer.invoke('open-url', url),
   // Open a resource file with the OS default handler

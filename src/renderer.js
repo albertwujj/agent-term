@@ -629,6 +629,18 @@ if (typeof window.pty.onViewerShortcut === 'function') {
   window.pty.onViewerShortcut((action) => { handleViewerShortcut(action); });
 }
 
+// Cmd/Ctrl+Shift+N: the launch pill covers the gap until the new instance's
+// window appears; a reported failure replaces it with a sticky error toast.
+if (typeof window.pty.onNewInstanceLaunching === 'function') {
+  window.pty.onNewInstanceLaunching(() => { showLaunchPill(); });
+}
+if (typeof window.pty.onNewInstanceLaunchFailed === 'function') {
+  window.pty.onNewInstanceLaunchFailed((message) => {
+    dismissLaunchPill();
+    showToast('New AgentTerm failed to start: ' + (message || 'unknown error'), { variant: 'error' });
+  });
+}
+
 // Auto-refresh: main re-rendered the open review (its package .md changed) →
 // reload the viewer so the update shows, with comments re-anchored across it.
 // The band STAYS where the user left it: reload()'s chrome pulse — the bar
@@ -3643,6 +3655,49 @@ function showClickFeedback(text, patternName, status = 'info') {
 
   document.body.appendChild(feedback);
   setTimeout(() => feedback.remove(), 2000);
+}
+
+// Cmd/Ctrl+Shift+N launch pill. The new instance is a separate Electron
+// process: until it reaches ready-to-show it has no window of its own, and
+// this window is the only surface that can say anything. The pill appears the
+// moment main handles the chord and pulses while the launch is in flight. The
+// new window taking focus blurs this one — exactly when the feedback becomes
+// redundant — so blur dismisses it. The timeout only reaps a stale pill when
+// no window ever appears and no failure is reported.
+let launchPill = null;
+let launchPillTimer = null;
+let launchPillBlurHandler = null;
+function dismissLaunchPill() {
+  if (launchPillTimer) { clearTimeout(launchPillTimer); launchPillTimer = null; }
+  if (launchPillBlurHandler) { window.removeEventListener('blur', launchPillBlurHandler); launchPillBlurHandler = null; }
+  if (launchPill) { launchPill.remove(); launchPill = null; }
+}
+function showLaunchPill() {
+  dismissLaunchPill();
+  const el = document.createElement('div');
+  el.style.cssText = `
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 9px;
+    background: #569cd6; color: white;
+    border-radius: 8px; z-index: 9999; box-shadow: 0 8px 28px rgba(0,0,0,.38);
+    padding: 12px 20px;
+    font: 500 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;`;
+  const dot = document.createElement('span');
+  dot.style.cssText = `
+    width: 8px; height: 8px; border-radius: 50%; background: currentColor;
+    animation: launchPillPulse 1.1s ease-in-out infinite;`;
+  el.append(dot, document.createTextNode('Starting new AgentTerm…'));
+  if (!document.getElementById('launch-pill-style')) {
+    const style = document.createElement('style');
+    style.id = 'launch-pill-style';
+    style.textContent = '@keyframes launchPillPulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }';
+    document.head.appendChild(style);
+  }
+  document.body.appendChild(el);
+  launchPill = el;
+  launchPillBlurHandler = () => dismissLaunchPill();
+  window.addEventListener('blur', launchPillBlurHandler);
+  launchPillTimer = setTimeout(dismissLaunchPill, 20000);
 }
 
 // Show a simple toast message (blue, 2-second fade)

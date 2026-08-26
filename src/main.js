@@ -1517,7 +1517,18 @@ function relaunchLatestAndExit() {
 
 // Cmd/Ctrl+Shift+N: a deliberate extra window. Resolves the same latest-code
 // target as the auto-relaunch path, but the current instance keeps running.
+// The child is a whole separate Electron process, so nothing paints anywhere
+// until it reaches ready-to-show (a couple of seconds, longer on WSL). The
+// renderer bridges that gap with a launch pill; every failure path reports
+// back so the pill is replaced by an error instead of dying silently.
 function launchNewInstance() {
+  const announce = (channel, message) => {
+    try { if (mainWindow) mainWindow.webContents.send(channel, message); } catch {}
+  };
+  const fail = (message) => {
+    log('[new-instance] ' + message);
+    announce('new-instance-launch-failed', message);
+  };
   let target = { mode: 'electron', execPath: null };
   if (app.isPackaged && process.platform === 'win32') {
     try {
@@ -1525,17 +1536,35 @@ function launchNewInstance() {
         version: app.getVersion(),
       });
     } catch (err) {
-      log('[new-instance] refusing old-code launch: ' + (err && err.message));
+      fail('refusing old-code launch: ' + (err && err.message));
       return;
     }
   }
+  announce('new-instance-launching');
+  let child = null;
   try {
-    spawnNewInstance(process.argv, target.execPath || process.execPath, {
+    child = spawnNewInstance(process.argv, target.execPath || process.execPath, {
       cwd: target.execPath ? path.dirname(target.execPath) : undefined,
     });
   } catch (err) {
-    log('[new-instance] launch failed: ' + (err && err.message));
+    fail('launch failed: ' + (err && err.message));
+    return;
   }
+  // Boot watch: a spawn can succeed and still die before its window shows (a
+  // bad execPath arrives as an async 'error', a boot crash as an early exit).
+  // A healthy instance keeps running, so any exit inside the watch window is a
+  // failure. Past the window the child is on its own.
+  let bootWatchSettled = false;
+  let bootWatchTimer = null;
+  const settle = (message) => {
+    if (bootWatchSettled) return;
+    bootWatchSettled = true;
+    clearTimeout(bootWatchTimer);
+    if (message) fail(message);
+  };
+  bootWatchTimer = setTimeout(() => settle(null), 15000);
+  child.once('error', (err) => settle('launch failed: ' + (err && err.message)));
+  child.once('exit', (code) => settle('exited during startup (code ' + code + ')'));
 }
 
 function writeClosedSessionEvent() {
