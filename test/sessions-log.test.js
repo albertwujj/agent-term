@@ -70,6 +70,16 @@ test('listSessions folds events by id', (dir) => {
   assert.strictEqual(s1.closedAt, null);
 });
 
+test('listSessions folds cwd last-wins, defaults null', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'cwd',     id: 1, cwd: '/home/u/old-repo' });
+  log.appendEvent(dir, { e: 'cwd',     id: 1, cwd: '/home/u/repo' });
+  log.appendEvent(dir, { e: 'started', id: 2, hue: 24 });
+  const sessions = log.listSessions(dir);
+  assert.strictEqual(sessions.find(s => s.id === 1).cwd, '/home/u/repo');
+  assert.strictEqual(sessions.find(s => s.id === 2).cwd, null);
+});
+
 test('closed event marks session closed', (dir) => {
   log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
   log.appendEvent(dir, { e: 'closed',  id: 1 });

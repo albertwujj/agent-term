@@ -1077,6 +1077,14 @@ function assignSessionIdentity() {
     if (lockedTitle) {
       sessionsLog.appendEvent(userDataDir, { e: 'title', id: sessionIndex, title: lockedTitle });
     }
+    // The CLI runs as the shell's foreground child, so the shell's cwd is
+    // frozen at the directory the CLI was launched from — sample it now
+    // (POSIX on both platforms: /proc/<pid>/cwd in WSL, lsof on macOS) so a
+    // resume can cd back before relaunching.
+    const cwdSessionId = sessionIndex;
+    getPrimaryCwd().then((cwd) => {
+      if (cwd) sessionsLog.appendEvent(userDataDir, { e: 'cwd', id: cwdSessionId, cwd });
+    }).catch(() => {});
     enforceVisibleCap();
     startCapControlWatcher();
     startCapTimers();
@@ -2349,7 +2357,13 @@ ipcMain.on('picker-pick', (event, id) => {
     // reaches the resumed CLI (and every tool shell under it) through its
     // environment instead. `env` works in every shell the pty may run.
     const launch = picked.token ? `env AGENT_SESSION_ID=${agentSessionId} ${picked.cli}` : picked.cli;
-    try { ptyProcess.write(launch + '\r'); } catch {}
+    // Relaunch from the directory the session was recorded in. The stored
+    // path is in this shell's own terms (captured via getPrimaryCwd on the
+    // same platform), so a plain cd replays it on macOS and WSL alike. &&
+    // keeps the failure loud: if the directory is gone the CLI doesn't
+    // launch somewhere wrong — the shell prints the cd error instead.
+    const command = picked.cwd ? `cd ${shellEscape(picked.cwd)} && ${launch}` : launch;
+    try { ptyProcess.write(command + '\r'); } catch {}
     pendingResumeIntercept = true;
     log('[resume] armed intercept after picker-pick id=' + id +
         ' cli=' + picked.cli);

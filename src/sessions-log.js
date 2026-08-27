@@ -8,6 +8,7 @@
 //       { e:"cli",      id, cli,    t }
 //       { e:"title",    id, title,  t }
 //       { e:"prompt",   id, prompt, t }
+//       { e:"cwd",      id, cwd,    t }   // POSIX dir the CLI was launched from
 //       { e:"branches", id, repo, branch, t }   // git branch captured from a review://
 //       { e:"closed",   id,         t }
 //     Reading the log and folding by id yields the current state of every
@@ -134,7 +135,7 @@ function listSessions(userDataDir) {
     if (typeof ev.id !== 'number') continue;
     let s = map.get(ev.id);
     if (!s) {
-      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, initialTitle: null, prompt: null, lastPrompt: null, capturedBranches: [], closedAt: null, token: null };
+      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, initialTitle: null, prompt: null, lastPrompt: null, cwd: null, capturedBranches: [], closedAt: null, token: null };
       map.set(ev.id, s);
     }
     s.lastEventAt = ev.t;
@@ -168,6 +169,12 @@ function listSessions(userDataDir) {
           if (!s.prompt) s.prompt = ev.prompt;
           s.lastPrompt = ev.prompt;
         }
+        break;
+      // The POSIX directory the CLI was launched from (WSL path on Windows,
+      // native on macOS — both in the terms of the shell that replays it).
+      // Last-wins; a resume cds here before relaunching the CLI.
+      case 'cwd':
+        if (ev.cwd) s.cwd = ev.cwd;
         break;
       // Every branch captured from a review:// in this session, deduped — kept
       // as history so the picker's search can match a session by any of them.
