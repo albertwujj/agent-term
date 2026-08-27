@@ -375,6 +375,7 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       onToast: toast,
       sendLabel: function (revisitThreadId) { return sendLabel(sendExtraFor(revisitThreadId)); },
       threadNeedsSend: threadNeedsSend,
+      threadWhollyUnsent: threadWhollyUnsent,
       composerBlocked: function () {
         return !!document.querySelector('.rv-quote-compose, .rv-compose-row, .rv-replybox');
       },

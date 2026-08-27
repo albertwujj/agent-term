@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('pty', {
   // Main re-rendered the open review (package or source changed) → reload the viewer.
   onReviewRerendered: (cb) => ipcRenderer.on('review-rerendered', (e, payload) => cb(payload)),
   onReviewCommentsChanged: (cb) => ipcRenderer.on('review-comments-changed', () => cb()),
+  onStallReminder: (cb) => ipcRenderer.on('stall-reminder', (_event, payload) => cb(payload)),
   // Viewer closed → main stops the review auto-refresh poll/watch.
   reviewViewerClosed: () => ipcRenderer.send('review-viewer-closed'),
   // A review:// was captured → record the reviewed repo's branch in the

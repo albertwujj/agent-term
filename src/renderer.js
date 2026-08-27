@@ -660,6 +660,17 @@ if (window.pty && typeof window.pty.onReviewCommentsChanged === 'function') {
     try { if (webViewer && webViewer.isOpen && webViewer.isOpen()) webViewer.pingRefresh(); } catch {}
   });
 }
+// Main auto-re-pinged an idle agent about unaddressed sent threads
+// (comment-stall.js). The toast is what keeps the auto-send unspooky: the
+// user sees the ping happened and why.
+if (window.pty && typeof window.pty.onStallReminder === 'function') {
+  window.pty.onStallReminder((payload) => {
+    const n = (payload && payload.count) || 0;
+    showToast(n === 1
+      ? 'Reminded agent — 1 sent comment thread unaddressed'
+      : `Reminded agent — ${n} sent comment threads unaddressed`);
+  });
+}
 
 // When a decoration action handles a press, xterm's OSC 8 activation for the
 // same press (it fires on mouseup, after our mousedown) must be suppressed,

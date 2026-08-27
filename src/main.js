@@ -53,6 +53,13 @@ const { StreamState } = require('./stream/stream-state');
 const { cleanAiTitle, aiTitleDedupeKey } = require('./ai-title');
 const { isReviewPackagePath } = require('./review-package-path');
 const {
+  journalPathForStore,
+  parseJournal,
+  mergeStoreWithJournal,
+  threadHasAgentEvents,
+} = require('./agent-journal');
+const { decideStall, unaddressedCount, STALL_IDLE_MS } = require('./comment-stall');
+const {
   orderedRunbookCandidates,
   repoRunbookRoots,
 } = require('./runbook-resolution');
@@ -2923,6 +2930,44 @@ async function runReviewRender(pkg, repo) {
   return posixSh(`cd ${shellEscape(repo)} && python3 ${shellEscape(tool)} ${shellEscape(pkg)}`);
 }
 
+// review.py does not write the comments store: main is its sole writer. The
+// renderer emits its re-anchor verdicts as a <stem>-reanchor.json mutations
+// file and main applies them here, under the same per-path lock every other
+// store write takes — closing the lost-update window the renderer's own
+// read-modify-write used to leave open against a concurrent user action.
+async function applyReanchorMutations(pkg) {
+  const reanchorPosix = pkg.replace(/\.md$/i, '-reanchor.json');
+  const raw = await catFile(reanchorPosix);
+  if (raw == null) return;
+  let parsed = null;
+  try { parsed = JSON.parse(raw); } catch {}
+  const list = parsed && Array.isArray(parsed.threads) ? parsed.threads : [];
+  if (list.length) {
+    const fsStore = await fsPathFromPosix(pkg.replace(/\.md$/i, '-comments.json'));
+    await withCommentsLock(fsStore, async () => {
+      const store = await loadCommentStore(fsStore);
+      const byId = new Map(store.threads.map((t) => [t.id, t]));
+      let changed = false;
+      for (const m of list) {
+        const t = m && byId.get(m.id);
+        if (!t) continue;
+        if (m.anchor && typeof m.anchor === 'object'
+            && JSON.stringify(t.anchor || {}) !== JSON.stringify(m.anchor)) {
+          t.anchor = m.anchor;
+          changed = true;
+        }
+        if ((m.anchor_status === 'ok' || m.anchor_status === 'moved' || m.anchor_status === 'lost')
+            && t.anchor_status !== m.anchor_status) {
+          t.anchor_status = m.anchor_status;
+          changed = true;
+        }
+      }
+      if (changed) await saveCommentStore(fsStore, store);
+    }).catch(() => {});
+  }
+  await posixSh(`rm -f ${shellEscape(reanchorPosix)}`);
+}
+
 // Auto-refresh: while a review is open, keep it current as the change evolves —
 // re-render (which re-anchors existing comments) and reload the viewer only if the
 // rendered HTML actually changed (no flicker). Two signals feed it:
@@ -3001,12 +3046,13 @@ async function syncReview() {
   if ((await posixSh(`test -f ${shellEscape(w.pkg)}`)).code !== 0) return; // package gone
   w.busy = true;
   try {
-    await runReviewRender(w.pkg, w.repo);              // writes html + re-anchors comments
+    await runReviewRender(w.pkg, w.repo);              // writes html + emits re-anchor verdicts
+    await applyReanchorMutations(w.pkg);               // main applies them, under the store lock
     w.diffHash = await gitDiffHash(w.repo, w.scopeArg); // rebaseline so the poll won't re-fire
     w.dirty = await gitDirty(w.repo);                   // rebaseline dirty too
     w.mdHash = await fileHash(w.pkg);                   // rebaseline the package fingerprint too
     w.head = await gitHead(w.repo);                     // rebaseline HEAD (behind/diverged banner)
-    w.commentsHash = await fileHash(w.commentsPath);    // re-anchor rewrote it — don't re-fire
+    w.commentsHash = await fileHash(w.commentsPath);    // re-anchor may have moved it — don't re-fire
     const h = await fileHash(w.htmlPath);
     if (h && h !== w.htmlHash) {
       w.htmlHash = h;
@@ -3023,13 +3069,15 @@ async function startReviewSync(pkg, repo, htmlPath) {
   reviewDiffKeys.clear(); // a freshly-opened review starts with no baseline (no first-render flash)
   const scopeArg = await readScopeArg(pkg);
   const commentsPath = pkg.replace(/\.md$/i, '-comments.json');
+  const journalPath = pkg.replace(/\.md$/i, '-agent.jsonl');
   const w = {
-    pollTimer: null, pkg, repo, htmlPath, scopeArg, busy: false, commentsPath,
+    pollTimer: null, pkg, repo, htmlPath, scopeArg, busy: false, commentsPath, journalPath,
     diffHash: await gitDiffHash(repo, scopeArg),
     dirty: await gitDirty(repo),
     mdHash: await fileHash(pkg),
     htmlHash: await fileHash(htmlPath),
     commentsHash: await fileHash(commentsPath),
+    journalHash: await fileHash(journalPath),
     head: await gitHead(repo),
   };
   reviewSync = w;
@@ -3051,9 +3099,13 @@ async function startReviewSync(pkg, repo, htmlPath) {
     // Comments-only change (an agent reply, no source/diff change): surface it IN PLACE with a
     // pulse — an rv-refresh, not a re-render/reload. A comment leaves the rendered HTML
     // identical, so nothing would reload otherwise, and a reload would wipe the pulse baseline.
+    // The agent's replies arrive as journal appends now, so the journal is watched the same
+    // way — either file changing means the merged view the overlay renders has moved.
     const cj = await fileHash(w.commentsPath);
-    if (cj && cj !== w.commentsHash) {
-      w.commentsHash = cj;
+    const aj = await fileHash(w.journalPath);
+    if ((cj && cj !== w.commentsHash) || (aj || '') !== (w.journalHash || '')) {
+      w.commentsHash = cj || w.commentsHash;
+      w.journalHash = aj;
       if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('review-comments-changed');
     }
   }, 2000);
@@ -3075,6 +3127,7 @@ ipcMain.handle('render-review-package', async (event, packagePath) => {
       reject = !/^\s*range:\s*\S/m.test(fm);
     }
     const res = await runReviewRender(pkg, repo);
+    await applyReanchorMutations(pkg);
     await startReviewSync(pkg, repo, htmlPath); // auto-refresh as package/source evolve
     return {
       ok: res.code === 0,
@@ -3514,6 +3567,55 @@ function reviewSendState(p) {
   };
 }
 
+// --- Stall watch: one auto-reminder when comment resolution stalls ---
+// Armed per store on every submitted send (md and review alike). A send is the
+// user's explicit request, so one re-ping on a stall is delivery retry of that
+// request, not new intent — and it only fires while the user has stayed
+// hands-off since the send (any terminal input disarms; the user took the
+// wheel, and typing to the agent IS the manual reminder). Decision rules and
+// thresholds live in comment-stall.js; this owns the clocks and the IO.
+const STALL_POLL_MS = 5000;
+const stallWatches = new Map(); // store fs path → { sendTime, coveredIds, remindText }
+let stallTimer = null;
+
+function armStallWatch(p, { coveredIds, remindText }) {
+  if (!Array.isArray(coveredIds) || !coveredIds.length) return;
+  // A newer send replaces the old watch wholesale — its covered set is current.
+  stallWatches.set(p, { sendTime: Date.now(), coveredIds, remindText });
+  if (!stallTimer) {
+    stallTimer = setInterval(() => { tickStallWatches().catch(() => {}); }, STALL_POLL_MS);
+  }
+}
+
+async function tickStallWatches() {
+  for (const [p, w] of [...stallWatches]) {
+    try {
+      const { merged } = await mergedCommentStore(p);
+      const covered = merged.threads.filter((t) => w.coveredIds.includes(t.id));
+      const decision = decideStall(w, {
+        now: Date.now(),
+        lastInputTime,
+        lastAgentOutputTime,
+        coveredThreads: covered,
+      });
+      if (decision === 'wait') continue;
+      stallWatches.delete(p); // every other outcome ends the watch — one shot
+      if (decision === 'remind' && pasteAgentPing(w.remindText)) {
+        const count = unaddressedCount(covered);
+        log(`[stall] reminded agent — ${count} covered thread(s) unaddressed`);
+        try {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('stall-reminder', { count });
+          }
+        } catch {}
+      }
+    } catch {
+      stallWatches.delete(p); // unreadable store: the watch has nothing to stand on
+    }
+  }
+  if (!stallWatches.size && stallTimer) { clearInterval(stallTimer); stallTimer = null; }
+}
+
 ipcMain.handle('read-review-comments', async (event, fileUrl) => {
   try {
     const { fileURLToPath } = require('url');
@@ -3521,14 +3623,9 @@ ipcMain.handle('read-review-comments', async (event, fileUrl) => {
     try { p = fileURLToPath(fileUrl); } catch { p = String(fileUrl || ''); }
     if (!/-comments\.json$/i.test(p)) return { success: false, error: 'not a comments store' };
     const stamps = reviewSendState(p);
-    let raw;
-    try {
-      raw = await fs.promises.readFile(p, 'utf8');
-    } catch (e) {
-      if (e.code === 'ENOENT') return { success: true, path: p, data: { threads: [] }, ...stamps };
-      throw e;
-    }
-    return { success: true, path: p, data: JSON.parse(raw), ...stamps };
+    // Merged view: store + agent journal. The overlay renders exactly this.
+    const { merged } = await mergedCommentStore(p);
+    return { success: true, path: p, data: merged, ...stamps };
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -3587,6 +3684,25 @@ async function saveCommentStore(p, store) {
   await fs.promises.rename(tmp, p);
 }
 
+// The agent's replies/dispositions live in the append-only journal beside the
+// store (agent-journal.js; contract.md Message rules). Nothing folds them into
+// the store — every read path merges at read time, so the store file stays
+// wholly main's and the journal wholly the agent's.
+async function readJournalEvents(p) {
+  const jp = journalPathForStore(p);
+  if (!jp) return [];
+  try { return parseJournal(await fs.promises.readFile(jp, 'utf8')); }
+  catch { return []; } // missing journal = agent has said nothing yet
+}
+
+// store file + journal → the merged view every renderer gets. `store` and
+// `events` ride along for write paths that need the raw parts.
+async function mergedCommentStore(p) {
+  const store = await loadCommentStore(p);
+  const events = await readJournalEvents(p);
+  return { store, events, merged: mergeStoreWithJournal(store, events) };
+}
+
 let commentThreadSeq = 0;
 function newThreadId() {
   commentThreadSeq += 1;
@@ -3595,6 +3711,28 @@ function newThreadId() {
 
 // Guard: only ever touch a *-comments.json path (mirrors the read handler).
 function validCommentsPath(p) { return /-comments\.json$/i.test(p); }
+
+// A thread is still the user's to retract or rewrite only while it is wholly
+// theirs AND wholly un-sent: open, every store message user-authored, none
+// carrying a turn stamp, and no agent journal events. This is the overlay's
+// threadWhollyUnsent enforced server-side, so a stale guest render can't
+// delete words the agent has — a stamp means a send covered them; a journal
+// event means the agent spoke even while the store's messages are all the
+// user's. Returns the refusal, or null when the thread is still retractable.
+function threadRetractError(t, events) {
+  if ((t.status || 'open') !== 'open') return 'the agent has this thread — reply instead';
+  const msgs = t.messages || [];
+  if (!msgs.every((m) => (m.author || 'user') === 'user')) {
+    return 'the agent has this thread — reply instead';
+  }
+  if (msgs.some((m) => Number.isFinite(m.turn))) {
+    return 'already sent to the agent — reply instead';
+  }
+  if (threadHasAgentEvents(events, t.id)) {
+    return 'the agent has this thread — reply instead';
+  }
+  return null;
+}
 
 ipcMain.handle('rv-add-thread', async (event, { commentsUrl, anchor, body, note } = {}) => {
   const p = commentsPathFromUrl(commentsUrl);
@@ -3636,7 +3774,7 @@ ipcMain.handle('rv-add-thread', async (event, { commentsUrl, anchor, body, note 
         ],
       });
       await saveCommentStore(p, store);
-      return { success: true, data: store, threadId: id };
+      return { success: true, data: mergeStoreWithJournal(store, await readJournalEvents(p)), threadId: id };
     } catch (e) { return { success: false, error: e.message }; }
   });
 });
@@ -3654,12 +3792,11 @@ ipcMain.handle('rv-update-edit-thread', async (event, { commentsUrl, threadId, b
   return withCommentsLock(p, async () => {
     try {
       const store = await loadCommentStore(p);
+      const events = await readJournalEvents(p);
       const t = store.threads.find((x) => x.id === threadId);
       if (!t) return { success: false, error: 'thread not found' };
-      const userOnly = (t.messages || []).every((m) => (m.author || 'user') === 'user');
-      if ((t.status || 'open') !== 'open' || !userOnly) {
-        return { success: false, error: 'the agent has this thread — reply instead' };
-      }
+      const sealed = threadRetractError(t, events);
+      if (sealed) return { success: false, error: sealed };
       const ts = Date.now();
       t.messages[0] = { author: 'user', body: text, ts };
       if (t.messages.length <= 2) {
@@ -3667,7 +3804,7 @@ ipcMain.handle('rv-update-edit-thread', async (event, { commentsUrl, threadId, b
         else t.messages.length = 1;
       }
       await saveCommentStore(p, store);
-      return { success: true, data: store };
+      return { success: true, data: mergeStoreWithJournal(store, events) };
     } catch (e) { return { success: false, error: e.message }; }
   });
 });
@@ -3681,16 +3818,14 @@ ipcMain.handle('rv-discard-thread', async (event, { commentsUrl, threadId } = {}
   return withCommentsLock(p, async () => {
     try {
       const store = await loadCommentStore(p);
+      const events = await readJournalEvents(p);
       const i = store.threads.findIndex((x) => x.id === threadId);
       if (i === -1) return { success: false, error: 'thread not found' };
-      const t = store.threads[i];
-      const userOnly = (t.messages || []).every((m) => (m.author || 'user') === 'user');
-      if ((t.status || 'open') !== 'open' || !userOnly) {
-        return { success: false, error: 'the agent has this thread — reply instead' };
-      }
+      const sealed = threadRetractError(store.threads[i], events);
+      if (sealed) return { success: false, error: sealed };
       store.threads.splice(i, 1);
       await saveCommentStore(p, store);
-      return { success: true, data: store };
+      return { success: true, data: mergeStoreWithJournal(store, events) };
     } catch (e) { return { success: false, error: e.message }; }
   });
 });
@@ -3708,10 +3843,12 @@ ipcMain.handle('rv-add-message', async (event, { commentsUrl, threadId, author, 
       if (!t) return { success: false, error: 'thread not found' };
       if (!Array.isArray(t.messages)) t.messages = [];
       t.messages.push({ author: who, body: text, ts: Date.now() });
-      // A user follow-up reopens an answered/resolved thread.
-      if (who === 'user' && t.status !== 'open') t.status = 'open';
+      // A user follow-up reopens an answered/resolved thread. Merged-resolved
+      // counts the same: the follow-up must outrank a journal `resolved`, so
+      // the store pins `open` explicitly rather than trusting its own field.
+      if (who === 'user') t.status = 'open';
       await saveCommentStore(p, store);
-      return { success: true, data: store };
+      return { success: true, data: mergeStoreWithJournal(store, await readJournalEvents(p)) };
     } catch (e) { return { success: false, error: e.message }; }
   });
 });
@@ -3777,18 +3914,29 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false
   // still pluralizes by the count at paste time (its convention carries no
   // number, so it can't mislead the same way).
   let n = 0;
-  try { const s = await loadCommentStore(p); n = s.threads.filter((t) => (t.status || 'open') === 'open').length; }
-  catch { n = 0; }
-  const text = [
-    commentHeader(`review://${pkg}`, n || 1),
-    // "then commit": the viewer renders the committed range, so code edits the
-    // agent leaves uncommitted flag the review out of date (red banner) rather
-    // than appearing in it. A bare "refreshes on its own" read as "nothing more
-    // to do" and agents stopped short of committing.
-    `Read the open threads in ${agentPath} and address them (reply inline by appending an `
-      + '{"author":"agent",...} message and updating status, and edit code where needed, '
-      + 'then commit — the open review renders the committed range and refreshes on its own).',
-  ].join('\n');
+  let coveredIds = [];
+  try {
+    const { merged } = await mergedCommentStore(p);
+    const open = merged.threads.filter((t) => (t.status || 'open') === 'open');
+    n = open.length;
+    coveredIds = open.map((t) => t.id);
+  } catch { n = 0; }
+  // The agent answers through the append-only journal beside the store — one
+  // JSON object per line, appended per thread AS each is finished (that is
+  // what streams replies into the open review); the store file itself is the
+  // host's alone. agent-journal.js holds the merge; contract.md the rules.
+  const agentJournal = agentPath.replace(/-comments\.json$/i, '-agent.jsonl');
+  const addressLine =
+    `Read the open threads in ${agentPath} and address them: as you finish each thread, append one `
+      + `JSON line to ${agentJournal} — {"thread":"<id>","body":"<your reply>","ts":<epoch ms>,"turn":<the store's turn>} `
+      + 'plus "status":"resolved" when done, or "status":"open" when blocked on me. Append per thread as you go, '
+      + 'never edit the store file itself, and edit code where needed, '
+      // "then commit": the viewer renders the committed range, so code edits the
+      // agent leaves uncommitted flag the review out of date (red banner) rather
+      // than appearing in it. A bare "refreshes on its own" read as "nothing more
+      // to do" and agents stopped short of committing.
+      + 'then commit — the open review renders the committed range and refreshes on its own.';
+  const text = [commentHeader(`review://${pkg}`, n || 1), addressLine].join('\n');
   const ok = pasteAgentPing(text, { toPrompt });
   if (!ok) return { success: false, error: 'No active terminal process' };
   // Record the send IN the store, after the ping actually went out: tick the
@@ -3802,7 +3950,11 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false
       const s = await loadCommentStore(p);
       turn = (Number.isFinite(s.turn) ? s.turn : 0) + 1;
       s.turn = turn;
-      resolvedAtSend = s.threads.filter((t) => t.status === 'resolved').map((t) => t.id);
+      // "Already closed at this send" reads the MERGED state: a thread the
+      // agent resolved through the journal is as read-by-now as one resolved
+      // inline in a legacy store.
+      const merged = mergeStoreWithJournal(s, await readJournalEvents(p));
+      resolvedAtSend = merged.threads.filter((t) => t.status === 'resolved').map((t) => t.id);
       s.threads.forEach((t) => (t.messages || []).forEach((m) => {
         if ((m.author || 'user') === 'user' && !Number.isFinite(m.turn)) m.turn = turn;
       }));
@@ -3811,6 +3963,15 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false
   });
   const was = reviewSends.get(p);
   reviewSends.set(p, { firstTurn: (was && was.firstTurn) || turn, resolvedAtSend });
+  // Delivery retry: if the agent goes idle with covered threads unaddressed
+  // and the user stays hands-off, one reminder re-pings it (comment-stall.js).
+  // To prompt hands delivery to the user's own typing, so it never arms.
+  if (!toPrompt) {
+    armStallWatch(p, {
+      coveredIds,
+      remindText: 'Reminder: open review comment threads remain unaddressed.\n' + addressLine,
+    });
+  }
   return { success: true, ...reviewSendState(p) };
 });
 
@@ -3927,18 +4088,35 @@ const MD_POINTER_LEADS = {
   mixed: 'My edits and comments on markdown document:',
 };
 
-function buildMdPointerText(doc, storePosix, runbook, batchKind) {
-  const addressLine = runbook
+function mdAddressLine(storePosix, runbook) {
+  return runbook
     ? `Read the open threads in ${storePosix} and address them per ${runbook}.`
     // Explicit-ack send without the runbook (not found): no contract reference,
     // the agent addresses the threads on its own reading.
     : `Read the open threads in ${storePosix} and address them.`;
+}
+
+function buildMdPointerText(doc, storePosix, runbook, batchKind) {
   return [
     MD_POINTER_LEADS[batchKind] || MD_POINTER_LEADS.comments,
     doc,
     '',
-    addressLine,
+    mdAddressLine(storePosix, runbook),
   ].join('\n');
+}
+
+// Arm the stall watch for an md send: covered = every open thread in the
+// merged view (the pointer says "the open threads", so one send covers them
+// all). Best-effort — a failed read just means no reminder for this send.
+async function armMdStallWatch(p, doc, storePosix, runbook) {
+  try {
+    const { merged } = await mergedCommentStore(p);
+    armStallWatch(p, {
+      coveredIds: merged.threads.filter((t) => (t.status || 'open') === 'open').map((t) => t.id),
+      remindText: `Reminder: open threads on ${doc} remain unaddressed.\n`
+        + mdAddressLine(storePosix, runbook),
+    });
+  } catch {}
 }
 
 function pasteMdPointer(doc, storePosix, runbook, batchKind, { toPrompt = false } = {}) {
@@ -3995,7 +4173,8 @@ ipcMain.handle('md-add-threads', async (event, { docPath, threads, batchKind, al
       if (!pasteMdPointer(doc, storePosix, runbook, batchKind, { toPrompt })) {
         return { success: false, error: 'No active terminal process' };
       }
-      return { success: true, data: store };
+      if (!toPrompt) await armMdStallWatch(p, doc, storePosix, runbook);
+      return { success: true, data: mergeStoreWithJournal(store, await readJournalEvents(p)) };
     } catch (e) { return { success: false, error: e.message }; }
   });
 });
@@ -4025,8 +4204,9 @@ ipcMain.handle('md-read-threads', async (event, { docPath } = {}) => {
   }
   try {
     const p = await fsPathFromPosix(mdStorePosixPath(doc));
-    const store = await loadCommentStore(p);
-    return { success: true, data: store };
+    // Merged view: store + agent journal — what every thread renderer reads.
+    const { merged } = await mergedCommentStore(p);
+    return { success: true, data: merged };
   } catch (e) { return { success: false, error: e.message }; }
 });
 
@@ -4057,7 +4237,8 @@ ipcMain.handle('md-add-message', async (event, { docPath, threadId, body, allowM
       if (!pasteMdPointer(doc, storePosix, runbook, undefined, { toPrompt })) {
         return { success: false, error: 'No active terminal process' };
       }
-      return { success: true, data: store };
+      if (!toPrompt) await armMdStallWatch(p, doc, storePosix, runbook);
+      return { success: true, data: mergeStoreWithJournal(store, await readJournalEvents(p)) };
     } catch (e) { return { success: false, error: e.message }; }
   });
 });

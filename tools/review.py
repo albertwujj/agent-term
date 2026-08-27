@@ -1245,7 +1245,7 @@ def _fuzzy_reanchor(line_text, snip, old_line, window=3, threshold=0.6):
 
 
 def reanchor_comments(comments_path, index, page_text=""):
-    """Re-stamp every existing comment's anchor_status against the new render.
+    """Re-verdict every existing comment's anchor against the new render.
 
     Deterministic, generator-owned. A *code* anchor (file + side + line) matches
     its stored snippet within the same file+side: same line -> ok; found
@@ -1253,7 +1253,13 @@ def reanchor_comments(comments_path, index, page_text=""):
     lost. A *region* anchor (a quoted selection in prose / commit message /
     markdown preview, with no side/line) is ok while its quote still appears on
     the page, else lost. The viewer renders this verdict; the agent only has to
-    act on `lost` (and on lines it rewrote)."""
+    act on `lost` (and on lines it rewrote).
+
+    The verdicts are EMITTED, not applied: they land beside the store as
+    <stem>-reanchor.json and the host applies them under its store lock, then
+    removes the file. The renderer never writes the comments store — the host
+    is its only writer, so a render can't silently revert a store write that
+    happened mid-render (the lost-update race this replaced)."""
     if not comments_path.exists():
         return
     try:
@@ -1271,6 +1277,7 @@ def reanchor_comments(comments_path, index, page_text=""):
             for s, ls in (snips or {}).items():
                 for L in ls:
                     m[str(L)] = s
+    mutations = []
     for t in store.get("threads", []) or []:
         a = t.get("anchor") or {}
         snip = " ".join(str(a.get("snippet", "")).split())
@@ -1310,11 +1317,13 @@ def reanchor_comments(comments_path, index, page_text=""):
             ctx = " ".join(str(a.get("context", "")).split())
             target = ctx or snip
             status = "ok" if (page_norm and target in page_norm) else "lost"
-        t["anchor_status"] = status
-        t["anchor"] = a
-    # ensure_ascii=False keeps UTF-8 (—, →, …) intact, matching the viewer's
-    # JSON.stringify writes so the file doesn't flip representation each regen.
-    comments_path.write_text(json.dumps(store, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        mutations.append({"id": t.get("id"), "anchor": a, "anchor_status": status})
+    out = comments_path.with_name(
+        re.sub(r"-comments\.json$", "-reanchor.json", comments_path.name))
+    # ensure_ascii=False keeps UTF-8 (—, →, …) intact, matching the host's
+    # JSON.stringify writes so nothing flips representation between regens.
+    out.write_text(json.dumps({"threads": mutations}, indent=2, ensure_ascii=False) + "\n",
+                   encoding="utf-8")
 
 
 TEMPLATE = """<!doctype html>

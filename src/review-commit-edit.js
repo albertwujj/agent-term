@@ -97,6 +97,7 @@ function createCommitEditController(io) {
   //   composerBlocked() -> bool,
   //   sendLabel(revisitThreadId|null) -> string,   // null = this edit is new
   //   threadNeedsSend(thread) -> bool,   // pending (amber) vs sent (slate) marks
+  //   threadWhollyUnsent(thread) -> bool, // gate for revisit/dissolve-discard
   //   onToast(msg),
   //   platform,
   // }
@@ -558,7 +559,14 @@ function createCommitEditController(io) {
       // Pending and wholly the user's → clicking back in re-enters the edit.
       // The note seeds only from the two-message shape (envelope + note);
       // follow-up comments are conversation, not the note.
-      if (pending && userOnly) {
+      //
+      // Revisit (and its dissolve-is-discard exit) only while the thread is
+      // wholly un-sent — the same rule Discard follows everywhere, enforced
+      // store-side too. A SENT edit still pending after a relaunch is amber
+      // (pending) but sealed: a send covered it, so re-entering it in place
+      // would rewrite words the agent has; a follow-up is the vehicle there.
+      const whollyUnsent = io.threadWhollyUnsent ? io.threadWhollyUnsent(t) : (pending && userOnly);
+      if (pending && userOnly && whollyUnsent) {
         block.classList.add('rv-edit-revisitable');
         revisitInfo.set(block, {
           threadId: t.id,
