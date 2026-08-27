@@ -23,6 +23,8 @@ const resolved = (id) => ({ ...answered(id), status: 'resolved' });
 
 check('unaddressed = open with the user\'s word last; blocked and resolved are not stalls', () => {
   assert.strictEqual(threadUnaddressed(open('a')), true);
+  // New stores omit `status` entirely — absent reads as open.
+  assert.strictEqual(threadUnaddressed({ id: 'a', messages: [{ author: 'user', body: 'q', ts: 1 }] }), true);
   // An agent reply that left the thread open is "blocked on the user" — the
   // user's move, never a stall.
   assert.strictEqual(threadUnaddressed(answered('a')), false);

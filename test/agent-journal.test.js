@@ -120,6 +120,26 @@ check('threadHasAgentEvents is what seals a thread against Discard', () => {
   assert.strictEqual(threadHasAgentEvents([], 't1'), false);
 });
 
+check('a store thread without a status field (new stores) works throughout', () => {
+  // New stores omit `status` — main only ever wrote 'open', so readers
+  // default the absent field and the merge derives everything else.
+  const store = {
+    threads: [{ id: 't1', messages: [{ author: 'user', body: 'q', ts: 10 }] }],
+  };
+  const replied = mergeStoreWithJournal(store, [{ thread: 't1', body: 'a', ts: 20 }]);
+  assert.strictEqual(replied.threads[0].status, undefined); // stays absent = open
+  const closed = mergeStoreWithJournal(store, [{ thread: 't1', status: 'resolved', ts: 20 }]);
+  assert.strictEqual(closed.threads[0].status, 'resolved');
+  // Reopen by recency needs no store field either.
+  const reopened = mergeStoreWithJournal(
+    { threads: [{ id: 't1', messages: [
+      { author: 'user', body: 'q', ts: 10 }, { author: 'user', body: 'more', ts: 40 },
+    ] }] },
+    [{ thread: 't1', status: 'resolved', ts: 20 }],
+  );
+  assert.strictEqual(reopened.threads[0].status, 'open');
+});
+
 check('an empty or missing journal merges to the store as-is', () => {
   const store = { turn: 2, threads: [{ id: 't1', status: 'open', messages: [] }] };
   assert.deepStrictEqual(mergeStoreWithJournal(store, []), store);

@@ -3766,8 +3766,11 @@ ipcMain.handle('rv-add-thread', async (event, { commentsUrl, anchor, body, note 
           // render-internal "(note N)" label, which the agent never wrote).
           heading: a.heading || '',
         },
+        // No `status` field: main only ever wrote 'open', so the store carries
+        // none and readers default an absent status to open. Effective status
+        // is the merge's business — journal events set it, and a user
+        // follow-up newer than a journal `resolved` derives the reopen.
         anchor_status: 'ok',
-        status: 'open',
         messages: [
           { author: 'user', body: text, ts },
           ...(noteText ? [{ author: 'user', body: noteText, ts }] : []),
@@ -3843,10 +3846,11 @@ ipcMain.handle('rv-add-message', async (event, { commentsUrl, threadId, author, 
       if (!t) return { success: false, error: 'thread not found' };
       if (!Array.isArray(t.messages)) t.messages = [];
       t.messages.push({ author: who, body: text, ts: Date.now() });
-      // A user follow-up reopens an answered/resolved thread. Merged-resolved
-      // counts the same: the follow-up must outrank a journal `resolved`, so
-      // the store pins `open` explicitly rather than trusting its own field.
-      if (who === 'user') t.status = 'open';
+      // Legacy pin only: a store whose agent wrote `resolved` inline (the
+      // pre-journal protocol) has no journal event for the merge's recency
+      // rule to outrank, so the follow-up rewrites it to open. New-protocol
+      // reopens are derived — the follow-up postdates the journal `resolved`.
+      if (who === 'user' && t.status === 'resolved') t.status = 'open';
       await saveCommentStore(p, store);
       return { success: true, data: mergeStoreWithJournal(store, await readJournalEvents(p)) };
     } catch (e) { return { success: false, error: e.message }; }
@@ -4161,8 +4165,10 @@ ipcMain.handle('md-add-threads', async (event, { docPath, threads, batchKind, al
             // its alt); present only for those, absent for text anchors.
             ...(item.anchor.src ? { src: String(item.anchor.src) } : {}),
           },
+          // No `status` field — same rule as the review store: main only ever
+          // wrote 'open', readers default absent to open, the merge derives
+          // the rest from journal events and message recency.
           anchor_status: 'ok',
-          status: 'open',
           messages: [
             { author: 'user', body: item.body, ts: Date.now(), turn: store.turn },
             ...(item.note ? [{ author: 'user', body: item.note, ts: Date.now(), turn: store.turn }] : []),
@@ -4232,7 +4238,9 @@ ipcMain.handle('md-add-message', async (event, { docPath, threadId, body, allowM
       store.turn = (Number.isFinite(store.turn) ? store.turn : 0) + 1;
       if (!Array.isArray(t.messages)) t.messages = [];
       t.messages.push({ author: 'user', body: text, ts: Date.now(), turn: store.turn });
-      if (t.status !== 'open') t.status = 'open';
+      // Legacy pin only (see rv-add-message): rewrite an inline `resolved`
+      // to open; an absent field stays absent, the merge derives the reopen.
+      if (t.status === 'resolved') t.status = 'open';
       await saveCommentStore(p, store);
       if (!pasteMdPointer(doc, storePosix, runbook, undefined, { toPrompt })) {
         return { success: false, error: 'No active terminal process' };
