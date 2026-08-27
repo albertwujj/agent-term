@@ -3713,19 +3713,13 @@ function newThreadId() {
 function validCommentsPath(p) { return /-comments\.json$/i.test(p); }
 
 // A thread is still the user's to retract or rewrite only while it is wholly
-// theirs AND wholly un-sent: open, every store message user-authored, none
-// carrying a turn stamp, and no agent journal events. This is the overlay's
-// threadWhollyUnsent enforced server-side, so a stale guest render can't
-// delete words the agent has — a stamp means a send covered them; a journal
-// event means the agent spoke even while the store's messages are all the
-// user's. Returns the refusal, or null when the thread is still retractable.
+// un-sent and the agent has never spoken: no message carrying a turn stamp
+// (a stamp means a send covered it) and no agent journal events. This is the
+// overlay's threadWhollyUnsent enforced server-side, so a stale guest render
+// can't delete words the agent has. Returns the refusal, or null when the
+// thread is still retractable.
 function threadRetractError(t, events) {
-  if ((t.status || 'open') !== 'open') return 'the agent has this thread — reply instead';
-  const msgs = t.messages || [];
-  if (!msgs.every((m) => (m.author || 'user') === 'user')) {
-    return 'the agent has this thread — reply instead';
-  }
-  if (msgs.some((m) => Number.isFinite(m.turn))) {
+  if ((t.messages || []).some((m) => Number.isFinite(m.turn))) {
     return 'already sent to the agent — reply instead';
   }
   if (threadHasAgentEvents(events, t.id)) {
@@ -3833,24 +3827,20 @@ ipcMain.handle('rv-discard-thread', async (event, { commentsUrl, threadId } = {}
   });
 });
 
-ipcMain.handle('rv-add-message', async (event, { commentsUrl, threadId, author, body } = {}) => {
+ipcMain.handle('rv-add-message', async (event, { commentsUrl, threadId, body } = {}) => {
   const p = commentsPathFromUrl(commentsUrl);
   if (!validCommentsPath(p)) return { success: false, error: 'not a comments store' };
   const text = String(body == null ? '' : body).trim();
   if (!text) return { success: false, error: 'Empty comment' };
-  const who = author === 'agent' ? 'agent' : 'user';
   return withCommentsLock(p, async () => {
     try {
       const store = await loadCommentStore(p);
       const t = store.threads.find((x) => x.id === threadId);
       if (!t) return { success: false, error: 'thread not found' };
       if (!Array.isArray(t.messages)) t.messages = [];
-      t.messages.push({ author: who, body: text, ts: Date.now() });
-      // Legacy pin only: a store whose agent wrote `resolved` inline (the
-      // pre-journal protocol) has no journal event for the merge's recency
-      // rule to outrank, so the follow-up rewrites it to open. New-protocol
-      // reopens are derived — the follow-up postdates the journal `resolved`.
-      if (who === 'user' && t.status === 'resolved') t.status = 'open';
+      // The reopen is derived, never written: this follow-up postdates any
+      // journal `resolved`, so the merge's recency rule reopens the thread.
+      t.messages.push({ author: 'user', body: text, ts: Date.now() });
       await saveCommentStore(p, store);
       return { success: true, data: mergeStoreWithJournal(store, await readJournalEvents(p)) };
     } catch (e) { return { success: false, error: e.message }; }
@@ -4237,10 +4227,9 @@ ipcMain.handle('md-add-message', async (event, { docPath, threadId, body, allowM
       if (!t) return { success: false, error: 'Thread not found' };
       store.turn = (Number.isFinite(store.turn) ? store.turn : 0) + 1;
       if (!Array.isArray(t.messages)) t.messages = [];
+      // The reopen is derived, never written: this follow-up postdates any
+      // journal `resolved`, so the merge's recency rule reopens the thread.
       t.messages.push({ author: 'user', body: text, ts: Date.now(), turn: store.turn });
-      // Legacy pin only (see rv-add-message): rewrite an inline `resolved`
-      // to open; an absent field stays absent, the merge derives the reopen.
-      if (t.status === 'resolved') t.status = 'open';
       await saveCommentStore(p, store);
       if (!pasteMdPointer(doc, storePosix, runbook, undefined, { toPrompt })) {
         return { success: false, error: 'No active terminal process' };

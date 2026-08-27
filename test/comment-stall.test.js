@@ -15,8 +15,8 @@ function check(name, fn) {
   console.log(`PASS ${name}`);
 }
 
-const open = (id) => ({ id, status: 'open', messages: [{ author: 'user', body: 'q', ts: 1 }] });
-const answered = (id) => ({ id, status: 'open', messages: [
+const open = (id) => ({ id, messages: [{ author: 'user', body: 'q', ts: 1 }] });
+const answered = (id) => ({ id, messages: [
   { author: 'user', body: 'q', ts: 1 }, { author: 'agent', body: 'a', ts: 2 },
 ] });
 const resolved = (id) => ({ ...answered(id), status: 'resolved' });

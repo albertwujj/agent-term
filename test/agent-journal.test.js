@@ -46,7 +46,7 @@ check('replies land as agent messages; status and anchor apply; unknown threads 
   const store = {
     turn: 3,
     threads: [
-      { id: 't1', status: 'open', anchor: { path: 'a.js', line: '4' }, anchor_status: 'lost',
+      { id: 't1', anchor: { path: 'a.js', line: '4' }, anchor_status: 'lost',
         messages: [{ author: 'user', body: 'why?', ts: 10, turn: 3 }] },
     ],
   };
@@ -66,14 +66,14 @@ check('replies land as agent messages; status and anchor apply; unknown threads 
   assert.strictEqual(merged.threads.length, 1);
   // The caller's store is never mutated — write paths keep the raw parts.
   assert.strictEqual(store.threads[0].messages.length, 1);
-  assert.strictEqual(store.threads[0].status, 'open');
+  assert.strictEqual(store.threads[0].status, undefined);
 });
 
 check('journal replies interleave with store follow-ups by ts', () => {
   // user → agent reply (journal) → user follow-up (store, later ts): the
   // reply must sit between the two user messages, not after them.
   const store = {
-    threads: [{ id: 't1', status: 'open', messages: [
+    threads: [{ id: 't1', messages: [
       { author: 'user', body: 'first', ts: 10 },
       { author: 'user', body: 'follow-up', ts: 30 },
     ] }],
@@ -88,11 +88,11 @@ check('journal replies interleave with store follow-ups by ts', () => {
 check('a user follow-up newer than the journal resolved reopens; an older one stays answered', () => {
   const store = {
     threads: [
-      { id: 'late-follow-up', status: 'open', messages: [
+      { id: 'late-follow-up', messages: [
         { author: 'user', body: 'q', ts: 10 },
         { author: 'user', body: 'and another thing', ts: 40 },
       ] },
-      { id: 'answered', status: 'open', messages: [{ author: 'user', body: 'q', ts: 10 }] },
+      { id: 'answered', messages: [{ author: 'user', body: 'q', ts: 10 }] },
     ],
   };
   const merged = mergeStoreWithJournal(store, [
@@ -107,7 +107,7 @@ check('a user follow-up newer than the journal resolved reopens; an older one st
 
 check('a status event without ts loses to any timestamped user words', () => {
   const store = {
-    threads: [{ id: 't1', status: 'open', messages: [{ author: 'user', body: 'q', ts: 10 }] }],
+    threads: [{ id: 't1', messages: [{ author: 'user', body: 'q', ts: 10 }] }],
   };
   const merged = mergeStoreWithJournal(store, [{ thread: 't1', status: 'resolved' }]);
   assert.strictEqual(merged.threads[0].status, 'open');
@@ -120,9 +120,7 @@ check('threadHasAgentEvents is what seals a thread against Discard', () => {
   assert.strictEqual(threadHasAgentEvents([], 't1'), false);
 });
 
-check('a store thread without a status field (new stores) works throughout', () => {
-  // New stores omit `status` — main only ever wrote 'open', so readers
-  // default the absent field and the merge derives everything else.
+check('store threads carry no status field; the merge derives everything', () => {
   const store = {
     threads: [{ id: 't1', messages: [{ author: 'user', body: 'q', ts: 10 }] }],
   };
@@ -141,7 +139,7 @@ check('a store thread without a status field (new stores) works throughout', () 
 });
 
 check('an empty or missing journal merges to the store as-is', () => {
-  const store = { turn: 2, threads: [{ id: 't1', status: 'open', messages: [] }] };
+  const store = { turn: 2, threads: [{ id: 't1', messages: [] }] };
   assert.deepStrictEqual(mergeStoreWithJournal(store, []), store);
   assert.deepStrictEqual(mergeStoreWithJournal(store, parseJournal('')), store);
 });
