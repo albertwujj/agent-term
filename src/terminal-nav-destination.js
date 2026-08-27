@@ -77,7 +77,7 @@ function opensInApp(match) {
   if (!match) return false;
   if (IN_APP_PATTERN_NAMES.has(match.patternName)) return true;
   if (PATH_IS_THE_TEXT.has(match.patternName)) {
-    const text = String(match.text || '');
+    const text = String(match.viewerTarget || match.text || '');
     return DOC_TARGET.test(text) || IMAGE_TARGET.test(text);
   }
   if (CONTEXT_PATH_PATTERNS.has(match.patternName)) {

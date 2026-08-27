@@ -34,6 +34,7 @@ const {
   ViewerValidationMemory,
   canonicalViewerUrl,
   collectBufferViewerCandidates,
+  extractViewerCandidateMatches,
   sameViewer,
   viewerFileUrlToPath,
 } = require('./viewer-history');
@@ -328,6 +329,10 @@ function captureViewerCandidates(data) {
   const captured = streamViewerCandidates.push(data);
   for (const entry of captured) {
     viewerValidationMemory.observe(entry);
+    if (entry.rendererWrapped) {
+      forgetRendererWrappedViewerValidation(entry);
+      void ensureRendererWrappedViewerValidation(entry).promise;
+    }
     if (entry.kind !== 'review' || !looksLikeRealViewerUrl(entry.key)) continue;
     const lastSeenAt = reviewSightings.get(entry.key);
     reviewSightings.set(entry.key, Date.now());
@@ -346,11 +351,7 @@ function captureViewerCandidates(data) {
 // is already open, don't yank it away: just toast that a review is ready (the
 // link in the terminal stays clickable).
 async function maybeAutoOpenReview(url) {
-  let pkgPath;
-  try { pkgPath = decodeURIComponent(url.replace(/^review:\/\//i, '')).trim(); } catch { return; }
-  let exists = false;
-  try { exists = await window.pty.reviewPackageExists(pkgPath); } catch {}
-  if (!exists) return;
+  if (!(await resolveViewerEntry({ kind: 'review', key: url }))) return;
   if (anyViewerOpen()) {
     showToast('Agent posted a review — click the link to open');
     return;
@@ -380,11 +381,7 @@ async function maybeRevealReprintedReview(url, lastSeenAt) {
     return;
   }
   if (anyViewerOpen()) return;
-  let pkgPath;
-  try { pkgPath = decodeURIComponent(url.replace(/^review:\/\//i, '')).trim(); } catch { return; }
-  let exists = false;
-  try { exists = await window.pty.reviewPackageExists(pkgPath); } catch {}
-  if (!exists) return;
+  if (!(await resolveViewerEntry({ kind: 'review', key: url }))) return;
   openUrlFromTerminal(url, 'auto', false);
 }
 
@@ -411,7 +408,7 @@ function looksLikeRealViewerUrl(url) {
 // alt-screen output after repaint; rendered normal scrollback recovers text that
 // search/click can see but raw extraction missed; the live alternate buffer adds
 // its current frame. Exact identity de-duplication keeps one stable cursor entry.
-function collectDiscoveredViewerCandidates() {
+async function collectDiscoveredViewerCandidates() {
   const combined = [];
   const add = (entry) => {
     if (!entry || !looksLikeRealViewerUrl(entry.key) || viewerValidationMemory.isRejected(entry)) return;
@@ -425,7 +422,12 @@ function collectDiscoveredViewerCandidates() {
   if (active && active !== normal) {
     for (const entry of collectBufferViewerCandidates(active)) add(entry);
   }
-  return combined;
+  const accepted = await Promise.all(combined.map(async (entry) => {
+    if (!entry.rendererWrapped) return entry;
+    const validation = ensureRendererWrappedViewerValidation(entry);
+    return await validation.promise ? entry : null;
+  }));
+  return accepted.filter(Boolean);
 }
 
 // Local candidates must exist. Return the concrete open key for relative md
@@ -464,6 +466,45 @@ async function resolveViewerEntry(entry) {
   return { entry, openKey: entry.key };
 }
 
+// Renderer-wrapped local targets are intentionally provisional until the same
+// resolver used by history/navigation confirms the joined file. One cached
+// verdict drives collection, decoration, and hit testing; an invalid join never
+// falls through to opening either visible fragment.
+const rendererWrappedViewerValidation = new Map();
+
+function rendererWrappedViewerIdentity(entry) {
+  return entry ? `${entry.kind}\0${entry.key}` : '';
+}
+
+function forgetRendererWrappedViewerValidation(entry) {
+  const identity = rendererWrappedViewerIdentity(entry);
+  if (identity) rendererWrappedViewerValidation.delete(identity);
+}
+
+function ensureRendererWrappedViewerValidation(entry) {
+  const identity = rendererWrappedViewerIdentity(entry);
+  const existing = rendererWrappedViewerValidation.get(identity);
+  if (existing) return existing;
+
+  const state = { status: 'pending', resolved: null, promise: null };
+  state.promise = resolveViewerEntry(entry)
+    .then((resolved) => {
+      state.resolved = resolved;
+      state.status = resolved ? 'valid' : 'invalid';
+      if (isAlternateBufferActive()) altBufferDirty = true;
+      scheduleDecorationProcessing();
+      return resolved;
+    })
+    .catch(() => {
+      state.status = 'invalid';
+      if (isAlternateBufferActive()) altBufferDirty = true;
+      scheduleDecorationProcessing();
+      return null;
+    });
+  rendererWrappedViewerValidation.set(identity, state);
+  return state;
+}
+
 function purgeViewerEntry(entry) {
   viewerValidationMemory.reject(entry);
   viewerHistory.remove(entry);
@@ -496,7 +537,7 @@ async function openViewerFromHistory(entry, openKey) {
 // whenever an entry turns out to be gone. Reached only through the open-recent
 // channel now — the selector is how a person picks a viewer.
 async function openRecentViewer() {
-  viewerHistory.merge(collectDiscoveredViewerCandidates());
+  viewerHistory.merge(await collectDiscoveredViewerCandidates());
   const candidates = viewerHistory.traverse('back');
   if (!candidates.length) {
     showToast(viewerHistory.entries().length ? 'No older viewer' : 'No viewer to open');
@@ -530,17 +571,26 @@ function queueRecentViewerOpen() {
 // Viewer selector (Cmd/Ctrl+Shift+U) — the merged candidate list as a filterable
 // overlay: type any fragment of the URL/path to open it.
 let activeViewerSelector = null;
+let viewerSelectorOpening = false;
+let viewerSelectorRequest = 0;
 function closeViewerSelector() {
-  if (!activeViewerSelector) return;
-  try { activeViewerSelector.destroy(); } catch {}
+  if (!activeViewerSelector && !viewerSelectorOpening) return;
+  viewerSelectorOpening = false;
+  viewerSelectorRequest++;
+  try { if (activeViewerSelector) activeViewerSelector.destroy(); } catch {}
   activeViewerSelector = null;
   // Hand keyboard focus back to the terminal, matching the sessions picker.
   try { terminal.focus(); } catch {}
 }
 
-function toggleViewerSelector() {
-  if (activeViewerSelector) { closeViewerSelector(); return; }
-  viewerHistory.merge(collectDiscoveredViewerCandidates());
+async function toggleViewerSelector() {
+  if (activeViewerSelector || viewerSelectorOpening) { closeViewerSelector(); return; }
+  viewerSelectorOpening = true;
+  const request = ++viewerSelectorRequest;
+  const discovered = await collectDiscoveredViewerCandidates();
+  if (!viewerSelectorOpening || request !== viewerSelectorRequest) return;
+  viewerSelectorOpening = false;
+  viewerHistory.merge(discovered);
   const entries = viewerHistory.entries();
   if (!entries.length) { showToast('No viewer to open'); return; }
   activeViewerSelector = createViewerSelector({
@@ -4732,7 +4782,7 @@ const patterns = [
       // Any modifier (Ctrl/Cmd/Alt) → system browser. Plain click → embedded
       // viewer band. copyResponse covers the Ctrl+Alt debug chord.
       const external = !!(options.copyResponse || mod.ctrlKey || mod.metaKey || mod.altKey);
-      openUrlFromTerminal(match.text, 'visible-url', external);
+      openUrlFromTerminal(match.viewerTarget || match.text, 'visible-url', external);
     },
   },
   {
@@ -4792,7 +4842,7 @@ const patterns = [
         && !/^\(\d/.test(rest);
     },
     action: async (match, options) => {
-      await navigateToFileLine(match.text, null, null, options);
+      await navigateToFileLine(match.viewerTarget || match.text, null, null, options);
     },
   },
   {
@@ -5203,6 +5253,12 @@ function getLogicalLineStart(buffer, bufferLineIndex) {
     if (!line || !line.isWrapped) break;
     currentIndex--;
   }
+  // A renderer-wrapped local document is also one navigation unit.
+  // Back up to its head when the viewport begins on the continuation row so we
+  // do not redecorate that tail as a misleading standalone `ng.md` target.
+  if (currentIndex > 0 && analyzeRendererWrappedDocument(buffer, currentIndex - 1)) {
+    currentIndex--;
+  }
   return currentIndex;
 }
 
@@ -5277,6 +5333,62 @@ function getWordAtMouseEvent(event) {
   return trimTokenEdges(text.slice(start, end));
 }
 
+// Cursor's renderer may turn one long local document target into two hard rows
+// and redraw it as one row after a resize. viewer-history owns the conservative
+// recognition rule; this adapter maps its two source segments back to xterm
+// coordinates so either visible fragment clicks the reconstructed target.
+function analyzeRendererWrappedDocument(buffer, headRow) {
+  if (!buffer || headRow < 0 || headRow + 1 >= buffer.length) return null;
+  const headLine = buffer.getLine(headRow);
+  const tailLine = buffer.getLine(headRow + 1);
+  if (!headLine || !tailLine || tailLine.isWrapped) return null;
+  const headText = headLine.translateToString();
+  const tailText = tailLine.translateToString();
+  const parsed = extractViewerCandidateMatches(`${headText}\n${tailText}`).find(
+    (match) => match.rendererWrapped && Array.isArray(match.segments) && match.segments.length === 2
+  );
+  if (!parsed) return null;
+  return {
+    entry: { ...parsed.entry, rendererWrapped: true },
+    headRow,
+    endRow: headRow + 1,
+    signature: `${headText}\n${tailText}`,
+    segments: parsed.segments.map((segment) => ({
+      ...segment,
+      row: headRow + segment.lineIndex,
+    })),
+  };
+}
+
+function rendererWrappedDocumentSegmentMatch(analysis, segment) {
+  const patternName = analysis.entry.kind === 'review' ? 'url' : 'plain_file';
+  const pattern = patterns.find((candidate) => candidate.name === patternName);
+  if (!pattern) return null;
+  return {
+    text: segment.text,
+    viewerTarget: analysis.entry.key,
+    start: segment.start,
+    end: segment.end,
+    bufferRow: segment.row,
+    patternName,
+    action: pattern.action,
+    style: pattern.style,
+    trimToContent: pattern.trimToContent,
+    priority: pattern.priority || 'high',
+  };
+}
+
+function rendererWrappedDocumentHitAt(buffer, bufferRow, col) {
+  for (const headRow of [bufferRow - 1, bufferRow]) {
+    const analysis = analyzeRendererWrappedDocument(buffer, headRow);
+    if (!analysis) continue;
+    const segment = analysis.segments.find((candidate) => candidate.row === bufferRow);
+    if (!segment || col < segment.start || col >= segment.end) continue;
+    return { analysis, segment };
+  }
+  return null;
+}
+
 // A word pasted mid-prompt needs a separator: when the character just left of
 // the cursor is non-space (a half-typed argument), prepend a space. A fresh
 // prompt ends in space ("$ ", "> "), so nothing is added there.
@@ -5325,6 +5437,15 @@ function getClickableMatchAtMouseEvent(event) {
   if (!position) return null;
 
   const { buffer, bufferRow, col } = position;
+
+  const rendererWrappedDocumentHit = rendererWrappedDocumentHitAt(buffer, bufferRow, col);
+  if (rendererWrappedDocumentHit) {
+    const { analysis, segment } = rendererWrappedDocumentHit;
+    const validation = ensureRendererWrappedViewerValidation(analysis.entry);
+    return validation.status === 'valid'
+      ? rendererWrappedDocumentSegmentMatch(analysis, segment)
+      : null;
+  }
 
   // Stitched image-attachment paths span rows and are invisible to parseRow;
   // resolve them first so a click anywhere on the path opens the whole file.
@@ -5561,6 +5682,42 @@ function decorateImageAttachmentRow(buffer, row) {
   return analysis.endRow;
 }
 
+// Draw one coherent affordance over both physical fragments of a reconstructed
+// local document target. The click resolver independently rebuilds the same
+// match, so a decoration remains visual-only just like image attachments.
+function decorateRendererWrappedDocumentRow(buffer, row, lastStableRow = Infinity) {
+  const analysis = analyzeRendererWrappedDocument(buffer, row);
+  if (!analysis || analysis.endRow > lastStableRow) return -1;
+  const validation = ensureRendererWrappedViewerValidation(analysis.entry);
+  const validatedSignature = `${analysis.signature}\0${validation.status}`;
+  if (processedRows.get(row) === validatedSignature
+      && (validation.status !== 'valid' || decorations.has(row))) {
+    return analysis.endRow;
+  }
+
+  for (let physicalRow = row; physicalRow <= analysis.endRow; physicalRow++) {
+    clearStoredRow(physicalRow, buffer);
+  }
+  if (validation.status === 'valid') {
+    const rowDecorations = [];
+    for (const segment of analysis.segments) {
+      const match = rendererWrappedDocumentSegmentMatch(analysis, segment);
+      if (!match) continue;
+      try {
+        const entry = createDecoration(segment.row, match);
+        if (entry) rowDecorations.push(entry);
+      } catch (error) {
+        console.error('[decor] Failed renderer-wrapped document decoration:', error.message);
+      }
+    }
+    if (rowDecorations.length > 0) decorations.set(row, rowDecorations);
+  }
+  for (let physicalRow = row; physicalRow <= analysis.endRow; physicalRow++) {
+    processedRows.set(physicalRow, validatedSignature);
+  }
+  return analysis.endRow;
+}
+
 function decorateLogicalRow(row, text, endIndex) {
   debug(`Row ${row}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
 
@@ -5610,6 +5767,13 @@ function rebuildAlternateViewportDecorations(buffer, viewportStart, viewportEnd)
     if (line.isWrapped) {
       processedRows.set(row, '');
       row++;
+      continue;
+    }
+
+    const rendererWrappedEnd = decorateRendererWrappedDocumentRow(buffer, row);
+    if (rendererWrappedEnd >= 0) {
+      processedCount++;
+      row = rendererWrappedEnd + 1;
       continue;
     }
 
@@ -5663,6 +5827,13 @@ function processVisibleRows() {
   let processedCount = 0;
 
   while (row < viewportEnd && row < cursorRow) {
+    const rendererWrappedEnd = decorateRendererWrappedDocumentRow(buffer, row, cursorRow - 1);
+    if (rendererWrappedEnd >= 0) {
+      processedCount++;
+      row = rendererWrappedEnd + 1;
+      continue;
+    }
+
     // Skip if already processed — but check for content drift
     if (processedRows.has(row)) {
       const { text: currentText } = getRowText(row);

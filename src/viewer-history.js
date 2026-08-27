@@ -5,9 +5,30 @@
 // model writing that from memory sometimes separates the placeholder. Admit it,
 // but only ahead of an absolute path: prose about "the review:// link" can then
 // never be read as a package.
-const REVIEW_URL_SOURCE = String.raw`review:\/\/[ \t]*\/[^\s<>"'\x60\x00-\x1f]*[^\s<>"'\x60\x00-\x1f.,;:!?\)\]}>]`;
+const URL_TOKEN_SOURCE = String.raw`[^\s<>"'\x60\x00-\x1f]`;
+const URL_TOKEN_END_SOURCE = String.raw`[^\s<>"'\x60\x00-\x1f.,;:!?\)\]}>]`;
+const MARKDOWN_TOKEN_SOURCE = String.raw`[a-zA-Z0-9_.+$~\/\\\u2026%-]`;
+// Cursor can redraw one logical target as two physical rows. Blank cells after
+// the first fragment are not evidence: xterm exposes them whether or not Cursor
+// emitted explicit padding. The continuation gutter is the structural signal.
+// A right-side box glyph is removable row chrome, but it is not required.
+const RENDERER_GUTTER_SOURCE = String.raw`(?:[ \t]{2,}|[ \t]*[│┃|▎][ \t]*)`;
+const RENDERER_ROW_END_SOURCE = String.raw`(?:[ \t]+[│┃|▎])?[ \t]*`;
+const RENDERER_WRAP_SOURCE = String.raw`${RENDERER_ROW_END_SOURCE}\r?\n${RENDERER_GUTTER_SOURCE}`;
+const RENDERER_WRAP_RE = new RegExp(RENDERER_WRAP_SOURCE);
+// The token itself must own the row's content area: column zero, horizontal
+// inset, or a recognized Cursor gutter. A URL after prose is never a candidate
+// for renderer-wrap normalization even when that row happens to be padded.
+const RENDERER_CONTENT_START_SOURCE = String.raw`(?<=^|^[ \t]{2,}|^[ \t]*[│┃|▎][ \t]*)`;
+const RENDERER_WRAPPED_END_SOURCE = String.raw`(?=[.,;:!?\)\]}>]?${RENDERER_ROW_END_SOURCE}(?:\r?\n|$))`;
+const REVIEW_URL_FLAT_SOURCE = String.raw`review:\/\/[ \t]*\/${URL_TOKEN_SOURCE}*${URL_TOKEN_END_SOURCE}`;
+const REVIEW_URL_WRAPPED_SOURCE = String.raw`${RENDERER_CONTENT_START_SOURCE}review:\/\/[ \t]*\/${MARKDOWN_TOKEN_SOURCE}+(?<!\.md)${RENDERER_WRAP_SOURCE}${MARKDOWN_TOKEN_SOURCE}*\.md${RENDERER_WRAPPED_END_SOURCE}`;
+const REVIEW_URL_SOURCE = String.raw`(?:${REVIEW_URL_WRAPPED_SOURCE}|${REVIEW_URL_FLAT_SOURCE})`;
 const VIEWER_URL_SOURCE = String.raw`(?:${REVIEW_URL_SOURCE}|(?:https?|file|review):\/\/[^\s<>"'\x60\x00-\x1f]+[^\s<>"'\x60\x00-\x1f.,;:!?\)\]}>])`;
-const MARKDOWN_PATH_SOURCE = String.raw`(?:[a-zA-Z]:)?(?:[.\/\\~\u2026]|[a-zA-Z0-9_])[a-zA-Z0-9_.+$~\/\\\u2026-]*\.(?:markdown|mdown|md)\b`;
+const MARKDOWN_PATH_FLAT_SOURCE = String.raw`(?:[a-zA-Z]:)?(?:[.\/\\~\u2026]|[a-zA-Z0-9_])[a-zA-Z0-9_.+$~\/\\\u2026-]*\.(?:markdown|mdown|md)\b`;
+const MARKDOWN_PATH_WRAPPED_SOURCE = String.raw`${RENDERER_CONTENT_START_SOURCE}(?:[a-zA-Z]:[\\/]|\/|~[\\/]|\.\.?[\\/])${MARKDOWN_TOKEN_SOURCE}+(?<!\.md)(?<!\.mdown)(?<!\.markdown)${RENDERER_WRAP_SOURCE}${MARKDOWN_TOKEN_SOURCE}*\.(?:markdown|mdown|md)${RENDERER_WRAPPED_END_SOURCE}`;
+const MARKDOWN_PATH_SOURCE = String.raw`(?:${MARKDOWN_PATH_WRAPPED_SOURCE}|${MARKDOWN_PATH_FLAT_SOURCE})`;
+const MARKDOWN_DOCUMENT_RE = /\.(?:markdown|mdown|md)$/i;
 // One character that could still extend a candidate of each kind. The match
 // regexes trim trailing punctuation ("https://a.com." matches "https://a.com"),
 // so match.end alone cannot tell a finished candidate from one bisected by a
@@ -22,6 +43,18 @@ function viewerTokenEnd(source, end, continuationRe) {
   let index = end;
   while (index < source.length && continuationRe.test(source[index])) index++;
   return index;
+}
+
+function pendingRendererWrappedReview(source, match) {
+  if (!match || match.rendererWrapped || match.entry.kind !== 'review') return false;
+  if (MARKDOWN_DOCUMENT_RE.test(match.entry.key)) return false;
+  // Hold an incomplete review token through the line boundary long enough to
+  // see whether the next PTY write supplies Cursor's indented continuation.
+  // If it does not, the next non-continuation bytes commit the original token.
+  const possibleContinuation = String.raw`(?:[ \t]*|${RENDERER_GUTTER_SOURCE}${MARKDOWN_TOKEN_SOURCE}*)`;
+  return new RegExp(
+    String.raw`^${RENDERER_ROW_END_SOURCE}(?:\r?\n${possibleContinuation})?$`
+  ).test(source.slice(match.end));
 }
 const OSC_8_URL_RE = /\x1b\]8;[^;]*;([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
 const DEFAULT_HISTORY_LIMIT = 100;
@@ -53,30 +86,63 @@ function viewerIdentity(entry) {
 // package printed both ways is one entry in history and one sighting for
 // auto-open rather than two.
 function canonicalViewerUrl(url) {
-  return String(url || '').replace(/^(review:\/\/)[ \t]+/i, '$1');
+  return String(url || '')
+    .replace(new RegExp(RENDERER_WRAP_SOURCE, 'g'), '')
+    .replace(/^(review:\/\/)[ \t]+/i, '$1');
 }
 
 function normalizeMarkdownPath(raw) {
-  let path = String(raw || '');
+  let path = String(raw || '').replace(new RegExp(RENDERER_WRAP_SOURCE, 'g'), '');
   const wslUnc = /^\\\\wsl(?:\.localhost|\$)\\[^\\]+/i;
   if (wslUnc.test(path)) path = path.replace(wslUnc, '').replace(/\\/g, '/');
   path = path.replace(/^(?:\.\.\.|\u2026)(?:[\\/]+|[^\\/]+[\\/]+)/, '');
   return path;
 }
 
+function rendererWrappedSegments(source, matchStart, raw) {
+  const wrap = RENDERER_WRAP_RE.exec(raw);
+  if (!wrap) return null;
+  const before = source.slice(0, matchStart);
+  const lineIndex = (before.match(/\n/g) || []).length;
+  const headStart = matchStart - (before.lastIndexOf('\n') + 1);
+  const tailGutter = wrap[0].slice(wrap[0].lastIndexOf('\n') + 1);
+  const tailRawStart = wrap.index + wrap[0].length;
+  return [
+    {
+      lineIndex,
+      start: headStart,
+      end: headStart + wrap.index,
+      text: raw.slice(0, wrap.index),
+    },
+    {
+      lineIndex: lineIndex + 1,
+      start: tailGutter.length,
+      end: tailGutter.length + raw.length - tailRawStart,
+      text: raw.slice(tailRawStart),
+    },
+  ];
+}
+
 function extractViewerCandidateMatches(text) {
   const source = String(text || '');
   const matches = [];
   const urlSpans = [];
-  const urlRe = new RegExp(VIEWER_URL_SOURCE, 'gi');
-  const markdownRe = new RegExp(MARKDOWN_PATH_SOURCE, 'gi');
+  const urlRe = new RegExp(VIEWER_URL_SOURCE, 'gim');
+  const markdownRe = new RegExp(MARKDOWN_PATH_SOURCE, 'gim');
 
   for (const match of source.matchAll(urlRe)) {
     const key = canonicalViewerUrl(match[0]);
     const start = match.index;
     const end = start + match[0].length;
     const kind = /^review:\/\//i.test(key) ? 'review' : 'url';
-    matches.push({ entry: { kind, key }, start, end, tokenEnd: viewerTokenEnd(source, end, URL_CONTINUATION_RE) });
+    const segments = rendererWrappedSegments(source, start, match[0]);
+    matches.push({
+      entry: { kind, key },
+      start,
+      end,
+      tokenEnd: viewerTokenEnd(source, end, URL_CONTINUATION_RE),
+      ...(segments ? { rendererWrapped: true, segments } : {}),
+    });
     urlSpans.push({ start, end });
   }
 
@@ -85,7 +151,14 @@ function extractViewerCandidateMatches(text) {
     const end = start + match[0].length;
     if (urlSpans.some((span) => start < span.end && end > span.start)) continue;
     const key = normalizeMarkdownPath(match[0]);
-    if (key) matches.push({ entry: { kind: 'md', key }, start, end, tokenEnd: viewerTokenEnd(source, end, MARKDOWN_CONTINUATION_RE) });
+    const segments = rendererWrappedSegments(source, start, match[0]);
+    if (key) matches.push({
+      entry: { kind: 'md', key },
+      start,
+      end,
+      tokenEnd: viewerTokenEnd(source, end, MARKDOWN_CONTINUATION_RE),
+      ...(segments ? { rendererWrapped: true, segments } : {}),
+    });
   }
 
   matches.sort((a, b) => a.start - b.start || a.end - b.end);
@@ -162,10 +235,14 @@ class ViewerStreamAccumulator {
       // `<`, not `<=`: a token ending exactly at the old tail boundary was
       // deliberately deferred; capture it now when this chunk supplies a delimiter.
       if (match.tokenEnd < cleanTail.length) continue;
+      if (pendingRendererWrappedReview(clean, match)) continue;
       // A token touching the chunk boundary may continue in the next write.
       // Wait for a delimiter instead of caching a permanently truncated URL/path.
       if (match.tokenEnd === clean.length) continue;
-      this._record(match.entry, captured);
+      this._record({
+        ...match.entry,
+        ...(match.rendererWrapped ? { rendererWrapped: true } : {}),
+      }, captured);
     }
 
     // OSC 8 targets are not rendered as text, so harvest their URI before OSC
@@ -213,15 +290,17 @@ function collectBufferViewerCandidates(buffer) {
 
   const entries = [];
   const seen = new Set();
-  for (let row = logicalLines.length - 1; row >= 0; row--) {
-    const onLine = extractViewerCandidates(logicalLines[row]);
-    for (let index = onLine.length - 1; index >= 0; index--) {
-      const entry = onLine[index];
-      const id = viewerIdentity(entry);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      entries.push(entry);
-    }
+  const discovered = extractViewerCandidateMatches(logicalLines.join('\n'));
+  for (let index = discovered.length - 1; index >= 0; index--) {
+    const match = discovered[index];
+    const entry = {
+      ...match.entry,
+      ...(match.rendererWrapped ? { rendererWrapped: true } : {}),
+    };
+    const id = viewerIdentity(entry);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    entries.push(entry);
   }
   return entries;
 }
@@ -341,6 +420,7 @@ module.exports = {
   ViewerValidationMemory,
   canonicalViewerUrl,
   collectBufferViewerCandidates,
+  extractViewerCandidateMatches,
   extractViewerCandidates,
   sameViewer,
   stripTerminalSequences,

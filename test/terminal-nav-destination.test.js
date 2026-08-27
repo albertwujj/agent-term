@@ -81,6 +81,14 @@ check('a built-in viewer acts on a plain click', () => {
   assert.strictEqual(navigationNeedsModifier(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\notes.md')), false);
 });
 
+check('a reconstructed markdown segment uses its full viewer target', () => {
+  assert.strictEqual(navigationNeedsModifier({
+    patternName: 'plain_file',
+    text: 'ng.md',
+    viewerTarget: '/home/me/review/work-long-name.md',
+  }), false);
+});
+
 // An OS open is an application switch, the same class as the IDE, so it sits on
 // the same escalated gesture.
 check('a handoff to the OS waits for a modifier', () => {

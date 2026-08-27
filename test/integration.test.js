@@ -47,6 +47,7 @@ const {
   copySelectionToClipboard,
   handleTerminalKeydown,
 } = require('../src/terminal-keyboard');
+const { collectBufferViewerCandidates } = require('../src/viewer-history');
 
 // =============================================================================
 // Test Framework
@@ -1045,6 +1046,22 @@ test('wrapped continuation rows still resolve file matches from the logical line
 
   assertEqual(startRow, 0, 'Wrapped row should backtrack to the logical line start');
   assertTrue(matches.some((match) => match.patternName === 'file_line'), 'Wrapped logical line should still expose file matches');
+
+  terminal.dispose();
+});
+
+test('hard terminal rows expose one provisional renderer-wrapped review target', async () => {
+  const terminal = createTestTerminal({ cols: 180, rows: 5 });
+  const head = 'review:///home/me/.git/review/work-long-name/work-long-na';
+  await writeAndWait(terminal, `${head}\r\n  me.md.\r\n`);
+
+  const buffer = terminal.buffer.active;
+  assertEqual(buffer.getLine(1)?.isWrapped, false, 'Fixture must use a hard row boundary');
+  assertEqual(collectBufferViewerCandidates(buffer), [{
+    kind: 'review',
+    key: 'review:///home/me/.git/review/work-long-name/work-long-name.md',
+    rendererWrapped: true,
+  }]);
 
   terminal.dispose();
 });

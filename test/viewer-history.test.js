@@ -4,6 +4,7 @@ const {
   ViewerStreamAccumulator,
   ViewerValidationMemory,
   collectBufferViewerCandidates,
+  extractViewerCandidateMatches,
   extractViewerCandidates,
   stripTerminalSequences,
   viewerFileUrlToPath,
@@ -71,6 +72,63 @@ test('a review link printed with a space before its path is one canonical candid
   );
 });
 
+test('reconstructs a review package hard-wrapped by a terminal renderer', () => {
+  const expected = 'review:///home/me/.git/review/work-long-name/work-long-name.md';
+  const rendered = 'review:///home/me/.git/review/work-long-name/work-long-na    \r\n  me.md.\r\n';
+  assert.deepStrictEqual(keys(extractViewerCandidates(rendered)), [`review:${expected}`]);
+});
+
+test('reconstructs a hard-wrapped explicit markdown path', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('/home/me/docs/architecture-not  \n  es.md\n')),
+    ['md:/home/me/docs/architecture-notes.md']
+  );
+});
+
+test('a continuation gutter is sufficient without trailing row padding', () => {
+  const rendered = 'review:///tmp/work-na\n  me.md\n';
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates(rendered)),
+    ['review:review:///tmp/work-name.md']
+  );
+  assert.strictEqual(extractViewerCandidateMatches(rendered)[0].rendererWrapped, true);
+});
+
+test('does not join a hard newline without a continuation gutter', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('review:///tmp/work-na\nme.md\n')),
+    ['review:review:///tmp/work-na', 'md:me.md']
+  );
+});
+
+test('does not join a padded review link following prose', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('Open review:///tmp/work-na  \n  me.md\n')),
+    ['review:review:///tmp/work-na', 'md:me.md']
+  );
+});
+
+test('recognizes Cursor vertical gutters as renderer wrap geometry', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('│ review:///tmp/work-na │\n│ me.md │\n')),
+    ['review:review:///tmp/work-name.md']
+  );
+});
+
+test('does not guess across a hard newline in a web URL', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('https://example.test/long-pa\n  th\n')),
+    ['url:https://example.test/long-pa']
+  );
+});
+
+test('does not join an already-complete review with the next indented document', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('review:///tmp/complete.md\n  notes.md\n')),
+    ['review:review:///tmp/complete.md', 'md:notes.md']
+  );
+});
+
 test('the same package printed both ways is one entry', () => {
   const stream = new ViewerStreamAccumulator();
   assert.deepStrictEqual(
@@ -112,6 +170,20 @@ test('stream accumulator joins candidates split across chunks', () => {
   assert.deepStrictEqual(stream.push('open https://exa'), []);
   assert.deepStrictEqual(keys(stream.push('mple.test/report\r\n')), ['url:https://example.test/report']);
   assert.deepStrictEqual(keys(stream.entries()), ['url:https://example.test/report']);
+});
+
+test('stream accumulator waits for a hard-wrapped review continuation', () => {
+  const stream = new ViewerStreamAccumulator();
+  const head = 'review:///home/me/.git/review/work-long-name/work-long-na';
+  assert.deepStrictEqual(stream.push(`${head}\r\n`), []);
+  for (const character of '  me.md') assert.deepStrictEqual(stream.push(character), []);
+  assert.deepStrictEqual(keys(stream.push('\r\n')), [
+    'review:review:///home/me/.git/review/work-long-name/work-long-name.md',
+  ]);
+  assert.deepStrictEqual(
+    keys(stream.entries()),
+    ['review:review:///home/me/.git/review/work-long-name/work-long-name.md']
+  );
 });
 
 test('stream accumulator commits a boundary candidate when its delimiter arrives', () => {
@@ -207,6 +279,23 @@ test('buffer collector rebuilds soft wraps and returns newest/rightmost first', 
     'md:docs/plan.md',
     'url:https://old.example/page',
   ]);
+});
+
+test('buffer collector reconstructs hard-wrapped local document targets', () => {
+  const buffer = fakeBuffer([
+    { text: 'review:///home/me/.git/review/work-long-name/work-long-na' },
+    { text: '  me.md' },
+    { text: '/home/me/docs/architecture-not' },
+    { text: '  es.md' },
+  ]);
+  assert.deepStrictEqual(keys(collectBufferViewerCandidates(buffer)), [
+    'md:/home/me/docs/architecture-notes.md',
+    'review:review:///home/me/.git/review/work-long-name/work-long-name.md',
+  ]);
+  assert.deepStrictEqual(
+    collectBufferViewerCandidates(buffer).map((entry) => entry.rendererWrapped),
+    [true, true]
+  );
 });
 
 test('history keeps every individual entry rather than one per kind', () => {
