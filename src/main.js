@@ -3929,21 +3929,19 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false
     n = open.length;
     coveredIds = open.map((t) => t.id);
   } catch { n = 0; }
-  // The agent answers through the append-only journal beside the store — one
-  // JSON object per line, appended per thread AS each is finished (that is
-  // what streams replies into the open review); the store file itself is the
-  // host's alone. agent-journal.js holds the merge; contract.md the rules.
-  const agentJournal = agentPath.replace(/-comments\.json$/i, '-agent.jsonl');
-  const addressLine =
-    `Read the open threads in ${agentPath} and address them: as you finish each thread, append one `
-      + `JSON line to ${agentJournal} — {"thread":"<id>","body":"<your reply>","ts":<epoch ms>,"turn":<the store's turn>} `
-      + 'plus "status":"resolved" when done, or "status":"open" when blocked on me. Append per thread as you go, '
-      + 'never edit the store file itself, and edit code where needed, '
-      // "then commit": the viewer renders the committed range, so code edits the
-      // agent leaves uncommitted flag the review out of date (red banner) rather
-      // than appearing in it. A bare "refreshes on its own" read as "nothing more
-      // to do" and agents stopped short of committing.
-      + 'then commit — the open review renders the committed range and refreshes on its own.';
+  // Prompts point, they don't teach: the journal schema, the store's
+  // read-only rule, and commit-before-resolve all live in the runbook the
+  // pointer names (produce-review.md's Round-trip section), so the review
+  // send is the same short sentence as the md send. Resolution failure asks
+  // the user, exactly like the md preflight — nothing is written before a
+  // Cancel.
+  const runbook = await resolveReviewRunbook(agentPath);
+  if (!runbook && !(await askSendWithoutRunbook(event.sender,
+    `${runbookMissingError(REVIEW_THREADS_RUNBOOK, 'store')}\n\nSend anyway? The agent `
+      + 'handles your comments from the store, without the shared contract.'))) {
+    return { canceled: true };
+  }
+  const addressLine = threadsAddressLine(agentPath, runbook);
   const text = [commentHeader(`review://${pkg}`, n || 1), addressLine].join('\n');
   const ok = pasteAgentPing(text, { toPrompt });
   if (!ok) return { success: false, error: 'No active terminal process' };
@@ -3958,9 +3956,8 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false
       const s = await loadCommentStore(p);
       turn = (Number.isFinite(s.turn) ? s.turn : 0) + 1;
       s.turn = turn;
-      // "Already closed at this send" reads the MERGED state: a thread the
-      // agent resolved through the journal is as read-by-now as one resolved
-      // inline in a legacy store.
+      // "Already closed at this send" reads the MERGED state — resolutions
+      // live only in the journal.
       const merged = mergeStoreWithJournal(s, await readJournalEvents(p));
       resolvedAtSend = merged.threads.filter((t) => t.status === 'resolved').map((t) => t.id);
       s.threads.forEach((t) => (t.messages || []).forEach((m) => {
@@ -4047,6 +4044,7 @@ async function resolveRunbook(referenceFile, relativeRunbookPath) {
 }
 
 const MD_THREADS_RUNBOOK = 'agent-threads/md/user-intent.md';
+const REVIEW_THREADS_RUNBOOK = 'agent-threads/code/produce-review.md';
 
 // Returns the resolved path, or null. The pointer names the winner so the
 // agent reads the copy that governs this document.
@@ -4054,9 +4052,34 @@ function resolveMdRunbook(doc) {
   return resolveRunbook(doc, MD_THREADS_RUNBOOK);
 }
 
-function mdRunbookMissingError(doc) {
-  return `agent-threads is not installed: no ${MD_THREADS_RUNBOOK} found from the `
-    + 'session repo root up the tree, above the document, or under HOME';
+// Same ladder for the review surface, anchored on the store (its ancestor
+// chain climbs through .git/review/… to the repo and beyond).
+function resolveReviewRunbook(storePath) {
+  return resolveRunbook(storePath, REVIEW_THREADS_RUNBOOK);
+}
+
+function runbookMissingError(relPath, governed) {
+  return `agent-threads is not installed: no ${relPath} found from the `
+    + `session repo root up the tree, above the ${governed}, or under HOME`;
+}
+
+// The runbook was not found anywhere on the ladder: ask whether to send
+// anyway. Shared by the md preflight and the review send — both run ahead of
+// any write, so Cancel leaves nothing changed.
+async function askSendWithoutRunbook(sender, detail) {
+  const win = BrowserWindow.fromWebContents(sender) || BrowserWindow.getFocusedWindow();
+  const opts = {
+    type: 'warning',
+    buttons: ['Send anyway', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message: 'agent-threads runbook not found',
+    detail,
+  };
+  const { response } = win
+    ? await dialog.showMessageBox(win, opts)
+    : await dialog.showMessageBox(opts);
+  return response === 0;
 }
 
 // Called before the send writes anything. Resolves the runbook; if it is not
@@ -4068,20 +4091,10 @@ ipcMain.handle('md-runbook-preflight', async (event, { docPath } = {}) => {
   if (!doc.startsWith('/') || !isMarkdownFilePath(doc)) return { canceled: true };
   const runbook = await resolveMdRunbook(doc);
   if (runbook) return { runbook };
-  const win = BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow();
-  const opts = {
-    type: 'warning',
-    buttons: ['Send anyway', 'Cancel'],
-    defaultId: 1,
-    cancelId: 1,
-    message: 'agent-threads runbook not found',
-    detail: `${mdRunbookMissingError(doc)}\n\nSend anyway? The agent handles your `
-      + 'edits and comments from the store, without the shared contract.',
-  };
-  const { response } = win
-    ? await dialog.showMessageBox(win, opts)
-    : await dialog.showMessageBox(opts);
-  return response === 0 ? { runbook: null, acked: true } : { canceled: true };
+  const ok = await askSendWithoutRunbook(event.sender,
+    `${runbookMissingError(MD_THREADS_RUNBOOK, 'document')}\n\nSend anyway? The agent `
+      + 'handles your edits and comments from the store, without the shared contract.');
+  return ok ? { runbook: null, acked: true } : { canceled: true };
 });
 
 // The three-fact pointer: doc path, store path, resolved runbook. Content
@@ -4096,7 +4109,9 @@ const MD_POINTER_LEADS = {
   mixed: 'My edits and comments on markdown document:',
 };
 
-function mdAddressLine(storePosix, runbook) {
+// One sentence for both surfaces: the md pointer and the review send close
+// with the same line, store path + governing runbook.
+function threadsAddressLine(storePosix, runbook) {
   return runbook
     ? `Read the open threads in ${storePosix} and address them per ${runbook}.`
     // Explicit-ack send without the runbook (not found): no contract reference,
@@ -4109,7 +4124,7 @@ function buildMdPointerText(doc, storePosix, runbook, batchKind) {
     MD_POINTER_LEADS[batchKind] || MD_POINTER_LEADS.comments,
     doc,
     '',
-    mdAddressLine(storePosix, runbook),
+    threadsAddressLine(storePosix, runbook),
   ].join('\n');
 }
 
@@ -4122,7 +4137,7 @@ async function armMdStallWatch(p, doc, storePosix, runbook) {
     armStallWatch(p, {
       coveredIds: merged.threads.filter((t) => (t.status || 'open') === 'open').map((t) => t.id),
       remindText: `Reminder: open threads on ${doc} remain unaddressed.\n`
-        + mdAddressLine(storePosix, runbook),
+        + threadsAddressLine(storePosix, runbook),
     });
   } catch {}
 }
@@ -4149,7 +4164,9 @@ ipcMain.handle('md-add-threads', async (event, { docPath, threads, batchKind, al
     .filter((t) => t.body);
   if (!items.length) return { success: false, error: 'Empty comment batch' };
   const runbook = await resolveMdRunbook(doc);
-  if (!runbook && !allowMissingRunbook) return { success: false, error: mdRunbookMissingError(doc) };
+  if (!runbook && !allowMissingRunbook) {
+    return { success: false, error: runbookMissingError(MD_THREADS_RUNBOOK, 'document') };
+  }
   const storePosix = mdStorePosixPath(doc);
   const p = await fsPathFromPosix(storePosix);
   return withCommentsLock(p, async () => {
@@ -4231,7 +4248,9 @@ ipcMain.handle('md-add-message', async (event, { docPath, threadId, body, allowM
   const text = String(body == null ? '' : body).trim();
   if (!text) return { success: false, error: 'Empty comment' };
   const runbook = await resolveMdRunbook(doc);
-  if (!runbook && !allowMissingRunbook) return { success: false, error: mdRunbookMissingError(doc) };
+  if (!runbook && !allowMissingRunbook) {
+    return { success: false, error: runbookMissingError(MD_THREADS_RUNBOOK, 'document') };
+  }
   const storePosix = mdStorePosixPath(doc);
   const p = await fsPathFromPosix(storePosix);
   return withCommentsLock(p, async () => {

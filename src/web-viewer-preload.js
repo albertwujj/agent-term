@@ -1072,6 +1072,8 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
   // main's 'to-prompt' event and disarms any resume an earlier send left
   // armed: full terminal, staying).
   function pingFinished(res, channel, okMsg) {
+    // The user canceled the missing-runbook dialog themselves — no toast.
+    if (res && res.canceled) return false;
     if (!res || !res.success) { toast((res && res.error) || 'Could not send'); return false; }
     toast(okMsg);
     try { ipcRenderer.sendToHost(channel); } catch {}
