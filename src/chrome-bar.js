@@ -127,6 +127,10 @@ const BAR_CSS = `
   font: 13px "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, "Courier New", monospace;
   color: #cccccc;
   max-width: min(60vw, 640px);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  -webkit-app-region: no-drag;
 }
 .at-chrome-jobs-pop .at-chrome-jobs-row {
   display: flex; gap: 16px; align-items: baseline;
@@ -191,12 +195,25 @@ let jobsPopover = null;
 function closeJobsPopover() {
   if (!jobsPopover) return;
   try { jobsPopover.remove(); } catch {}
+  document.removeEventListener('mousedown', onJobsPopoverOutside, true);
   jobsPopover = null;
+}
+
+// Dismiss on a press OUTSIDE the popover — not on click, and not on
+// presses inside it, so a copy gesture (press, drag across a row,
+// release) completes with the popover still up. A press on the icon
+// itself is left to the click toggle, which would otherwise reopen what
+// this just closed.
+function onJobsPopoverOutside(ev) {
+  const t = ev.target;
+  if (t && t.closest && (t.closest('.at-chrome-jobs-pop') || t.closest('.at-chrome-jobs'))) return;
+  closeJobsPopover();
 }
 
 // Click detail: one row per job — command, and how long it has been
 // running. Built fresh on open (durations current at that moment), closed
-// by any other click or the next state push.
+// by a press outside it or the next state push. Rows are selectable text:
+// the command line is exactly what a kill or a re-run needs.
 function toggleJobsPopover() {
   if (jobsPopover) { closeJobsPopover(); return; }
   const jobs = lastState && lastState.jobs;
@@ -209,9 +226,9 @@ function toggleJobsPopover() {
     + `<span class="dur">${escapeHtml(fmtRunning(j.startedMs, now))}</span></div>`).join('');
   document.body.appendChild(pop);
   jobsPopover = pop;
-  setTimeout(() => {
-    document.addEventListener('click', closeJobsPopover, { once: true, capture: true });
-  }, 0);
+  // The opening gesture's mousedown already happened (we open on click),
+  // so the outside-press listener can attach immediately.
+  document.addEventListener('mousedown', onJobsPopoverOutside, true);
 }
 
 // Markup for the lock icon, or '' when there is nothing to coordinate.
