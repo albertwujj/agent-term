@@ -38,6 +38,24 @@ A labeled process that disappears while the agent is idle, with no matching
 completion event, earns the agent a "gone without a completion report"
 notice — the SIGKILL/OOM case, where a result is never coming.
 
+The host looks for the token anywhere in the command line, so argv[0] is a
+convention, not a requirement.
+
+**Find and stop these jobs by full command line, not process name.** A
+`#!/usr/bin/env bash` script's process name is `bash` (`env` execs the
+interpreter), labeled or not. This command works on macOS and Linux/WSL:
+
+    ps -axo pid=,command= | grep '[[]sess:'
+
+The bracketed grep pattern does not match its own command line. Take the
+labeled PID from the first column and signal it; killing only a parent launcher
+need not stop an orphaned labeled process.
+
+**Keep `bash "$0"` in the re-exec.** Exec'ing `"$0"` instead lets the kernel's
+shebang rewrite rebuild argv as `[interpreter, script]`, which discards the
+decorated argv[0] and silently takes the label with it — the host then matches
+nothing and liveness watching stops with no error anywhere.
+
 **2. Drop a completion event — the primary signal.** On exit, write one
 file to the spool:
 
@@ -102,7 +120,8 @@ reports exactly once — from the outermost process:
 if [ -n "${AGENT_SESSION_ID:-}" ] && [ -z "${_AGENT_JOB_TOP:-}" ]; then
   _aj_sess=$(printf '%s' "$AGENT_SESSION_ID" | tr -cd 'A-Za-z0-9')
   if [ -z "${_AGENT_JOB_RELABEL:-}" ]; then
-    # opt into liveness watching: surface the session token in argv[0]
+    # opt into liveness watching: surface the session token in argv[0].
+    # `bash "$0"` is required — exec'ing "$0" loses the label (see above)
     _AGENT_JOB_RELABEL=1 exec -a "$(basename "$0")[sess:$_aj_sess]" bash "$0" "$@"
   fi
   export _AGENT_JOB_TOP=$$
