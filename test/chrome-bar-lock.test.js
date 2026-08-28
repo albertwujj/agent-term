@@ -69,5 +69,42 @@ test('renderBarMarkup draws the icon and no working dot', () => {
   assert.ok(!m.includes('at-chrome-dot'));
 });
 
+// --- background-jobs indicator ---
+
+test('jobs: nothing running → no icon', () => {
+  assert.equal(bar.renderJobsMarkup(null), '');
+  assert.equal(bar.renderJobsMarkup({ count: 0, jobs: [] }), '');
+  assert.ok(!bar.renderBarMarkup({ cli: 'claude', prompt: 'x' }).includes('at-chrome-jobs'));
+});
+
+test('jobs: one running → grey arc, singular tooltip naming the command', () => {
+  const m = bar.renderJobsMarkup({ count: 1, jobs: [{ cmd: 'watch-build.sh --url http://j/42/', startedMs: 1 }] });
+  assert.ok(m.includes('class="at-chrome-jobs"'));
+  assert.ok(m.includes('color:#909090'));
+  assert.ok(m.includes('stroke-dasharray'), 'open-arc glyph');
+  assert.ok(m.includes('title="background job running:\nwatch-build.sh --url http://j/42/"'));
+});
+
+test('jobs: more than one running → warn amber, count in the tooltip', () => {
+  const m = bar.renderJobsMarkup({ count: 3, jobs: [{ cmd: 'a' }, { cmd: 'b' }, { cmd: 'c' }] });
+  assert.ok(m.includes('color:#dcdcaa'));
+  assert.ok(m.includes('3 background jobs running:'));
+});
+
+test('jobs: tooltip is escaped', () => {
+  const m = bar.renderJobsMarkup({ count: 1, jobs: [{ cmd: 'echo "<hi>"' }] });
+  assert.ok(m.includes('&quot;&lt;hi&gt;&quot;'));
+});
+
+test('jobs: bar renders the jobs icon beside the lock', () => {
+  const m = bar.renderBarMarkup({
+    cli: 'claude', prompt: 'x',
+    jobs: { count: 1, jobs: [{ cmd: 'demo' }] },
+    lock: { state: 'mine', tooltip: 'you' },
+  });
+  assert.ok(m.indexOf('at-chrome-jobs') >= 0 && m.indexOf('at-chrome-lock') >= 0);
+  assert.ok(m.indexOf('at-chrome-jobs') < m.indexOf('at-chrome-lock'), 'jobs left of lock');
+});
+
 console.log(`\nchrome-bar lock: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

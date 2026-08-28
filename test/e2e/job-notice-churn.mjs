@@ -135,6 +135,26 @@ async function main() {
     await sleep(2000); // grace: a wrong notice would land within a poll
     check('no notice for the stream event',
       !mainLog.slice(markB).match(/\[job-watch\] notice: job-report.*streamjob-finished/));
+
+    // ---- Case C: start record → running indicator → unreported death ----
+    // A hand-written start record for a real short-lived process: while it
+    // lives the indicator must report one running job; when it dies with no
+    // completion event (no trap removes a hand-written record), the host
+    // must notice "gone without a completion report" — after the quiet
+    // period, since the death lands >FINISH_MARGIN after the last screen
+    // activity (the command echo).
+    console.log('Case C — start record: running indicator, then unreported death');
+    await sleep(2500);
+    const markC = mainLog.length;
+    await runCmd(
+      `( sleep 12 >/dev/null 2>&1 & p=$!; d="$TMPDIR/agent-events"; mkdir -p "$d"; ` +
+      `printf 'session=%s\\nstarted=%s\\ncmd=%s\\n' ` +
+      `"$AGENT_SESSION_ID" "$(date -u +%FT%TZ)" "demo-job sleep 12" ` +
+      `> "$d/$(date +%s).$p.started" )`);
+    check('running job indicated', !!(await waitForLog(/\[job-watch\] running: 1/, 15_000, markC)));
+    const vanishedC = await waitForLog(/\[job-watch\] notice: job-vanished.*demo-job sleep 12/, 35_000, markC);
+    check('unreported death noticed', !!vanishedC);
+    check('indicator cleared after the death', !!(await waitForLog(/\[job-watch\] running: 0/, 10_000, markC)));
   } finally {
     await app.close();
     fs.rmSync(tmp, { recursive: true, force: true });

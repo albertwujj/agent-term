@@ -1,16 +1,18 @@
 # JOB_EVENTS — background-job observability contract
 
 AgentTerm re-engages an idle AI agent when a background job it launched
-finishes. The common case needs no cooperation: jobs that stay in the
-session's process tree are noticed from the host side. This file documents
-the *optional* contract a script can implement to make that signal explicit,
-durable, and richer — and what the host does in return. Any tool can adopt
-it, by pasting the reference stanza below or sourcing
-[agent-jobs](https://github.com/yunxin/agent-jobs).
+finishes, and shows while such a job is running. Participation is opt-in
+and script-side: a job reports itself by writing two kinds of file to a
+spool, by pasting the reference stanza below, sourcing it from
+[agent-jobs](https://github.com/yunxin/agent-jobs), or launching under
+that repo's `agent-job` wrapper. Any tool can adopt the contract.
 
-Agents need no knowledge of any of this. Whatever re-engagement duty an
-agent's runbook imposes stands unchanged; everything here is insurance
-underneath it.
+Agents need no knowledge of any of this to benefit, and whatever
+re-engagement duty an agent's runbook imposes stands unchanged; everything
+here is insurance underneath it. Telling the agent is still useful: an
+agent that launches long jobs under `agent-job` can end its turn knowing
+the host will hand it the result once the job finishes and it has been
+idle since.
 
 ## What the host provides
 
@@ -27,39 +29,25 @@ session's token, so a job (or an agent-lock owner record) started before the
 resume still routes to it. When it is unset, no host is listening, and the
 reference stanza below is a no-op by design.
 
-## What a script can do
+## What a script writes
 
-**1. Label its process — opts into liveness watching.** Carry the token in
-the command line; the reference stanza re-execs once with argv[0] decorated:
+Both files live in the spool, `${TMPDIR:-/tmp}/agent-events/`, named by
+the writing process: `<epoch>.<pid>.started` and `<epoch>.<pid>.event`.
+Unknown fields are ignored; fields may be added over time.
 
-    watch-build.sh[sess:a1b2c3] --url https://…
+**1. A start record, at launch — removed on exit.**
 
-A labeled process that disappears while the agent is idle, with no matching
-completion event, earns the agent a "gone without a completion report"
-notice — the SIGKILL/OOM case, where a result is never coming.
+    session=a1b2c3
+    started=2026-07-05T15:20:11Z
+    cmd=watch-build.sh --url https://…
 
-The host looks for the token anywhere in the command line, so argv[0] is a
-convention, not a requirement.
+While the record's process lives, the host knows a job of this session is
+running. A record whose process is gone with no completion event means the
+result is never coming — the SIGKILL/OOM case, where no exit trap ran.
+`cmd` is what the host shows for the job (indicator tooltip, and the
+"gone" notice below).
 
-**Find and stop these jobs by full command line, not process name.** A
-`#!/usr/bin/env bash` script's process name is `bash` (`env` execs the
-interpreter), labeled or not. This command works on macOS and Linux/WSL:
-
-    ps -axo pid=,command= | grep '[[]sess:'
-
-The bracketed grep pattern does not match its own command line. Take the
-labeled PID from the first column and signal it; killing only a parent launcher
-need not stop an orphaned labeled process.
-
-**Keep `bash "$0"` in the re-exec.** Exec'ing `"$0"` instead lets the kernel's
-shebang rewrite rebuild argv as `[interpreter, script]`, which discards the
-decorated argv[0] and silently takes the label with it — the host then matches
-nothing and liveness watching stops with no error anywhere.
-
-**2. Drop a completion event — the primary signal.** On exit, write one
-file to the spool:
-
-    ${TMPDIR:-/tmp}/agent-events/<epoch>.<pid>.event
+**2. A completion event, on exit — the primary signal.**
 
     session=a1b2c3
     ts=2026-07-05T16:12:52Z
@@ -75,13 +63,15 @@ file to the spool:
   key link. Domain vocabulary — change numbers, verdicts, build URLs —
   lives here and only here; the host stays ignorant of it.
 
-Unknown fields are ignored; fields may be added over time.
-
 ## What the host does
 
-AgentTerm polls the spool every minute, and the session's process list
-while the agent is quiet.
+AgentTerm polls the spool every minute, resolving each start record's
+liveness (`kill -0` on the filename pid) in the same read.
 
+- A start record with a live process shows as a background-jobs indicator
+  in the window's chrome bar: presence only, the tooltip naming the
+  commands. This survives a session resume — the CLI's own task display
+  is gone after a resume, but the jobs and their records are not.
 - An event for its session is delivered at most once, as a one-line
   notice into the agent's input, and only to an agent that was idle when
   the job finished and stays idle for the quiet period after it (two
@@ -98,13 +88,16 @@ while the agent is quiet.
       [Notice from terminal host] Background job report: <msg> (ran 52m).
       Ignore if already handled.
 
-- A labeled process gone with no event → a "no completion report" notice
-  quoting the process's own command line.
-- The notice carries no wall-clock times — the run duration is derived from
-  `started`/`ts`; absolute times go to the host's logs.
-- Events persist until consumed. An event whose session window is gone for
-  good is never claimed (each launch mints a fresh token) and ages out with
-  the garbage collection (~7 days; behavior, not contract).
+- A start record whose process is gone with no event → a "gone without a
+  completion report" notice quoting the record's `cmd`, under the same
+  idle discipline with the death detected at the poll. An agent active
+  around the detection most likely killed the job itself; its record is
+  consumed silently.
+- The notice carries no wall-clock times — the run duration is derived
+  from the timestamps; absolute times go to the host's logs.
+- Events persist until consumed. A spool file whose session window is gone
+  for good is never claimed (each launch mints a fresh token) and ages out
+  with the garbage collection (~7 days; behavior, not contract).
 - **No delivery guarantee.** This is insurance; nothing may depend on it
   for correctness.
 
@@ -113,37 +106,40 @@ while the agent is quiet.
 Paste into a bash script (or a shared prelude it sources). Inert without a
 host; silent when nested under another participating script
 (`_AGENT_JOB_TOP` is inherited), so a wrapper that reuses an inner script
-reports exactly once — from the outermost process:
+reports exactly once — from the outermost process. agent-jobs carries this
+same stanza as a sourceable file, plus the `agent-job` wrapper and the
+`AGENT_JOB_MSG_FILE` forwarding that connects the two.
 
 ```bash
 # --- background-job observability (agent-term job-events.md) ------------
 if [ -n "${AGENT_SESSION_ID:-}" ] && [ -z "${_AGENT_JOB_TOP:-}" ]; then
   _aj_sess=$(printf '%s' "$AGENT_SESSION_ID" | tr -cd 'A-Za-z0-9')
-  if [ -z "${_AGENT_JOB_RELABEL:-}" ]; then
-    # opt into liveness watching: surface the session token in argv[0].
-    # `bash "$0"` is required — exec'ing "$0" loses the label (see above)
-    _AGENT_JOB_RELABEL=1 exec -a "$(basename "$0")[sess:$_aj_sess]" bash "$0" "$@"
-  fi
   export _AGENT_JOB_TOP=$$
   _aj_started=$(date -u +%FT%TZ)
+  _aj_dir="${TMPDIR:-/tmp}/agent-events"
+  _aj_start="$_aj_dir/$(date +%s).$$.started"
+  { mkdir -p "$_aj_dir" && printf 'session=%s\nstarted=%s\ncmd=%s\n' \
+      "$_aj_sess" "$_aj_started" "$(basename "$0")${*:+ $*}" \
+      > "$_aj_start"; } 2>/dev/null || true
   AGENT_JOB_MSG=""   # set before exiting for a self-describing report
   _aj_event() {
     _aj_rc=$?
-    _aj_dir="${TMPDIR:-/tmp}/agent-events"
     mkdir -p "$_aj_dir" 2>/dev/null || return 0
     printf 'session=%s\nts=%s\nstarted=%s\nmsg=%s\n' \
       "$_aj_sess" "$(date -u +%FT%TZ)" "$_aj_started" \
       "${AGENT_JOB_MSG:-$(basename "$0") exited rc=$_aj_rc}" \
       > "$_aj_dir/$(date +%s).$$.event" 2>/dev/null || true
+    rm -f "$_aj_start" 2>/dev/null || true
   }
-  trap 'exit' HUP INT TERM   # funnel graceful signals into the EXIT trap
+  trap 'exit' HUP INT TERM PIPE QUIT   # funnel graceful signals into the EXIT trap
   trap _aj_event EXIT
 fi
 ```
 
 Set `AGENT_JOB_MSG` before exiting for a self-describing report; otherwise
-the event records the script name and exit code. Only SIGKILL-class deaths
-skip the trap — which is exactly what the label (mechanism 1) covers.
+the event records the script name and exit code. The signal funnel turns
+graceful and pipeline deaths into ordinary events; only SIGKILL-class
+deaths skip the trap — which is exactly what the start record covers.
 
 To opt a single invocation out, clear the token for that command:
 `AGENT_SESSION_ID= script …` — the stanza is then a no-op for that job.

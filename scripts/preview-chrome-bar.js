@@ -47,6 +47,28 @@ const SCENARIOS = [
     label: 'Cursor session (cli=agent)',
     state: { hue: 216, cli: 'agent', prompt: 'Wire the websocket reconnect logic into the new dispatcher', isWorking: true },
   },
+  {
+    label: 'One background job running (grey arc)',
+    state: {
+      hue: 96, cli: 'agent', prompt: 'Watch the CI build and report the verdict', isWorking: false,
+      jobs: { count: 1, jobs: [{ cmd: 'watch-build.sh --url https://ci/job/912/', startedMs: Date.now() - 42 * 60_000 }] },
+    },
+  },
+  {
+    label: 'Three background jobs (warn amber) + lock held by this window',
+    state: {
+      hue: 24, cli: 'claude', prompt: 'Run the full release checklist', isWorking: false,
+      jobs: {
+        count: 3,
+        jobs: [
+          { cmd: 'watch-build.sh --url https://ci/job/912/', startedMs: Date.now() - 3 * 3600_000 },
+          { cmd: 'cicd-retry-loop.sh', startedMs: Date.now() - 55 * 60_000 },
+          { cmd: 'agent-job npm run test:slow', startedMs: Date.now() - 30_000 },
+        ],
+      },
+      lock: { state: 'mine', tooltip: 'lock/agent · work/release · you' },
+    },
+  },
 ];
 
 // In production, titleBarOverlay reserves space at the top of the window

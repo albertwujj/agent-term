@@ -1309,6 +1309,7 @@ function syncChromeState() {
     prompt: firstPrompt || null,
     isWorking,
     lock: lockState,
+    jobs: jobsState,
   };
   try {
     mainWindow.webContents.send('chrome-state', payload);
@@ -3368,27 +3369,22 @@ function agentNoticeFor(m) {
       `"${it.command}"${it.startedMs ? ` (ran ~${fmtDuration(m.lastSeenMs - it.startedMs)})` : ''}`);
     return `${prefix} As of ${at}, a background job you started is gone without a completion report — ${parts.join(', ')}. Its result may be lost; re-establish it if still needed.`;
   }
-  if (m.kind === 'job-generic') {
-    const parts = m.items.map((it) => `"${it.command}"`).join(', ');
-    return `${prefix} A background job you started (${parts}) exited while you were idle (as of ${at}). Check its result and continue; ignore if already handled.`;
-  }
   return `${prefix} As of ${at} — ${m.text}`;
 }
 
 // --- Background-job monitor (the job-done nudge) ---
 // Contract: job-events.md; pure logic + tests: job-watch.js. Each poll
-// reads the spool (cheap) and, only once the agent has gone quiet, takes one
-// ps snapshot for the vanish tiers. Notices are bracketed-paste submissions.
-// A completion event is delivered only to an agent that was idle when the
-// job finished and stays idle JOB_IDLE_MS after it; an agent awake at the
-// finish, or woken within that window, already has the result from its own
-// environment (or is mid-turn, where a queued paste would land late and
-// read as a stale second report), so the event is consumed as superseded.
-// The fuse gates only the vanish tiers, which infer a job's death from a
-// process's absence and so need the agent settled-idle first, lest mid-work
-// churn false-fire.
+// reads the spool: completion events plus start records, whose liveness the
+// same shell read resolves with kill -0. Notices are bracketed-paste
+// submissions. A completion event is delivered only to an agent that was
+// idle when the job finished and stays idle JOB_IDLE_MS after it; an agent
+// awake at the finish, or woken within that window, already has the result
+// from its own environment (or is mid-turn, where a queued paste would land
+// late and read as a stale second report), so the event is consumed as
+// superseded. A start record whose process died with no event follows the
+// same discipline with the death detected at the poll; one with a live
+// process drives the chrome bar's background-jobs indicator.
 const JOB_IDLE_MS = Number(process.env.AGENT_TERM_JOB_IDLE_MS) || 120_000;
-const JOB_FUSE_MS = Number(process.env.AGENT_TERM_JOB_FUSE_MS) || 15 * 60_000;
 const JOB_POLL_MS = Number(process.env.AGENT_TERM_JOB_POLL_MS) || 60_000;
 // This window's session token (job-events.md; agent-lock records it as
 // session= in its owner file). Fresh per process, then replaced by the stored
@@ -3398,16 +3394,33 @@ let agentSessionId = crypto.randomBytes(4).toString('hex');
 // Spool path resolves inside the shell (WSL on Windows) — same rule the
 // writing scripts use, so both sides land on the same directory.
 const JOB_SPOOL = '"${TMPDIR:-/tmp}/agent-events"';
-let jobWatchState = null;
 let jobWatchTimer = null;
-let jobWatchPending = new Map(); // event file → finish time fixed at first sight
+let jobWatchPending = new Map(); // spool file → finish time fixed at first sight
 let jobWatchPrevPollAt = 0;      // last COMPLETED poll (a skipped cycle must not advance it)
+// Background-jobs indicator: null (nothing running) or
+// { count, jobs: [{ cmd, startedMs }] }. Presence is the signal; the
+// chrome bar draws it amber past one job (0 or 1 running is the expected
+// shape) and serves details on hover/click.
+let jobsState = null;
 
-async function jobShellPid() {
-  if (process.platform !== 'win32') return ptyProcess ? ptyProcess.pid : null;
-  if (!wslPidFile) return null;
-  try { return Number(await wslExec(['cat', wslPidFile])) || null; }
-  catch { return null; }
+// Presence drives the chrome bar's background-jobs indicator; the per-job
+// command and start time feed its tooltip and click popover. Pushed only
+// on change.
+function updateJobsIndicator(running) {
+  const next = running && running.length
+    ? {
+      count: running.length,
+      jobs: running.map((j) => ({
+        cmd: jobWatch.oneLine(j.cmd || 'background job', 80),
+        startedMs: j.startedMs || null,
+      })),
+    }
+    : null;
+  if (JSON.stringify(next) !== JSON.stringify(jobsState)) {
+    jobsState = next;
+    log('[job-watch] running: ' + (next ? next.count : 0));
+    syncChromeState();
+  }
 }
 
 async function pollJobWatch() {
@@ -3415,49 +3428,34 @@ async function pollJobWatch() {
   try {
     if (!ptyProcess) return;
     const now = Date.now();
-    const agentQuietFor = now - lastPtyOutputTime;
     const composing = userComposing();
     const inputAtEntry = lastInputTime;
-    // The spool is read every poll — an event ripens by age even mid-turn,
-    // and its delivery then rides the CLI's own input queue. The ps
-    // snapshot only matters once the agent has been quiet long enough for
-    // a stable vanish baseline.
-    const wantPs = agentQuietFor >= JOB_IDLE_MS;
-    const shellPid = wantPs ? await jobShellPid() : null;
-    const [psR, spoolR] = await Promise.all([
-      shellPid
-        ? posixSh('ps -axo pid=,ppid=,pgid=,stat=,etime=,command=')
-        : Promise.resolve({ stdout: '', code: null }),
-      posixSh(`d=${JOB_SPOOL}; if [ -d "$d" ]; then for f in "$d"/*.event; do [ -f "$f" ] || continue; printf '===FILE %s\\n' "$f"; cat "$f"; done; fi`),
-    ]);
-    const rows = jobWatch.parsePs(psR.stdout);
-    const agentPid = shellPid ? jobWatch.findAgentPid(rows, shellPid) : null;
-    // Trust the snapshot for vanish detection only if ps actually ran and
-    // exited cleanly — execFile reports a non-zero exit (or a wsl.exe spawn
-    // failure) as a non-zero code. A null shellPid means we skipped ps
-    // (shell pid unresolvable, e.g. WSL cold-start): no snapshot, not a
-    // failed one. Either way an absent snapshot must not read as a mass
-    // vanish (see evaluate). Event delivery does not depend on ps.
-    const psOk = shellPid != null && psR.code === 0;
-    const snapshot = {
-      labeled: jobWatch.selectLabeled(rows, agentSessionId),
-      generic: jobWatch.selectGeneric(rows, agentPid, agentSessionId),
-    };
-    const events = jobWatch.parseEvents(spoolR.stdout)
-      .filter((e) => e.session === agentSessionId);
+    // One shell read per poll: every spool file's content, and for start
+    // records a liveness bit (kill -0 by the filename pid) resolved in the
+    // same pass, so liveness and listing describe the same moment. The
+    // spool is read every poll — an event ripens by age even mid-turn, and
+    // its delivery then rides the CLI's own input queue.
+    const spoolR = await posixSh(
+      `d=${JOB_SPOOL}; if [ -d "$d" ]; then for f in "$d"/*.event "$d"/*.started; do ` +
+      `[ -f "$f" ] || continue; printf '===FILE %s\\n' "$f"; cat "$f"; ` +
+      `case "$f" in *.started) b=\${f##*/}; b=\${b%.started}; p=\${b##*.}; ` +
+      `if kill -0 "$p" 2>/dev/null; then printf '\\nalive=1\\n'; else printf '\\nalive=0\\n'; fi;; esac; ` +
+      `done; fi`);
+    const spool = jobWatch.parseSpool(spoolR.stdout);
+    const events = spool.events.filter((e) => e.session === agentSessionId);
+    const starts = spool.starts.filter((s) => s.session === agentSessionId);
     const res = jobWatch.evaluate(
-      { now, agentQuietFor, agentActiveAt: lastAgentOutputTime, composing, snapshot, events,
+      { now, agentActiveAt: lastAgentOutputTime, composing, events, starts,
         pending: jobWatchPending, prevPollAt: jobWatchPrevPollAt, windowStartAt: ptyStartedAt,
-        quietMs: JOB_IDLE_MS, idleMs: JOB_IDLE_MS, fuseMs: JOB_FUSE_MS, psOk },
-      jobWatchState);
-    // The composing check ran before the shell reads above; a first
+        quietMs: JOB_IDLE_MS });
+    // The composing check ran before the shell read above; a first
     // keystroke could have landed since. Drop the cycle wholesale rather
     // than splice a paste into a steer being typed — the spool still holds
     // the events and the next poll re-resolves.
     if (lastInputTime !== inputAtEntry) return;
-    jobWatchState = res.state;
     jobWatchPending = res.pending;
     jobWatchPrevPollAt = now;
+    updateJobsIndicator(res.running);
     if (res.superseded.length) {
       log('[job-watch] superseded (agent active at or after the finish): ' + res.superseded.join(', '));
     }
@@ -3487,13 +3485,16 @@ async function pollJobWatch() {
 
 function startJobWatch() {
   if (jobWatchTimer) clearTimeout(jobWatchTimer);
-  jobWatchState = null;
   jobWatchPending = new Map();
   jobWatchPrevPollAt = 0;
-  log(`[job-watch] armed (session ${agentSessionId}, poll ${JOB_POLL_MS}ms, fuse ${JOB_FUSE_MS}ms)`);
-  // GC events no session ever claimed (their window is gone for good).
-  posixSh(`find ${JOB_SPOOL} -name '*.event' -mtime +7 -delete 2>/dev/null || true`);
-  jobWatchTimer = setTimeout(pollJobWatch, JOB_POLL_MS);
+  updateJobsIndicator(null);
+  log(`[job-watch] armed (session ${agentSessionId}, poll ${JOB_POLL_MS}ms)`);
+  // GC spool files no session ever claimed (their window is gone for good).
+  posixSh(`find ${JOB_SPOOL} \\( -name '*.event' -o -name '*.started' \\) -mtime +7 -delete 2>/dev/null || true`);
+  // First poll comes quickly so a resumed session's still-running jobs show
+  // in the indicator without waiting a full interval; delivery timing is
+  // unaffected (events ripen by age, not by poll cadence).
+  jobWatchTimer = setTimeout(pollJobWatch, Math.min(JOB_POLL_MS, 5000));
 }
 
 // review:// capture → record the reviewed repo's branch for the picker's deep

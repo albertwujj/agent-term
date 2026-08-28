@@ -8,6 +8,15 @@
 //   · Prompt text — the verbatim user prompt, full 16px Cascadia Mono
 //     (same font as the terminal body below). Dim italic fallback when
 //     no prompt yet ("waiting for prompt…" / "Sessions").
+//   · Jobs icon — a background job of this session is running (a start
+//     record with a live process in the job-events.md spool). Presence
+//     only, no count drawn: the question it answers is "is anything still
+//     working for me", asked mostly after a session resume, when the
+//     CLI's own task display is gone but the jobs survived. Grey for the
+//     expected shape (one job); amber past that — several at once usually
+//     means something was left behind. Hover names the jobs; click opens
+//     a popover with per-job running durations. Static open-arc glyph;
+//     never animates.
 //   · Lock icon — who holds agent-lock's lock/agent on the session's repo:
 //     shape = what the lock is doing (open outline free on a work branch,
 //     filled held by an active holder, outline held by an idle one, dashed
@@ -97,14 +106,35 @@ const BAR_CSS = `
   color: #909090;
   font-style: italic;
 }
-.at-chrome-lock {
+.at-chrome-lock, .at-chrome-jobs {
   flex: 0 0 auto;
   width: 16px; height: 16px;
   margin: 0 6px 0 10px;
   display: inline-block;
   -webkit-app-region: no-drag;
 }
-.at-chrome-lock svg { width: 16px; height: 16px; display: block; }
+.at-chrome-lock svg, .at-chrome-jobs svg { width: 16px; height: 16px; display: block; }
+.at-chrome-jobs { cursor: default; }
+.at-chrome-jobs-pop {
+  position: fixed;
+  top: calc(env(titlebar-area-height, ${BAR_HEIGHT_PX}px) + 6px);
+  right: 12px;
+  z-index: 9100;
+  background: #161616;
+  border: 1px solid #333333;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font: 13px "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, "Courier New", monospace;
+  color: #cccccc;
+  max-width: min(60vw, 640px);
+}
+.at-chrome-jobs-pop .at-chrome-jobs-row {
+  display: flex; gap: 16px; align-items: baseline;
+  white-space: nowrap;
+  line-height: 1.7;
+}
+.at-chrome-jobs-pop .cmd { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.at-chrome-jobs-pop .dur { flex: 0 0 auto; color: #909090; }
 `;
 
 // Padlock glyphs, 16x16; `currentColor` is set per state on the wrapper.
@@ -122,6 +152,67 @@ const LOCK_GLYPHS = {
   'no-window': (LOCK_SHACKLE + LOCK_BODY_OUTLINE).split('/>').join(DASHED),
 };
 const LOCK_COLORS = { free: '#909090', mine: '#a3d977', 'no-window': '#7a7a7a' };
+
+// Jobs glyph: an open three-quarter arc — work in progress, drawn still.
+// (The bar never animates; the console below is where motion lives.)
+const JOBS_GLYPH = '<circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-dasharray="26 8.6" transform="rotate(-90 8 8)"/>';
+// One running job is a session's expected shape; several at once usually
+// means something was left behind — same amber the console uses for warn
+// badges.
+const JOBS_WARN_COLOR = '#dcdcaa';
+
+// Markup for the background-jobs indicator, or '' when nothing is running.
+// jobs: { count, jobs: [{ cmd, startedMs }] } from main's job-watch poll.
+// Presence is the signal; hover names the jobs, click opens the popover
+// with running durations.
+function renderJobsMarkup(jobs) {
+  if (!jobs || !jobs.count) return '';
+  const many = jobs.count > 1;
+  const color = many ? JOBS_WARN_COLOR : '#909090';
+  const tooltip = (many ? `${jobs.count} background jobs running:` : 'background job running:')
+    + '\n' + (jobs.jobs || []).map((j) => j.cmd).join('\n');
+  return `<span class="at-chrome-jobs" style="color:${color}" title="${escapeHtml(tooltip)}">`
+    + `<svg viewBox="0 0 16 16" aria-hidden="true">${JOBS_GLYPH}</svg></span>`;
+}
+
+// "running 42m" for the popover rows, computed when it opens.
+function fmtRunning(startedMs, now) {
+  if (!startedMs) return '';
+  const s = Math.max(0, Math.round((now - startedMs) / 1000));
+  if (s < 60) return `running ${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `running ${m}m`;
+  const h = Math.floor(m / 60), rm = m % 60;
+  return `running ${h}h${rm ? ` ${rm}m` : ''}`;
+}
+
+let jobsPopover = null;
+
+function closeJobsPopover() {
+  if (!jobsPopover) return;
+  try { jobsPopover.remove(); } catch {}
+  jobsPopover = null;
+}
+
+// Click detail: one row per job — command, and how long it has been
+// running. Built fresh on open (durations current at that moment), closed
+// by any other click or the next state push.
+function toggleJobsPopover() {
+  if (jobsPopover) { closeJobsPopover(); return; }
+  const jobs = lastState && lastState.jobs;
+  if (!jobs || !jobs.count) return;
+  const now = Date.now();
+  const pop = document.createElement('div');
+  pop.className = 'at-chrome-jobs-pop';
+  pop.innerHTML = (jobs.jobs || []).map((j) =>
+    `<div class="at-chrome-jobs-row"><span class="cmd">${escapeHtml(j.cmd)}</span>`
+    + `<span class="dur">${escapeHtml(fmtRunning(j.startedMs, now))}</span></div>`).join('');
+  document.body.appendChild(pop);
+  jobsPopover = pop;
+  setTimeout(() => {
+    document.addEventListener('click', closeJobsPopover, { once: true, capture: true });
+  }, 0);
+}
 
 // Markup for the lock icon, or '' when there is nothing to coordinate.
 // lock: { state, hue, tooltip } from src/lock-status.js.
@@ -170,6 +261,14 @@ function ensureMounted({ onContextMenu } = {}) {
     ev.stopPropagation();
     if (typeof onContextMenu === 'function') onContextMenu();
   });
+  // Jobs-icon click → detail popover. Delegated so it survives the
+  // innerHTML replacement update() does.
+  el.addEventListener('click', (ev) => {
+    const hit = ev.target && ev.target.closest && ev.target.closest('.at-chrome-jobs');
+    if (!hit) return;
+    ev.stopPropagation();
+    toggleJobsPopover();
+  });
   // Full-width hue divider, sibling of the chrome bar — sits at the
   // exact bottom of the titleBarOverlay region and extends past
   // env(titlebar-area-width) so it covers the area beneath the system
@@ -201,6 +300,7 @@ function renderBarMarkup(state) {
   }
   return `
     <span class="at-chrome-text${dim ? ' dim' : ''}">${escapeHtml(text)}</span>
+    ${renderJobsMarkup(s.jobs)}
     ${renderLockMarkup(s.lock)}
   `;
 }
@@ -212,11 +312,12 @@ function hueColor(hue) {
   return `oklch(65% 0.27 ${hue})`;
 }
 
-// Update the bar state. payload: { hue, cli, prompt, isWorking, lock };
+// Update the bar state. payload: { hue, cli, prompt, isWorking, lock, jobs };
 // isWorking is carried for other consumers and not drawn here.
 function update(payload) {
   lastState = payload || {};
   if (!mountedRoot) return;
+  closeJobsPopover(); // state moved on; open detail rows would be stale
 
   // Hue accent: drive the full-width divider color via a CSS variable on
   // the document root. Setting it on :root means both the chrome bar AND
@@ -243,6 +344,7 @@ module.exports = {
   BAR_CSS,
   renderBarMarkup,
   renderLockMarkup,
+  renderJobsMarkup,
   hueColor,
   mount,
   update,
