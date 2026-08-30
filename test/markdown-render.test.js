@@ -186,6 +186,51 @@ test('does not double-encode pre-encoded image paths', () => {
   );
 });
 
+test('collects resolved local image paths, decoded and deduped, remote excluded', () => {
+  const doc = renderMarkdownDocument(
+    [
+      '![a](images/chart.png)',
+      '![b](/home/andy/out/pic.png)',
+      '![c](<my shot.png>)',
+      '![dupe](images/chart.png)',
+      '![remote](https://example.com/pic.png)',
+    ].join('\n\n'),
+    { rootUrl: 'file://', docDir: '/home/andy/proj' },
+  );
+
+  assertEqual(
+    doc.imagePaths,
+    ['/home/andy/proj/images/chart.png', '/home/andy/out/pic.png', '/home/andy/proj/my shot.png'],
+    'expected local paths only, decoded, deduped',
+  );
+});
+
+test('collects no image paths without image options', () => {
+  const doc = renderMarkdownDocument('![chart](images/chart.png)');
+  assertEqual(doc.imagePaths, [], 'unresolvable srcs should collect nothing');
+});
+
+test('an image file mtime in versionByPath overrides the doc version', () => {
+  const doc = renderMarkdownDocument(
+    '![a](images/chart.png)\n\n![b](images/other.png)',
+    {
+      rootUrl: 'file://',
+      docDir: '/home/andy/proj',
+      version: 1234,
+      versionByPath: new Map([['/home/andy/proj/images/chart.png', 5678]]),
+    },
+  );
+
+  assert(
+    doc.html.includes('src="file:///home/andy/proj/images/chart.png?v=5678"'),
+    `expected per-image version, got: ${doc.html}`,
+  );
+  assert(
+    doc.html.includes('src="file:///home/andy/proj/images/other.png?v=1234"'),
+    `unmapped image should keep the doc version, got: ${doc.html}`,
+  );
+});
+
 test('renders an HTML img run through the image pipeline, wrapper dropped', () => {
   const doc = renderMarkdownDocument([
     '# Shots',

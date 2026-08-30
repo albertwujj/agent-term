@@ -78,23 +78,28 @@ function normalizePosixPath(path) {
 
 // markdown-it pre-encodes link destinations (space -> %20), so decode each
 // segment before re-encoding to avoid double-encoding.
-function encodePathSegment(segment) {
-  let decoded = segment;
+function decodePathSegment(segment) {
   try {
-    decoded = decodeURIComponent(segment);
-  } catch {}
-  return encodeURIComponent(decoded);
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
-function resolveImageSrc(src, { rootUrl, docDir, version }) {
+function resolveImageSrc(src, { rootUrl, docDir, version, versionByPath }) {
   const raw = String(src || '').trim();
   if (!raw || hasUrlScheme(raw)) return null;
   const absolute = raw.startsWith('/') ? raw : `${docDir}/${raw}`;
-  const encoded = normalizePosixPath(absolute).split('/').map(encodePathSegment).join('/');
+  const segments = normalizePosixPath(absolute).split('/').map(decodePathSegment);
+  const path = segments.join('/');
   // The query is ignored when Chromium resolves the file, but it keys the
-  // image cache — so a refreshed doc refetches images the agent regenerated.
-  const query = Number.isFinite(version) ? `?v=${version}` : '';
-  return `${rootUrl}${encoded}${query}`;
+  // image cache — so a bumped version refetches an image the agent regenerated.
+  // The image file's own mtime (versionByPath, fed by the viewer's image poll)
+  // wins; the doc's mtime covers images that have not been statted yet.
+  const own = versionByPath ? versionByPath.get(path) : undefined;
+  const v = Number.isFinite(own) ? own : version;
+  const query = Number.isFinite(v) ? `?v=${v}` : '';
+  return { url: `${rootUrl}${segments.map(encodeURIComponent).join('/')}${query}`, path };
 }
 
 // Raw HTML is never parsed (html: false above), so a document's tags render as
@@ -185,6 +190,7 @@ function recognizeHtmlImages(tokens) {
 
 function rewriteImageSources(tokens, imageOptions) {
   const canResolve = !!(imageOptions && imageOptions.rootUrl && imageOptions.docDir);
+  const imagePaths = new Set();
   for (const token of tokens) {
     if (token.type !== 'inline' || !Array.isArray(token.children)) continue;
     for (const child of token.children) {
@@ -197,10 +203,14 @@ function rewriteImageSources(tokens, imageOptions) {
       if (original) child.attrSet('data-md-src', original);
       if (canResolve) {
         const resolved = resolveImageSrc(original, imageOptions);
-        if (resolved) child.attrSet('src', resolved);
+        if (resolved) {
+          child.attrSet('src', resolved.url);
+          imagePaths.add(resolved.path);
+        }
       }
     }
   }
+  return [...imagePaths];
 }
 
 // A hidden token renders nothing (markdown-it hides the paragraph inside a
@@ -321,11 +331,13 @@ function renderMarkdownDocument(source, imageOptions) {
   const env = {};
   const tokens = markdown.parse(text, env);
   recognizeHtmlImages(tokens);
-  rewriteImageSources(tokens, imageOptions);
+  // Local image files the doc embeds, as absolute decoded POSIX paths — the
+  // viewer's image poll stats these to catch regenerated images.
+  const imagePaths = rewriteImageSources(tokens, imageOptions);
   const headings = collectHeadings(tokens);
   const anchors = assignAnchors(tokens);
   const html = markdown.renderer.render(tokens, markdown.options, env);
-  return { html, anchors, headings };
+  return { html, anchors, headings, imagePaths };
 }
 
 module.exports = {

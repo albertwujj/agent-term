@@ -3832,7 +3832,7 @@ function getMarkdownViewer() {
       onOpen: dismissResumeHintOnViewerOpen,
       focusTerminal: () => { try { terminal.focus(); } catch {} },
       readMarkdownFile: (filePath) => window.pty.readMarkdownFile(filePath),
-      statMarkdownFile: (filePath) => window.pty.statMarkdownFile(filePath),
+      statMarkdownFile: (filePath, imagePaths) => window.pty.statMarkdownFile(filePath, imagePaths),
       submitMarkdownThreads: (payload) => window.pty.mdAddThreads(payload),
       preflightMarkdownRunbook: (payload) => window.pty.mdRunbookPreflight(payload),
       readMarkdownThreads: (payload) => window.pty.mdReadThreads(payload),

@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('pty', {
   resolvePathChoices: (path) => ipcRenderer.invoke('resolve-path-choices', path),
   // Read a markdown file for the rendered inline viewer
   readMarkdownFile: (path) => ipcRenderer.invoke('read-markdown-file', path),
-  statMarkdownFile: (path) => ipcRenderer.invoke('stat-markdown-file', path),
+  statMarkdownFile: (path, imagePaths) => ipcRenderer.invoke('stat-markdown-file', path, imagePaths),
   // Same-named markdown files under cwd → { path } | { choices } | null, so a
   // plain click on an ambiguous name (README.md) can offer a picker.
   resolveMarkdownChoices: (path) => ipcRenderer.invoke('resolve-markdown-choices', path),

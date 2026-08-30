@@ -2787,7 +2787,7 @@ async function resolveMarkdownChoices(filePath) {
   return hits.length === 1 ? { path: hits[0] } : { choices: hits };
 }
 
-async function statMarkdownFilePath(filePath) {
+async function statMarkdownFilePath(filePath, imagePaths) {
   if (!isMarkdownFilePath(filePath)) return { success: false, error: 'Not a markdown file' };
   const resolved = await resolveMarkdownPath(filePath);
   if (!resolved) return { success: false, error: 'File not found' };
@@ -2798,15 +2798,33 @@ async function statMarkdownFilePath(filePath) {
   if (isReviewPackagePath(resolved)) {
     return { success: false, error: 'Review package: opens via the review:// flow' };
   }
+  // Embedded-image paths ride the same spawn: one line of mtime per path after
+  // the doc's own line, "-" for a file that does not exist (yet).
+  const images = (Array.isArray(imagePaths) ? imagePaths : [])
+    .filter((p) => typeof p === 'string' && p.startsWith('/'));
+  const script = [
+    'import os,sys',
+    's=os.stat(sys.argv[1]); print(int(s.st_mtime*1000), s.st_size)',
+    'for p in sys.argv[2:]:',
+    '    try: print(int(os.stat(p).st_mtime*1000))',
+    '    except OSError: print("-")',
+  ].join('\n');
   const r = await posixSh(
-    `python3 -c 'import os,sys; s=os.stat(sys.argv[1]); print(int(s.st_mtime*1000), s.st_size)' ${shellEscape(resolved)}`);
+    `python3 -c ${shellEscape(script)} ${[resolved, ...images].map(shellEscape).join(' ')}`);
   if (r.code !== 0) return { success: false, error: 'File not found' };
-  const [mtimeMs, size] = r.stdout.trim().split(/\s+/).map(Number);
+  const lines = r.stdout.trim().split('\n');
+  const [mtimeMs, size] = lines[0].trim().split(/\s+/).map(Number);
+  const imageMtimes = {};
+  images.forEach((p, i) => {
+    const raw = (lines[i + 1] || '').trim();
+    imageMtimes[p] = /^\d+$/.test(raw) ? Number(raw) : null;
+  });
   return {
     success: true,
     path: resolved,
     mtimeMs: Number.isFinite(mtimeMs) ? mtimeMs : null,
     size: Number.isFinite(size) ? size : null,
+    imageMtimes,
   };
 }
 
@@ -2845,9 +2863,9 @@ ipcMain.handle('read-markdown-file', async (event, filePath) => {
   }
 });
 
-ipcMain.handle('stat-markdown-file', async (event, filePath) => {
+ipcMain.handle('stat-markdown-file', async (event, filePath, imagePaths) => {
   try {
-    return await statMarkdownFilePath(filePath);
+    return await statMarkdownFilePath(filePath, imagePaths);
   } catch (e) {
     return { success: false, error: e.message };
   }

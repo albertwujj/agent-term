@@ -1172,6 +1172,11 @@ function createMarkdownViewer({
     refreshPulseStartedAt: 0,
     refreshPulseViewUpdated: true,
     refreshInFlight: false,
+    // Embedded-image freshness: path → last observed mtimeMs (null = seen
+    // missing), fed by the stat poll; a changed mtime bumps the image's ?v=
+    // cache-buster so a regenerated image refetches without an md change.
+    imageVersions: new Map(),
+    imageRefreshPending: false,
   };
 
   // Chrome (shell, bar, hide/roll-up, sizing, hue, Esc) is the shared band; this
@@ -1850,6 +1855,7 @@ function createMarkdownViewer({
       rootUrl: state.imageRoot,
       docDir: resolved.slice(0, lastSlash) || '/',
       version: result && Number.isFinite(result.mtimeMs) ? result.mtimeMs : null,
+      versionByPath: state.imageVersions,
     };
   }
 
@@ -1871,6 +1877,7 @@ function createMarkdownViewer({
     state.resolvedPath = result.path || state.resolvedPath || state.filePath;
     state.doc = nextDoc;
     state.sourceText = nextSourceText;
+    state.imageRefreshPending = false; // this full re-render carries the current image versions
     state.fileSignature = getMarkdownReadSignature(result);
     state.fileStatSignature = getMarkdownStatSignature(result);
     band.setTitle(state.resolvedPath);
@@ -1939,6 +1946,47 @@ function createMarkdownViewer({
     }, MARKDOWN_REFRESH_DEBOUNCE_MS);
   }
 
+  // Record the image mtimes a stat poll returned. A path seen for the first
+  // time is seeded silently — its pixels were fetched at render, moments before
+  // the seeding poll — and a missing file is seeded as null so its later
+  // arrival counts as a change (healing an image rendered before the agent
+  // generated it). True when a known image's mtime moved, i.e. the file was
+  // rewritten after we fetched it.
+  function updateImageVersions(imageMtimes) {
+    if (!imageMtimes || typeof imageMtimes !== 'object') return false;
+    let changed = false;
+    for (const [path, mtime] of Object.entries(imageMtimes)) {
+      const prev = state.imageVersions.get(path);
+      if (!Number.isFinite(mtime)) {
+        // A once-present image keeps its version: the cached pixels outlive
+        // the deleted file, and a refetch would only blank them.
+        if (prev === undefined) state.imageVersions.set(path, null);
+        continue;
+      }
+      if (prev === mtime) continue;
+      state.imageVersions.set(path, mtime);
+      if (prev !== undefined) changed = true;
+    }
+    return changed;
+  }
+
+  // A regenerated image changes nothing in the md source, so the doc re-renders
+  // from the text already in hand — only the ?v= cache-busters move — and
+  // layoutSpread swaps the fresh HTML in with scroll, threads, and reserved
+  // image heights all preserved by the existing machinery. layoutSpread refuses
+  // while a card/edit owns the DOM, so the pending flag retries on later polls;
+  // a full md refresh landing first clears it (applyMarkdownReadResult).
+  function refreshEmbeddedImages() {
+    state.doc = renderMarkdownDocument(state.sourceText, markdownImageOptions(null));
+    state.imageRefreshPending = true;
+  }
+
+  function flushEmbeddedImageRefreshIfReady() {
+    if (!state.imageRefreshPending || spreadLayoutFrozen()) return;
+    state.imageRefreshPending = false;
+    layoutSpread();
+  }
+
   async function pollMarkdownFile(openToken) {
     if (!isOpen() || openToken !== state.openToken || state.refreshInFlight) return;
     if (!state.resolvedPath && !state.filePath) return;
@@ -1947,7 +1995,8 @@ function createMarkdownViewer({
       if (typeof statMarkdownFile !== 'function') {
         throw new Error('Markdown refresh stat API is unavailable');
       }
-      const statResult = await statMarkdownFile(state.resolvedPath || state.filePath);
+      const imagePaths = (state.doc && Array.isArray(state.doc.imagePaths)) ? state.doc.imagePaths : [];
+      const statResult = await statMarkdownFile(state.resolvedPath || state.filePath, imagePaths);
       if (!isOpen() || openToken !== state.openToken) return;
       if (!statResult || !statResult.success) {
         throw new Error((statResult && statResult.error) || 'Markdown refresh stat failed');
@@ -1956,6 +2005,8 @@ function createMarkdownViewer({
       if (!statSignature) {
         throw new Error('Markdown refresh stat response is missing mtime/size');
       }
+      if (updateImageVersions(statResult.imageMtimes)) refreshEmbeddedImages();
+      flushEmbeddedImageRefreshIfReady();
       const currentStatSignature = state.pendingRefreshStatSignature || state.fileStatSignature;
       if (statSignature === currentStatSignature) {
         applyPendingMarkdownRefreshIfReady();
@@ -1993,6 +2044,10 @@ function createMarkdownViewer({
 
   function startMarkdownAutoRefresh(openToken) {
     stopMarkdownAutoRefresh();
+    // Immediate first poll: it seeds image versions right behind the render
+    // that fetched them, so a regeneration in the gap before the first
+    // interval tick still reads as a change.
+    pollMarkdownFile(openToken);
     state.refreshPollTimer = setInterval(() => {
       pollMarkdownFile(openToken);
       pollMarkdownThreadStore(openToken);
@@ -5741,6 +5796,8 @@ function createMarkdownViewer({
     state.blockOverlays = new Map();
     state.expandedHunkKey = null;
     state.pendingClickCaret = null;
+    state.imageVersions = new Map();
+    state.imageRefreshPending = false;
     showLoading(filePath);
     if (typeof onOpen === 'function') onOpen(filePath);
 
