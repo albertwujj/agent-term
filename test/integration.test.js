@@ -47,7 +47,10 @@ const {
   copySelectionToClipboard,
   handleTerminalKeydown,
 } = require('../src/terminal-keyboard');
-const { collectBufferViewerCandidates } = require('../src/viewer-history');
+const {
+  analyzeRendererWrappedDocument,
+  collectBufferViewerCandidates,
+} = require('../src/viewer-history');
 
 // =============================================================================
 // Test Framework
@@ -1062,6 +1065,54 @@ test('hard terminal rows expose one provisional renderer-wrapped review target',
     key: 'review:///home/me/.git/review/work-long-name/work-long-name.md',
     rendererWrapped: true,
   }]);
+
+  terminal.dispose();
+});
+
+test('renderer-wrapped review target survives xterm resize reflow', async () => {
+  const terminal = createTestTerminal({ cols: 100, rows: 8 });
+  const head = 'review:///home/me/.git/review/work-long-name/work-long-na';
+  const expected = 'review:///home/me/.git/review/work-long-name/work-long-name.md';
+  await writeAndWait(terminal, `${head}    \r\n  me.md    \r\n`);
+
+  terminal.resize(40, 8);
+  const buffer = terminal.buffer.active;
+  assertTrue(buffer.getLine(1)?.isWrapped, 'Resize should soft-wrap the first hard fragment');
+
+  const analysis = analyzeRendererWrappedDocument(buffer, 0);
+  assertTrue(analysis !== null, 'Hard-wrap analysis should cross resize-created soft wraps');
+  assertEqual(analysis.entry.key, expected);
+  assertEqual(analysis.tailRow, 2, 'The gutter continuation should follow the reflowed head');
+  assertEqual(analysis.segments.map((segment) => segment.text).join(''), expected);
+  assertEqual(
+    analysis.segments.map((segment) => segment.row),
+    [0, 1, 2],
+    'Every physical fragment should receive a decoration/hit segment'
+  );
+
+  terminal.dispose();
+});
+
+test('renderer-wrapped markdown path survives xterm resize reflow', async () => {
+  const terminal = createTestTerminal({ cols: 100, rows: 8 });
+  const head = '/home/me/docs/a-very-long-architecture-not';
+  const expected = '/home/me/docs/a-very-long-architecture-notes.md';
+  await writeAndWait(terminal, `${head}    \r\n  es.md    \r\n`);
+
+  terminal.resize(36, 8);
+  const buffer = terminal.buffer.active;
+  assertTrue(buffer.getLine(1)?.isWrapped, 'Resize should soft-wrap the first hard fragment');
+
+  const analysis = analyzeRendererWrappedDocument(buffer, 0);
+  assertTrue(analysis !== null, 'Markdown analysis should cross resize-created soft wraps');
+  assertEqual(analysis.entry.key, expected);
+  assertEqual(analysis.tailRow, 2, 'The gutter continuation should follow the reflowed head');
+  assertEqual(analysis.segments.map((segment) => segment.text).join(''), expected);
+  assertEqual(
+    analysis.segments.map((segment) => segment.row),
+    [0, 1, 2],
+    'Every physical fragment should receive a decoration/hit segment'
+  );
 
   terminal.dispose();
 });

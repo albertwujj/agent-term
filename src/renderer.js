@@ -32,9 +32,10 @@ const {
   ViewerHistory,
   ViewerStreamAccumulator,
   ViewerValidationMemory,
+  analyzeRendererWrappedDocument,
+  bufferLogicalLineStart,
   canonicalViewerUrl,
   collectBufferViewerCandidates,
-  extractViewerCandidateMatches,
   sameViewer,
   viewerFileUrlToPath,
 } = require('./viewer-history');
@@ -5247,17 +5248,14 @@ function getRowText(bufferLineIndex) {
 }
 
 function getLogicalLineStart(buffer, bufferLineIndex) {
-  let currentIndex = Math.max(0, bufferLineIndex);
-  while (currentIndex > 0) {
-    const line = buffer.getLine(currentIndex);
-    if (!line || !line.isWrapped) break;
-    currentIndex--;
-  }
+  let currentIndex = bufferLogicalLineStart(buffer, bufferLineIndex);
   // A renderer-wrapped local document is also one navigation unit.
   // Back up to its head when the viewport begins on the continuation row so we
   // do not redecorate that tail as a misleading standalone `ng.md` target.
-  if (currentIndex > 0 && analyzeRendererWrappedDocument(buffer, currentIndex - 1)) {
-    currentIndex--;
+  if (currentIndex > 0) {
+    const previousStart = bufferLogicalLineStart(buffer, currentIndex - 1);
+    const previous = analyzeRendererWrappedDocument(buffer, previousStart);
+    if (previous && previous.tailRow === currentIndex) currentIndex = previousStart;
   }
   return currentIndex;
 }
@@ -5333,33 +5331,6 @@ function getWordAtMouseEvent(event) {
   return trimTokenEdges(text.slice(start, end));
 }
 
-// Cursor's renderer may turn one long local document target into two hard rows
-// and redraw it as one row after a resize. viewer-history owns the conservative
-// recognition rule; this adapter maps its two source segments back to xterm
-// coordinates so either visible fragment clicks the reconstructed target.
-function analyzeRendererWrappedDocument(buffer, headRow) {
-  if (!buffer || headRow < 0 || headRow + 1 >= buffer.length) return null;
-  const headLine = buffer.getLine(headRow);
-  const tailLine = buffer.getLine(headRow + 1);
-  if (!headLine || !tailLine || tailLine.isWrapped) return null;
-  const headText = headLine.translateToString();
-  const tailText = tailLine.translateToString();
-  const parsed = extractViewerCandidateMatches(`${headText}\n${tailText}`).find(
-    (match) => match.rendererWrapped && Array.isArray(match.segments) && match.segments.length === 2
-  );
-  if (!parsed) return null;
-  return {
-    entry: { ...parsed.entry, rendererWrapped: true },
-    headRow,
-    endRow: headRow + 1,
-    signature: `${headText}\n${tailText}`,
-    segments: parsed.segments.map((segment) => ({
-      ...segment,
-      row: headRow + segment.lineIndex,
-    })),
-  };
-}
-
 function rendererWrappedDocumentSegmentMatch(analysis, segment) {
   const patternName = analysis.entry.kind === 'review' ? 'url' : 'plain_file';
   const pattern = patterns.find((candidate) => candidate.name === patternName);
@@ -5379,7 +5350,12 @@ function rendererWrappedDocumentSegmentMatch(analysis, segment) {
 }
 
 function rendererWrappedDocumentHitAt(buffer, bufferRow, col) {
-  for (const headRow of [bufferRow - 1, bufferRow]) {
+  const logicalStart = bufferLogicalLineStart(buffer, bufferRow);
+  const previousStart = logicalStart > 0
+    ? bufferLogicalLineStart(buffer, logicalStart - 1)
+    : -1;
+  for (const headRow of [previousStart, logicalStart]) {
+    if (headRow < 0) continue;
     const analysis = analyzeRendererWrappedDocument(buffer, headRow);
     if (!analysis) continue;
     const segment = analysis.segments.find((candidate) => candidate.row === bufferRow);
@@ -5685,9 +5661,9 @@ function decorateImageAttachmentRow(buffer, row) {
 // Draw one coherent affordance over both physical fragments of a reconstructed
 // local document target. The click resolver independently rebuilds the same
 // match, so a decoration remains visual-only just like image attachments.
-function decorateRendererWrappedDocumentRow(buffer, row, lastStableRow = Infinity) {
+function decorateRendererWrappedDocumentRow(buffer, row) {
   const analysis = analyzeRendererWrappedDocument(buffer, row);
-  if (!analysis || analysis.endRow > lastStableRow) return -1;
+  if (!analysis) return -1;
   const validation = ensureRendererWrappedViewerValidation(analysis.entry);
   const validatedSignature = `${analysis.signature}\0${validation.status}`;
   if (processedRows.get(row) === validatedSignature
@@ -5826,11 +5802,27 @@ function processVisibleRows() {
   let row = getLogicalLineStart(buffer, viewportStart);
   let processedCount = 0;
 
-  while (row < viewportEnd && row < cursorRow) {
-    const rendererWrappedEnd = decorateRendererWrappedDocumentRow(buffer, row, cursorRow - 1);
+  // A renderer-wrapped document is structurally complete (the continuation
+  // finishes in a markdown extension) and validated against the filesystem, so
+  // it is safe to recognize anywhere in the viewport. TUI redraws can park the
+  // cursor in the middle of otherwise stable output; applying the generic
+  // row-at/below-cursor rule here would decorate only the first fragment.
+  const rendererWrappedHeads = new Set();
+
+  while (row < viewportEnd) {
+    const rendererWrappedEnd = decorateRendererWrappedDocumentRow(buffer, row);
     if (rendererWrappedEnd >= 0) {
+      rendererWrappedHeads.add(row);
       processedCount++;
       row = rendererWrappedEnd + 1;
+      continue;
+    }
+
+    // Ordinary patterns still wait until their logical row is above the cursor,
+    // because a shell prompt or streaming line may only be partially written.
+    if (row >= cursorRow) {
+      const { endIndex } = getRowText(row);
+      row = endIndex + 1;
       continue;
     }
 
@@ -5879,6 +5871,7 @@ function processVisibleRows() {
   // (the range the main loop skips). Dispose-only — no new decorations.
   for (let sRow = Math.max(viewportStart, cursorRow); sRow < viewportEnd; sRow++) {
     if (!decorations.has(sRow)) continue;
+    if (rendererWrappedHeads.has(sRow)) continue;
 
     const { text: currentText } = getRowText(sRow);
     const storedText = processedRows.get(sRow);

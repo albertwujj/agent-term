@@ -177,6 +177,106 @@ function extractViewerCandidates(text) {
   return entries;
 }
 
+// The first physical xterm row of the logical line containing `row`. Native
+// terminal reflow marks every continuation row with isWrapped=true; renderer
+// hard-wraps do not. Keeping that distinction here lets callers reason in
+// logical lines even after a window resize has introduced extra physical rows.
+function bufferLogicalLineStart(buffer, row) {
+  let current = Math.max(0, Number.isFinite(row) ? Math.floor(row) : 0);
+  while (current > 0) {
+    const line = buffer && buffer.getLine(current);
+    if (!line || !line.isWrapped) break;
+    current--;
+  }
+  return current;
+}
+
+function readBufferLogicalLine(buffer, startRow) {
+  if (!buffer || typeof buffer.getLine !== 'function') return null;
+  const first = buffer.getLine(startRow);
+  if (!first) return null;
+
+  const rows = [];
+  const parts = [];
+  let offset = 0;
+  let row = startRow;
+  while (row < buffer.length) {
+    const line = buffer.getLine(row);
+    if (!line) break;
+    const text = typeof line.translateToString === 'function' ? line.translateToString() : '';
+    rows.push({ row, start: offset, end: offset + text.length, text });
+    parts.push(text);
+    offset += text.length;
+
+    const next = buffer.getLine(row + 1);
+    if (!next || !next.isWrapped) break;
+    row++;
+  }
+
+  return {
+    startRow,
+    endRow: row,
+    text: parts.join(''),
+    rows,
+  };
+}
+
+function physicalSegmentsForLogicalSpan(logical, segment) {
+  const pieces = [];
+  for (const physical of logical.rows) {
+    const start = Math.max(segment.start, physical.start);
+    const end = Math.min(segment.end, physical.end);
+    if (start >= end) continue;
+    pieces.push({
+      row: physical.row,
+      start: start - physical.start,
+      end: end - physical.start,
+      text: logical.text.slice(start, end),
+    });
+  }
+  return pieces;
+}
+
+// Reconstruct one renderer hard-wrap from two adjacent *logical* xterm lines.
+// Either half may itself span several physical rows after xterm reflows the
+// scrollback on resize. Return physical segments so terminal decoration and hit
+// testing can still address every visible fragment of the joined target.
+function analyzeRendererWrappedDocument(buffer, headRow) {
+  if (!buffer || headRow < 0) return null;
+  const headStart = bufferLogicalLineStart(buffer, headRow);
+  if (headStart !== headRow) return null;
+
+  const head = readBufferLogicalLine(buffer, headStart);
+  if (!head) return null;
+  const tailStart = head.endRow + 1;
+  const tailFirst = buffer.getLine(tailStart);
+  if (!tailFirst || tailFirst.isWrapped) return null;
+  const tail = readBufferLogicalLine(buffer, tailStart);
+  if (!tail) return null;
+
+  const signature = `${head.text}\n${tail.text}`;
+  const parsed = extractViewerCandidateMatches(signature).find(
+    (match) => match.rendererWrapped && Array.isArray(match.segments) && match.segments.length === 2
+  );
+  if (!parsed) return null;
+
+  const logicalLines = [head, tail];
+  const segments = parsed.segments.flatMap((segment) => {
+    const logical = logicalLines[segment.lineIndex];
+    return logical ? physicalSegmentsForLogicalSpan(logical, segment) : [];
+  });
+  if (!segments.length) return null;
+
+  return {
+    entry: { ...parsed.entry, rendererWrapped: true },
+    headRow: head.startRow,
+    tailRow: tail.startRow,
+    endRow: tail.endRow,
+    signature,
+    segments,
+  };
+}
+
 function stripTerminalSequences(text) {
   return String(text || '')
     // OSC sequences, including an incomplete sequence at the end of a chunk.
@@ -280,12 +380,14 @@ function collectBufferViewerCandidates(buffer) {
   const logicalLines = [];
   const length = Number.isFinite(buffer.length) ? buffer.length : 0;
 
-  for (let row = 0; row < length; row++) {
-    const line = buffer.getLine(row);
-    if (!line) continue;
-    const text = typeof line.translateToString === 'function' ? line.translateToString() : '';
-    if (line.isWrapped && logicalLines.length) logicalLines[logicalLines.length - 1] += text;
-    else logicalLines.push(text);
+  for (let row = 0; row < length;) {
+    const logical = readBufferLogicalLine(buffer, row);
+    if (!logical) {
+      row++;
+      continue;
+    }
+    logicalLines.push(logical.text);
+    row = logical.endRow + 1;
   }
 
   const entries = [];
@@ -418,6 +520,8 @@ module.exports = {
   ViewerHistory,
   ViewerStreamAccumulator,
   ViewerValidationMemory,
+  analyzeRendererWrappedDocument,
+  bufferLogicalLineStart,
   canonicalViewerUrl,
   collectBufferViewerCandidates,
   extractViewerCandidateMatches,

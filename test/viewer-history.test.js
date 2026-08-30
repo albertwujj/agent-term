@@ -3,6 +3,7 @@ const {
   ViewerHistory,
   ViewerStreamAccumulator,
   ViewerValidationMemory,
+  analyzeRendererWrappedDocument,
   collectBufferViewerCandidates,
   extractViewerCandidateMatches,
   extractViewerCandidates,
@@ -295,6 +296,27 @@ test('buffer collector reconstructs hard-wrapped local document targets', () => 
   assert.deepStrictEqual(
     collectBufferViewerCandidates(buffer).map((entry) => entry.rendererWrapped),
     [true, true]
+  );
+});
+
+test('renderer-wrapped analysis maps a resize-soft-wrapped head to physical rows', () => {
+  const buffer = fakeBuffer([
+    { text: 'review:///home/me/.git/review/work-long-' },
+    { text: 'name/work-long-na  ', wrapped: true },
+    { text: '  me.md    ' },
+  ]);
+
+  const analysis = analyzeRendererWrappedDocument(buffer, 0);
+  assert(analysis);
+  assert.strictEqual(
+    analysis.entry.key,
+    'review:///home/me/.git/review/work-long-name/work-long-name.md'
+  );
+  assert.strictEqual(analysis.tailRow, 2);
+  assert.deepStrictEqual(analysis.segments.map((segment) => segment.row), [0, 1, 2]);
+  assert.strictEqual(
+    analysis.segments.map((segment) => segment.text).join(''),
+    analysis.entry.key
   );
 });
 
