@@ -96,8 +96,8 @@ test('the md runbook prefers current-repo vendoring, then its sibling layout', (
 });
 
 test('repo roots walk the anchor\'s full ancestor chain, closest-first', () => {
-  assert.deepStrictEqual(repoRunbookRoots('/a/b/c'), ['/a/b/c', '/a/b', '/a', '/']);
-  assert.deepStrictEqual(repoRunbookRoots('/'), ['/']);
+  assert.deepStrictEqual(repoRunbookRoots('/a/b/c'), ['/a/b/c', '/a/b/c/ai', '/a/b', '/a', '/']);
+  assert.deepStrictEqual(repoRunbookRoots('/'), ['/', '/ai']);
 });
 
 test('a runbook above the repo\'s immediate parent still resolves', () => {
@@ -129,7 +129,7 @@ test('candidate inputs reject ambiguous or escaping paths', () => {
 });
 
 test('repo roots run vendored, then sibling/beside, then up the tree', () => {
-  assert.deepStrictEqual(repoRunbookRoots('/work/product'), ['/work/product', '/work', '/']);
+  assert.deepStrictEqual(repoRunbookRoots('/work/product'), ['/work/product', '/work/product/ai', '/work', '/']);
   assert.throws(() => repoRunbookRoots('work/product'), /absolute POSIX/);
 });
 

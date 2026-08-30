@@ -46,11 +46,13 @@ function orderedRunbookCandidates({ referenceFile, relativeRunbookPath, fallback
   return candidates;
 }
 
-// A runbook repository can be vendored at the repo root, sit beside it (a
-// sibling), or live anywhere up the tree. Walk the anchor's full ancestor chain,
-// closest-first: joined with the relative path these roots cover the vendored
-// (root/…), sibling/beside (parent/…), and further-up locations. Callers append
-// HOME after them when building the complete fallback list.
+// A runbook repository can be vendored at the repo root or inside the repo's
+// `ai/` folder (the conventional home for everything kept outside the
+// push/commit flow), sit beside the repo (a sibling), or live anywhere up the
+// tree. Walk the anchor's full ancestor chain, closest-first: joined with the
+// relative path these roots cover the vendored (root/…, root/ai/…),
+// sibling/beside (parent/…), and further-up locations. Callers append HOME
+// after them when building the complete fallback list.
 function repoRunbookRoots(repoRoot) {
   const value = String(repoRoot || '');
   if (!path.posix.isAbsolute(value)) {
@@ -60,6 +62,7 @@ function repoRunbookRoots(repoRoot) {
   let dir = path.posix.normalize(value);
   for (;;) {
     roots.push(dir);
+    if (roots.length === 1) roots.push(path.posix.join(dir, 'ai'));
     const parent = path.posix.dirname(dir);
     if (parent === dir) break;
     dir = parent;
