@@ -11,7 +11,7 @@ const {
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { createViewerBand } = require('./viewer-band');
-const { createComposer, toPromptAction, shiftModEnterLabel, isPasteCommentShortcut } = require('./comment-ui');
+const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isPasteCommentShortcut } = require('./comment-ui');
 const {
   isPlainCommentKey,
   isCommentEntryKey,
@@ -4364,7 +4364,7 @@ function createMarkdownViewer({
     return null;
   }
 
-  function openRenderedEditor(target, range, blockSource, entryEvent, clickCaret, entrySelection) {
+  function openRenderedEditor(target, range, blockSource, entryEvent, clickCaret, entrySelection, entryText = null) {
     const origRendered = getSearchableTextNodes(target).text;
     const anchorId = target.getAttribute('data-md-anchor-id') || '';
     const existing = state.blockOverlays.get(anchorId);
@@ -4391,15 +4391,26 @@ function createMarkdownViewer({
     document.addEventListener('selectionchange', state.editing.caretFollow);
 
     const k = entryEvent ? entryEvent.key : '';
+    // A comment card switching to an edit hands over its typed text (entryText):
+    // it enters as those keystrokes would have. Empty text is the bare switch —
+    // the selection comes back live inside the editor, ready to be typed over.
+    const typed = typeof entryText === 'string';
+    const mutating = typed ? entryText.length > 0 : !!(entryEvent && isMutatingEntryKey(entryEvent));
     // The entry keystroke strikes/inserts in place, exactly like every keystroke
     // after it — with a selection (live or virtual-drag record), ⌫/Delete
     // strikes the whole selection and a printable key types over it
     // (strike + insert).
-    if (entryEvent && isMutatingEntryKey(entryEvent)) {
+    if (mutating || typed) {
       const entryRange = resolveEntrySelectionRange(target, entrySelection);
       if (entryRange) {
+        if (!mutating) {
+          const s = window.getSelection && window.getSelection();
+          if (s) { s.removeAllRanges(); s.addRange(entryRange); }
+          return;
+        }
         strikeInBlock(target, entryRange, 'after');
-        if (k === 'Enter') insertLineBreakInBlock();
+        if (typed) insertMarkedInBlock(entryText);
+        else if (k === 'Enter') insertLineBreakInBlock();
         else if (k !== 'Backspace' && k !== 'Delete') insertMarkedInBlock(k);
         return;
       }
@@ -4408,8 +4419,13 @@ function createMarkdownViewer({
       clickCaret != null ? clickCaret : origRendered.length,
       origRendered.length,
     ));
-    if (!entryEvent || !isMutatingEntryKey(entryEvent)) {
+    if (!mutating) {
       setCaretWithin(target, caret);
+      return;
+    }
+    if (typed) {
+      setCaretWithin(target, caret);
+      insertMarkedInBlock(entryText);
       return;
     }
     if (k === 'Backspace') {
@@ -4519,19 +4535,26 @@ function createMarkdownViewer({
     }
   }
 
-  function openBlockEditor(target, entryEvent) {
+  // Why a block refuses the in-place editor, as its toast line; '' when it
+  // edits. A sealed block holds a sent edit awaiting the agent — its content
+  // can't be re-edited in place (roll back to change). Notes and comments still
+  // route through their own paths, so only the in-place editor is blocked. The
+  // typeset text is the editing surface; an image-only block has none to
+  // strike or hang an insertion on, so it takes comments, not in-place edits.
+  function blockEditBlockedReason(target) {
+    if (target.closest && target.closest('.md-sealed')) return 'This edit is sent — awaiting the agent';
+    if (!getRenderedText(target).trim()) return 'An image block takes comments, not edits';
+    return '';
+  }
+
+  // entryText: a comment card switching to an edit hands its typed text in
+  // here; it enters the block exactly as those keystrokes would have, had the
+  // first one been an editing key (see openRenderedEditor).
+  function openBlockEditor(target, entryEvent, { entryText = null } = {}) {
     if (state.editing || !target) return;
-    // A sealed block holds a sent edit awaiting the agent — its content can't be
-    // re-edited in place (roll back to change). Notes and comments still route
-    // through their own paths, so only the in-place editor is blocked here.
-    if (target.closest && target.closest('.md-sealed')) {
-      if (typeof showToast === 'function') showToast('This edit is sent — awaiting the agent');
-      return;
-    }
-    // The typeset text is the editing surface; an image-only block has none to
-    // strike or hang an insertion on, so it takes comments, not in-place edits.
-    if (!getRenderedText(target).trim()) {
-      if (typeof showToast === 'function') showToast('An image block takes comments, not edits');
+    const blocked = blockEditBlockedReason(target);
+    if (blocked) {
+      if (typeof showToast === 'function') showToast(blocked);
       return;
     }
     const range = getBlockSourceRange(target);
@@ -4546,7 +4569,7 @@ function createMarkdownViewer({
     // (bold, links, lists) strike like prose. There is no source-textarea
     // fallback; the source is never touched.
     const blockSource = blockSourceForRange(range);
-    openRenderedEditor(target, range, blockSource, entryEvent, clickCaret, entrySelection);
+    openRenderedEditor(target, range, blockSource, entryEvent, clickCaret, entrySelection, entryText);
   }
 
   function commitBlockEditor() {
@@ -6056,6 +6079,23 @@ function createMarkdownViewer({
       closeActiveCard();
       clearActiveTarget();
     };
+    // The muscle-memory miss: select, type, and the letter opened a comment
+    // when the hand meant to type over the selection. One chord converts: the
+    // card's text enters the block editor as the replacement, as if the first
+    // key had been an editing key. The target and its selection record stay
+    // armed across the card's close; openBlockEditor consumes them as the
+    // entry point. A block the editor refuses keeps the card (and its text).
+    const editInstead = () => {
+      const blocked = blockEditBlockedReason(target);
+      if (blocked) {
+        if (typeof showToast === 'function') showToast(blocked);
+        return;
+      }
+      if (!getBlockSourceRange(target)) return;
+      const text = composer.textarea.value;
+      closeActiveCard();
+      openBlockEditor(target, null, { entryText: text });
+    };
     // Enter always sends; queueing happens by moving to another paragraph. The
     // primary flushes everything — this comment plus anything already queued.
     const pendingCount = state.queuedComments.length + state.blockOverlays.size;
@@ -6077,6 +6117,15 @@ function createMarkdownViewer({
         { label: 'Discard', onClick: discard },
         { label: primaryLabel, primary: true, title: 'Enter', onClick: () => submitComment() },
         toPromptAction(() => submitComment({ toPrompt: true })),
+        // Fresh cards only: a revisited queued comment is a comment, not a
+        // mistyped replacement.
+        ...(queueMode ? [] : [{
+          label: 'Edit instead',
+          key: 'e',
+          shortcut: modKeyLabel('e'),
+          title: 'Switch to editing: what you typed replaces the selection, or types at the click point',
+          onClick: () => editInstead(),
+        }]),
       ],
     });
     composer.textarea.spellcheck = true;

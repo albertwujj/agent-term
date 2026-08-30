@@ -68,7 +68,9 @@ caret; the caret is where the mouse clicked; Esc cancels.
   Replace-by-typing is therefore deliberately two-step: ⌫ deletes the
   selection as an edit, then type. Double-click keeps its native meaning —
   select a word — which composes: double-click + ⌫ deletes that word as an
-  edit; double-click + letter comments on it.
+  edit; double-click + letter comments on it. The one-step reflex has a
+  recovery: ⌘E in the composer converts the card to an edit (see "Edit
+  instead", 2026-08-30).
 - Only unmodified keys dispatch; Cmd/Ctrl chords pass through (copy, search,
   send). "Letter" = any Unicode letter (\p{L}); IME composition never
   dispatches mid-composition.
@@ -740,6 +742,34 @@ action on an edit's control (and ⌘↩) is Send, which flushes *all* pending ed
 and comments to the sidecar store in one batch, and each send persists there. So
 no separate crash-safe-draft mechanism is built: sending is the persistence, and
 it is the default next step after an edit or comment.
+
+## Edit instead: comment → edit switch (2026-08-30)
+
+The dispatch's accepted cost bites a specific reflex: select, type, and the
+hand meant to type over the selection, as in every editor. The letter opened a
+comment card instead. Backing out and redoing it as ⌫-then-type is three
+gestures for a one-gesture intent.
+
+The recovery is one chord inside the composer: ⌘E (Ctrl+E off Mac) converts
+the card to an edit. Whatever the card holds is the replacement — the block
+editor opens with the selection struck and the card's text inserted after it,
+exactly the marks the same keystrokes would have left had the first one been an
+editing key. A block-click target inserts at the held click caret. An emptied
+card converts too: the editor opens with the selection back live, ready to be
+typed over. The card also carries the action as a button ("Edit instead ⌘E"),
+its chord shown, since nothing else would teach it.
+
+Only fresh cards convert. A revisited queued comment is a comment; it keeps
+Discard as its only destructive exit. A block the editor refuses (sealed,
+image-only) keeps the card and its text and toasts the same line the editor
+would.
+
+Mechanics: the target and its selection record stay armed across the card's
+close, and `openBlockEditor` takes the card text as `entryText`, entering
+through the same strike-then-insert path as a printable entry key. The live
+DOM selection is gone by then (Chromium collapses it into the focused
+textarea), so the switch works from the armed record's offsets — the same
+fallback a virtual-drag selection uses.
 
 ## Open questions
 

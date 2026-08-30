@@ -103,6 +103,15 @@ function shiftModEnterLabel() { return isMac() ? '⇧⌘↩' : 'Ctrl⇧↩'; }
 function isShiftModEnter(e) {
   return e.key === 'Enter' && (isMac() ? e.metaKey : e.ctrlKey) && e.shiftKey && !e.altKey;
 }
+// Mod+letter chords for the few composer actions a letter can name (⌘E: edit
+// instead). Platform-strict like the Enter chords: on a Mac, Ctrl+letter keeps
+// its native text-field meaning (Ctrl+E is end-of-line there).
+function modKeyLabel(letter) { return (isMac() ? '⌘' : 'Ctrl+') + String(letter).toUpperCase(); }
+function isModKey(e, letter) {
+  if (!e || typeof e.key !== 'string' || e.key.toLowerCase() !== String(letter).toLowerCase()) return false;
+  if (e.shiftKey || e.altKey) return false;
+  return isMac() ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey);
+}
 
 // The To prompt action, shared by every composer: Send's sibling that pastes
 // the same message into the CLI input and leaves it there, cursor on a fresh
@@ -122,7 +131,8 @@ function toPromptAction(onClick) {
 // One composer widget for all comment surfaces: optional quote + heading preview,
 // a textarea (seeded, focus-at-end), and action buttons. Key contract: plain
 // Enter fires the primary action; Shift/Alt+Enter = newline; Esc = onCancel;
-// Cmd/Ctrl+Enter fires the action flagged modEnter (see toPromptAction).
+// Cmd/Ctrl+Enter fires the action flagged modEnter (see toPromptAction); an
+// action carrying `key: 'e'` fires on Cmd/Ctrl+E (see isModKey).
 // Each action's onClick gets { root, textarea } so the caller can disable buttons
 // and read the value. Optional onInput(ctx) fires on every keystroke (autogrow /
 // fit / footer for the queue surfaces). Returns { root, textarea, primaryButton,
@@ -150,12 +160,15 @@ function createComposer({ quote = '', anchorLabel = '', placeholder = '', seed =
   const ctx = { root: root, textarea: ta };
   const primary = actions.find(function (a) { return a.primary; });
   const modEnter = actions.find(function (a) { return a.modEnter; });
+  const keyed = actions.filter(function (a) { return typeof a.key === 'string' && a.key.length === 1; });
   actions.forEach(function (a, i) {
     root.querySelector('[data-i="' + i + '"]').onclick = function () { a.onClick(ctx); };
   });
   ta.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { e.preventDefault(); if (onCancel) onCancel(); return; }
     if (modEnter && isModEnter(e)) { e.preventDefault(); modEnter.onClick(ctx); return; }
+    const byKey = keyed.find(function (a) { return isModKey(e, a.key); });
+    if (byKey) { e.preventDefault(); byKey.onClick(ctx); return; }
     if (primary && isShiftModEnter(e)) { e.preventDefault(); primary.onClick(ctx); return; }
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey && primary) { e.preventDefault(); primary.onClick(ctx); }
   });
@@ -252,6 +265,7 @@ function isPasteCommentShortcut(event) {
 
 module.exports = {
   normWS, nearestHeading, toast, createComposer, toPromptAction, modEnterLabel, isModEnter, shiftModEnterLabel,
+  modKeyLabel, isModKey,
   highlightRange, clearHighlight, highlightRanges, rangeOfText,
   isPasteCommentShortcut,
 };

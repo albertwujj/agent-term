@@ -827,6 +827,132 @@ async function run() {
     await sleep(5);
   }
 
+  // --- Edit instead: a comment card converts to an edit, its text typing over
+  // the entry point (the select-then-type muscle-memory miss). The chord is
+  // Cmd/Ctrl+E inside the composer; the modifier follows the platform the
+  // shared composer sniffs (Node's own navigator here, not jsdom's).
+  {
+    const selectWord = (blockText, word) => {
+      const target = Array.from(primary().querySelectorAll('p'))
+        .find((el) => el.textContent.includes(blockText));
+      const node = Array.from(target.childNodes).find((n) => n.nodeType === 3 && n.textContent.includes(word));
+      const at = node.textContent.indexOf(word);
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + word.length);
+      const sel = dom.window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      primary().dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+      return target;
+    };
+    // The card's textarea only: the edit strip's note composer is a .cu-ta too.
+    const composerEl = () => document.querySelector('.md-comment-card textarea');
+    const chordMod = (typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(String(navigator.platform || '')))
+      ? { metaKey: true } : { ctrlKey: true };
+    const editInsteadBtn = () => Array.from(document.querySelectorAll('.md-comment-card button'))
+      .find((b) => b.textContent.startsWith('Edit instead'));
+    const switchKey = (ta) => ta.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+      bubbles: true, cancelable: true, key: 'e', ...chordMod,
+    }));
+
+    // 1. selection + letters → switch: the letters type over the selection.
+    selectWord('This line has', 'markup');
+    await sleep(10);
+    key({ key: 'c' });
+    await sleep(10);
+    let ta = composerEl();
+    check('a fresh comment card offers Edit instead with its chord',
+      !!ta && !!editInsteadBtn() && /Ctrl\+E|⌘E/.test(editInsteadBtn().textContent), editInsteadBtn() && editInsteadBtn().textContent);
+    ta.value = 'ca'; // the second keystroke landed in the card too
+    // Chromium collapses the document selection into the focused textarea;
+    // the switch must work from the armed record alone.
+    dom.window.getSelection().removeAllRanges();
+    switchKey(ta);
+    await sleep(10);
+    let el = editing();
+    check('Cmd/Ctrl+E closes the card and opens the block editor', !composerEl() && !!el);
+    check('the selection is struck and the card text inserted over it',
+      !!el && el.querySelector('del.md-pending-del') && el.querySelector('del.md-pending-del').textContent === 'markup'
+        && el.querySelector('ins.md-pending-ins') && el.querySelector('ins.md-pending-ins').textContent === 'ca',
+      el && el.innerHTML);
+    key({ key: 'Escape' });
+    await sleep(10);
+    check('Esc reverts the converted edit', !editing() && !primary().querySelector('del.md-pending-del'));
+
+    // 2. block click + letter → switch: the letter inserts at the click caret.
+    clickBlock('This line has');
+    await sleep(5);
+    key({ key: 'K' });
+    await sleep(10);
+    ta = composerEl();
+    check('block-comment card also offers Edit instead', !!ta && !!editInsteadBtn());
+    editInsteadBtn().dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(10);
+    el = editing();
+    check('the button converts a block comment: text inserts at the caret, nothing struck',
+      !composerEl() && !!el && !el.querySelector('del.md-pending-del')
+        && el.querySelector('ins.md-pending-ins') && el.querySelector('ins.md-pending-ins').textContent === 'K',
+      el && el.innerHTML);
+    key({ key: 'Escape' });
+    await sleep(10);
+
+    // 3. emptied card + selection → the bare switch: selection back live in
+    //    the editor, no marks yet.
+    const selTarget = selectWord('This line has', 'markup');
+    await sleep(10);
+    key({ key: 'c' });
+    await sleep(10);
+    ta = composerEl();
+    ta.value = '';
+    dom.window.getSelection().removeAllRanges();
+    switchKey(ta);
+    await sleep(10);
+    el = editing();
+    const live = dom.window.getSelection();
+    check('an empty card switches with the selection re-armed live in the editor',
+      !!el && el === selTarget && !el.querySelector('del, ins')
+        && live.rangeCount === 1 && !live.getRangeAt(0).collapsed && live.toString() === 'markup',
+      el && [el.innerHTML, live.toString()]);
+    key({ key: 'Escape' });
+    await sleep(10);
+
+    // 4. a reopened queued comment is a comment: no switch offered. (The
+    //    comment sits on a sealed block — comments still route there — and the
+    //    click-away lands on the one block the editor still edits.)
+    clickBlock('A closing paragraph');
+    await sleep(5);
+    key({ key: 'q' });
+    await sleep(10);
+    composerEl().value = 'queued aside';
+    clickBlock('This line has'); // click away queues it
+    await sleep(10);
+    const qMark = primary().querySelector('.md-queued-comment-mark');
+    qMark.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(10);
+    check('a reopened queued comment offers no Edit instead', !!composerEl() && !editInsteadBtn());
+    composerEl().value = ''; // emptying a reopened draft deletes it on click-away
+    clickBlock('This line has');
+    await sleep(10);
+    key({ key: 'Escape' });
+    await sleep(10);
+    check('queued-comment cleanup left no mark', !primary().querySelector('.md-queued-comment-mark'));
+
+    // 5. a block the editor refuses keeps the card and its text.
+    const imgBlock = Array.from(primary().querySelectorAll('[data-md-anchor-id]'))
+      .find((b) => b.querySelector && b.querySelector('img[data-md-src="assets/c.jpg"]'));
+    imgBlock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    await sleep(5);
+    key({ key: 'x' });
+    await sleep(10);
+    ta = composerEl();
+    switchKey(ta);
+    await sleep(10);
+    check('an image block refuses the switch and keeps the card', !editing() && composerEl() === ta && ta.value === 'x');
+    key({ key: 'Escape' });
+    await sleep(10);
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0); // the viewer's poll interval would keep node alive
 }
