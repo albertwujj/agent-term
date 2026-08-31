@@ -16,13 +16,18 @@ const RENDERER_GUTTER_SOURCE = String.raw`(?:[ \t]{2,}|[ \t]*[│┃|▎][ \t]*)
 const RENDERER_ROW_END_SOURCE = String.raw`(?:[ \t]+[│┃|▎])?[ \t]*`;
 const RENDERER_WRAP_SOURCE = String.raw`${RENDERER_ROW_END_SOURCE}\r?\n${RENDERER_GUTTER_SOURCE}`;
 const RENDERER_WRAP_RE = new RegExp(RENDERER_WRAP_SOURCE);
-// The token itself must own the row's content area: column zero, horizontal
-// inset, or a recognized Cursor gutter. A URL after prose is never a candidate
-// for renderer-wrap normalization even when that row happens to be padded.
+// Bare document paths must own the row's content area: column zero, horizontal
+// inset, or a recognized Cursor gutter. Review URLs may follow a short label
+// ("Review: review://...") before Cursor hard-wraps them; those reconstructed
+// candidates are provisional until the renderer confirms the joined package
+// exists, so admitting that shape cannot make a fabricated join clickable.
 const RENDERER_CONTENT_START_SOURCE = String.raw`(?<=^|^[ \t]{2,}|^[ \t]*[│┃|▎][ \t]*)`;
 const RENDERER_WRAPPED_END_SOURCE = String.raw`(?=[.,;:!?\)\]}>]?${RENDERER_ROW_END_SOURCE}(?:\r?\n|$))`;
 const REVIEW_URL_FLAT_SOURCE = String.raw`review:\/\/[ \t]*\/${URL_TOKEN_SOURCE}*${URL_TOKEN_END_SOURCE}`;
-const REVIEW_URL_WRAPPED_SOURCE = String.raw`${RENDERER_CONTENT_START_SOURCE}review:\/\/[ \t]*\/${MARKDOWN_TOKEN_SOURCE}+(?<!\.md)${RENDERER_WRAP_SOURCE}${MARKDOWN_TOKEN_SOURCE}*\.md${RENDERER_WRAPPED_END_SOURCE}`;
+// Match the whole second fragment first, then verify the canonical joined URL
+// ends in .md below. That permits either suffix split produced at narrow widths:
+// "package.\n  md" and "package.m\n  d", as well as the usual "pack\n  age.md".
+const REVIEW_URL_WRAPPED_SOURCE = String.raw`review:\/\/[ \t]*\/${MARKDOWN_TOKEN_SOURCE}+(?<!\.md)${RENDERER_WRAP_SOURCE}${MARKDOWN_TOKEN_SOURCE}+?${RENDERER_WRAPPED_END_SOURCE}`;
 const REVIEW_URL_SOURCE = String.raw`(?:${REVIEW_URL_WRAPPED_SOURCE}|${REVIEW_URL_FLAT_SOURCE})`;
 const VIEWER_URL_SOURCE = String.raw`(?:${REVIEW_URL_SOURCE}|(?:https?|file|review):\/\/[^\s<>"'\x60\x00-\x1f]+[^\s<>"'\x60\x00-\x1f.,;:!?\)\]}>])`;
 const MARKDOWN_PATH_FLAT_SOURCE = String.raw`(?:[a-zA-Z]:)?(?:[.\/\\~\u2026]|[a-zA-Z0-9_])[a-zA-Z0-9_.+$~\/\\\u2026-]*\.(?:markdown|mdown|md)\b`;
@@ -136,6 +141,10 @@ function extractViewerCandidateMatches(text) {
     const end = start + match[0].length;
     const kind = /^review:\/\//i.test(key) ? 'review' : 'url';
     const segments = rendererWrappedSegments(source, start, match[0]);
+    // REVIEW_URL_WRAPPED_SOURCE deliberately accepts a suffix split anywhere;
+    // only a complete joined package is a review candidate. The flat fallback
+    // still exposes ordinary one-row review:// tokens as before.
+    if (segments && kind === 'review' && !MARKDOWN_DOCUMENT_RE.test(key)) continue;
     matches.push({
       entry: { kind, key },
       start,

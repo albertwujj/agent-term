@@ -102,10 +102,21 @@ test('does not join a hard newline without a continuation gutter', () => {
   );
 });
 
-test('does not join a padded review link following prose', () => {
+test('reconstructs a padded review link following a short label', () => {
   assert.deepStrictEqual(
     keys(extractViewerCandidates('Open review:///tmp/work-na  \n  me.md\n')),
-    ['review:review:///tmp/work-na', 'md:me.md']
+    ['review:review:///tmp/work-name.md']
+  );
+});
+
+test('reconstructs a review when the md suffix straddles the hard wrap', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('review:///tmp/work-name.m  \n  d\n')),
+    ['review:review:///tmp/work-name.md']
+  );
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('review:///tmp/work-name.  \n  md\n')),
+    ['review:review:///tmp/work-name.md']
   );
 });
 

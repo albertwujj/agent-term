@@ -1069,6 +1069,24 @@ test('hard terminal rows expose one provisional renderer-wrapped review target',
   terminal.dispose();
 });
 
+test('two hard rows reconstruct a labeled review with a split md suffix', async () => {
+  const terminal = createTestTerminal({ cols: 180, rows: 5 });
+  const expected = 'review:///home/me/.git/review/work-long-name/work-long-name.md';
+  await writeAndWait(
+    terminal,
+    'Review: review:///home/me/.git/review/work-long-name/work-long-name.m\r\n  d\r\n'
+  );
+
+  const buffer = terminal.buffer.active;
+  assertEqual(buffer.getLine(1)?.isWrapped, false, 'Fixture must use a hard row boundary');
+  const analysis = analyzeRendererWrappedDocument(buffer, 0);
+  assertTrue(analysis !== null, 'The two hard rows should reconstruct one review target');
+  assertEqual(analysis.entry.key, expected);
+  assertEqual(analysis.segments.map((segment) => segment.text).join(''), expected);
+
+  terminal.dispose();
+});
+
 test('renderer-wrapped review target survives xterm resize reflow', async () => {
   const terminal = createTestTerminal({ cols: 100, rows: 8 });
   const head = 'review:///home/me/.git/review/work-long-name/work-long-na';
