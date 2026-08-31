@@ -114,7 +114,7 @@ Optional companions:
 
 ## Shortcuts
 The few worth learning (`Ctrl` on Windows, `Cmd` on Mac):
-- `Ctrl/Cmd+Shift+N`: a new AgentTerm window, opening on the session picker. This is the only kind of new: every session is a whole OS window, and there are no tabs.
+- `Ctrl/Cmd+Shift+N`: a new AgentTerm window, opening on the session picker in the current window's directory. This is the only kind of new: every session is a whole OS window, and there are no tabs.
 - `Ctrl/Cmd+Shift+U`: everything the session can open in a viewer (docs, images, URLs), as a filterable list.
 - `Ctrl/Cmd+Shift+O` / `+I`: grow / shrink the open viewer.
 - `Ctrl/Cmd+F`: fuzzy-search the whole scrollback.

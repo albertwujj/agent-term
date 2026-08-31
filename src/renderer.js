@@ -74,10 +74,11 @@ window.pty.onShowPicker((payload) => {
   closeActivePicker();
   try { clearTerminalSelection(); } catch {}
   try { hideTerminalSelectionCommentHint(); } catch {}
-  const { sessions = [], activeIds = [] } = payload || {};
+  const { sessions = [], activeIds = [], cwd = null } = payload || {};
   activePicker = createPicker({
     sessions,
     activeIds,
+    cwd,
     startHiddenPromptSearch: (payload) => window.pty.startHiddenPromptSearch(payload),
     cancelHiddenPromptSearch: (requestId) => window.pty.cancelHiddenPromptSearch(requestId),
     onPick: (id) => {
@@ -683,7 +684,7 @@ if (typeof window.pty.onViewerShortcut === 'function') {
 // Cmd/Ctrl+Shift+N: the launch pill covers the gap until the new instance's
 // window appears; a reported failure replaces it with a sticky error toast.
 if (typeof window.pty.onNewInstanceLaunching === 'function') {
-  window.pty.onNewInstanceLaunching(() => { showLaunchPill(); });
+  window.pty.onNewInstanceLaunching((cwd) => { showLaunchPill(cwd); });
 }
 if (typeof window.pty.onNewInstanceLaunchFailed === 'function') {
   window.pty.onNewInstanceLaunchFailed((message) => {
@@ -3729,7 +3730,9 @@ function showClickFeedback(text, patternName, status = 'info') {
 // moment main handles the chord and pulses while the launch is in flight. The
 // new window taking focus blurs this one — exactly when the feedback becomes
 // redundant — so blur dismisses it. The timeout only reaps a stale pill when
-// no window ever appears and no failure is reported.
+// no window ever appears and no failure is reported. The pill names the
+// directory the new window's shell starts in (this shell's live cwd); the new
+// window's picker then shows the same directory on its start-new row.
 let launchPill = null;
 let launchPillTimer = null;
 let launchPillBlurHandler = null;
@@ -3738,7 +3741,7 @@ function dismissLaunchPill() {
   if (launchPillBlurHandler) { window.removeEventListener('blur', launchPillBlurHandler); launchPillBlurHandler = null; }
   if (launchPill) { launchPill.remove(); launchPill = null; }
 }
-function showLaunchPill() {
+function showLaunchPill(cwd) {
   dismissLaunchPill();
   const el = document.createElement('div');
   el.style.cssText = `
@@ -3752,7 +3755,7 @@ function showLaunchPill() {
   dot.style.cssText = `
     width: 8px; height: 8px; border-radius: 50%; background: currentColor;
     animation: launchPillPulse 1.1s ease-in-out infinite;`;
-  el.append(dot, document.createTextNode('Starting new AgentTerm…'));
+  el.append(dot, document.createTextNode(cwd ? `Starting new AgentTerm in ${cwd}…` : 'Starting new AgentTerm…'));
   if (!document.getElementById('launch-pill-style')) {
     const style = document.createElement('style');
     style.id = 'launch-pill-style';

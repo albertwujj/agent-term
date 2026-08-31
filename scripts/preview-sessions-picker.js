@@ -109,7 +109,7 @@ const SCENARIOS = [
     label: 'No matches — explicit empty-state row',
     filter: 'xyzzz' },
   { name: 'shell-fallthrough',
-    label: 'Non-CLI text — row 0 falls back to "Run … in shell"',
+    label: 'Non-CLI text — row 0 falls back to "Run …"',
     filter: 'rgrep -n foo' },
 ];
 
@@ -132,6 +132,7 @@ const PREVIEW_HTML = `<!DOCTYPE html>
       if (activePicker) { try { activePicker.destroy(); } catch {} activePicker = null; }
       activePicker = createPicker({
         sessions, activeIds,
+        cwd: '/Users/dev/projects/agent-term',
         onPick: () => {}, onStartNew: () => {}, onClose: () => {},
       });
       // Drive the input programmatically so the filter logic + count + match

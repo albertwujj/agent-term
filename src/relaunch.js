@@ -92,8 +92,11 @@ function relaunchPortableAndExit(app, argv, execPath, dependencies = {}) {
 // Start a fresh AgentTerm alongside the running one (Cmd/Ctrl+Shift+N). The
 // child is a new launch, not a successor, so the relaunch marker is dropped
 // rather than added. Detached spawn keeps its lifetime independent of ours.
-// Returns the child so the caller can watch for boot failures (an invalid
-// execPath surfaces as an async 'error', a boot crash as an early 'exit').
+// `env` replaces the inherited environment: the caller carries the shell's
+// live cwd across as AGENT_TERM_START_CWD so the child's shell starts where
+// this window's shell is. Returns the child so the caller can watch for boot
+// failures (an invalid execPath surfaces as an async 'error', a boot crash as
+// an early 'exit').
 function spawnNewInstance(argv, execPath, dependencies = {}) {
   const spawnImpl = dependencies.spawn || spawn;
   const options = {
@@ -102,6 +105,7 @@ function spawnNewInstance(argv, execPath, dependencies = {}) {
     windowsHide: true,
   };
   if (dependencies.cwd) options.cwd = dependencies.cwd;
+  if (dependencies.env) options.env = dependencies.env;
   const args = (Array.isArray(argv) ? argv : [])
     .slice(1)
     .filter((arg) => arg !== RELAUNCHED_ARG);

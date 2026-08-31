@@ -1348,7 +1348,9 @@ function showSessionsPicker() {
     const list = sessionsLog.menuList(userDataDir);
     const sessions = list.map(s => pickerSessionPayload(userDataDir, s));
     const activeIds = sessions.filter(s => s.isActive).map(s => s.id);
-    mainWindow.webContents.send('show-picker', { sessions, activeIds });
+    // The shell has just spawned, so its cwd is the start dir: read it
+    // synchronously rather than probing the live process.
+    mainWindow.webContents.send('show-picker', { sessions, activeIds, cwd: shellStartCwd() });
   } catch (err) {
     console.warn('[main] showSessionsPicker failed:', err && err.message);
   }
@@ -1537,7 +1539,14 @@ function relaunchLatestAndExit() {
 // until it reaches ready-to-show (a couple of seconds, longer on WSL). The
 // renderer bridges that gap with a launch pill; every failure path reports
 // back so the pill is replaced by an error instead of dying silently.
-function launchNewInstance() {
+//
+// The child's shell starts where this window's shell is right now: the live
+// cwd (getPrimaryCwd) crosses over as AGENT_TERM_START_CWD, the same variable
+// a source launch carries npm's invocation directory in. Before a session is
+// picked that is the launch dir; after a pick it is the directory the CLI was
+// launched from (the shell's cwd is frozen while the CLI runs in the
+// foreground), which is also what the sessions log records for resume.
+async function launchNewInstance() {
   const announce = (channel, message) => {
     try { if (mainWindow) mainWindow.webContents.send(channel, message); } catch {}
   };
@@ -1556,11 +1565,17 @@ function launchNewInstance() {
       return;
     }
   }
-  announce('new-instance-launching');
+  // WSL's cwd probe needs the pid file the shell writes at startup; until it
+  // exists the shell is still at the launch dir, so that is the answer.
+  let cwd = null;
+  try { cwd = await getPrimaryCwd(); } catch {}
+  if (!cwd) cwd = shellStartCwd();
+  announce('new-instance-launching', cwd);
   let child = null;
   try {
     child = spawnNewInstance(process.argv, target.execPath || process.execPath, {
       cwd: target.execPath ? path.dirname(target.execPath) : undefined,
+      env: cwd ? { ...process.env, AGENT_TERM_START_CWD: cwd } : undefined,
     });
   } catch (err) {
     fail('launch failed: ' + (err && err.message));
@@ -1920,8 +1935,23 @@ function ptyStartingCwd() {
     if (process.platform === 'win32') return process.cwd();
     return requireSourceStartCwd();
   }
-  // Packaged GUI launches have no npm invocation directory.
+  // Packaged GUI launches have no npm invocation directory; a Cmd/Ctrl+Shift+N
+  // child still arrives with its parent's cwd in AGENT_TERM_START_CWD (POSIX,
+  // so on Windows it goes through --cd rather than this Win32 option).
+  if (process.platform !== 'win32' && process.env.AGENT_TERM_START_CWD) {
+    return process.env.AGENT_TERM_START_CWD;
+  }
   return process.env.HOME || os.homedir();
+}
+
+// The directory the shell started in, in the shell's own terms: the POSIX
+// workspace wsl.exe is told to --cd into on Windows, the pty cwd elsewhere.
+// This is where a CLI launches until someone cds, so the picker shows it on
+// the start-new row. Null on Windows when no workspace was carried in (wsl.exe
+// then picks its own start dir).
+function shellStartCwd() {
+  if (process.platform === 'win32') return process.env.AGENT_TERM_START_CWD || null;
+  return ptyStartingCwd();
 }
 
 function createPty(cols, rows) {

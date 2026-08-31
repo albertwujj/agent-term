@@ -107,7 +107,7 @@ await test('Delete hides the selected past session for this picker instance', ()
   });
   const el = document.querySelector('.at-picker-input');
 
-  key(el, 'ArrowDown');
+  // With nothing typed the most recent past session is already selected.
   key(el, 'Delete');
 
   assert.deepStrictEqual(picker._state().visibleRows.map(s => s.id), [2]);
@@ -128,7 +128,6 @@ await test('Backspace hides the selected past session when the filter is empty',
   });
   const el = document.querySelector('.at-picker-input');
 
-  key(el, 'ArrowDown');
   key(el, 'Backspace');
 
   assert.deepStrictEqual(picker._state().visibleRows.map(s => s.id), [2]);
@@ -392,6 +391,83 @@ await test('stale hidden-search progress is ignored after query changes', async 
   assert.ok(stat);
   assert.strictEqual(stat.textContent, '1+ hidden prompt match');
 
+  picker.destroy();
+});
+
+await test('the start directory sits above the input and holds still while typing', () => {
+  const picker = createPicker({
+    sessions: [],
+    cwd: '/Users/dev/projects/agent-term',
+    onPick: () => {}, onStartNew: () => {}, onClose: () => {},
+  });
+  const line = document.querySelector('.at-picker-modal > .at-picker-cwd');
+  assert.ok(line, 'cwd line rendered above the input');
+  assert.strictEqual(line.nextElementSibling.className, 'at-picker-input');
+  assert.strictEqual(line.querySelector('.at-picker-cwd-parent').textContent, '/Users/dev/projects/');
+  assert.strictEqual(line.querySelector('.at-picker-cwd-name').textContent, 'agent-term');
+  assert.strictEqual(line.getAttribute('title'), '/Users/dev/projects/agent-term');
+
+  input(document.querySelector('.at-picker-input'), 'cl');
+  assert.ok(document.querySelector('.at-picker-row-new .at-picker-newlabel').textContent.includes('claude'));
+  assert.ok(document.querySelector('.at-picker-modal > .at-picker-cwd'));
+  input(document.querySelector('.at-picker-input'), 'make test');
+  assert.ok(document.querySelector('.at-picker-row-new .at-picker-newlabel').textContent.includes('Run make test'));
+  assert.ok(document.querySelector('.at-picker-modal > .at-picker-cwd'));
+  picker.destroy();
+});
+
+await test('no cwd line when no start dir is known', () => {
+  const picker = createPicker({
+    sessions: [],
+    onPick: () => {}, onStartNew: () => {}, onClose: () => {},
+  });
+  assert.strictEqual(document.querySelector('.at-picker-cwd'), null);
+  picker.destroy();
+});
+
+await test('nothing typed: no start row, most recent selectable session selected, Enter resumes it', () => {
+  let picked = null;
+  const picker = createPicker({
+    sessions: [
+      { id: 1, cli: 'claude', prompt: 'newest but active elsewhere', lastEventAt: 3, isActive: true },
+      { id: 2, cli: 'codex', prompt: 'most recent resumable', lastEventAt: 2 },
+      { id: 3, cli: 'claude', prompt: 'older', lastEventAt: 1 },
+    ],
+    activeIds: [1],
+    onPick: (id) => { picked = id; }, onStartNew: () => {}, onClose: () => {},
+  });
+  assert.strictEqual(document.querySelector('.at-picker-row-new'), null);
+  const selected = document.querySelector('.at-picker-row-selected');
+  assert.strictEqual(selected.dataset.id, '2');
+  key(document.querySelector('.at-picker-input'), 'Enter');
+  assert.strictEqual(picked, 2);
+  picker.destroy();
+});
+
+await test('typing brings row 0 back and selects it', () => {
+  let started = null;
+  const picker = createPicker({
+    sessions: [{ id: 1, cli: 'claude', prompt: 'older', lastEventAt: 1 }],
+    onPick: () => {}, onStartNew: (cli) => { started = cli; }, onClose: () => {},
+  });
+  const el = document.querySelector('.at-picker-input');
+  input(el, 'cod');
+  const rows = [...document.querySelectorAll('.at-picker-row')];
+  assert.strictEqual(rows[0].dataset.kind, 'new');
+  assert.ok(rows[0].classList.contains('at-picker-row-selected'));
+  key(el, 'Enter');
+  assert.strictEqual(started, 'codex');
+  picker.destroy();
+});
+
+await test('Enter with nothing typed and no sessions leaves the picker like Esc', () => {
+  let closed = 0;
+  const picker = createPicker({
+    sessions: [],
+    onPick: () => {}, onStartNew: () => {}, onClose: () => { closed++; },
+  });
+  key(document.querySelector('.at-picker-input'), 'Enter');
+  assert.strictEqual(closed, 1);
   picker.destroy();
 });
 

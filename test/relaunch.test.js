@@ -262,6 +262,20 @@ test('new-instance spawn pins cwd for packaged launcher targets', () => {
   assert.deepStrictEqual(calls, [['D:\\Tools\\AgentTerm.exe', [], 'D:\\Tools']]);
 });
 
+test('new-instance spawn carries the shell cwd as the child start dir', () => {
+  const calls = [];
+  const fakeChild = { unref() {} };
+  const spawn = (execPath, args, options) => {
+    calls.push([execPath, args, options.env]);
+    return fakeChild;
+  };
+  const env = { PATH: '/usr/bin', AGENT_TERM_START_CWD: '/Users/dev/repo' };
+
+  spawnNewInstance(['/path/to/electron', '/path/to/app'], '/path/to/electron', { spawn, env });
+
+  assert.deepStrictEqual(calls, [['/path/to/electron', ['/path/to/app'], env]]);
+});
+
 test('portable package uses a per-launch extraction directory', () => {
   // app-builder-lib 26.7 omits UNPACK_DIR_NAME for boolean true, leaving the
   // template on NSIS's per-process $PLUGINSDIR. A fixed build KSUID would let

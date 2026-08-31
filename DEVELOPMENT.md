@@ -28,7 +28,7 @@ npm ci
 npm run start
 ```
 
-That is the only command needed to launch from source. `Cmd+Shift+N` opens another AgentTerm window, and closing the last window starts a fresh one. Type `exit` in the shell to quit for good.
+That is the only command needed to launch from source. `Cmd+Shift+N` opens another AgentTerm window in the current window's directory (the launch directory until a session is picked, the session's directory after), and closing the last window starts a fresh one. Type `exit` in the shell to quit for good.
 
 ## Windows with WSL
 

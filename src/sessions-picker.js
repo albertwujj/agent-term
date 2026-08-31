@@ -5,19 +5,21 @@
 //   const handle = createPicker({
 //     sessions: [{ id, hue, cli, title, prompt, isActive, lastEventAt }, ...],
 //     activeIds: [number],          // ids that are currently active (disabled in list)
+//     cwd: string | null,           // where a new session starts (the shell's start dir)
 //     onPick(id):           user resumed a past session
 //     onStartNew(cli):      user started a new session (cli = 'claude'|'codex'|... or null for shell)
-//     onClose():            user dismissed the picker (Esc / clicked outside / Enter on row 0 with no CLI)
+//     onClose():            user dismissed the picker (Esc / clicked outside / Enter with nothing to activate)
 //   });
 //   handle.destroy();   // tear down (called by caller after onPick / onStartNew / onClose)
 //
 // The text input does double duty:
 //   - filters the past-sessions list by case-insensitive word intersection on
 //     title + prompt text
-//   - drives the "Start new session" row's CLI suggestion via prefix match
-//     against KNOWN_CLIS; an exact-or-unique-prefix match autocompletes to
-//     that CLI; otherwise the literal filter text is shown (and would be
-//     typed verbatim into the shell on Enter).
+//   - drives row 0, which exists only while something is typed: a prefix match
+//     against KNOWN_CLIS (exact or unique) autocompletes to that CLI's "Start
+//     new" row; otherwise the literal filter text is offered as a "Run" row
+//     (typed verbatim into the shell on Enter). With nothing typed the list is
+//     the past sessions alone; a plain shell is reached by Esc.
 //
 // Keyboard:
 //   ↑/↓        navigate between rows (skipping disabled active rows)
@@ -46,6 +48,7 @@ const DEEP_SEARCH_DEBOUNCE_MS = 250;
 function createPicker({
   sessions = [],
   activeIds = [],
+  cwd = null,
   startHiddenPromptSearch,
   cancelHiddenPromptSearch,
   deepSearchDebounceMs = DEEP_SEARCH_DEBOUNCE_MS,
@@ -56,7 +59,7 @@ function createPicker({
   const activeSet = new Set(activeIds);
   let dismissedIds = new Set();   // local per-render filter, lets user temporarily hide rows
   let filterText = '';
-  let selectedIndex = 0;          // 0 = "start new" row; 1..N map into visibleRows[]
+  let selectedIndex = 0;          // rows in DOM order: [row 0 when typed] then visibleRows[]
   let visibleRows = [];
   let mode = 'normal';            // normal | deep
   let deepSearchTimer = null;
@@ -71,7 +74,7 @@ function createPicker({
   overlay.className = 'at-picker-overlay at-modal-overlay';
   overlay.innerHTML = `
     <div class="at-picker-modal" role="dialog" aria-modal="true">
-      <div class="at-picker-header">Resume or start a session</div>
+      ${renderCwdMarkup()}
       <input class="at-picker-input" type="text" autocomplete="off" spellcheck="false"
              placeholder="Type a CLI name (claude, codex, copilot, agent) or filter past sessions…" />
       <div class="at-picker-list" role="listbox"></div>
@@ -98,6 +101,18 @@ function createPicker({
     const matches = KNOWN_CLIS.filter(c => c.startsWith(t));
     if (matches.length === 1) return matches[0];
     return null;
+  }
+
+  // Row 0 ("Start new …" / "Run …") exists only while something is typed.
+  // Past rows follow at rowOffset(); a visible-active row is disabled.
+  function hasNewRow() {
+    return mode !== 'deep' && filterText.trim() !== '';
+  }
+  function rowOffset() {
+    return hasNewRow() ? 1 : 0;
+  }
+  function isDisabledSession(session) {
+    return !!session && (activeSet.has(session.id) || session.isActive) && !session.isHidden;
   }
 
   function filterSessions(text) {
@@ -372,6 +387,20 @@ function createPicker({
     return `${d}d ago`;
   }
 
+  // The directory a new session starts in, shown once above the input the
+  // way a shell prompt shows the cwd ahead of the command line. Small and dim:
+  // it is context to glance at, and it holds still while typing. The parent
+  // path and last segment are separate spans so a long parent ellipsizes and
+  // the name always survives.
+  function renderCwdMarkup() {
+    const dir = typeof cwd === 'string' ? cwd.trim() : '';
+    if (!dir) return '';
+    const m = dir.match(/^(.*[\/\\])([^\/\\]+)[\/\\]*$/);
+    const parent = m ? m[1] : '';
+    const name = m ? m[2] : dir;
+    return `<div class="at-picker-cwd" title="${escapeHtml(dir)}"><span class="at-picker-cwd-parent">${escapeHtml(parent)}</span><span class="at-picker-cwd-name">${escapeHtml(name)}</span></div>`;
+  }
+
   function escapeHtml(s) {
     return String(s || '').replace(/[&<>"']/g, ch => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -394,7 +423,7 @@ function createPicker({
       if (nextSelected !== -1) selectedIndex = nextSelected;
     }
     const detectedCli = detectCliFromFilter(filterText);
-    let newSessionLabel;
+    let newSessionLabel = '';
     if (detectedCli) {
       // Row 0 is the "start new" autocomplete affordance — the user is
       // typing, looking for feedback on what they typed and how it
@@ -409,15 +438,15 @@ function createPicker({
       const rest = detectedCli.slice(matchedLen);
       newSessionLabel = `Start new <strong>${escapeHtml(prefix)}</strong>${escapeHtml(rest)} session`;
     } else if (filterText.trim()) {
-      newSessionLabel = `Run <code>${escapeHtml(filterText.trim())}</code> in shell`;
-    } else {
-      newSessionLabel = 'Start a new session — choose a CLI by typing its name';
+      // A command literal: the code font marks it as a shell command; it runs
+      // in the directory named above the input.
+      newSessionLabel = `Run <code>${escapeHtml(filterText.trim())}</code>`;
     }
 
     listEl.innerHTML = '';
 
-    if (!isDeepMode) {
-      // Row 0: start new
+    if (hasNewRow()) {
+      // Row 0: start new / run
       const newRow = document.createElement('div');
       newRow.className = 'at-picker-row at-picker-row-new';
       newRow.dataset.kind = 'new';
@@ -554,7 +583,7 @@ function createPicker({
           ${hiddenMatchLines}
         </div>
       `;
-      const activationIndex = isDeepMode ? i : i + 1;
+      const activationIndex = i + rowOffset();
       if (!isActive) {
         row.addEventListener('click', () => activate(activationIndex));
       } else if (isHidden) {
@@ -570,10 +599,19 @@ function createPicker({
       listEl.appendChild(row);
     });
 
-    // Clamp selection
-    const maxIndex = Math.max(0, (isDeepMode ? visibleRows.length : 1 + visibleRows.length) - 1);
+    // Clamp the selection, then settle it on a selectable row: with nothing
+    // typed the top row is the most recent past session, which may be a
+    // disabled (visible-active) one.
+    const offset = rowOffset();
+    const n = visibleRows.length;
+    const maxIndex = Math.max(0, offset + n - 1);
     if (selectedIndex > maxIndex) selectedIndex = maxIndex;
     if (selectedIndex < 0) selectedIndex = 0;
+    if (n > 0 && !(offset && selectedIndex === 0)) {
+      let k = selectedIndex - offset;
+      for (let attempts = 0; attempts < n && isDisabledSession(visibleRows[k]); attempts++) k = (k + 1) % n;
+      selectedIndex = offset + k;
+    }
     applySelectionStyles();
     if (isDeepMode) scheduleAlignHiddenMatchLines();
   }
@@ -591,45 +629,42 @@ function createPicker({
   }
 
   function moveSelection(delta) {
-    const isDeepMode = mode === 'deep';
-    const total = isDeepMode ? visibleRows.length : 1 + visibleRows.length;
+    const offset = rowOffset();
+    const total = offset + visibleRows.length;
     if (total === 0) return;
     let next = selectedIndex;
     for (let attempts = 0; attempts < total; attempts++) {
       next = (next + delta + total) % total;
-      if (!isDeepMode && next === 0) break;                         // row 0 always selectable
-      const session = visibleRows[isDeepMode ? next : next - 1];
+      if (next < offset) break;                                      // row 0 always selectable
       // Visible-active rows are skipped (nothing to do); hidden-active
       // rows are selectable (Enter brings them forward); past rows are
       // selectable (Enter resumes them).
-      const isDisabled = session && (activeSet.has(session.id) || session.isActive) && !session.isHidden;
-      if (!isDisabled) break;
+      if (!isDisabledSession(visibleRows[next - offset])) break;
     }
     selectedIndex = next;
     applySelectionStyles();
   }
 
   function activate(index) {
-    if (mode !== 'deep' && index === 0) {
-      const cli = detectCliFromFilter(filterText);
-      if (cli && typeof onStartNew === 'function') {
+    const offset = rowOffset();
+    if (offset && index === 0) {
+      const command = detectCliFromFilter(filterText) || filterText.trim();
+      if (command && typeof onStartNew === 'function') {
         cancelActiveHiddenSearch();
-        return onStartNew(cli);
-      }
-      const literal = filterText.trim();
-      if (literal && typeof onStartNew === 'function') {
-        cancelActiveHiddenSearch();
-        return onStartNew(literal);
-      }
-      // Empty filter on row 0 with no CLI → fresh shell.
-      if (typeof onClose === 'function') {
-        cancelActiveHiddenSearch();
-        return onClose();
+        return onStartNew(command);
       }
       return;
     }
-    const session = visibleRows[mode === 'deep' ? index : index - 1];
-    if (!session) return;
+    const session = visibleRows[index - offset];
+    if (!session) {
+      // Nothing typed and no past sessions: Enter leaves the picker the way
+      // Esc does, into a plain shell.
+      if (mode !== 'deep' && !offset && typeof onClose === 'function') {
+        cancelActiveHiddenSearch();
+        onClose();
+      }
+      return;
+    }
     const isActiveRow = activeSet.has(session.id) || session.isActive;
     if (isActiveRow && session.isHidden) {
       cancelActiveHiddenSearch();
@@ -645,8 +680,9 @@ function createPicker({
   }
 
   function dismissCurrent() {
-    if (mode !== 'deep' && selectedIndex === 0) return;
-    const session = visibleRows[mode === 'deep' ? selectedIndex : selectedIndex - 1];
+    const offset = rowOffset();
+    if (offset && selectedIndex === 0) return;
+    const session = visibleRows[selectedIndex - offset];
     if (!session) return;
     dismissedIds.add(session.id);
     render();
@@ -654,7 +690,6 @@ function createPicker({
 
   function shouldBackspaceDismiss(e) {
     if (e.key !== 'Backspace') return false;
-    if (selectedIndex === 0) return false;
     if (filterText.length > 0) return false;
     if (e.altKey || e.ctrlKey || e.metaKey) return false;
     return true;
@@ -706,7 +741,7 @@ function createPicker({
     filterText = input.value;
     mode = 'normal';
     deepSearchState = null;
-    selectedIndex = 0;             // reset to "Start new" on any filter change
+    selectedIndex = 0;             // back to the top row on any filter change
     render();
     scheduleDeepSearch();
   });
@@ -770,14 +805,28 @@ function injectStyles() {
   box-shadow: 0 16px 48px rgba(0,0,0,0.6);
   overflow: hidden;
 }
-.at-picker-header {
-  padding: 12px 16px 6px;
-  font-size: 13px;
-  color: #a0a0a0;
-  letter-spacing: 0.02em;
+.at-picker-cwd {
+  /* Where a new session starts: the shell prompt's cwd line, above the
+     command line. Dim and small; the name a shade brighter than its parent. */
+  padding: 12px 16px 0;
+  display: flex; align-items: baseline; min-width: 0;
+  font-size: 11px;
+  color: #707070;
+}
+.at-picker-cwd-parent {
+  flex: 0 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.at-picker-cwd-name {
+  flex: 0 0 auto;
+  color: #9a9a9a;
+  white-space: nowrap;
+}
+.at-picker-cwd + .at-picker-input {
+  margin-top: 6px;
 }
 .at-picker-input {
-  margin: 0 12px 8px;
+  margin: 12px 12px 8px;
   padding: 8px 10px;
   background: #181818;
   border: 1px solid #2a2a2a;
