@@ -42,6 +42,7 @@ const windowCap = require('./window-cap');
 const cliIcons = require('./cli-icons');
 const { pickNextHue } = require('./hue-assign');
 const {
+  chooseSuccessorStartCwd,
   relaunchAndExit,
   relaunchPortableAndExit,
   resolveLatestRelaunchTarget,
@@ -174,6 +175,11 @@ let lockedHue = null;
 let sessionStartTime = null;
 let tooltipInterval = null;
 let firstPrompt = null;
+// Directory the established agent session was launched from. Unlike the PTY's
+// live cwd, this only gains meaning once an initial prompt promotes the window
+// to a session (or a recorded session is resumed). Successor windows use it in
+// that state; pre-session windows retain shellStartCwd().
+let sessionCwd = null;
 // Session subject carried over from a resumed session's stored value
 // (written by the retired `initial:true` promotion). New sessions no longer
 // mint one: the verbatim first prompt is the intentional frozen identity,
@@ -1083,7 +1089,10 @@ function assignSessionIdentity() {
     // resume can cd back before relaunching.
     const cwdSessionId = sessionIndex;
     getPrimaryCwd().then((cwd) => {
-      if (cwd) sessionsLog.appendEvent(userDataDir, { e: 'cwd', id: cwdSessionId, cwd });
+      if (cwd) {
+        if (sessionIndex === cwdSessionId) sessionCwd = cwd;
+        sessionsLog.appendEvent(userDataDir, { e: 'cwd', id: cwdSessionId, cwd });
+      }
     }).catch(() => {});
     enforceVisibleCap();
     startCapControlWatcher();
@@ -1218,6 +1227,7 @@ function resumeFromSession(picked) {
   lockedTitle = picked.title || null;
   initialTitle = picked.initialTitle || null;
   firstPrompt = picked.prompt || null;
+  sessionCwd = picked.cwd || shellStartCwd();
   detectedCli = picked.cli || null;
   sessionStartTime = Date.now();
   // No boot vocabulary on resume (firstPrompt is inherited, so collection
@@ -1503,6 +1513,18 @@ function shouldAutoRelaunchAfterUserClose() {
   }
 }
 
+// One policy for every successor route (last-window replacement, dev reload,
+// portable restart, and Cmd/Ctrl+Shift+N): an established session carries the
+// directory its agent was launched from; a launcher/shell with no captured
+// initial prompt carries the immutable AgentTerm launch directory.
+function successorStartCwd() {
+  return chooseSuccessorStartCwd({
+    hasCapturedPrompt: firstPrompt !== null,
+    sessionCwd,
+    launchCwd: shellStartCwd(),
+  });
+}
+
 function relaunchLatestAndExit() {
   if (relaunchStarted) return;
   relaunchStarted = true;
@@ -1521,11 +1543,12 @@ function relaunchLatestAndExit() {
     }
   }
   if (target.execPath) log('[relaunch] routing successor through the stable latest-code launcher');
+  const startCwd = successorStartCwd();
   try {
     if (target.mode === 'portable-spawn') {
-      relaunchPortableAndExit(app, process.argv, target.execPath);
+      relaunchPortableAndExit(app, process.argv, target.execPath, { startCwd });
     } else {
-      relaunchAndExit(app, process.argv, { execPath: target.execPath });
+      relaunchAndExit(app, process.argv, { execPath: target.execPath, startCwd });
     }
   } catch (err) {
     log('[relaunch] successor launch failed: ' + (err && err.message));
@@ -1540,13 +1563,10 @@ function relaunchLatestAndExit() {
 // renderer bridges that gap with a launch pill; every failure path reports
 // back so the pill is replaced by an error instead of dying silently.
 //
-// The child's shell starts where this window's shell is right now: the live
-// cwd (getPrimaryCwd) crosses over as AGENT_TERM_START_CWD, the same variable
-// a source launch carries npm's invocation directory in. Before a session is
-// picked that is the launch dir; after a pick it is the directory the CLI was
-// launched from (the shell's cwd is frozen while the CLI runs in the
-// foreground), which is also what the sessions log records for resume.
-async function launchNewInstance() {
+// The child follows successorStartCwd(): an established agent session carries
+// its recorded cwd; a pre-session launcher/shell carries the original launch
+// directory even if someone manually cd'd in that shell.
+function launchNewInstance() {
   const announce = (channel, message) => {
     try { if (mainWindow) mainWindow.webContents.send(channel, message); } catch {}
   };
@@ -1565,11 +1585,7 @@ async function launchNewInstance() {
       return;
     }
   }
-  // WSL's cwd probe needs the pid file the shell writes at startup; until it
-  // exists the shell is still at the launch dir, so that is the answer.
-  let cwd = null;
-  try { cwd = await getPrimaryCwd(); } catch {}
-  if (!cwd) cwd = shellStartCwd();
+  const cwd = successorStartCwd();
   announce('new-instance-launching', cwd);
   let child = null;
   try {
@@ -1935,9 +1951,9 @@ function ptyStartingCwd() {
     if (process.platform === 'win32') return process.cwd();
     return requireSourceStartCwd();
   }
-  // Packaged GUI launches have no npm invocation directory; a Cmd/Ctrl+Shift+N
-  // child still arrives with its parent's cwd in AGENT_TERM_START_CWD (POSIX,
-  // so on Windows it goes through --cd rather than this Win32 option).
+  // Packaged GUI launches have no npm invocation directory; a successor still
+  // arrives with its selected launch/session cwd in AGENT_TERM_START_CWD
+  // (POSIX, so on Windows it goes through --cd rather than this Win32 option).
   if (process.platform !== 'win32' && process.env.AGENT_TERM_START_CWD) {
     return process.env.AGENT_TERM_START_CWD;
   }

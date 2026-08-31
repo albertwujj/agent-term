@@ -5,6 +5,7 @@ const {
   INSTALLED_RELAUNCHER_PREFIX,
   RELAUNCHED_ARG,
   buildRelaunchArgs,
+  chooseSuccessorStartCwd,
   relaunchAndExit,
   relaunchPortableAndExit,
   resolveLatestRelaunchTarget,
@@ -26,6 +27,39 @@ function test(name, fn) {
 }
 
 console.log('relaunch');
+
+test('established session successor uses the agent session cwd', () => {
+  assert.strictEqual(
+    chooseSuccessorStartCwd({
+      hasCapturedPrompt: true,
+      sessionCwd: '/home/me/session-repo',
+      launchCwd: '/home/me/launcher-repo',
+    }),
+    '/home/me/session-repo',
+  );
+});
+
+test('pre-session successor keeps the AgentTerm launch cwd', () => {
+  assert.strictEqual(
+    chooseSuccessorStartCwd({
+      hasCapturedPrompt: false,
+      sessionCwd: '/home/me/manually-cd-here',
+      launchCwd: '/home/me/launcher-repo',
+    }),
+    '/home/me/launcher-repo',
+  );
+});
+
+test('old session without a recorded cwd falls back to its window launch cwd', () => {
+  assert.strictEqual(
+    chooseSuccessorStartCwd({
+      hasCapturedPrompt: true,
+      sessionCwd: null,
+      launchCwd: '/home/me/launcher-repo',
+    }),
+    '/home/me/launcher-repo',
+  );
+});
 
 test('relaunch adds one marker', () => {
   assert.deepStrictEqual(
@@ -175,6 +209,27 @@ test('relaunch schedules the successor before exiting the predecessor immediatel
   ]);
 });
 
+test('Electron relaunch hands the selected cwd to the inherited environment', () => {
+  const env = { AGENT_TERM_START_CWD: '/home/me/launcher-repo' };
+  const calls = [];
+  const fakeApp = {
+    relaunch(options) { calls.push(['relaunch', options, env.AGENT_TERM_START_CWD]); },
+    exit(code) { calls.push(['exit', code]); },
+  };
+
+  relaunchAndExit(fakeApp, ['/path/to/electron', '/path/to/app'], {
+    env,
+    startCwd: '/home/me/session-repo',
+  });
+
+  assert.deepStrictEqual(calls, [
+    ['relaunch', {
+      args: ['/path/to/app', RELAUNCHED_ARG],
+    }, '/home/me/session-repo'],
+    ['exit', 0],
+  ]);
+});
+
 test('packaged relaunch with no target override passes only the normalized marker', () => {
   const calls = [];
   const fakeApp = {
@@ -215,6 +270,43 @@ test('portable relaunch starts an independent outer wrapper then exits', () => {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
+    }],
+    ['unref'],
+    ['exit', 0],
+  ]);
+});
+
+test('portable relaunch passes the selected cwd in the child environment', () => {
+  const calls = [];
+  const fakeApp = { exit(code) { calls.push(['exit', code]); } };
+  const fakeChild = { unref() { calls.push(['unref']); } };
+  const spawn = (execPath, args, options) => {
+    calls.push(['spawn', execPath, args, options]);
+    return fakeChild;
+  };
+
+  relaunchPortableAndExit(
+    fakeApp,
+    ['C:\\Temp\\extract\\AgentTerm.exe'],
+    'D:\\Tools\\AgentTerm.exe',
+    {
+      spawn,
+      path: path.win32,
+      env: { PATH: 'C:\\Windows' },
+      startCwd: '/home/me/session-repo',
+    },
+  );
+
+  assert.deepStrictEqual(calls, [
+    ['spawn', 'D:\\Tools\\AgentTerm.exe', [RELAUNCHED_ARG], {
+      cwd: 'D:\\Tools',
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: {
+        PATH: 'C:\\Windows',
+        AGENT_TERM_START_CWD: '/home/me/session-repo',
+      },
     }],
     ['unref'],
     ['exit', 0],
@@ -262,7 +354,7 @@ test('new-instance spawn pins cwd for packaged launcher targets', () => {
   assert.deepStrictEqual(calls, [['D:\\Tools\\AgentTerm.exe', [], 'D:\\Tools']]);
 });
 
-test('new-instance spawn carries the shell cwd as the child start dir', () => {
+test('new-instance spawn carries the selected successor start dir', () => {
   const calls = [];
   const fakeChild = { unref() {} };
   const spawn = (execPath, args, options) => {

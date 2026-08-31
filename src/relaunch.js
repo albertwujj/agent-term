@@ -5,6 +5,21 @@ const { spawn } = require('child_process');
 const RELAUNCHED_ARG = '--relaunched';
 const INSTALLED_RELAUNCHER_PREFIX = '.agent-term-launcher-';
 
+function nonEmptyCwd(value) {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+// A successor belongs to the established agent session only after its first
+// prompt has been captured. Until then the window is still a launcher/shell,
+// so manual `cd` activity must not replace the directory AgentTerm itself was
+// launched for. An older session may not have a recorded cwd; retain the
+// launch directory rather than inventing one.
+function chooseSuccessorStartCwd({ hasCapturedPrompt = false, sessionCwd, launchCwd } = {}) {
+  const launch = nonEmptyCwd(launchCwd);
+  if (!hasCapturedPrompt) return launch;
+  return nonEmptyCwd(sessionCwd) || launch;
+}
+
 // Electron expects relaunch args without argv[0] (the executable). Always
 // remove inherited markers first, then add exactly one marker for the fresh
 // process. Both automatic and shortcut-driven relaunches use this path.
@@ -68,6 +83,13 @@ function resolveLatestRelaunchTarget(execPath, dependencies = {}) {
 function relaunchAndExit(app, argv, options = {}) {
   const relaunchOptions = { args: buildRelaunchArgs(argv) };
   if (options.execPath) relaunchOptions.execPath = options.execPath;
+  // Electron's app.relaunch has no env option; the scheduled child inherits
+  // this process's environment. Update only the workspace handoff variable
+  // immediately before scheduling the successor.
+  if (options.startCwd) {
+    const env = options.env || process.env;
+    env.AGENT_TERM_START_CWD = options.startCwd;
+  }
   app.relaunch(relaunchOptions);
   app.exit(0);
 }
@@ -79,12 +101,19 @@ function relaunchAndExit(app, argv, options = {}) {
 function relaunchPortableAndExit(app, argv, execPath, dependencies = {}) {
   const spawnImpl = dependencies.spawn || spawn;
   const pathApi = dependencies.path || path;
-  const child = spawnImpl(execPath, buildRelaunchArgs(argv), {
+  const options = {
     cwd: pathApi.dirname(execPath),
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
-  });
+  };
+  if (dependencies.startCwd) {
+    options.env = {
+      ...(dependencies.env || process.env),
+      AGENT_TERM_START_CWD: dependencies.startCwd,
+    };
+  }
+  const child = spawnImpl(execPath, buildRelaunchArgs(argv), options);
   child.unref();
   app.exit(0);
 }
@@ -92,11 +121,10 @@ function relaunchPortableAndExit(app, argv, execPath, dependencies = {}) {
 // Start a fresh AgentTerm alongside the running one (Cmd/Ctrl+Shift+N). The
 // child is a new launch, not a successor, so the relaunch marker is dropped
 // rather than added. Detached spawn keeps its lifetime independent of ours.
-// `env` replaces the inherited environment: the caller carries the shell's
-// live cwd across as AGENT_TERM_START_CWD so the child's shell starts where
-// this window's shell is. Returns the child so the caller can watch for boot
-// failures (an invalid execPath surfaces as an async 'error', a boot crash as
-// an early 'exit').
+// `env` replaces the inherited environment: the caller carries the cwd chosen
+// by chooseSuccessorStartCwd across as AGENT_TERM_START_CWD. Returns the child
+// so the caller can watch for boot failures (an invalid execPath surfaces as
+// an async 'error', a boot crash as an early 'exit').
 function spawnNewInstance(argv, execPath, dependencies = {}) {
   const spawnImpl = dependencies.spawn || spawn;
   const options = {
@@ -118,6 +146,7 @@ module.exports = {
   INSTALLED_RELAUNCHER_PREFIX,
   RELAUNCHED_ARG,
   buildRelaunchArgs,
+  chooseSuccessorStartCwd,
   relaunchAndExit,
   relaunchPortableAndExit,
   resolveLatestRelaunchTarget,

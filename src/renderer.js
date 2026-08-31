@@ -3731,8 +3731,9 @@ function showClickFeedback(text, patternName, status = 'info') {
 // new window taking focus blurs this one — exactly when the feedback becomes
 // redundant — so blur dismisses it. The timeout only reaps a stale pill when
 // no window ever appears and no failure is reported. The pill names the
-// directory the new window's shell starts in (this shell's live cwd); the new
-// window's picker then shows the same directory on its start-new row.
+// directory the new window's shell starts in (the established session cwd, or
+// this window's original launch cwd before its first prompt); the new window's
+// picker then shows the same directory on its start-new row.
 let launchPill = null;
 let launchPillTimer = null;
 let launchPillBlurHandler = null;
