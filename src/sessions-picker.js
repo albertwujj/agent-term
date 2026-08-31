@@ -76,7 +76,7 @@ function createPicker({
     <div class="at-picker-modal" role="dialog" aria-modal="true">
       ${renderCwdMarkup()}
       <input class="at-picker-input" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Type a CLI name (claude, codex, copilot, agent) or filter past sessions…" />
+             placeholder="Type claude, codex, copilot, agent, a shell command, or filter past sessions…" />
       <div class="at-picker-list" role="listbox"></div>
       <div class="at-picker-footer">
         <span>↑↓ navigate</span>
@@ -828,6 +828,10 @@ function injectStyles() {
 .at-picker-input {
   margin: 12px 12px 8px;
   padding: 8px 10px;
+  /* The placeholder is the only instruction; a narrow window clips it with an
+     ellipsis rather than mid-word (Chromium applies text-overflow to the
+     placeholder from the input, not from ::placeholder). */
+  text-overflow: ellipsis;
   background: #181818;
   border: 1px solid #2a2a2a;
   border-radius: 4px;
