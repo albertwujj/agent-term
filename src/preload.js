@@ -118,6 +118,10 @@ contextBridge.exposeInMainWorld('pty', {
   // Renderer uses this to age out the resume hint; picker navigation itself
   // never sends this event.
   onResumeHintSubmit: (callback) => ipcRenderer.on('resume-hint-submit', () => callback()),
+  // Main cancelled the resume intercept on non-Enter input (a startup
+  // dialog answered, or the user typing their own command). The next Enter
+  // is plain; the hint switches to its manual /resume wording.
+  onResumeHintInterceptOff: (callback) => ipcRenderer.on('resume-hint-intercept-off', () => callback()),
   // ---- Streaming (see src/stream/, ../agent-stream-hub/stream.md) ----
   // Renderer-side buffer watcher pushes periodic snapshots of the active
   // xterm buffer to main, which forwards them to the hub as block updates.

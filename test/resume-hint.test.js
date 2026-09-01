@@ -4,6 +4,7 @@ const { JSDOM } = require('jsdom');
 const {
   renderHintMarkup,
   recordSubmit,
+  recordInterceptOff,
   show,
   destroy,
 } = require('../src/resume-hint');
@@ -95,6 +96,50 @@ test('keeps title-only fallback for callers without prompt context', () => {
 
   assert.strictEqual(doc.querySelector('.at-resume-hint-primary'), null);
   assert.strictEqual(doc.querySelector('.at-resume-hint-title').textContent, 'Auth retry work');
+});
+
+test('pre-Enter wording says when to press and leaves the filter to later states', () => {
+  const doc = fragment(renderHintMarkup({ prompt: 'Fix auth retry handling', title: 'Auth retry work' }));
+  const pre = doc.querySelector('.at-resume-hint-pre').textContent;
+  assert.ok(pre.startsWith('When the input box appears'), pre);
+  assert.ok(!/filter/i.test(pre), 'pre-Enter copy should not mention the filter');
+  assert.ok(doc.querySelector('.at-resume-hint-tail .at-resume-hint-primary'), 'filter tail is present for later states');
+  assert.ok(/Type \/resume when the input box appears, then filter for/.test(
+    doc.querySelector('.at-resume-hint-manual').textContent));
+});
+
+test('intercept-off switches to manual wording and holds it across submits', () => {
+  installDom();
+  show({ prompt: 'Fix auth retry handling', title: 'Auth retry work' });
+  const root = document.querySelector('.at-resume-hint');
+
+  recordInterceptOff();
+  assert.ok(root.classList.contains('intercept-off'));
+
+  recordSubmit();
+  assert.ok(!root.classList.contains('post-enter'), 'a submit after cancel is not the /resume submit');
+  assert.strictEqual(document.querySelector('.at-resume-hint'), root);
+
+  recordSubmit();
+  recordSubmit();
+  assert.strictEqual(document.querySelector('.at-resume-hint'), null, 'third submit still dismisses');
+
+  destroy({ cancelIntercept: false });
+  delete global.window;
+  delete global.document;
+});
+
+test('intercept-off after the first submit is ignored', () => {
+  installDom();
+  show({ prompt: 'Fix auth retry handling', title: 'Auth retry work' });
+  const root = document.querySelector('.at-resume-hint');
+  recordSubmit();
+  recordInterceptOff();
+  assert.ok(root.classList.contains('post-enter'));
+  assert.ok(!root.classList.contains('intercept-off'));
+  destroy({ cancelIntercept: false });
+  delete global.window;
+  delete global.document;
 });
 
 test('submit notifications transition then auto-dismiss the mounted hint', () => {

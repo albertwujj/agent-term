@@ -108,6 +108,9 @@ window.pty.onHiddenPromptSearchProgress((payload) => {
 window.pty.onResumeHintSubmit(() => {
   resumeHint.recordSubmit();
 });
+window.pty.onResumeHintInterceptOff(() => {
+  resumeHint.recordInterceptOff();
+});
 
 const openHttpUrl = createHttpUrlOpener({
   openURL: (url) => window.pty.openURL(url),

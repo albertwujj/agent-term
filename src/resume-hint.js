@@ -1,38 +1,47 @@
-// Resume-hint — small renderer overlay shown after the user picks a past
-// session in the agent-term picker. Two responsibilities:
+// Resume-hint — renderer band shown after the user picks a past session
+// in the agent-term picker. It carries one instruction per moment:
 //
-//   1. Tell the user how to launch /resume in the CLI (until they do).
-//      Initial wording:
-//        "Press Enter to send /resume, then filter for the prompt above, or try "<title>""
-//      The band is sized and coloured to be noticed on first sight: 44px
-//      tall, 15px type, tinted with the session hue behind a left accent
-//      bar so it reads as a message rather than chrome, slides in once,
-//      and the Enter key carries a slow pulse until it is pressed. One
-//      typeface; the keycap is the only object, the phrase to remember
-//      is the only bold, and the alternate title is quoted.
-//      Main.js's pty-input handler is armed (pendingResumeIntercept) and
-//      will replace the user's first plain Enter with a timed /resume
-//      submission. The user provides the timing — they wait for the CLI's
-//      input prompt to appear, then press Enter once.
+//   pre-Enter      "When the input box appears, press Enter to send /resume."
+//                  Main's pty-input handler is armed (pendingResumeIntercept)
+//                  and replaces the user's first plain Enter with a timed
+//                  /resume submission. The user supplies the timing: CLI boot
+//                  length is unknowable from outside, and an upgrade or trust
+//                  dialog may sit in front of the input box, so the human is
+//                  the only reliable "ready now" signal. The wording says
+//                  when, because timing is the user's job.
+//   post-Enter     "Filter for the prompt above, or try "<title>""
+//                  Shown once the intercept fired and the CLI's resume dialog
+//                  is on screen. The prompt is the chrome line directly above.
+//                  Some CLIs surface their own title in resume UI, so a
+//                  distinct title is offered as an alternate search term.
+//   intercept-off  "Type /resume when the input box appears, then filter for
+//                  the prompt above, or try "<title>""
+//                  Main cancels the intercept on any non-Enter input (the
+//                  user answered a startup dialog with arrows or y, or is
+//                  typing their own command). Enter is plain again, so the
+//                  band stops promising the shortcut and carries the full
+//                  guidance instead.
 //
-//   2. Tell the user what to type as the filter in the CLI's resume
-//      dialog (post-Enter wording drops only the Enter instruction).
-//      The prompt is visible in the chrome line immediately above this
-//      hint. Some CLIs also surface their own title in resume UI, so when
-//      we have a distinct title we show it as an alternate search term.
+// The band is sized and coloured to be noticed on first sight: 44px tall,
+// 15px type, tinted with the session hue behind a left accent bar so it
+// reads as a message rather than chrome, slides in once, and the Enter key
+// carries a slow pulse until it is pressed. One typeface; the keycap is the
+// only object, the phrase to remember is the only bold, and the alternate
+// title is quoted.
 //
 // Lifecycle:
-//   show({ cli, prompt, title })      — mount the overlay in pre-Enter state
-//   1st submit                        — transition to post-Enter state
-//                                       (drop the "Press Enter to /resume" part)
-//   3rd submit                        — dismiss (1st = our /resume submission,
-//                                       2nd = user picks a session in the CLI
-//                                       list, 3rd = first new prompt — at that
-//                                       point the hint has served its purpose)
-//   click ✕ / destroy()              — explicit dismiss; also notifies main
-//                                       to cancel the pendingResumeIntercept
-//                                       flag so the next Enter isn't swallowed
-//                                       into a /resume.
+//   show({ cli, prompt, title })      — mount in the pre-Enter state
+//   recordInterceptOff()              — main cancelled the intercept; switch
+//                                       to the intercept-off wording
+//   1st submit                        — pre-Enter → post-Enter (intercept-off
+//                                       keeps its wording: its submits are
+//                                       indistinguishable from dialog answers)
+//   3rd submit                        — dismiss (1st = /resume, 2nd = pick in
+//                                       the CLI list, 3rd = first new prompt)
+//   click ✕ / destroy()              — explicit dismiss; also tells main to
+//                                       drop pendingResumeIntercept so the
+//                                       next Enter isn't swallowed into a
+//                                       /resume.
 
 const { aiTitleDedupeKey, cleanAiTitle } = require('./ai-title');
 
@@ -83,10 +92,15 @@ const HINT_CSS = `
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Pre-Enter wording shown by default; hidden after the first submit via
-   the .post-enter class on the host. */
+/* One wording per state. Pre-Enter shows by default; .post-enter and
+   .intercept-off on the host swap it for theirs. The filter tail belongs
+   to the two later states only. */
 .at-resume-hint-pre {
   color: #c8c8c8;
+}
+.at-resume-hint-manual,
+.at-resume-hint-tail {
+  display: none;
 }
 .at-resume-hint-pre kbd {
   display: inline-block;
@@ -108,13 +122,17 @@ const HINT_CSS = `
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--at-resume-accent) 0%, transparent); }
   45%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--at-resume-accent) 55%, transparent); }
 }
-/* Post-Enter wording (hidden by default; shown after the first submit). */
 .at-resume-hint-label {
   color: #c8c8c8;
   display: none;
 }
 .at-resume-hint.post-enter .at-resume-hint-pre { display: none; }
-.at-resume-hint.post-enter .at-resume-hint-label { display: inline; }
+.at-resume-hint.post-enter .at-resume-hint-label,
+.at-resume-hint.post-enter .at-resume-hint-tail { display: inline; }
+.at-resume-hint.intercept-off .at-resume-hint-pre,
+.at-resume-hint.intercept-off .at-resume-hint-label { display: none; }
+.at-resume-hint.intercept-off .at-resume-hint-manual,
+.at-resume-hint.intercept-off .at-resume-hint-tail { display: inline; }
 .at-resume-hint-primary {
   color: #ffffff;
   font-weight: 600;
@@ -177,10 +195,18 @@ function destroy({ cancelIntercept = true } = {}) {
 function recordSubmit() {
   if (!mountedRoot) return;
   enterCount += 1;
-  if (enterCount === 1) {
+  if (enterCount === 1 && !mountedRoot.classList.contains('intercept-off')) {
     mountedRoot.classList.add('post-enter');
   }
   if (enterCount >= AUTO_DISMISS_ENTERS) destroy({ cancelIntercept: false });
+}
+
+// Main cancelled the intercept on non-Enter input before it fired: the
+// next Enter is plain, so the band stops promising the shortcut. Only
+// reachable before the first submit (main cancels only while armed).
+function recordInterceptOff() {
+  if (!mountedRoot || mountedRoot.classList.contains('post-enter')) return;
+  mountedRoot.classList.add('intercept-off');
 }
 
 function hintParts(input) {
@@ -220,7 +246,7 @@ function renderHintMarkup(input) {
     ? `“<span class="at-resume-hint-title" title="${escapeHtml(parts.title)}">${escapeHtml(parts.title)}</span>”`
     : '';
   return `
-    <span class="at-resume-hint-text"><span class="at-resume-hint-pre">Press <kbd>Enter</kbd> to send /resume, then filter for </span><span class="at-resume-hint-label">Filter for </span>${primary}${extra}${title}</span>
+    <span class="at-resume-hint-text"><span class="at-resume-hint-pre">When the input box appears, press <kbd>Enter</kbd> to send /resume.</span><span class="at-resume-hint-manual">Type /resume when the input box appears, then filter for </span><span class="at-resume-hint-label">Filter for </span><span class="at-resume-hint-tail">${primary}${extra}${title}</span></span>
     <button class="at-resume-hint-close" aria-label="Dismiss" title="Dismiss">✕</button>
   `;
 
@@ -245,6 +271,7 @@ module.exports = {
   AUTO_DISMISS_ENTERS,
   renderHintMarkup,
   recordSubmit,
+  recordInterceptOff,
   show,
   destroy,
 };

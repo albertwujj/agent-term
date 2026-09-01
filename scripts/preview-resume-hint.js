@@ -1,7 +1,8 @@
 // Visual preview for the resume-hint overlay (src/resume-hint.js).
 //
-// Renders the hint at several title states (short / long / empty / with
-// special chars) and composites them into icon-preview/resume-hint.png.
+// Renders the hint in each state (pre-Enter / post-Enter / intercept-off)
+// and title shape (short / long / empty / with special chars), composited
+// into icon-preview/resume-hint.png.
 // The composite includes a mock chrome-bar above each hint to show how
 // they stack in production.
 
@@ -33,6 +34,13 @@ const SCENARIOS = [
     title: 'Refactoring auth middleware tests',
     postEnter: true,
     chrome: { hue: 168, cli: 'codex', prompt: 'Investigate the build timeout in CI', isWorking: true },
+  },
+  {
+    name: 'intercept-off',
+    label: 'Intercept-off state — non-Enter input (startup dialog) cancelled the shortcut',
+    title: 'Refactoring auth middleware tests',
+    interceptOff: true,
+    chrome: { hue: 120, cli: 'claude', prompt: 'Investigate the build timeout in CI', isWorking: false },
   },
   {
     name: 'long-title-ellipsizes',
@@ -79,7 +87,7 @@ function buildPreviewHTML(chipNsByScenario) {
         <div class="at-chrome">${renderBarMarkup(sc.chrome, chipN)}</div>
         <div class="caption-stub" title="reserved for system min/max/close in production">_  ▢  ✕</div>
         <div class="at-chrome-hue-divider"></div>
-        <div class="at-resume-hint${sc.postEnter ? ' post-enter' : ''}">${renderHintMarkup({ prompt: sc.chrome.prompt, title: sc.title })}</div>
+        <div class="at-resume-hint${sc.postEnter ? ' post-enter' : ''}${sc.interceptOff ? ' intercept-off' : ''}">${renderHintMarkup({ prompt: sc.chrome.prompt, title: sc.title })}</div>
       </div>
     </div>
   `;

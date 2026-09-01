@@ -140,13 +140,17 @@ let relaunchStarted = false;
 // do in a normal browser instead of inheriting our dark.
 let guestColorScheme = 'light';
 
-function notifyResumeHintSubmit() {
+function sendResumeHint(channel) {
   try {
     if (mainWindow && mainWindow.webContents) {
-      mainWindow.webContents.send('resume-hint-submit');
+      mainWindow.webContents.send(channel);
     }
   } catch {}
 }
+function notifyResumeHintSubmit() { sendResumeHint('resume-hint-submit'); }
+// The intercept was cancelled by non-Enter input; the hint drops its
+// "press Enter" promise and shows the manual /resume guidance instead.
+function notifyResumeHintInterceptOff() { sendResumeHint('resume-hint-intercept-off'); }
 
 // --- Per-window taskbar icon ---
 // Recipe: pure colored rounded square + faint inset top highlight; hue advances
@@ -2126,8 +2130,9 @@ ipcMain.on('pty-input', (event, data) => {
   // Resume intercept: if a past session was just picked, replace the user's
   // first plain Enter with the /resume submission so the CLI opens its
   // resume search dialog. Any non-Enter input cancels the intercept (user
-  // is typing their own command — we get out of their way). The visual
-  // resume-hint overlay tells them what to filter for either way.
+  // is answering a startup dialog or typing their own command — we get out
+  // of their way) and the resume-hint band is told, so it stops promising
+  // the shortcut and shows the manual /resume guidance.
   if (pendingResumeIntercept && ptyProcess) {
     if (isPlainEnter(data)) {
       const wrote = writeAsSubmission('/resume');
@@ -2145,6 +2150,7 @@ ipcMain.on('pty-input', (event, data) => {
       log('[resume] intercept cancelled by non-Enter input: ' +
           JSON.stringify(typeof data === 'string' ? data.slice(0, 16) : data));
       pendingResumeIntercept = false;
+      notifyResumeHintInterceptOff();
     }
   }
   if (ptyProcess) {
