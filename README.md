@@ -4,19 +4,25 @@
 
 ![the walk in stills, one per row of the table below](assets/hero-walk.gif)
 
+## The terminal path
+
 People run coding agents in an IDE, in the terminal, or in the vendor's desktop app. The terminal keeps pulling them in: Claude Code and Codex shipped as terminal programs, and Cursor and Copilot, born in the IDE, added CLIs of their own, all living beside your shell, git, and build tools. A form from decades ago turned out to be a good fit for what an agent needs: text in, text out, and every tool you own one command away.
 
 So why do people still run agents in the IDE, and why are the vendors adding their agents to desktop apps? Partly because the standard terminal interface (TUI), although great for text-centric iteration, cannot offer agents and users the essentials and the boosters a richer interface can. One answer is to move the agent out, into an app built around it. The other is to treat the terminal as the core and extend it. This repo is the second path: a full terminal wrapped in a modern extensible window (Electron), retaining everything you already have and raising the ceiling.
 
 What about the vendor desktop apps, which also offer a richer interface? An app built around one vendor's agent trades away some key benefits: the other agents, and the closeness to your shell environment, etc. For coding it can also disorient, adding a workspace of its own between you and the code; many who try it drift back to the terminal, where the familiar, the repo, the shell, and the tests already live. The grown terminal here keeps all the goodness, yet offers a lot more.
 
+## Why it holds up
+
 This path can look hacky: the host reads the agent's own output, lines of text, and reacts to it. But text output is the durable seam. An agent's intentions arrive as text through every turn, and good output style persists, so parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles without negotiation. Enhancement is quick when something new shows up. In practice the parsing has grown well, more robust while staying flexible, with no SDKs or vendor APIs anywhere.
 
 There is also a benefit over what the vendor CLIs can do alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. With a host that reacts, the printed line alone is enough: the viewer opens right in the window, with placement and sizing optimized for the situation.
 
-And it is yours. The agents, made better by running in this grown terminal, grow it further: when something falls short, the symptom is right there, and you and the agents are in a good position to evaluate and build the fix. That is also part of the larger point: with coding agents at your disposal, you can quickly grow your own tool to fit your own needs, which you know best. So start your own, use and build upon what's here.
+## Yours to grow
 
-What is available already beyond a standard terminal:
+It is yours. The agents, made better by running in this grown terminal, grow it further: when something falls short, the symptom is right there, and you and the agents are in a good position to evaluate and build the fix. That is also part of the larger point: with coding agents at your disposal, you can quickly grow your own tool to fit your own needs, which you know best. So start your own, use and build upon what's here.
+
+## What's added so far
 
 | In a standard terminal | In this grown terminal |
 |---|---|
@@ -28,6 +34,8 @@ What is available already beyond a standard terminal:
 | A long CI run either blocks the session, or outlives the agent's turn and finishes unnoticed. | The agent starts the job and hands the terminal back; **the job reports its own completion** through the terminal and the idle agent is prompted to pick it up, surviving session restarts; a runner icon at the top right shows what is running. [Details](docs/jobs.md). |
 | It sits blocked on a question until you're back at your desk. | **Your phone shows the same terminal**; unblock it by voice. [Details](docs/phone.md). |
 | The agent cites file:line and symbols; checking a claim means finding it by hand. | Ctrl/Cmd-click any reference and **your IDE jumps to that exact line** to verify the claim, with the editor read-only so a stray key changes nothing. [Details](docs/ide.md). |
+
+## Native to the OS
 
 Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The sessions still cooperate, through the same open conventions the agents use: the checkout lock, and the sessions log. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. Independent like the agents, cooperating like the agents; hierarchy, when it helps, lives inside a session, where an agent runs its own subagents.
 
