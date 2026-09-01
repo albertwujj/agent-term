@@ -29,10 +29,16 @@
 //                  guidance instead.
 //
 // The band is sized and coloured to be noticed on first sight: 44px tall,
-// 15px type, tinted with the session hue behind a left accent bar so it
-// reads as a message rather than chrome, slides in once, and the Enter key
-// carries a slow pulse until it is pressed. One typeface, one object per
-// state, one bold.
+// 15px type, tinted with a fixed guidance blue behind a left accent bar so
+// it reads as a message rather than chrome, slides in once, and the Enter
+// key carries a slow pulse until it is pressed. One typeface, one object
+// per state, one bold. The accent is deliberately NOT the session hue:
+// colour on a message surface encodes role, and identity already lives on
+// the divider and taskbar icon. A fixed accent keeps the band the same
+// recognisable object across sessions and free of the accidental
+// error/success/warning reads a random hue lands on; it also joins the
+// app's colour grammar (hue = identity, amber = warn, green = ok,
+// this blue = guidance).
 //
 // Lifecycle:
 //   show({ cli, prompt, title })      — mount in the pre-Enter state
@@ -59,7 +65,7 @@ let enterCount = 0;
 
 const HINT_CSS = `
 .at-resume-hint {
-  --at-resume-accent: var(--at-hue, #a0c8ff);
+  --at-resume-accent: #a0c8ff;
   position: fixed;
   top: calc(env(titlebar-area-height, 42px) + 1px);  /* just below the chrome bar's hue divider */
   left: 0;
@@ -71,16 +77,15 @@ const HINT_CSS = `
   padding: 0 12px 0 20px;
   gap: 8px;
   box-sizing: border-box;
-  /* Session hue at low strength: the divider's colour bleeds into the
-     band, so it belongs to this session yet stands apart from the
-     near-black chrome above and terminal below. */
+  /* Guidance accent at low strength: stands apart from the near-black
+     chrome above and terminal below, and stays the same in every session
+     (the divider above keeps the identity hue). */
   background: color-mix(in srgb, var(--at-resume-accent) 14%, #0c0c0c);
   border-bottom: 1px solid color-mix(in srgb, var(--at-resume-accent) 35%, #0c0c0c);
   box-shadow: inset 4px 0 0 var(--at-resume-accent);
   font: 15px/20px "Segoe UI", "Segoe UI Variable", system-ui, sans-serif;
   color: #c8c8c8;
   user-select: none;
-  transition: background 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
   animation: at-resume-hint-in 240ms ease-out;
 }
 @keyframes at-resume-hint-in {
