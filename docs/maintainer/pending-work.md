@@ -53,7 +53,7 @@ Named in the design record, not yet scheduled.
 
 ## Separate track
 
-- Streaming: source-side client that streams sessions to a hub on the Mac mini
+- Streaming: source-side client that streams sessions to a self-hosted hub
   for remote viewing. Spec/schema/roadmap in `../agent-stream-hub/stream.md`
   (see CLAUDE.md).
 

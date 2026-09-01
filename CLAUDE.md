@@ -1,6 +1,6 @@
 # Agent Term
 
-Electron terminal app that spawns a WSL shell on Windows.
+Electron terminal for coding agents, on macOS and Windows (on Windows the shell and the agents run in WSL).
 
 ## Distribution
 
@@ -27,7 +27,9 @@ The historical `npm run dist:win` command is no longer tested or used for releas
 - `npm run test:all` — full WSL/macOS non-E2E suite
 - `npm run test:e2e` — Electron UI suite (requires a graphical session such as WSLg on WSL)
 
-## Streaming (planned)
+## Streaming
 
-Source-side client that streams sessions to a hub on Mac mini for remote
-viewing. Spec, schema, and roadmap: `../agent-stream-hub/stream.md`.
+`src/stream/` is the source-side client that streams sessions to a self-hosted
+[agent-stream-hub](https://github.com/albertwujj/agent-stream-hub), the phone
+viewer. The protocol (`stream.md`) and hub setup (`SETUP.md`) live in that repo;
+the comments in `src/stream/` reference it as a sibling checkout.
