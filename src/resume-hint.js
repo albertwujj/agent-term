@@ -196,17 +196,28 @@ const HINT_CSS = `
 /* Collapsed: after the 2nd submit (the pick in the CLI's list) the flow
    is done in the normal case — the band recedes to a thin strip so it
    stops occluding the conversation, but stays recoverable by hover in
-   case that Enter wasn't actually the pick. */
+   case that Enter wasn't actually the pick.
+
+   The recede itself is a one-shot animation, deliberately slower than
+   the hover transition: it is system-narrated (the CLI is repainting the
+   whole screen at that moment) and the eye must be able to track the
+   band shrinking into the strip — that is how the user learns the strip
+   IS the band. Hover open/close is pointer-commanded and stays fast. */
 .at-resume-hint.collapsed {
   height: ${COLLAPSED_HEIGHT_PX}px;
   overflow: hidden;
   cursor: pointer;
+  animation: at-resume-hint-collapse 450ms ease;
   transition: height 160ms ease;
+}
+@keyframes at-resume-hint-collapse {
+  from { height: ${HINT_HEIGHT_PX}px; }
+  to   { height: ${COLLAPSED_HEIGHT_PX}px; }
 }
 .at-resume-hint.collapsed .at-resume-hint-text,
 .at-resume-hint.collapsed .at-resume-hint-close {
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity 200ms ease;
 }
 .at-resume-hint.collapsed:hover {
   height: ${HINT_HEIGHT_PX}px;
@@ -219,7 +230,7 @@ const HINT_CSS = `
   .at-resume-hint, .at-resume-hint-pre kbd { animation: none; }
   .at-resume-hint.collapsed,
   .at-resume-hint.collapsed .at-resume-hint-text,
-  .at-resume-hint.collapsed .at-resume-hint-close { transition: none; }
+  .at-resume-hint.collapsed .at-resume-hint-close { animation: none; transition: none; }
 }
 `;
 
