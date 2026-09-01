@@ -4,7 +4,7 @@ const {
   hasNavigationModifier,
   matchForPress,
   markedLength,
-  opensInApp,
+  actsOnPlainClick,
 } = require('../src/terminal-nav-destination');
 
 let passed = 0;
@@ -71,7 +71,7 @@ check('a doc-context content line takes the plain click into the viewer', () => 
 });
 
 // A built-in viewer keeps the plain click: the terminal stays where it was and
-// Esc puts the band away.
+// Esc puts the band away. A web URL keeps it too, on its way to the browser.
 check('a built-in viewer acts on a plain click', () => {
   assert.strictEqual(navigationNeedsModifier(m('url', 'https://example.com/x')), false);
   assert.strictEqual(navigationNeedsModifier(m('url', 'file:///tmp/page.html')), false);
@@ -115,7 +115,7 @@ check('an image is a built-in viewer', () => {
 // click rather than taking it by default.
 check('a pattern nobody classified waits for a modifier', () => {
   assert.strictEqual(navigationNeedsModifier(m('some_future_pattern', 'whatever')), true);
-  assert.strictEqual(opensInApp(m('some_future_pattern', 'whatever')), false);
+  assert.strictEqual(actsOnPlainClick(m('some_future_pattern', 'whatever')), false);
 });
 
 // navigateToFileLine routes .md and .html to the in-app viewers before it ever
@@ -136,7 +136,7 @@ check('a source file that merely contains md in its name still needs the modifie
 
 check('a missing match is not a target at all', () => {
   assert.strictEqual(navigationNeedsModifier(null), false);
-  assert.strictEqual(opensInApp(null), false);
+  assert.strictEqual(actsOnPlainClick(null), false);
 });
 
 // Ctrl or Cmd. Alt already means "choose among all matches" on paths, and

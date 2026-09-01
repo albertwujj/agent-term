@@ -29,7 +29,19 @@ function createHttpUrlOpener({ openURL, log = () => {} } = {}) {
   };
 }
 
+// Where a clicked terminal URL goes. A web page opens in the system browser on a
+// plain click: logins, SSO cookies and device auth live there, and the embedded
+// band keeps running into them. Ctrl/Cmd/Alt pulls the page into the band
+// instead. A local file:// page is the reverse — the band renders it on a plain
+// click and a modifier hands it to the OS — and review:// always renders in-app.
+function urlClickWantsExternal(rawUrl, modifiers) {
+  const modified = !!(modifiers && (modifiers.ctrlKey || modifiers.metaKey || modifiers.altKey));
+  const web = /^\s*https?:\/\//i.test(String(rawUrl || ''));
+  return web ? !modified : modified;
+}
+
 module.exports = {
   normalizeHttpUrl,
   createHttpUrlOpener,
+  urlClickWantsExternal,
 };

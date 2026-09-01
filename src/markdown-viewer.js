@@ -5860,8 +5860,8 @@ function createMarkdownViewer({
     return true;
   }
 
-  // Ctrl/Cmd/Alt — the same modifiers that escalate a clicked URL out of the
-  // terminal's embedded viewer and into the browser.
+  // Ctrl/Cmd/Alt: the modifiers that make a click follow a link instead of
+  // arming the block under it.
   function isFollowModifier(event) {
     return !!(event && (event.ctrlKey || event.metaKey || event.altKey));
   }
@@ -5906,8 +5906,8 @@ function createMarkdownViewer({
     // costs nothing (a caret and a hint, cleared by the next click elsewhere)
     // while following a link swaps the doc out or leaves the app. So the cheap
     // reversible act keeps the bare click and the disruptive one takes a
-    // modifier, the same ctrl/cmd/alt escalation a clicked URL takes in the
-    // terminal. The block hint names it whenever a link is under the caret.
+    // modifier (ctrl/cmd/alt). The block hint names it whenever a link is under
+    // the caret.
     if (link && isFollowModifier(event)) {
       followLink(link);
       return;

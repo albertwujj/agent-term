@@ -2,6 +2,7 @@ const assert = require('assert');
 const {
   normalizeHttpUrl,
   createHttpUrlOpener,
+  urlClickWantsExternal,
 } = require('../src/url-open');
 
 async function run() {
@@ -9,6 +10,19 @@ async function run() {
   assert.strictEqual(normalizeHttpUrl('http://example.com/path?q=1'), 'http://example.com/path?q=1');
   assert.strictEqual(normalizeHttpUrl('file:///tmp/example'), null);
   assert.strictEqual(normalizeHttpUrl('not a url'), null);
+
+  // A web URL: plain click → system browser, Ctrl/Cmd/Alt → embedded band.
+  assert.strictEqual(urlClickWantsExternal('https://example.com', {}), true);
+  assert.strictEqual(urlClickWantsExternal('https://example.com', null), true);
+  assert.strictEqual(urlClickWantsExternal('https://example.com', { shiftKey: true }), true);
+  assert.strictEqual(urlClickWantsExternal('http://example.com', { metaKey: true }), false);
+  assert.strictEqual(urlClickWantsExternal('https://example.com', { ctrlKey: true }), false);
+  assert.strictEqual(urlClickWantsExternal('https://example.com', { altKey: true }), false);
+  // A local page: plain click → band, modifier → OS handler. review:// is
+  // routed in-app before the verdict matters.
+  assert.strictEqual(urlClickWantsExternal('file:///tmp/page.html', {}), false);
+  assert.strictEqual(urlClickWantsExternal('file:///tmp/page.html', { metaKey: true }), true);
+  assert.strictEqual(urlClickWantsExternal('review:///tmp/pkg.md', {}), false);
 
   const opened = [];
   const openHttpUrl = createHttpUrlOpener({

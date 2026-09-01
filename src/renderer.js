@@ -23,7 +23,7 @@ const chromeBar = require('./chrome-bar');
 const resumeHint = require('./resume-hint');
 const streamWatch = require('./stream/renderer-watch');
 const streamIndicator = require('./stream/stream-indicator');
-const { createHttpUrlOpener } = require('./url-open');
+const { createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
 const { createWebViewer } = require('./web-viewer');
 const { createMarkdownViewer } = require('./markdown-viewer');
 const { createComposer, toPromptAction, isPasteCommentShortcut } = require('./comment-ui');
@@ -114,9 +114,10 @@ const openHttpUrl = createHttpUrlOpener({
   log: (message) => console.info(message),
 });
 
-// Embedded web page viewer (band hosting a <webview>). Plain-clicked URLs open
-// here; Ctrl/Cmd-click falls through to openHttpUrl (system browser). Lazily
-// built on first use so the DOM/webview cost is only paid if a URL is clicked.
+// Embedded web page viewer (band hosting a <webview>). Ctrl/Cmd-clicked web URLs
+// and plain-clicked local pages open here; a plain-clicked web URL goes to
+// openHttpUrl (system browser) — see urlClickWantsExternal. Lazily built on
+// first use so the DOM/webview cost is only paid once the band is asked for.
 // The webview's comment-overlay preload lives in the asar; main resolves its
 // file:// URL. Fetch it once at startup so it's cached before the first click;
 // the web viewer reads it via getPreloadUrl when creating the <webview>.
@@ -221,9 +222,9 @@ function anyViewerOpen() {
   return false;
 }
 
-// Plain click → embedded band; Ctrl/Cmd/Alt-click → system browser. Returns
-// true when the embed handled it. `external` is the modifier verdict from the
-// click site.
+// `external` is the click site's verdict (urlClickWantsExternal: a web URL leaves
+// for the system browser unless Ctrl/Cmd/Alt asks for the band; a local page is
+// the reverse). Returns true when the embed handled it.
 function openUrlFromTerminal(rawUrl, source, external, { recordHistory = true } = {}) {
   // One canonical form before anything keys off the URL — a `review://` printed
   // with a space ahead of its path is the same link as one printed without.
@@ -750,8 +751,7 @@ const terminal = new Terminal({
         console.info(`[links] skipped osc8 (decoration handled this press): ${text}`);
         return;
       }
-      const external = !!(_event && (_event.ctrlKey || _event.metaKey || _event.altKey));
-      openUrlFromTerminal(text, 'osc8', external);
+      openUrlFromTerminal(text, 'osc8', urlClickWantsExternal(text, _event));
     },
   },
   theme: {
@@ -4783,11 +4783,11 @@ const patterns = [
     // same link auto-open sees — including the tolerated `review:// /path`.
     regex: new RegExp(VIEWER_URL_SOURCE, 'gi'),
     action: async (match, options = {}) => {
-      const mod = options.modifiers || {};
-      // Any modifier (Ctrl/Cmd/Alt) → system browser. Plain click → embedded
-      // viewer band. copyResponse covers the Ctrl+Alt debug chord.
-      const external = !!(options.copyResponse || mod.ctrlKey || mod.metaKey || mod.altKey);
-      openUrlFromTerminal(match.viewerTarget || match.text, 'visible-url', external);
+      // A web URL: plain click → system browser, Ctrl/Cmd/Alt → embedded band.
+      // A local page: the reverse. The Ctrl+Alt debug chord counts as modified
+      // through the modifiers it arrives with.
+      const target = match.viewerTarget || match.text;
+      openUrlFromTerminal(target, 'visible-url', urlClickWantsExternal(target, options.modifiers));
     },
   },
   {
@@ -5384,7 +5384,7 @@ function pastedWordNeedsLeadingSpace() {
 // header over a diff box, the enclosing file of a source row — so whether its
 // plain click opens in-app can't be read off the match text. Resolve the same
 // context the click action would use and stamp it on the match for the
-// press/hover logic (opensInApp). Memoized: this runs on every mousemove, and
+// press/hover logic (actsOnPlainClick). Memoized: this runs on every mousemove, and
 // the resolution is a backward buffer scan. The match text is part of the key
 // so a scrollback trim that shifts absolute rows re-resolves instead of
 // serving another line's context.

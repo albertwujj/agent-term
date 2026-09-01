@@ -8,6 +8,6 @@ Most of what an agent tells you scrolls past in the terminal (`Ctrl/Cmd+F` fuzzy
 
 ![the sent message carries the quoted selection, and the agent acts on it](../assets/comment-sent-brainstorm.png)
 
-A click opens whatever the agent prints that renders (docs, reviews, web pages, images) in a viewer inside the window. `Ctrl/Cmd+Shift+U` lists everything the session can open that way; `Ctrl/Cmd+Shift+O` and `+I` grow and shrink the open viewer.
+A click opens whatever the agent prints that renders (docs, reviews, images) in a viewer inside the window. A web link opens in your browser; `Ctrl/Cmd+click` opens it in the viewer instead. `Ctrl/Cmd+Shift+U` lists everything the session can open that way; `Ctrl/Cmd+Shift+O` and `+I` grow and shrink the open viewer.
 
 If your CLI captures the mouse (Claude Code's fullscreen rendering does), hold `Shift` while selecting; commenting works the same. To keep plain-drag selection (without holding `Shift`), launch Claude Code with `CLAUDE_CODE_DISABLE_MOUSE=1`, or `CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1` to keep its wheel scrolling.

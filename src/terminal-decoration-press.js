@@ -41,8 +41,8 @@ function resolveDecorationPress(pending, { button, x, y } = {}, threshold = DEFA
 
 // The options a resolved press hands to its match's action.
 //
-// Modifier state is forwarded so actions can branch on it: a URL opens the
-// embedded viewer band on a plain click and the system browser under any
+// Modifier state is forwarded so actions can branch on it: a web URL opens the
+// system browser on a plain click and the embedded viewer band under any
 // modifier, and Alt on a path raises the search-everywhere chooser.
 //
 // Ctrl+Alt (Cmd+Alt on Mac) is the developer debug chord, which copies the

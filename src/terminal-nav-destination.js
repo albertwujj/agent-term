@@ -1,11 +1,16 @@
 // Which navigable terminal matches act on a plain click, and which ask for a
 // modifier first.
 //
-// One rule: a plain click opens something in a built-in viewer. A URL or an
-// .html path in the web band, a review:// package in the diff viewer, an .md
-// path in the md viewer — and a diff or source row whose enclosing file is a
-// doc, which jumps to its line in that viewer. Those keep the terminal where
+// One rule: a plain click opens something in a built-in viewer. A file:// URL
+// or an .html path in the web band, a review:// package in the diff viewer, an
+// .md path in the md viewer — and a diff or source row whose enclosing file is
+// a doc, which jumps to its line in that viewer. Those keep the terminal where
 // it is — the scrollback is untouched and Esc puts the band away.
+//
+// One exception: a web URL also acts on a plain click, but it goes to the
+// system browser. Logins, SSO cookies and device auth live there and the
+// embedded band keeps running into them, so the browser is the destination that
+// works and the band is the one you ask for with ctrl/cmd (or alt).
 //
 // Everything else hands you to another application, and that takes ctrl/cmd:
 // the IDE for a symbol, a file:line, a source or diff line over code; the OS
@@ -15,17 +20,17 @@
 // technical words in ordinary agent prose, so a double click meant to select a
 // word for commenting used to fire a jump on its first press.
 //
-// Stated as what opens in-app rather than what does not, so a pattern added
-// later needs an explicit decision to earn the plain click instead of taking it
-// by default.
+// Stated as what earns the plain click rather than what does not, so a pattern
+// added later needs an explicit decision to earn it instead of taking it by
+// default.
 
-// Patterns whose destination is a built-in viewer whatever their text says.
-// `url` covers http(s) and file:// in the web band, and review:// in the diff
-// viewer; a modifier on those means the system browser instead.
+// Patterns that act on a plain click whatever their text says. `url` covers
+// http(s) (system browser; the web band under a modifier), file:// (web band;
+// the OS handler under a modifier) and review:// (always the diff viewer).
 // `image_attachment` is classified by name rather than by text: the renderer
 // stitches a path split across rows, so a match's text is one fragment of it and
 // the extension may live in the other. It is an image by construction anyway.
-const IN_APP_PATTERN_NAMES = new Set(['url', 'image_attachment']);
+const PLAIN_CLICK_PATTERN_NAMES = new Set(['url', 'image_attachment']);
 
 // Patterns whose match text IS the path, so a document extension inside it names
 // the destination. Everywhere else the path comes from context — a diff header
@@ -72,10 +77,11 @@ const DOC_TARGET = /\.(?:markdown|mdown|xhtml|html|htm|md)(?=$|[\s:(#,;)\]}'"])/
 // step with VIEWABLE_IMAGE_EXTENSIONS in renderer.js, which does the routing.
 const IMAGE_TARGET = /\.(?:png|jpe?g|gif|svg|webp|bmp|ico)(?=$|[\s:(#,;)\]}'"])/i;
 
-// True when a plain click on this match opens a built-in viewer.
-function opensInApp(match) {
+// True when a plain click on this match acts — opens a built-in viewer, or a
+// web URL's browser tab — rather than waiting for a modifier.
+function actsOnPlainClick(match) {
   if (!match) return false;
-  if (IN_APP_PATTERN_NAMES.has(match.patternName)) return true;
+  if (PLAIN_CLICK_PATTERN_NAMES.has(match.patternName)) return true;
   if (PATH_IS_THE_TEXT.has(match.patternName)) {
     const text = String(match.viewerTarget || match.text || '');
     return DOC_TARGET.test(text) || IMAGE_TARGET.test(text);
@@ -88,7 +94,7 @@ function opensInApp(match) {
 
 // True when this match should sit out a plain click and wait for ctrl/cmd.
 function navigationNeedsModifier(match) {
-  return !!match && !opensInApp(match);
+  return !!match && !actsOnPlainClick(match);
 }
 
 // Ctrl or Cmd. Alt is excluded: it already means "choose among all matches" on
@@ -150,10 +156,10 @@ function markedLength(match) {
 }
 
 module.exports = {
-  IN_APP_PATTERN_NAMES,
+  PLAIN_CLICK_PATTERN_NAMES,
   CONTEXT_PATH_PATTERNS,
   DOC_TARGET,
-  opensInApp,
+  actsOnPlainClick,
   navigationNeedsModifier,
   hasNavigationModifier,
   matchForPress,
