@@ -18,6 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const sessionsLog = require('./sessions-log');
+const { writeFileAtomicSync } = require('./atomic-file');
 
 const MAX_VISIBLE = 10;
 // User-close auto-relaunch replaces only the last taskbar-visible AgentTerm
@@ -107,10 +108,7 @@ function shouldRelaunchAfterUserClose(records) {
 // `action` is one of: 'hide' | 'show' | 'close'.
 function sendControl(userDataDir, id, action) {
   ensureControlDir(userDataDir);
-  const file = controlFile(userDataDir, id);
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify({ action, t: Date.now() }));
-  fs.renameSync(tmp, file);
+  writeFileAtomicSync(controlFile(userDataDir, id), JSON.stringify({ action, t: Date.now() }));
 }
 
 // Watcher: each window calls this with its own id and a handler map. The

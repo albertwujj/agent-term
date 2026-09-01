@@ -10,7 +10,8 @@
 //       { e:"prompt",   id, prompt, t }
 //       { e:"cwd",      id, cwd,    t }   // POSIX dir the CLI was launched from
 //       { e:"branches", id, repo, branch, t }   // git branch captured from a review://
-//       { e:"closed",   id,         t }
+//       { e:"closed",   id,         t }   // the user closed the window or exited the shell
+//       { e:"lost",     id,         t }   // the window died under a live process (see main.js exitAsGhost)
 //     Reading the log and folding by id yields the current state of every
 //     session ever recorded. Newer events override older for fields like title.
 //
@@ -18,7 +19,17 @@
 //     Per-live-window file: { pid, bootTime, ... } where bootTime is rounded
 //     to the nearest minute (cross-boot reuse of pids becomes detectable).
 //     Schema is open for extensions (e.g., a TCP port for future flash-focus).
-//     Created on window start, deleted on graceful close.
+//     Created on window start, deleted on graceful close. The pid is the
+//     owner: a window merges into or deletes a record only while the pid is
+//     its own (updateActiveFile, releaseActiveFile). A record naming another
+//     live pid means that window was handed the id because this one read as
+//     dead, and this one exits instead of writing.
+//
+//   ids/<n>
+//     One empty marker per session id ever claimed. claimSessionId creates
+//     the marker exclusively, which is what makes ids unique across windows
+//     launching in the same instant; icon-counter is only the hint of where
+//     to start looking.
 //
 //   pending-recovery.json
 //     { bootTime, pendingIds: [number...] }
@@ -43,6 +54,7 @@ const {
   findAllTermRanges,
 } = require('./search-terms');
 const { currentGuiSession } = require('./gui-session');
+const { writeFileAtomicSync } = require('./atomic-file');
 
 const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks (display + compaction window)
 
@@ -88,6 +100,8 @@ function paths(userDataDir) {
     log:     path.join(userDataDir, 'sessions.jsonl'),
     active:  path.join(userDataDir, 'active'),
     pending: path.join(userDataDir, 'pending-recovery.json'),
+    ids:     path.join(userDataDir, 'ids'),
+    counter: path.join(userDataDir, 'icon-counter'),
   };
 }
 
@@ -95,6 +109,31 @@ function ensureDirs(userDataDir) {
   const p = paths(userDataDir);
   try { fs.mkdirSync(userDataDir, { recursive: true }); } catch {}
   try { fs.mkdirSync(p.active, { recursive: true }); } catch {}
+  try { fs.mkdirSync(p.ids, { recursive: true }); } catch {}
+}
+
+// ---- session ids ----
+
+// Claim the next unused session id. The counter file says where to start;
+// the claim itself is the exclusive create of ids/<n>, which the file system
+// serializes across processes. Two windows that read the same counter in the
+// same instant still leave with different ids.
+function claimSessionId(userDataDir) {
+  ensureDirs(userDataDir);
+  const p = paths(userDataDir);
+  let n = 0;
+  try { n = parseInt(fs.readFileSync(p.counter, 'utf8').trim(), 10) || 0; } catch {}
+  for (;;) {
+    try {
+      fs.writeFileSync(path.join(p.ids, String(n)), '', { flag: 'wx' });
+      break;
+    } catch (err) {
+      if (err && err.code === 'EEXIST') { n += 1; continue; }
+      throw err;
+    }
+  }
+  fs.writeFileSync(p.counter, String(n + 1));
+  return n;
 }
 
 // ---- log: append-only events ----
@@ -135,7 +174,7 @@ function listSessions(userDataDir) {
     if (typeof ev.id !== 'number') continue;
     let s = map.get(ev.id);
     if (!s) {
-      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, lastTitle: null, prompt: null, lastPrompt: null, cwd: null, capturedBranches: [], closedAt: null, token: null };
+      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, lastTitle: null, prompt: null, lastPrompt: null, cwd: null, capturedBranches: [], closedAt: null, lostAt: null, token: null };
       map.set(ev.id, s);
     }
     s.lastEventAt = ev.t;
@@ -185,6 +224,9 @@ function listSessions(userDataDir) {
         if (ev.branch && !s.capturedBranches.includes(ev.branch)) s.capturedBranches.push(ev.branch);
         break;
       case 'closed':  s.closedAt = ev.t; break;
+      // A loss leaves closedAt alone: the session is still open as far as the
+      // user is concerned, so recovery and the picker keep offering it.
+      case 'lost':    s.lostAt = ev.t; break;
       // 'runid' and 'blockid' events are no-ops in the union model — the
       // hub auto-generates fresh runIds per process and the block concept
       // is gone. We don't strip them from disk (forward-compat); the fold
@@ -215,20 +257,37 @@ function activeFilePath(userDataDir, id) {
 
 function writeActiveFile(userDataDir, id, payload) {
   ensureDirs(userDataDir);
-  const file = activeFilePath(userDataDir, id);
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(payload));
-  fs.renameSync(tmp, file);
+  writeFileAtomicSync(activeFilePath(userDataDir, id), JSON.stringify(payload));
 }
 
-// Merge a partial update into an existing active file. Used by windows to
+// Whether `record` names a live process other than `pid`.
+function heldByAnotherLivePid(record, pid) {
+  return !!record && typeof record.pid === 'number' && record.pid !== pid && isPidAlive(record.pid);
+}
+
+// Merge a partial update into the caller's own active file. Used by windows to
 // refresh their lastInputAt / lastWorkingAt / hiddenAt without rewriting the
-// whole record. If the file is missing, this is a no-op (the window may
-// have been destroyed or its active file gc'd).
-function updateActiveFile(userDataDir, id, partial) {
+// whole record. Returns:
+//   'merged'   the record is ours and was updated
+//   'taken'    the record names another live pid: that window was handed this
+//              id because we read as dead, so the id is no longer ours
+//   'unowned'  no record, or a record left by a dead holder
+function updateActiveFile(userDataDir, id, partial, ownerPid) {
   const existing = readActiveFile(userDataDir, id);
-  if (!existing) return false;
+  if (heldByAnotherLivePid(existing, ownerPid)) return 'taken';
+  if (!existing || existing.pid !== ownerPid) return 'unowned';
   writeActiveFile(userDataDir, id, { ...existing, ...partial });
+  return 'merged';
+}
+
+// Delete the active file only while it is still the caller's own record.
+// Returns whether a file was deleted. A record another window has since
+// written under this id is left alone: deleting it would hide a live window
+// from the cap, the picker, and the last-window relaunch check.
+function releaseActiveFile(userDataDir, id, ownerPid) {
+  const existing = readActiveFile(userDataDir, id);
+  if (!existing || existing.pid !== ownerPid) return false;
+  deleteActiveFile(userDataDir, id);
   return true;
 }
 
@@ -322,10 +381,7 @@ function readPendingRecovery(userDataDir) {
 
 function writePendingRecovery(userDataDir, snapshot) {
   ensureDirs(userDataDir);
-  const p = paths(userDataDir);
-  const tmp = p.pending + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(snapshot));
-  fs.renameSync(tmp, p.pending);
+  writeFileAtomicSync(paths(userDataDir).pending, JSON.stringify(snapshot));
 }
 
 // If the on-disk snapshot's bootTime differs from current, recompute the set:
@@ -365,18 +421,30 @@ function removeFromPendingRecovery(userDataDir, id) {
 // Atomic rewrite — we only touch the file if something was dropped. Returns
 // the number of events removed. Called at app start to keep load time bounded
 // for long-lived installs.
+//
+// The rewrite replaces the whole file, so an event another window appends
+// between the read and the rename is lost. Only the sole window may compact:
+// appends come from live windows only, and at startup the calling window has
+// not written its own record yet, so any live record belongs to someone else.
 function compactSessionsLog(userDataDir, opts = {}) {
+  if (hasLiveRecords(userDataDir, opts)) return 0;
   const cutoff = Date.now() - (opts.maxAgeMs || RECENT_WINDOW_MS);
   const events = readLog(userDataDir);
   if (events.length === 0) return 0;
   const kept = events.filter(e => (e.t || 0) >= cutoff);
   if (kept.length === events.length) return 0;
-  const p = paths(userDataDir);
-  const tmp = p.log + '.tmp';
   const body = kept.length ? kept.map(JSON.stringify).join('\n') + '\n' : '';
-  fs.writeFileSync(tmp, body);
-  fs.renameSync(tmp, p.log);
+  writeFileAtomicSync(paths(userDataDir).log, body);
   return events.length - kept.length;
+}
+
+function hasLiveRecords(userDataDir, opts = {}) {
+  const bootTime = opts.bootTime || currentBootTime();
+  for (const id of listActiveIds(userDataDir)) {
+    const rec = readActiveFile(userDataDir, id);
+    if (isSessionActive(rec, { bootTime, guiSession: opts.guiSession })) return true;
+  }
+  return false;
 }
 
 // ---- public picker queries ----
@@ -546,6 +614,8 @@ module.exports = {
   isSameBoot,
   paths,
   ensureDirs,
+  // ids
+  claimSessionId,
   // log
   appendEvent,
   readLog,
@@ -553,6 +623,7 @@ module.exports = {
   // active
   writeActiveFile,
   updateActiveFile,
+  releaseActiveFile,
   readActiveFile,
   deleteActiveFile,
   listActiveIds,

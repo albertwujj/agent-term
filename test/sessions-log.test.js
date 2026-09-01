@@ -564,5 +564,88 @@ test('findActiveByToken returns the active record carrying the token', (dir) => 
   assert.strictEqual(log.findActiveByToken(dir, ''), null);
 });
 
+
+// ---- record ownership ----
+
+test('updateActiveFile merges only into the caller\'s own record', (dir) => {
+  log.writeActiveFile(dir, 7, { pid: process.pid, bootTime: FROZEN_BOOT, lastInputAt: 1 });
+  assert.strictEqual(log.updateActiveFile(dir, 7, { lastInputAt: 2 }, process.pid), 'merged');
+  assert.strictEqual(log.readActiveFile(dir, 7).lastInputAt, 2);
+});
+
+test('updateActiveFile: a record held by another live pid is taken, and left untouched', (dir) => {
+  log.writeActiveFile(dir, 7, { pid: process.pid, bootTime: FROZEN_BOOT, lastInputAt: 1 });
+  assert.strictEqual(log.updateActiveFile(dir, 7, { lastInputAt: 2 }, 424242), 'taken');
+  assert.strictEqual(log.readActiveFile(dir, 7).lastInputAt, 1);
+});
+
+test('updateActiveFile: no record, or a dead holder\'s record, is unowned', (dir) => {
+  assert.strictEqual(log.updateActiveFile(dir, 7, { lastInputAt: 2 }, process.pid), 'unowned');
+  log.writeActiveFile(dir, 7, { pid: 999999, bootTime: FROZEN_BOOT, lastInputAt: 1 });
+  assert.strictEqual(log.updateActiveFile(dir, 7, { lastInputAt: 2 }, process.pid), 'unowned');
+  assert.strictEqual(log.readActiveFile(dir, 7).lastInputAt, 1);
+});
+
+test('releaseActiveFile deletes only the caller\'s own record', (dir) => {
+  log.writeActiveFile(dir, 7, { pid: process.pid, bootTime: FROZEN_BOOT });
+  log.writeActiveFile(dir, 8, { pid: 424242, bootTime: FROZEN_BOOT });
+  assert.strictEqual(log.releaseActiveFile(dir, 7, process.pid), true);
+  assert.strictEqual(log.readActiveFile(dir, 7), null);
+  assert.strictEqual(log.releaseActiveFile(dir, 8, process.pid), false);
+  assert.ok(log.readActiveFile(dir, 8));
+  assert.strictEqual(log.releaseActiveFile(dir, 9, process.pid), false);
+});
+
+// ---- lost sessions ----
+
+test('a lost event leaves the session open: recovery and the picker keep offering it', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'cli', id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt', id: 1, prompt: 'fix the build' });
+  log.appendEvent(dir, { e: 'lost', id: 1 });
+  const s = log.listSessions(dir).find(x => x.id === 1);
+  assert.strictEqual(s.closedAt, null);
+  assert.ok(typeof s.lostAt === 'number');
+  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI });
+  assert.deepStrictEqual(snap.pendingIds, [1]);
+  assert.deepStrictEqual(log.autoRecoveryList(dir, { bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI }).map(x => x.id), [1]);
+});
+
+// ---- compaction while other windows are live ----
+
+test('compactSessionsLog does nothing while another window is live', (dir) => {
+  const old = Date.now() - 60 * 24 * 60 * 60 * 1000;
+  log.appendEvent(dir, { t: old, e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { t: old, e: 'closed', id: 1 });
+  log.appendEvent(dir, { e: 'started', id: 2, hue: 24 });
+  const opts = { bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI };
+  log.writeActiveFile(dir, 2, { pid: process.pid, bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI });
+  assert.strictEqual(log.compactSessionsLog(dir, opts), 0);
+  assert.strictEqual(log.readLog(dir).length, 3);
+  // A dead holder's record is no live window: compaction proceeds.
+  log.writeActiveFile(dir, 2, { pid: 999999, bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI });
+  assert.strictEqual(log.compactSessionsLog(dir, opts), 2);
+  assert.strictEqual(log.readLog(dir).length, 1);
+});
+
+// ---- id claims ----
+
+test('claimSessionId hands out distinct ids and skips ids already claimed', (dir) => {
+  assert.strictEqual(log.claimSessionId(dir), 0);
+  assert.strictEqual(log.claimSessionId(dir), 1);
+  // Another window read the same counter and claimed 2 first.
+  fs.writeFileSync(path.join(dir, 'icon-counter'), '2');
+  fs.writeFileSync(path.join(dir, 'ids', '2'), '');
+  assert.strictEqual(log.claimSessionId(dir), 3);
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'icon-counter'), 'utf8'), '4');
+});
+
+test('claimSessionId starts from an existing counter', (dir) => {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'icon-counter'), '183');
+  assert.strictEqual(log.claimSessionId(dir), 183);
+  assert.ok(fs.existsSync(path.join(dir, 'ids', '183')));
+});
+
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
 process.exit(testsFailed > 0 ? 1 : 0);

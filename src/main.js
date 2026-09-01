@@ -23,6 +23,7 @@ const { createPromptCapture } = require('./prompt-capture');
 const promptThumbnail = require('./prompt-thumbnail');
 const dwm = require('./dwm-thumbnail');
 const sessionsLog = require('./sessions-log');
+const { writeFileAtomic } = require('./atomic-file');
 const guiSession = require('./gui-session');
 const lockStatus = require('./lock-status'); // pure lock-icon decision (agent-lock)
 const jobWatch = require('./job-watch'); // pure background-job monitor logic (job-events.md)
@@ -123,12 +124,47 @@ const NAVIGATOR_HOST = '127.0.0.1';
 const NAVIGATOR_PORT = 8765;
 const FRONTEND_PORT = 8766;
 
-// Log to both terminal and renderer DevTools
-function log(...args) {
-  console.log(...args);
-  if (mainWindow && mainWindow.webContents) {
-    mainWindow.webContents.send('main-log', args.join(' '));
+// Main-process log: the terminal, the renderer's DevTools, and a per-process
+// file under <userData>/logs. The file is what survives: a relaunched window
+// runs with stdio ignored, and a window whose compositor died has no renderer
+// left to receive the message. The renderer send comes last and never throws;
+// the exit paths below log through here from a process whose window is gone.
+const LOG_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+let diskLogPath;
+
+function diskLog(line) {
+  if (diskLogPath === null) return;
+  try {
+    if (diskLogPath === undefined) {
+      const dir = path.join(app.getPath('userData'), 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+      diskLogPath = path.join(dir, `main-${process.pid}.log`);
+    }
+    fs.appendFileSync(diskLogPath, new Date().toISOString() + ' ' + line + '\n');
+  } catch (err) {
+    diskLogPath = null;
+    console.warn('[main] disk log disabled:', err && err.message);
   }
+}
+
+function pruneDiskLogs() {
+  const dir = path.join(app.getPath('userData'), 'logs');
+  const cutoff = Date.now() - LOG_KEEP_MS;
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const name of names) {
+    const file = path.join(dir, name);
+    try { if (fs.statSync(file).mtimeMs < cutoff) fs.unlinkSync(file); } catch {}
+  }
+}
+
+function log(...args) {
+  const line = args.join(' ');
+  console.log(...args);
+  diskLog(line);
+  try {
+    if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('main-log', line);
+  } catch {}
 }
 
 let mainWindow;
@@ -426,16 +462,6 @@ let ownGuiSession;
 function getOwnGuiSession() {
   if (ownGuiSession === undefined) ownGuiSession = guiSession.currentGuiSession();
   return ownGuiSession;
-}
-
-function readAndIncrementCounter() {
-  const dir = app.getPath('userData');
-  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
-  const file = path.join(dir, 'icon-counter');
-  let n = 0;
-  try { n = parseInt(fs.readFileSync(file, 'utf8').trim(), 10) || 0; } catch {}
-  try { fs.writeFileSync(file, String(n + 1)); } catch {}
-  return n;
 }
 
 function isUsableTitle(s) {
@@ -1043,7 +1069,7 @@ function getActiveSessionHues(userDataDir) {
 
 function assignSessionIdentity() {
   if (sessionIndex !== null && activeFileWritten) return;
-  if (sessionIndex === null) sessionIndex = readAndIncrementCounter();
+  if (sessionIndex === null) sessionIndex = sessionsLog.claimSessionId(app.getPath('userData'));
   // Dynamic max-min hue pick: choose the hue furthest from any currently-
   // live session's hue. When there are no concurrent sessions, the very
   // first session ever uses START_HUE (sky/cyan, a productivity-tool
@@ -1370,6 +1396,16 @@ function refreshActivityTimestamps(extra = {}) {
   // No window means there is no live session to advertise to the cap or the
   // picker; keeping the record warm would only make it look reachable.
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  // A heartbeat is background work: a registry error is logged, never left to
+  // surface as an uncaught-exception dialog.
+  try {
+    heartbeat(extra);
+  } catch (err) {
+    log('[main] activity heartbeat failed: ' + (err && err.message));
+  }
+}
+
+function heartbeat(extra) {
   const userDataDir = app.getPath('userData');
   const beat = {
     // Restamp the boot time. It is a derived value that drifts against the wall
@@ -1385,10 +1421,19 @@ function refreshActivityTimestamps(extra = {}) {
     hiddenAt: windowHidden ? (extra.hiddenAt || Date.now()) : null,
     ...extra,
   };
-  if (sessionsLog.updateActiveFile(userDataDir, sessionIndex, beat)) return;
-  // The record is gone while the window is still up — reaped by another
-  // process, or lost with the userData directory. Rewrite it whole rather than
-  // stay invisible for the rest of this session (updateActiveFile only merges).
+  const state = sessionsLog.updateActiveFile(userDataDir, sessionIndex, beat, process.pid);
+  if (state === 'merged') return;
+  if (state === 'taken') {
+    // Another live window holds our id. The picker hands an id out only when
+    // its holder reads as dead, so that verdict stands: this window is gone
+    // even if its own compositor probe cannot tell.
+    exitAsSuperseded('session ' + sessionIndex + ' is held by another window');
+    return;
+  }
+  // The record is gone: reaped by a window that read us as dead, or lost with
+  // the userData directory. A reaper may be right, so the compositor check runs
+  // before the record is rewritten whole (updateActiveFile only merges).
+  if (checkGuiSessionAlive()) return;
   sessionsLog.writeActiveFile(userDataDir, sessionIndex, {
     pid: process.pid,
     guiSession: getOwnGuiSession(),
@@ -1438,23 +1483,67 @@ function checkIdleClose() {
   }
 }
 
-// A compositor-session change means every window on the machine was destroyed.
-// Electron does not reliably deliver 'closed' for that (a macOS WindowServer
-// crash takes the NSWindow down behind Chromium's back), so this process can
-// keep running headless: no window, no dock icon, no way for the user to reach
-// it — while its active file still advertises the session. Exit instead. The
-// event log keeps the session resumable from the picker.
+// The window is gone while the process lives. Two ways in:
+//
+//   ghost       a compositor crash destroyed the window. Electron does not
+//               reliably deliver 'closed' for that (a macOS WindowServer crash
+//               takes the NSWindow down behind Chromium's back), so the process
+//               keeps running headless: no window, no dock icon, no way for the
+//               user to reach it, while its active file still advertises the
+//               session and its heartbeat keeps rewriting that file.
+//   superseded  another window was handed our session id because we read as
+//               dead, and now holds the record. Its verdict stands even when
+//               our own compositor probe cannot confirm it.
+//
+// Both exit. The registry is settled first, then the log line, then the quit:
+// nothing on this path may depend on the window, which is the one component
+// known to be broken. app.exit is the backstop should the Cocoa quit path
+// stall without a compositor. A ghost records `lost`, which the picker and
+// recovery treat as an open session; `closed` would read as the user's choice.
+// A superseded window records nothing: the session continues in its successor.
+let headlessExitStarted = false;
+
+function exitHeadless(reason) {
+  headlessExitStarted = true;
+  stopCapMachinery();
+  log('[main] ' + reason + '; this window is gone, exiting');
+  setTimeout(() => app.exit(0), 5000);
+  app.quit();
+}
+
+function exitAsGhost(reason) {
+  if (headlessExitStarted) return;
+  writeLostSessionEvent();
+  exitHeadless(reason);
+}
+
+function exitAsSuperseded(reason) {
+  if (headlessExitStarted) return;
+  activeFileWritten = false;   // the record is the successor's: no 'closed' for it on the way out
+  exitHeadless(reason);
+}
+
+// Compositor probe: exit as a ghost once the stamp this window was created
+// under no longer matches the live compositor. Returns whether an exit began.
+// An unknown probe never exits, since a live window must not die on a failed
+// pgrep; it is logged once per streak so a ghost probing blind still leaves a
+// trace in the disk log.
+let probeUnknownLogged = false;
 function checkGuiSessionAlive() {
   const own = getOwnGuiSession();
-  if (!own) return;                              // unstamped platform — nothing to compare
+  if (!own) return false;                        // unstamped platform — nothing to compare
   const current = guiSession.currentGuiSession();
-  if (!current || current === own) return;       // unknown never reaps
-  log('[main] compositor session changed — this window is gone; exiting');
-  writeClosedSessionEvent();
-  app.quit();
-  // The window is already unusable, so a quit that stalls on it must not
-  // leave the process (and its PTY) running for the rest of the boot.
-  setTimeout(() => app.exit(0), 5000);
+  if (!current) {
+    if (!probeUnknownLogged) {
+      probeUnknownLogged = true;
+      log('[main] compositor probe returned nothing; own stamp ' + own);
+    }
+    return false;
+  }
+  probeUnknownLogged = false;
+  if (current === own) return false;
+  exitAsGhost('compositor session changed (' + own + ' -> ' + current + ')');
+  return true;
 }
 
 function startCapTimers() {
@@ -1604,17 +1693,32 @@ function launchNewInstance() {
 }
 
 function writeClosedSessionEvent() {
+  writeSessionEndEvent('closed');
+}
+
+function writeLostSessionEvent() {
+  writeSessionEndEvent('lost');
+}
+
+// Leave the registry: release the active record while it is still ours and
+// log how the session ended. Idempotent, and a no-op once another window has
+// taken the id (releaseActiveFile leaves a record that names another pid).
+function writeSessionEndEvent(e) {
   if (sessionIndex === null || !activeFileWritten) return;
   const userDataDir = app.getPath('userData');
   try {
-    sessionsLog.deleteActiveFile(userDataDir, sessionIndex);
-    sessionsLog.appendEvent(userDataDir, { e: 'closed', id: sessionIndex });
+    sessionsLog.releaseActiveFile(userDataDir, sessionIndex, process.pid);
+    sessionsLog.appendEvent(userDataDir, { e, id: sessionIndex });
   } catch (err) {
-    console.warn('[main] failed to write closed event:', err && err.message);
+    log('[main] failed to write ' + e + ' event: ' + (err && err.message));
   }
   activeFileWritten = false;
-  // Cap-control teardown — fs.watch handle and timers should not survive
-  // the session-closed transition.
+  stopCapMachinery();
+}
+
+// Cap-control teardown: the fs.watch handle and the timers must not survive
+// the end of the session, whichever way it ended.
+function stopCapMachinery() {
   if (capControlWatcherTeardown) { try { capControlWatcherTeardown(); } catch {} capControlWatcherTeardown = null; }
   if (activityRefreshInterval) { clearInterval(activityRefreshInterval); activityRefreshInterval = null; }
   if (healthCheckInterval) { clearInterval(healthCheckInterval); healthCheckInterval = null; }
@@ -1858,6 +1962,13 @@ function createWindow() {
     }
   });
 
+  // Stamp the compositor session at creation. The ghost check compares
+  // against this; a stamp first taken after a compositor crash would match
+  // the new compositor and certify a dead window as live.
+  getOwnGuiSession();
+  // A renderer that stops answering is one more sign the window may be gone.
+  mainWindow.on('unresponsive', () => { checkGuiSessionAlive(); });
+
   mainWindow.on('closed', () => {
     // Unhook our window-message subscriptions before the HWND is destroyed.
     if (iconicHooksInstalled && mainWindow && typeof mainWindow.unhookWindowMessage === 'function') {
@@ -1883,7 +1994,11 @@ function createWindow() {
     // Graceful close (X button): record session end before tearing down PTY.
     writeClosedSessionEvent();
     if (ptyProcess) {
-      userClosed = true;
+      // A headless exit is no user close. The last-window relaunch must not
+      // run from it: a successor spawned by a process whose GUI session died
+      // inherits that dead session, and several ghosts exiting together would
+      // each spawn one.
+      if (!headlessExitStarted) userClosed = true;
       try { ptyProcess.kill(); }
       catch (err) { log('[main] PTY kill during close failed: ' + (err && err.message)); }
     }
@@ -2378,6 +2493,17 @@ ipcMain.on('picker-pick', (event, id) => {
   const sessions = sessionsLog.listSessions(userDataDir);
   const picked = sessions.find(s => s.id === id);
   if (!picked || !picked.cli) return;
+  // The picker's list is computed when it opens and can be hours old by the
+  // time a row is chosen. Judge liveness now: a session another window holds
+  // is brought forward, the way the picker treats a row it knew to be active.
+  // Taking its id here would give two windows one identity.
+  if (sessionsLog.isSessionActive(sessionsLog.readActiveFile(userDataDir, id))) {
+    log('[resume] session ' + id + ' is live in another window; bringing it forward');
+    try { windowCap.sendControl(userDataDir, id, 'show'); } catch (err) {
+      log('[resume] bring-forward failed: ' + (err && err.message));
+    }
+    return;
+  }
   // Inherit the picked session's identity (id, hue, prompt, active-file) so
   // this window IS that session, not a new one. Other windows then see it
   // as currently active.
@@ -3745,9 +3871,7 @@ async function saveCommentStore(p, store) {
   // folder crosses the same boundary the write itself does. Review stores land
   // in a folder produce-review already made, so this is a no-op there.
   await fs.promises.mkdir(path.dirname(p), { recursive: true });
-  const tmp = p + '.tmp';
-  await fs.promises.writeFile(tmp, JSON.stringify(store, null, 2) + '\n', 'utf8');
-  await fs.promises.rename(tmp, p);
+  await writeFileAtomic(p, JSON.stringify(store, null, 2) + '\n', 'utf8');
 }
 
 // The agent's replies/dispositions live in the append-only journal beside the
@@ -4267,8 +4391,7 @@ ipcMain.handle('md-write-file', async (event, { docPath, content } = {}) => {
   }
   try {
     const p = await fsPathFromPosix(doc);
-    await fs.promises.writeFile(p + '.tmp', String(content == null ? '' : content), 'utf8');
-    await fs.promises.rename(p + '.tmp', p);
+    await writeFileAtomic(p, String(content == null ? '' : content), 'utf8');
     const st = await fs.promises.stat(p);
     return { success: true, path: doc, mtimeMs: st.mtimeMs, size: st.size };
   } catch (e) { return { success: false, error: e.message }; }
@@ -4511,8 +4634,9 @@ app.whenReady().then(async () => {
     const userDataDir = app.getPath('userData');
     sessionsLog.gcActiveFiles(userDataDir);
     sessionsLog.compactSessionsLog(userDataDir);
+    pruneDiskLogs();
   } catch (err) {
-    console.warn('[main] sessions-log startup init failed:', err && err.message);
+    log('[main] sessions-log startup init failed: ' + (err && err.message));
   }
 
   // Dev: rebuild every generated runtime bundle on every startup. This covers
@@ -4614,6 +4738,16 @@ app.on('before-quit', (event) => {
 
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll(); } catch {}
+});
+
+// Chromium's GPU process dies with the compositor, so its loss is the earliest
+// sign of a compositor crash this process gets. The probe decides: a GPU
+// process that merely crashed and restarted passes it. The compositor may
+// still be coming back at the first check, so a second one follows.
+app.on('child-process-gone', (event, details) => {
+  if (!details || details.type !== 'GPU') return;
+  log('[main] GPU process gone (' + details.reason + '); probing the compositor');
+  if (!checkGuiSessionAlive()) setTimeout(checkGuiSessionAlive, 15 * 1000);
 });
 
 app.on('window-all-closed', () => {
