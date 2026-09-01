@@ -182,7 +182,8 @@ app.whenReady().then(async () => {
 
   const html = buildPreviewHTML(chipNs);
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-  await new Promise(r => setTimeout(r, 200));
+  // Let the band's slide-in finish before capturing.
+  await new Promise(r => setTimeout(r, 900));
 
   const image = await win.webContents.capturePage();
   const file = path.join(outDir, 'resume-hint.png');

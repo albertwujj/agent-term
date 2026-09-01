@@ -3,7 +3,11 @@
 //
 //   1. Tell the user how to launch /resume in the CLI (until they do).
 //      Initial wording:
-//        "↻ Press Enter to /resume → filter for the prompt above, or try "<title>""
+//        "↻ Press Enter to send /resume, then filter for the prompt above ↑, or try "<title>""
+//      The band is sized and coloured to be noticed on first sight: 44px
+//      tall, 15px type, tinted with the session hue so it reads as a
+//      message rather than chrome, slides in once, and the Enter key
+//      carries a slow pulse until it is pressed.
 //      Main.js's pty-input handler is armed (pendingResumeIntercept) and
 //      will replace the user's first plain Enter with a timed /resume
 //      submission. The user provides the timing — they wait for the CLI's
@@ -30,7 +34,7 @@
 
 const { aiTitleDedupeKey, cleanAiTitle } = require('./ai-title');
 
-const HINT_HEIGHT_PX = 32;
+const HINT_HEIGHT_PX = 44;
 const AUTO_DISMISS_ENTERS = 3;
 
 let mountedRoot = null;
@@ -39,6 +43,7 @@ let enterCount = 0;
 
 const HINT_CSS = `
 .at-resume-hint {
+  --at-resume-accent: var(--at-hue, #a0c8ff);
   position: fixed;
   top: calc(env(titlebar-area-height, 42px) + 1px);  /* just below the chrome bar's hue divider */
   left: 0;
@@ -47,60 +52,89 @@ const HINT_CSS = `
   z-index: 8900;
   display: flex;
   align-items: center;
-  padding: 0 14px;
-  gap: 8px;
-  background: #14171c;
-  border-bottom: 1px solid #1c1c1c;
-  font: 13px "Segoe UI", "Segoe UI Variable", system-ui, sans-serif;
-  color: #d0d0d0;
+  padding: 0 12px 0 18px;
+  gap: 6px;
+  box-sizing: border-box;
+  /* Session hue at low strength: the divider's colour bleeds into the
+     band, so it belongs to this session yet stands apart from the
+     near-black chrome above and terminal below. */
+  background: color-mix(in srgb, var(--at-resume-accent) 14%, #0c0c0c);
+  border-bottom: 1px solid color-mix(in srgb, var(--at-resume-accent) 35%, #0c0c0c);
+  box-shadow: inset 4px 0 0 var(--at-resume-accent);
+  font: 15px "Segoe UI", "Segoe UI Variable", system-ui, sans-serif;
+  color: #c8c8c8;
   user-select: none;
+  transition: background 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
+  animation: at-resume-hint-in 240ms ease-out;
+}
+@keyframes at-resume-hint-in {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: none; opacity: 1; }
 }
 .at-resume-hint-icon {
   flex: 0 0 auto;
-  font-size: 14px;
-  color: #a0c8ff;
+  margin-right: 4px;
+  font-size: 19px;
+  color: var(--at-resume-accent);
   line-height: 1;
 }
 /* Pre-Enter wording shown by default; hidden after the first submit via
    the .post-enter class on the host. */
 .at-resume-hint-pre {
   flex: 0 0 auto;
-  color: #d0d0d0;
+  color: #c8c8c8;
 }
 .at-resume-hint-pre kbd {
   display: inline-block;
-  padding: 1px 6px;
-  margin: 0 2px;
+  padding: 2px 11px 3px;
+  margin: 0 4px;
   font: inherit;
-  font-size: 12px;
-  background: #232830;
-  border: 1px solid #2f3540;
-  border-radius: 3px;
-  color: #e6e6e6;
+  font-size: 14px;
+  font-weight: 600;
+  background: #262c36;
+  border: 1px solid #3c4452;
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  color: #ffffff;
+  animation: at-resume-hint-key 2s ease-in-out infinite;
+}
+/* A slow ring on the one key being asked for; ends with the pre-Enter
+   wording, so it never outlives the request. */
+@keyframes at-resume-hint-key {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--at-resume-accent) 0%, transparent); }
+  45%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--at-resume-accent) 55%, transparent); }
 }
 .at-resume-hint-pre code {
   font-family: "Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace;
-  font-size: 12px;
-  color: #e6e6e6;
+  font-size: 14px;
+  color: #f0f0f0;
 }
-.at-resume-hint-pre .arrow {
-  margin: 0 4px;
-  color: #707070;
+.at-resume-hint-pre .then {
+  color: #909090;
 }
 /* Post-Enter wording (hidden by default; shown after the first submit). */
 .at-resume-hint-label {
   flex: 0 0 auto;
-  color: #909090;
+  color: #c8c8c8;
   display: none;
 }
 .at-resume-hint.post-enter .at-resume-hint-pre { display: none; }
 .at-resume-hint.post-enter .at-resume-hint-label { display: inline; }
 .at-resume-hint-primary {
   flex: 0 0 auto;
-  color: #e6e6e6;
+  color: #ffffff;
+  font-weight: 600;
+}
+/* Points at the chrome line directly above, where the prompt is shown. */
+.at-resume-hint-up {
+  flex: 0 0 auto;
+  margin-left: -2px;
+  color: var(--at-resume-accent);
+  font-weight: 600;
 }
 .at-resume-hint-extra {
   flex: 0 0 auto;
+  margin-left: -6px;   /* cancel the flex gap so the comma hugs the word before it */
   color: #909090;
 }
 .at-resume-hint-spacer {
@@ -115,22 +149,26 @@ const HINT_CSS = `
   text-overflow: ellipsis;
   color: #e6e6e6;
   font-family: "Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 .at-resume-hint-close {
   flex: 0 0 auto;
+  margin-left: 8px;
   background: none;
   border: none;
   color: #909090;
   cursor: pointer;
-  font-size: 14px;
-  padding: 2px 8px;
-  border-radius: 3px;
+  font-size: 16px;
+  padding: 4px 10px;
+  border-radius: 4px;
   line-height: 1;
 }
 .at-resume-hint-close:hover {
-  background: rgba(255,255,255,0.06);
-  color: #d0d0d0;
+  background: rgba(255,255,255,0.08);
+  color: #e6e6e6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .at-resume-hint, .at-resume-hint-pre kbd { animation: none; }
 }
 `;
 
@@ -214,12 +252,14 @@ function renderHintMarkup(input) {
   const title = parts.title
     ? `<span class="at-resume-hint-title" title="${escapeHtml(parts.title)}">${escapeHtml(parts.title)}</span>`
     : '';
+  const up = parts.primary ? '<span class="at-resume-hint-up">↑</span>' : '';
   const spacer = parts.title ? '' : '<span class="at-resume-hint-spacer"></span>';
   return `
     <span class="at-resume-hint-icon">↻</span>
-    <span class="at-resume-hint-pre">Press <kbd>Enter</kbd> to send <code>/resume</code><span class="arrow">→</span>filter for</span>
+    <span class="at-resume-hint-pre">Press <kbd>Enter</kbd> to send <code>/resume</code><span class="then">, then</span> filter for</span>
     <span class="at-resume-hint-label">Filter for</span>
     ${primary}
+    ${up}
     ${extra}
     ${title}
     ${spacer}
