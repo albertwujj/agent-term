@@ -18,8 +18,8 @@ Every session is a whole OS window; there are no tabs.
 | Window | How it opens | Starts in |
 |---|---|---|
 | The first | `npm run start` (`start:wsl` on WSL; from any directory, with `--prefix` pointing to the agent-term source) | the directory you ran npm in |
-| Another | `Ctrl/Cmd+Shift+N` | the directory the current session's agent was started in (or the shell's directory when no agent is running) |
-| After the last closes | spawned automatically, so you only need to run npm once | the directory that window started in |
+| Another | `Ctrl/Cmd+Shift+N` | the directory the current session's agent was started in; before a first prompt, the window's own start directory |
+| After the last closes | spawned automatically, so you only need to run npm once | the same rule, from the window that closed |
 
 - Every new window picks up the latest source from your agent-term enlistment.
 - The picker shows the directory. If it is not the one you want, `cd` there and type the AI CLI's name.
