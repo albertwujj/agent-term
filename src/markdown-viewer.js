@@ -1233,23 +1233,28 @@ function createMarkdownViewer({
     }
     state.barHint = band.barRight ? band.barRight.querySelector('.md-bar-hint') : null;
 
-    // Right-side bar button: copy the document body as plain text (comments
-    // excluded), for pasting a drafted message into a chat or email. Sits apart
-    // from the (left-aligned) file path — it's the body, not the filename.
-    // A modifier-click (Ctrl/Cmd/Alt, the viewer's link modifiers) copies the
-    // markdown source instead, for a surface that renders markdown itself
-    // (Reddit, GitHub): one button, the rarer variant behind the modifier.
+    // Right-side bar button: copy as plain text (headings and comments out),
+    // for pasting a drafted message into Teams or email. Sits apart from the
+    // (left-aligned) file path — it's the body, not the filename. Copy takes
+    // what's armed (copyScope): nothing → the whole document; a clicked
+    // heading → its section's body; any other clicked block → that block; an
+    // armed selection → its text. The label names the scope before the click,
+    // so marking a section is the click the viewer already has. A
+    // modifier-click (Ctrl/Cmd/Alt, the viewer's link modifiers) copies the
+    // markdown source of the same scope instead, for a surface that renders
+    // markdown itself (Reddit, GitHub): one button, the rarer variant behind
+    // the modifier.
     if (band.barRight && !band.barRight.querySelector('.md-copy-body')) {
-      let copyBtn;
       const modClick = (isMac() ? '⌘' : 'Ctrl') + '-click';
-      copyBtn = band.makeBtn(
+      const copyBtn = band.makeBtn(
         '⧉ text',
-        `Copy the document body as plain text (no comments), for a chat or email. ${modClick}: the markdown source, for Reddit or GitHub`,
-        (e) => copyDocBody(copyBtn, !!(e && (e.ctrlKey || e.metaKey || e.altKey))),
+        `Copy as plain text (no headings, no comments), for Teams or email: the whole document, or click a heading first for just its section, a paragraph for just that paragraph. ${modClick}: the markdown source instead, for Reddit or GitHub`,
+        (e) => copyDocBody(!!(e && (e.ctrlKey || e.metaKey || e.altKey))),
       );
       copyBtn.classList.add('md-copy-body');
       copyBtn._restLabel = copyBtn.textContent;
       band.barRight.appendChild(copyBtn);
+      state.copyBtn = copyBtn;
     }
 
     const scroll = document.createElement('div');
@@ -3711,6 +3716,7 @@ function createMarkdownViewer({
     state.activeTargetPane = null;
     state.activeSelection = null;
     hideHint();
+    syncCopyLabel();
     updateSelectionHighlights();
   }
 
@@ -4099,20 +4105,25 @@ function createMarkdownViewer({
     return el;
   }
 
-  // The document body as plain text, for pasting a drafted message into a chat
-  // or email. Rendered from the FROZEN SOURCE, so comments and un-sent edits —
-  // which live in the sidecar store, never the source — are excluded for free.
-  // Headings and rules are dropped; each paragraph collapses to a single line
-  // (soft wraps gone); list items stay one per line; code blocks keep their line
-  // breaks; blocks are separated by a blank line.
-  function buildDocBodyText() {
-    const src = state.sourceText || '';
-    if (!src.trim()) return '';
+  // Plain text from a slice of the FROZEN SOURCE, for pasting a drafted
+  // message into Teams or email — so comments and un-sent edits, which live in
+  // the sidecar store, never the source, are excluded for free. Headings and
+  // rules are dropped; each paragraph collapses to a single line (soft wraps
+  // gone); list items stay one per line, each its own text (a nested list is
+  // its own items, not a repeat inside the parent's line); code blocks keep
+  // their line breaks; blocks are separated by a blank line.
+  function buildPlainText(src) {
+    if (!String(src || '').trim()) return '';
     const host = document.createElement('div');
     host.innerHTML = renderMarkdownDocument(
-      src, markdownImageOptions({ path: state.resolvedPath || state.filePath }),
+      String(src), markdownImageOptions({ path: state.resolvedPath || state.filePath }),
     ).html;
     const oneLine = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+    const ownText = (li) => {
+      const clone = li.cloneNode(true);
+      for (const nested of clone.querySelectorAll('ul, ol')) nested.remove();
+      return oneLine(clone.textContent);
+    };
     const parts = [];
     for (const el of Array.from(host.children)) {
       const tag = (el.tagName || '').toUpperCase();
@@ -4121,7 +4132,7 @@ function createMarkdownViewer({
       if (tag === 'PRE') {
         text = String(el.textContent || '').replace(/\s+$/, ''); // code: keep line breaks
       } else if (tag === 'UL' || tag === 'OL') {
-        text = Array.from(el.querySelectorAll('li')).map((li) => oneLine(li.textContent)).filter(Boolean).join('\n');
+        text = Array.from(el.querySelectorAll('li')).map(ownText).filter(Boolean).join('\n');
       } else {
         text = oneLine(el.textContent);
       }
@@ -4130,21 +4141,80 @@ function createMarkdownViewer({
     return parts.join('\n\n');
   }
 
-  // `source` copies the frozen markdown source verbatim (comments and un-sent
-  // edits live in the sidecar, so they stay out either way); the flash says
-  // which copy fired.
-  function copyDocBody(btn, source = false) {
+  // What copy takes: the armed thing, or the whole document when nothing is
+  // armed. A heading stands for its section — the body under it, up to the
+  // next heading of its level or higher (a sub-section's body rides along;
+  // the sub-heading itself drops like any heading); any other block is
+  // itself; a selection record is its text (already text, so `raw`). `src` is
+  // the source slice both the plain and the markdown variants read; `label`
+  // is the noun the bar button shows.
+  function copyScope() {
+    const sel = state.activeSelection;
+    if (sel && sel.selectedText) return { label: 'selection', src: sel.selectedText, raw: true };
+    const target = state.activeTarget;
+    if (!target) return { label: 'text', src: state.sourceText || '' };
+    const lines = String(state.sourceText || '').split('\n');
+    const tag = (target.tagName || '').toUpperCase();
+    if (/^H[1-6]$/.test(tag)) {
+      const startLine = Number(target.getAttribute('data-source-start-line'));
+      const headings = state.doc && Array.isArray(state.doc.headings) ? state.doc.headings : [];
+      const i = headings.findIndex((h) => h.startLine === startLine);
+      if (i === -1) return { label: 'section', src: '' };
+      const next = headings.slice(i + 1).find((h) => h.level <= headings[i].level);
+      const end = next ? next.startLine - 1 : lines.length;
+      return { label: 'section', src: lines.slice(headings[i].endLine, end).join('\n') };
+    }
+    const label = {
+      P: 'paragraph', UL: 'list', OL: 'list', LI: 'item', PRE: 'code', BLOCKQUOTE: 'quote', TABLE: 'table',
+    }[tag] || 'block';
+    const range = getBlockSourceRange(target);
+    if (!range) return { label, src: '' };
+    // A nested item's lines carry the parent's indentation; alone, that would
+    // read as an indented code block. Lift the slice to column 0.
+    const slice = lines.slice(range.start - 1, range.end);
+    const indents = slice.filter((l) => l.trim()).map((l) => /^[ \t]*/.exec(l)[0].length);
+    const indent = indents.length ? Math.min(...indents) : 0;
+    return { label, src: slice.map((l) => l.slice(indent)).join('\n') };
+  }
+
+  // The bar button names what copy will take, so the scope reads before the
+  // click. Called wherever the armed target changes; a flash in progress
+  // finishes on the new label.
+  function syncCopyLabel() {
+    const btn = state.copyBtn;
+    if (!btn) return;
+    btn._restLabel = '⧉ ' + copyScope().label;
+    if (!btn._copyTimer) btn.textContent = btn._restLabel;
+  }
+
+  // `source` copies the markdown source of the scope verbatim (comments and
+  // un-sent edits live in the sidecar, so they stay out either way); the flash
+  // on the bar button says which copy fired.
+  function copyDocBody(source = false) {
+    const btn = state.copyBtn;
     const flash = (label) => {
       if (!btn) return;
       btn.textContent = label;
       clearTimeout(btn._copyTimer);
-      btn._copyTimer = setTimeout(() => { btn.textContent = btn._restLabel || label; }, 1400);
+      btn._copyTimer = setTimeout(() => {
+        btn._copyTimer = null;
+        btn.textContent = btn._restLabel || label;
+      }, 1400);
     };
-    const text = source ? String(state.sourceText || '') : buildDocBodyText();
+    const scope = copyScope();
+    // A source slice keeps the blank lines the file puts around a section
+    // (after its heading, before the next); pasted, they read as padding.
+    const text = (source || scope.raw ? String(scope.src || '') : buildPlainText(scope.src))
+      .replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
     if (!text.trim()) { flash('∅'); return; }
     Promise.resolve()
       .then(() => navigator.clipboard.writeText(text))
       .then(() => flash(source ? '✓ md' : '✓'), () => flash('✕')); // ✓ mirrors the web viewer's copy-url
+    // A bar click moved focus to the button; the armed target keeps taking
+    // its keys from the shell.
+    if (state.activeTarget && state.shell) {
+      try { state.shell.focus({ preventScroll: true }); } catch {}
+    }
   }
 
   // When an edit ends with no live strike-in-place marks (its content was
@@ -6039,6 +6109,7 @@ function createMarkdownViewer({
       ? selection.pane
       : (isInSecondaryPane(target) ? 'right' : 'left');
     showHint(target, { selection, link });
+    syncCopyLabel();
     updateSelectionHighlights();
     try { state.shell.focus({ preventScroll: true }); } catch {}
   }
@@ -6225,6 +6296,7 @@ function createMarkdownViewer({
     state.activeTarget = comment.target;
     state.activeTargetPane = comment.pane || (isInSecondaryPane(comment.target) ? 'right' : 'left');
     state.activeSelection = isMarkdownSelectionKind(comment.targetKind) ? comment : null;
+    syncCopyLabel();
     return openCommentCard(comment.comment, {
       queueMode: true,
       queueIndex,
@@ -6289,18 +6361,20 @@ function createMarkdownViewer({
       cancelVdrag();
       return;
     }
-    // ⌘/Ctrl+C with an armed selection record: the native clipboard cannot
-    // see a document-space selection (a cross-page record has no live DOM
-    // range), so copy its text. A live native selection (double-click) and
-    // any focused field keep the native copy.
+    // ⌘/Ctrl+C with an armed target and no live native selection: the native
+    // clipboard cannot see a document-space selection record (a cross-page
+    // record has no live DOM range) and has nothing at all for a clicked
+    // block — so copy what's armed, exactly as the bar's ⧉ button would (a
+    // heading's section, a block, a selection's text). A live native
+    // selection (double-click) and any focused field keep the native copy.
     if ((event.metaKey || event.ctrlKey) && String(event.key).toLowerCase() === 'c'
-      && state.activeSelection && state.activeSelection.selectedText
+      && state.activeTarget
       && state.shell && state.shell.contains(event.target)
       && isTypingTarget(event.target)) {
       const native = window.getSelection && window.getSelection();
       if (!native || native.isCollapsed) {
         event.preventDefault();
-        try { navigator.clipboard.writeText(state.activeSelection.selectedText); } catch {}
+        copyDocBody(false);
         return;
       }
     }
