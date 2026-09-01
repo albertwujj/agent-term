@@ -47,8 +47,15 @@
 //   1st submit                        — pre-Enter → post-Enter (intercept-off
 //                                       keeps its wording: its submits are
 //                                       indistinguishable from dialog answers)
-//   3rd submit                        — dismiss (1st = /resume, 2nd = pick in
-//                                       the CLI list, 3rd = first new prompt)
+//   2nd submit                        — the pick in the CLI's resume list: the
+//                                       flow is done in the normal case, so the
+//                                       band collapses to a thin strip. Hover
+//                                       re-opens it — the 2nd Enter isn't
+//                                       provably the pick (it may have answered
+//                                       a dialog), so the guidance stays
+//                                       recoverable until the flow provably
+//                                       ended.
+//   3rd submit                        — first new prompt: dismiss
 //   click ✕ / destroy()              — explicit dismiss; also tells main to
 //                                       drop pendingResumeIntercept so the
 //                                       next Enter isn't swallowed into a
@@ -57,6 +64,8 @@
 const { aiTitleDedupeKey, cleanAiTitle } = require('./ai-title');
 
 const HINT_HEIGHT_PX = 44;
+const COLLAPSED_HEIGHT_PX = 7;
+const COLLAPSE_ENTERS = 2;
 const AUTO_DISMISS_ENTERS = 3;
 
 let mountedRoot = null;
@@ -184,8 +193,33 @@ const HINT_CSS = `
   background: rgba(255,255,255,0.08);
   color: #e6e6e6;
 }
+/* Collapsed: after the 2nd submit (the pick in the CLI's list) the flow
+   is done in the normal case — the band recedes to a thin strip so it
+   stops occluding the conversation, but stays recoverable by hover in
+   case that Enter wasn't actually the pick. */
+.at-resume-hint.collapsed {
+  height: ${COLLAPSED_HEIGHT_PX}px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: height 160ms ease;
+}
+.at-resume-hint.collapsed .at-resume-hint-text,
+.at-resume-hint.collapsed .at-resume-hint-close {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.at-resume-hint.collapsed:hover {
+  height: ${HINT_HEIGHT_PX}px;
+}
+.at-resume-hint.collapsed:hover .at-resume-hint-text,
+.at-resume-hint.collapsed:hover .at-resume-hint-close {
+  opacity: 1;
+}
 @media (prefers-reduced-motion: reduce) {
   .at-resume-hint, .at-resume-hint-pre kbd { animation: none; }
+  .at-resume-hint.collapsed,
+  .at-resume-hint.collapsed .at-resume-hint-text,
+  .at-resume-hint.collapsed .at-resume-hint-close { transition: none; }
 }
 `;
 
@@ -230,6 +264,7 @@ function recordSubmit() {
   if (enterCount === 1 && !mountedRoot.classList.contains('intercept-off')) {
     mountedRoot.classList.add('post-enter');
   }
+  if (enterCount === COLLAPSE_ENTERS) mountedRoot.classList.add('collapsed');
   if (enterCount >= AUTO_DISMISS_ENTERS) destroy({ cancelIntercept: false });
 }
 

@@ -36,6 +36,14 @@ const SCENARIOS = [
     chrome: { hue: 168, cli: 'codex', prompt: 'Investigate the build timeout in CI', isWorking: true },
   },
   {
+    name: 'post-enter-collapsed',
+    label: 'Collapsed — after the 2nd Enter (the pick) the band recedes to a strip; hover re-opens it',
+    title: 'Refactoring auth middleware tests',
+    postEnter: true,
+    collapsed: true,
+    chrome: { hue: 168, cli: 'codex', prompt: 'Investigate the build timeout in CI', isWorking: false },
+  },
+  {
     name: 'intercept-off',
     label: 'Intercept-off state — non-Enter input (startup dialog) cancelled the shortcut',
     title: 'Refactoring auth middleware tests',
@@ -87,7 +95,7 @@ function buildPreviewHTML(chipNsByScenario) {
         <div class="at-chrome">${renderBarMarkup(sc.chrome, chipN)}</div>
         <div class="caption-stub" title="reserved for system min/max/close in production">_  ▢  ✕</div>
         <div class="at-chrome-hue-divider"></div>
-        <div class="at-resume-hint${sc.postEnter ? ' post-enter' : ''}${sc.interceptOff ? ' intercept-off' : ''}">${renderHintMarkup({ prompt: sc.chrome.prompt, title: sc.title })}</div>
+        <div class="at-resume-hint${sc.postEnter ? ' post-enter' : ''}${sc.interceptOff ? ' intercept-off' : ''}${sc.collapsed ? ' collapsed' : ''}">${renderHintMarkup({ prompt: sc.chrome.prompt, title: sc.title })}</div>
       </div>
     </div>
   `;

@@ -124,6 +124,7 @@ test('intercept-off switches to manual wording and holds it across submits', () 
   assert.strictEqual(document.querySelector('.at-resume-hint'), root);
 
   recordSubmit();
+  assert.ok(root.classList.contains('collapsed'), 'intercept-off collapses on the second submit too');
   recordSubmit();
   assert.strictEqual(document.querySelector('.at-resume-hint'), null, 'third submit still dismisses');
 
@@ -158,10 +159,12 @@ test('submit notifications transition then auto-dismiss the mounted hint', () =>
 
   recordSubmit();
   assert.ok(root.classList.contains('post-enter'), 'first submit should switch to post-enter copy');
+  assert.ok(!root.classList.contains('collapsed'));
   assert.strictEqual(document.querySelector('.at-resume-hint'), root);
 
   recordSubmit();
-  assert.strictEqual(document.querySelector('.at-resume-hint'), root);
+  assert.ok(root.classList.contains('collapsed'), 'second submit (the pick) should collapse the band');
+  assert.strictEqual(document.querySelector('.at-resume-hint'), root, 'collapsed, not dismissed');
 
   recordSubmit();
   assert.strictEqual(document.querySelector('.at-resume-hint'), null, 'third submit should dismiss');
