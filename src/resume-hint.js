@@ -1,7 +1,11 @@
 // Resume-hint — renderer band shown after the user picks a past session
-// in the agent-term picker. It carries one instruction per moment:
+// in the agent-term picker. It carries one instruction per moment, in
+// label form rather than sentences: the terminal below is full of prose,
+// so the band keeps to a few words around one object (the Enter keycap
+// before the shortcut fires, the title chip after), with segments split
+// by a middle dot.
 //
-//   pre-Enter      "When the input box appears, press Enter to send /resume."
+//   pre-Enter      "Wait for the input box · [Enter] sends /resume"
 //                  Main's pty-input handler is armed (pendingResumeIntercept)
 //                  and replaces the user's first plain Enter with a timed
 //                  /resume submission. The user supplies the timing: CLI boot
@@ -9,15 +13,15 @@
 //                  dialog may sit in front of the input box, so the human is
 //                  the only reliable "ready now" signal. The wording says
 //                  when, because timing is the user's job.
-//   post-Enter     "Filter for "<title>", or try the prompt above"
+//   post-Enter     "Filter for [<title>]"
 //                  Shown once the intercept fired and the CLI's resume dialog
-//                  is on screen. The CLI's own title leads: resume UIs surface
-//                  it, and the title feed is reliable. The prompt in the
-//                  chrome line directly above is the fallback when the title
-//                  is missing or is just the prompt itself, and the alternate
-//                  search term when both exist.
-//   intercept-off  "Type /resume when the input box appears, then filter for
-//                  "<title>", or try the prompt above"
+//                  is on screen. The CLI's own title, as a chip: resume UIs
+//                  surface it, and the title feed is reliable. "Filter for
+//                  the prompt above" (the chrome line directly above) is the
+//                  strict fallback when the title is missing or is just the
+//                  prompt itself.
+//   intercept-off  "Type /resume once the input box is up · then filter for
+//                  [<title>]"
 //                  Main cancels the intercept on any non-Enter input (the
 //                  user answered a startup dialog with arrows or y, or is
 //                  typing their own command). Enter is plain again, so the
@@ -27,9 +31,8 @@
 // The band is sized and coloured to be noticed on first sight: 44px tall,
 // 15px type, tinted with the session hue behind a left accent bar so it
 // reads as a message rather than chrome, slides in once, and the Enter key
-// carries a slow pulse until it is pressed. One typeface; the keycap is the
-// only object, the phrase to remember is the only bold, and the alternate
-// title is quoted.
+// carries a slow pulse until it is pressed. One typeface, one object per
+// state, one bold.
 //
 // Lifecycle:
 //   show({ cli, prompt, title })      — mount in the pre-Enter state
@@ -84,19 +87,27 @@ const HINT_CSS = `
   from { transform: translateY(-100%); opacity: 0; }
   to   { transform: none; opacity: 1; }
 }
-/* All wording is one inline run: sans, mono and the keycap share a
-   baseline by inline-flow rules, and the run centres in the band as a
-   whole. The run ellipsizes at the ✕. */
+/* The wording is a row: the state's words, then (after Enter) the title
+   chip or the prompt reference. Baseline alignment keeps the words and
+   the chip on one line; the chip ellipsizes on its own so its border
+   stays closed, and the row as a whole centres in the band. */
 .at-resume-hint-text {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+.at-resume-hint-text > * { flex: 0 0 auto; }
+.at-resume-hint .sep {
+  color: #707070;
+  margin: 0 7px;
 }
 /* One wording per state. Pre-Enter shows by default; .post-enter and
-   .intercept-off on the host swap it for theirs. The filter tail belongs
-   to the two later states only. */
+   .intercept-off on the host swap it for theirs. The tail (chip or prompt
+   reference) belongs to the two later states only. */
 .at-resume-hint-pre {
   color: #c8c8c8;
 }
@@ -130,14 +141,28 @@ const HINT_CSS = `
 }
 .at-resume-hint.post-enter .at-resume-hint-pre { display: none; }
 .at-resume-hint.post-enter .at-resume-hint-label,
-.at-resume-hint.post-enter .at-resume-hint-tail { display: inline; }
+.at-resume-hint.post-enter .at-resume-hint-tail { display: inline-block; }
 .at-resume-hint.intercept-off .at-resume-hint-pre,
 .at-resume-hint.intercept-off .at-resume-hint-label { display: none; }
 .at-resume-hint.intercept-off .at-resume-hint-manual,
-.at-resume-hint.intercept-off .at-resume-hint-tail { display: inline; }
+.at-resume-hint.intercept-off .at-resume-hint-tail { display: inline-block; }
 .at-resume-hint-lead {
   color: #ffffff;
   font-weight: 600;
+}
+/* The title as an object: the thing to type, bounded like the keycap. */
+.at-resume-hint-chip {
+  flex: 0 1 auto !important;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 10px 2px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--at-resume-accent) 18%, #0c0c0c);
+  border: 1px solid color-mix(in srgb, var(--at-resume-accent) 45%, #0c0c0c);
+  color: #ffffff;
+  font-weight: 600;
+  line-height: 20px;
 }
 .at-resume-hint-close {
   flex: 0 0 auto;
@@ -221,9 +246,9 @@ function hintParts(input) {
   const titleKey = aiTitleDedupeKey(title, opts.cli) || normalizeHintCompare(title);
   const hasDistinctTitle = !!title && titleKey !== promptKey;
 
-  // Title leads; a title that is just the prompt adds nothing, so only the
-  // prompt reference is shown then. promptRef says whether "the prompt
-  // above" is available as the fallback or the alternate.
+  // Title leads; a title that is just the prompt adds nothing, so the
+  // prompt reference stands in then. promptRef says whether "the prompt
+  // above" is available as the fallback.
   return {
     title: hasDistinctTitle ? title : '',
     promptRef: hasPrompt,
@@ -235,20 +260,14 @@ function hintParts(input) {
 // it via show().
 function renderHintMarkup(input) {
   const parts = hintParts(input);
-  const title = parts.title
-    ? `“<span class="at-resume-hint-title" title="${escapeHtml(parts.title)}">${escapeHtml(parts.title)}</span>”`
-    : '';
-  const prompt = parts.promptRef
-    ? '<span class="at-resume-hint-prompt">the prompt above</span>'
-    : '';
-  // The lead is the one thing to remember: the title, else the prompt
-  // above, else (callers with no context at all) the session itself.
-  const lead = `<span class="at-resume-hint-lead">${title || prompt || 'this session'}</span>`;
-  const alt = title && prompt
-    ? `<span class="at-resume-hint-extra">, or try</span> ${prompt}`
-    : '';
+  // The tail is the one thing to remember: the title as a chip, else the
+  // prompt above, else (callers with no context at all) the session itself.
+  const tail = parts.title
+    ? `<span class="at-resume-hint-tail at-resume-hint-chip" title="${escapeHtml(parts.title)}">${escapeHtml(parts.title)}</span>`
+    : `<span class="at-resume-hint-tail at-resume-hint-lead">${parts.promptRef ? 'the prompt above' : 'this session'}</span>`;
+  const sep = '<span class="sep">·</span>';
   return `
-    <span class="at-resume-hint-text"><span class="at-resume-hint-pre">When the input box appears, press <kbd>Enter</kbd> to send /resume.</span><span class="at-resume-hint-manual">Type /resume when the input box appears, then filter for </span><span class="at-resume-hint-label">Filter for </span><span class="at-resume-hint-tail">${lead}${alt}</span></span>
+    <span class="at-resume-hint-text"><span class="at-resume-hint-pre">Wait for the input box${sep}<kbd>Enter</kbd> sends /resume</span><span class="at-resume-hint-manual">Type /resume once the input box is up${sep}then filter for</span><span class="at-resume-hint-label">Filter for</span>${tail}</span>
     <button class="at-resume-hint-close" aria-label="Dismiss" title="Dismiss">✕</button>
   `;
 
