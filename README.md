@@ -12,7 +12,7 @@ So why do people still run agents in the IDE, and why are the vendors adding the
 
 What about the vendor desktop apps, which also offer a richer interface? An app built around one vendor's agent trades away some key benefits: the other agents, and the closeness to your shell environment, etc. For coding it can also disorient, adding a workspace of its own between you and the code; many who try it drift back to the terminal, where the familiar, the repo, the shell, and the tests already live. The grown terminal here keeps all the goodness, yet offers a lot more.
 
-## Why it holds up
+## Why it holds
 
 This path can look hacky: the host reads the agent's own output, lines of text, and reacts to it. But text output is the durable seam. An agent's intentions arrive as text through every turn, and good output style persists, so parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles without negotiation. Enhancement is quick when something new shows up. In practice the parsing has grown well, more robust while staying flexible, with no SDKs or vendor APIs anywhere.
 
