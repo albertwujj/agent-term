@@ -1,134 +1,53 @@
-# AgentTerm
+# Grow your own terminal for coding agents
 
-**Steer a fleet of the coding agents you already run**: beyond the terminal, on surfaces you already know.
+**Jump-start with this repo and its suite.**
 
-![AgentTerm – filter your sessions and pick the right one](assets/hero-session-picker.gif)
+![the walk in stills, one per row of the table below](assets/hero-walk.gif)
 
-AgentTerm hosts any CLI coding agent (Claude Code, Codex, Copilot, Cursor's CLI). It's a full terminal underneath, so you can replace yours and run your coding agents in it exclusively, as the author does.
+People run coding agents in an IDE, in the terminal, or in the vendor's desktop app. The terminal keeps pulling them in: Claude Code and Codex shipped as terminal programs, and Cursor and Copilot, born in the IDE, added CLIs of their own, all living beside your shell, git, and build tools. A form from decades ago turned out to be a good fit for what an agent needs: text in, text out, and every tool you own one command away.
 
-While a terminal is a solid foundation for coding agents to run on, it was designed for the programs of decades past, and never grew to fit what an agent is. AgentTerm keeps the foundation and breaks through the ceiling.
+So why do people still run agents in the IDE, and why are the vendors adding their agents to desktop apps? Partly because the standard terminal interface (TUI), although great for text-centric iteration, cannot offer agents and users the essentials and the boosters a richer interface can. One answer is to move the agent out, into an app built around it. The other is to treat the terminal as the core and extend it. This repo is the second path: a full terminal wrapped in a modern extensible window (Electron), retaining everything you already have and raising the ceiling.
 
-## What changes
+What about the vendor desktop apps, which also offer a richer interface? An app built around one vendor's agent trades away some key benefits: the other agents, and the closeness to your shell environment, etc. For coding it can also disorient, adding a workspace of its own between you and the code; many who try it drift back to the terminal, where the familiar, the repo, the shell, and the tests already live. The grown terminal here keeps all the goodness, yet offers a lot more.
 
-| In a standard terminal | In AgentTerm |
+This path can look hacky: the host reads the agent's own output, lines of text, and reacts to it. But text output is the durable seam. An agent's intentions arrive as text through every turn, and good output style persists, so parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles without negotiation. Enhancement is quick when something new shows up. In practice the parsing has grown well, more robust while staying flexible, with no SDKs or vendor APIs anywhere.
+
+There is also a benefit over what the vendor CLIs can do alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. With a host that reacts, the printed line alone is enough: the viewer opens right in the window, with placement and sizing optimized for the situation.
+
+And it is yours. The agents, made better by running in this grown terminal, grow it further: when something falls short, the symptom is right there, and you and the agents are in a good position to evaluate and build the fix. That is also part of the larger point: with coding agents at your disposal, you can quickly grow your own tool to fit your own needs, which you know best. So start your own, use and build upon what's here.
+
+What is available already beyond a standard terminal:
+
+| In a standard terminal | In this grown terminal |
 |---|---|
-| Everything the agent prints (a diff, a plan, a claim, a link) is dead text you can read but not act on. | Select any of it and comment; the agent makes the change. A plain click opens whatever renders (docs, reviews, web pages, images). |
-| Several agents running means identical tabs outside, walls of text inside. | Every session is findable by what you asked it, with live taskbar previews on Windows. |
-| The agent finishes a change and you get a wall of diff. | It hands you a prepared review; you comment inline, it fixes and replies in place. |
-| Its plans and docs are raw markdown in an editor. | They render live; you write in the rendered page and the agent maintains the source. |
-| It sits blocked on a question until you're back at your desk. | Your phone shows the same terminal; unblock it by voice. |
+| Several agents running means identical tabs outside, walls of text inside. | Each session gets its own **unique taskbar button and preview** on Windows (a Mission Control swipe on a Mac), so you tell them apart at a glance, and the picker searches instantly, down to every prompt you typed and more. [Details](docs/sessions.md). |
+| Everything the agent prints (a diff, a plan, a claim, a link) is dead text you can read but not act on. | **Select any of it and comment**; the agent makes the change. A click opens whatever renders (docs, reviews, web pages, images). [Details](docs/comment.md). |
+| Its plans and docs are raw markdown in an editor. | They render live; you **write in the rendered page** and the agent maintains the source. [Details](docs/plan.md). |
+| Agents sharing a checkout have no awareness of each other: branches move, files change, test ports collide underneath. | Start the task with [one doc reference](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) and the agent **takes the checkout lock** and cuts a branch before its first edit; a padlock at the top right of each window shows who holds it. [Details](docs/lock.md). |
+| The agent finishes a change and you get a wall of diff. | It hands you a **curated package, rendered for your review**; you comment inline, it fixes and replies in place. [Details](docs/review.md). |
+| A long CI run either blocks the session, or outlives the agent's turn and finishes unnoticed. | The agent starts the job and hands the terminal back; **the job reports its own completion** through the terminal and the idle agent is prompted to pick it up, surviving session restarts; a runner icon at the top right shows what is running. [Details](docs/jobs.md). |
+| It sits blocked on a question until you're back at your desk. | **Your phone shows the same terminal**; unblock it by voice. [Details](docs/phone.md). |
+| The agent cites file:line and symbols; checking a claim means finding it by hand. | Ctrl/Cmd-click any reference and **your IDE jumps to that exact line** to verify the claim, with the editor read-only so a stray key changes nothing. [Details](docs/ide.md). |
 
-Where that takes conventions that don't exist yet, AgentTerm defines them as open protocols: the agent prints a `review://` link, and the review opens right in the terminal.
+Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The sessions still cooperate, through the same open conventions the agents use: the checkout lock, and the sessions log. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. Independent like the agents, cooperating like the agents; hierarchy, when it helps, lives inside a session, where an agent runs its own subagents.
 
-**Point at anything the agent shows you** (a line of terminal output, or a diff) and say what you want; the agent makes the change.
+## How to start
 
-## Find the right session
-Run many agents and AgentTerm tracks them at two levels. The ones you're **actively juggling** become **Windows taskbar buttons**, each with a working indicator and two levels of live preview showing what the session's for and what it's doing. (On a Mac, run each session full screen: each window pins its initial prompt at the top, readable in a Mission Control swipe.) The ones you've **set aside** are a keystroke away: open the picker and filter your past sessions by **what you asked them**, or what the agent called the work, while a deeper pass searches every prompt you typed; resume any of them (the hero above). No hunting through look-alike terminals, and no back-and-forth with an agent to find it for you.
+**Run it.**
 
-![your active agent sessions: each a live taskbar button with a thumbnail preview](assets/taskbar-preview.png)
-<sub>Session content blurred; the taskbar labels are as they render.</sub>
+1. Clone: `git clone https://github.com/albertwujj/agent-term` (on Windows, into WSL's native filesystem).
+2. Install [Node.js](https://nodejs.org) if you don't have it (the [development guide](DEVELOPMENT.md) covers the Windows setup).
+3. From the checkout: `npm ci` once, to install the dependencies, then `npm run start` (`npm run start:wsl` on WSL); or start from your own repo with `--prefix` pointing at the checkout ([sessions](docs/sessions.md)).
 
-## Watch and steer from your phone
-Add the companion viewer (**[agent-stream-hub](https://github.com/albertwujj/agent-stream-hub)**) to your phone's home screen as a web app. It shows **which agents need you across all your machines** ("your turn"), and drills into any live session **as the terminal itself**: the same screen you left at your desk, recognizable at a glance, with even its menus drivable key-by-key. **Steer it by voice**: speak, and your words reach the agent as text it knows came from voice, so it repairs the mishears and false starts against the session before acting. That's the part phone dictation can't do: with no view of your code it hears "pie test" and leaves it there; the agent turns it into `pytest`. Type instead when voice isn't right. The viewer is self-hosted and opt-in: you run the relay on a machine you own, and everything travels over plain outbound HTTPS, so there are no inbound ports to open and no VPN to stand up.
+The above already covers the top of the table: sessions as windows with their taskbar buttons and picker, and commenting on anything the agent prints.
 
-<p>
-  <img src="assets/phone-machines.jpg" width="235" alt="which machines have agents waiting on you ('your turn')">
-  &nbsp;
-  <img src="assets/phone-sessions.jpg" width="235" alt="the sessions on a machine, color-coded by agent">
-  &nbsp;
-  <img src="assets/phone-session.jpg" width="235" alt="open a live session and reply by voice or text">
-</p>
+**Add the loops you want.**
 
-## Plus the quality-of-life stuff
-Paste images and drag-drop files straight into a prompt · fuzzy-search the whole scrollback · click an image path the agent prints and it renders right in the app (`Ctrl/Cmd`-click sends `.pdf`, `.csv`, folders and the rest to their OS apps) · right-click to quote a selection into the prompt. `Ctrl+K` / `Cmd+K` inserts your IDE's current location into the prompt.
+1. **Clone what you need**: each loop is a small repo. [agent-threads](https://github.com/albertwujj/agent-threads) for plans and reviews, [agent-lock](https://github.com/yunxin/agent-lock) for the checkout lock, [agent-jobs](https://github.com/yunxin/agent-jobs) for long runs.
+2. **Vendor what you command**: to command the agent with the supported verbs (md files named for the verb; use `@` to pick, say by typing `@produce-r` for producing a review), it's best to vendor agent-lock and agent-threads into your workspace repo. See [placement](docs/conventions.md).
+3. Phone: self-host [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) and add it to your home screen.
+4. IDE jump: install the [IntelliJ Navigator plugins](https://github.com/albertwujj/intellij-navigator/releases).
 
-## Comment on its output
-Most of what an agent tells you scrolls past in the terminal. Select any of it (a line, a claim, a command it's about to run) and comment; your note goes back to the agent with the exact text quoted, so a few words are enough. (Works on the rendered markdown viewer too.)
+**Grow it.** Fill what you need: you do that with your agents, using this terminal itself as a boost.
 
-If your CLI captures the mouse (Claude Code's fullscreen rendering does), hold `Shift` while selecting; commenting works the same. To keep plain-drag selection, launch Claude Code with `CLAUDE_CODE_DISABLE_MOUSE=1`, or `CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1` to keep its wheel scrolling.
-
-![select a phrase in the agent's output and say three words](assets/comment-select.png)
-
-…and what reaches the agent: your words, with the exact context quoted:
-
-![the sent prompt carries the quoted selection, and the agent acts on it](assets/comment-sent.png)
-
-## Review, not a wall of diff
-When the agent finishes, it prepares your review: it hands you the parts that need your judgment, ordered and explained with trade-offs flagged, and leaves out what doesn't need it: the mechanical noise (renames, imports, boilerplate) and what you already settled during the session. Comment inline, on the code *and* on its reasoning; it edits, replies in the thread, and the review re-renders in place.
-
-![the review loop: comment on a line, the agent fixes it and replies, the review re-renders in place](assets/review-loop.gif)
-
-## Plan with it
-The viewer turns markdown into a place you write English, live. A doc opens rendered and updates as the agent works. Comment on any passage, or edit the rendered text directly, starting new lines anywhere; edits reach the agent as suggestions, and it decides what each new line becomes in the source (a heading, a list item, a paragraph). You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
-
-And English is where the real planning happens. A large part of design is settled in words before any code: the plan, the design doc, the findings. Those docs are how you work with the agent, and how you work with other people. They become so fast to produce this way that one project can carry a targeted doc for each audience: for the agents, for developers, for program managers, and more. The plan converges the way code does: commented, revised in place, settled before anything is built. The same loop covers any writing project (essays, notes, research, docs): your materials are organized as a repo the agent uses as needed and edits for you.
-
-![the plan loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list; the send hands the screen to the terminal, and the doc takes it back when the agent finishes](assets/doc-edit-loop.gif)
-
-## Confirm what the agent tells you
-Agents explain themselves by quoting `file:line` and symbols. `Ctrl`-click any reference the agent mentions (`Cmd` on Mac; not just files it edited) and your IDE jumps to that exact line so you can verify the claim. URLs it cites open too, in an embedded web view right in the terminal.
-
-![click a reference → your IDE jumps to that exact line](assets/click-to-ide.gif)
-
-## Look without breaking it
-Your IDE editor stays **read-only by default**, so you don't have to worry about a stray keystroke. (Flip a setting on the rare occasion you want to edit directly.)
-
-## Make it yours
-Everything here is modular and agent-sized: the terminal is 18k lines of plain JS (MIT), and the IDE plugin, phone viewer, and review spec are each their own small repo. Take the piece you want and make it your own. Share what you build, and pull in what others make.
-
-## Platform
-Runs on **macOS and Windows**. AgentTerm is built on a Mac using AgentTerm itself, and used heavily for work on Windows, so both are first-class. Live-session switching is integrated with the Windows taskbar. On a Mac, give each session its own full screen or desktop: the initial prompt stays pinned at the top of the window, so a Mission Control swipe shows every session, readable (a more Mac-optimized UX is welcome). IDE navigation targets **JetBrains** today, but the protocol's open, so other editors and code viewers are easy to add. PRs welcome on both fronts. All MIT, all free: no telemetry, no upsell.
-
-## How it works (for the curious)
-- **One click rule**: a plain click opens what renders in-app (markdown, reviews, web pages, images); anything that hands you to another application (OS apps, your IDE) waits for `Ctrl/Cmd`; commenting always goes through a selection.
-- **Append-only, single-pass decoration engine**: pattern detection runs incrementally on new output (O(new rows), not O(total)), so thousands of live links cost ~nothing as the stream grows.
-- **Open IDE protocol**: navigation is newline-delimited JSON over a local TCP socket (a backend plugin resolves files/symbols + moves the caret on `8765`; a frontend plugin scrolls the viewport + reports the caret on `8766`). Any editor can implement it; see the [API spec](https://github.com/albertwujj/intellij-navigator/blob/main/API.md). JetBrains today; VS Code / Neovim / Emacs welcome.
-- **Cross-platform shell**: WSL on Windows, native PTY on macOS.
-
-## Open protocols
-Each capability is a small, documented protocol, not a feature sealed in the app.
-
-- **IDE navigation**: the local-socket protocol above; any editor can implement it.
-- **Review**: the agent writes a markdown review that organizes and explains the diff, per the open [agent-threads](https://github.com/albertwujj/agent-threads) spec; agent-term renders it and carries your inline comments back to the agent. Other hosts welcome.
-- **Viewers by URL**: one convention routes whatever the agent prints. A `review://` link auto-opens the rendered review, `http(s)` opens the embedded web viewer, and a markdown file renders with the same inline commenting. The URL is the whole API: an agent needs no SDK to drive the host; it prints a line of text.
-- **Fleet coordination**: a lock / ownership / HEAD-guard convention so many agents can share one checkout without clobbering each other ([agent-lock](https://github.com/yunxin/agent-lock)). AgentTerm shows who holds the checkout as a padlock at the top of each window: green when this window holds it, in the other window's color when another does, hollow while that window is idle, dashed when it is closed. It never interrupts the agent; the lock's own scripts refuse a colliding step.
-- **Conventions by filename**: agents bind to docs by name, resolving to the nearest such file up the directory tree (`commit-message.md`, the kits' config; [agent-lock's `coding-guide.md` handoff](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) shows the rule). No central config.
-- **Voice input**: a source injects a raw speech-to-text transcript prefixed with a pointer to a vendored guide ([voice-to-agent](https://github.com/albertwujj/voice-to-agent)); the agent, holding the whole session, reconstructs the dictation against context and acts, so no hub-side model has to.
-
-## Run from source
-
-- **macOS:** `git clone https://github.com/albertwujj/agent-term && cd agent-term && npm ci && npm run start`. `Cmd+Shift+N` opens the next window; type `exit` to quit for good.
-- **Windows:** clone into WSL's native filesystem, then run `npm ci && npm run start:wsl` from the checkout. The UI runs as a native Windows app while its shell and coding agents stay in WSL.
-
-The directory where you invoke npm is the terminal and agent workspace. To launch the AgentTerm checkout from another workspace, use `npm --prefix /path/to/agent-term run start` on macOS or `npm --prefix /path/to/agent-term run start:wsl` on WSL. Source launches fail if npm does not provide a valid invocation directory.
-
-AgentTerm has no packaged release channel; `main` is the rolling source distribution. To update an existing checkout, pull `main`, run `npm ci`, and start it again.
-
-See the **[development guide](DEVELOPMENT.md)** for prerequisites, Windows Node.js setup, platform differences, the test workflow, and troubleshooting.
-
-Optional companions:
-- **IDE plugins (for click-to-IDE):** download both ZIPs from the [IntelliJ Navigator releases page](https://github.com/albertwujj/intellij-navigator/releases), with step-by-step installation in its release notes.
-- **Phone/web viewer:** self-host [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) and add it to your home screen.
-
-**What it does on your machine:** spawns your shell and your agent, and reads and writes files in the projects you open. No telemetry, no account, no auto-update, and no network calls of its own. The embedded viewer loads only pages you click, and the phone viewer above is a separate component you host yourself.
-
-## Shortcuts
-The few worth learning (`Ctrl` on Windows, `Cmd` on Mac):
-- `Ctrl/Cmd+Shift+N`: a new AgentTerm window, opening on the session picker in the established agent session's directory; before the first prompt is captured, it uses the current window's original launch directory. This is the only kind of new: every session is a whole OS window, and there are no tabs.
-- `Ctrl/Cmd+Shift+U`: everything the session can open in a viewer (docs, images, URLs), as a filterable list.
-- `Ctrl/Cmd+Shift+O` / `+I`: grow / shrink the open viewer.
-- `Ctrl/Cmd+F`: fuzzy-search the whole scrollback.
-- `Ctrl/Cmd+K`: insert your IDE's current location into the prompt.
-
-## Related repos
-- **[agent-term](https://github.com/albertwujj/agent-term)** (this repo): the host that extends the terminal.
-- **[agent-stream-hub](https://github.com/albertwujj/agent-stream-hub)**: the phone/web viewer + relay.
-- **[intellij-navigator](https://github.com/albertwujj/intellij-navigator)**: JetBrains plugins (file/symbol nav + the read-only guard).
-
-Plus the open specs (bring your own host/agent):
-- **[agent-threads](https://github.com/albertwujj/agent-threads)**: the review-thread spec the review loop (and live-markdown commenting) runs on.
-- **[agent-lock](https://github.com/yunxin/agent-lock)**: a lock so several agents share one git checkout without clobbering each other (the working tree, branches, and the host-global ports their tests grab).
-- **[agent-jobs](https://github.com/yunxin/agent-jobs)**: a long job the agent started reports its own completion, so the agent can end its turn and hand the terminal back to you. When the job finishes and the agent has been idle since, AgentTerm prompts it to pick the result up; an agent its CLI already woke, or that is busy with something else, gets no second report (the [job-events](job-events.md) contract).
-- **[voice-to-agent](https://github.com/albertwujj/voice-to-agent)**: the vendored guide that tells an agent to reconstruct and act on a raw speech-to-text transcript (what the phone's voice input runs on).
-
-Built with Electron · xterm.js (WebGL) · node-pty · esbuild. MIT licensed. A ⭐ helps others find it.
+Built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT.
