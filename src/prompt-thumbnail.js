@@ -21,15 +21,15 @@
 //   │   Add tests for the race condition           │ ← intermediate
 //   │   Pause backfill, workers timing out         │ ← older still
 //   │                                               │
-//   │ Investigating worker timeouts                │ ← initialTitle (italic)
-//   │ ↳ Connection pool issues                     │ ← lockedTitle (↳, only on drift)
+//   │ Investigating worker timeouts                │ ← first title (italic)
+//   │ ↳ Connection pool issues                     │ ← later title (↳, only on drift)
 //   └──────────────────────────────────────────────┘
 //
 // The verbatim firstPrompt is the session's identity (the user typed it,
 // they remember it). The body shows newest-first recent prompts EXCLUDING
 // the first (already in the header — don't duplicate). The bottom carries
-// the CLI's distilled titles — initialTitle frozen at first emission,
-// lockedTitle if it has since drifted. Suppression mirrors the picker
+// the CLI's titles — the name it first gave the conversation, later ones
+// if it has since drifted. Suppression mirrors the picker
 // rows: a title that equals cli/firstPrompt/lastPrompt collapses, two
 // identical titles collapse to one.
 //
@@ -456,7 +456,7 @@ function buildScript(opts) {
 //   width, height,
 //   cli, isWorking,
 //   allPrompts: [{ prompt, t }],   // chronological, oldest first
-//   initialTitle, lockedTitle,
+//   lockedTitle,
 //   sessionStartTime,
 // }
 
@@ -549,7 +549,6 @@ function buildLivePreviewScript(opts) {
     firstPrompt = '',
     firstPromptOverflow = '',
     refs = [],
-    initialTitle = '',
     thumbWidth = 0,
     thumbHeight = 0,
   } = opts || {};
@@ -585,12 +584,6 @@ function buildLivePreviewScript(opts) {
       continue;
     }
     activityEvents.push(ev);
-  }
-  // initialTitle is already shown in the OS chrome strip (via setTitle in
-  // main.js). Drop it from topInlineTitles so the body's "↪ …" line doesn't
-  // repeat what the user is already reading at the top of the popup.
-  if (initialTitle) {
-    topInlineTitles = topInlineTitles.filter(t => t !== initialTitle);
   }
   // If no firstPrompt match (pre-prompt state), titles already collected
   // as standalone 'title' events stay in activityEvents — handled by the

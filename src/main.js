@@ -184,13 +184,6 @@ let firstPrompt = null;
 // to a session (or a recorded session is resumed). Successor windows use it in
 // that state; pre-session windows retain shellStartCwd().
 let sessionCwd = null;
-// Session subject carried over from a resumed session's stored value
-// (written by the retired `initial:true` promotion). New sessions no longer
-// mint one: the verbatim first prompt is the intentional frozen identity,
-// and the CLI title is captured as drifting title events — the picker shows
-// the latest. Kept for identity fallback on resumed sessions that predate
-// prompt capture, and so their stored subject keeps rendering.
-let initialTitle = null;
 // Boot vocabulary: dedupe keys of every OSC title seen before the first
 // prompt. A session title worth logging is, by definition, something the
 // CLI could not have said before it saw a prompt — so anything in this set
@@ -455,14 +448,12 @@ function isUsableTitle(s) {
   return true;
 }
 
-// Which string drives the taskbar icon letters + window-title rest?
-// Prefer the verbatim first prompt — it's what the user typed and what
-// they recognise. Falls back to `initialTitle` (CLI-distilled subject)
-// only when no prompt has been captured yet (pre-first-Enter state).
-// Verbatim prompts often contain URLs / paths / @-mentions; callers
-// should run them through truncatePathsForTaskbar before splitting.
+// Which string drives the taskbar icon letters + window-title rest? The
+// verbatim first prompt — it's what the user typed and what they
+// recognise. Verbatim prompts often contain URLs / paths / @-mentions;
+// callers should run them through truncatePathsForTaskbar before splitting.
 function identityString() {
-  return firstPrompt || initialTitle || '';
+  return firstPrompt || '';
 }
 
 function cycleIconParams(idx) {
@@ -588,9 +579,7 @@ function thumbnailPayload() {
   // as the same semantic title.
   const titleSeen = new Set();
   const fpEchoKey = aiTitleDedupeKey(firstPrompt || '', detectedCli);
-  const itEchoKey = aiTitleDedupeKey(initialTitle || '', detectedCli);
   if (fpEchoKey) titleSeen.add(fpEchoKey);
-  if (itEchoKey) titleSeen.add(itEchoKey);
   const filteredTitles = [];
   for (const t of allTitles) {
     const cleanTitle = cleanAiTitle(t.title || '', detectedCli);
@@ -627,15 +616,14 @@ function thumbnailPayload() {
   // into the window title via setTitle(); everything past that point is
   // what the user can't see at the top of the popup. The card surfaces
   // that overflow so chrome-top + card together cover the whole prompt
-  // with no overlap. Same input pipeline as the title (initialTitle when
-  // available, else truncatePathsForTaskbar of firstPrompt) so the cut
-  // point is consistent.
+  // with no overlap. Same input pipeline as the title
+  // (truncatePathsForTaskbar of firstPrompt) so the cut point is
+  // consistent.
   let firstPromptOverflow = '';
   // Refs (URLs, ≥3-segment paths, @-mentions) extracted from the verbatim
   // first prompt — surfaced verbatim in the live-preview footer so the
-  // user can see what was actually referenced. Always extracted from
-  // firstPrompt (not initialTitle) since initialTitle is model-distilled
-  // and the refs the user actually wrote live in their literal prompt.
+  // user can see what was actually referenced. Extracted from the verbatim
+  // firstPrompt, where the refs the user actually wrote live.
   let refs = [];
   if (firstPrompt) {
     const stripped = extractPathsAndUrls(firstPrompt);
@@ -668,7 +656,6 @@ function thumbnailPayload() {
     recentPrompts,
     recentActivity,
     events,
-    initialTitle: initialTitle || '',
     lockedTitle: lockedTitle || '',
     sessionStartTime: sessionStartTime || 0,
   };
@@ -739,7 +726,7 @@ function payloadHash(p) {
   return JSON.stringify({
     cli: p.cli, isWorking: p.isWorking, firstPrompt: p.firstPrompt,
     events: (p.events || []).map(e => ({ type: e.type, text: e.text, t: e.t })),
-    initialTitle: p.initialTitle, lockedTitle: p.lockedTitle,
+    lockedTitle: p.lockedTitle,
   });
 }
 
@@ -1105,7 +1092,7 @@ function assignSessionIdentity() {
 }
 
 // Render the taskbar icon (3-4 letter chip + hue pill) and update the window
-// title's "rest" from the current identity string (initialTitle ?? firstPrompt).
+// title's "rest" from the current identity string (the first prompt).
 // Idempotent — safe to call on first-prompt capture, on a grace-window title
 // upgrade, or on resume. The icon canvas reports which letter-count candidate
 // (3 or 4) it actually drew so the title-rest starts from the matching index.
@@ -1140,13 +1127,9 @@ function renderIdentityIconAndTitle() {
   const text = identityString();
   if (!mainWindow || !text) return;
   if (syncMacWindowTitle()) return;
-  // identityString prefers firstPrompt — the verbatim prompt typically
-  // contains URLs/paths/@-mentions that need stripping for the size-
-  // constrained surfaces. Only skip stripping in the pre-prompt fallback
-  // where text comes from initialTitle (model-distilled, already trim).
-  const displayText = (firstPrompt && text === firstPrompt)
-    ? truncatePathsForTaskbar(text)
-    : text;
+  // The verbatim prompt typically contains URLs/paths/@-mentions that
+  // need stripping for the size-constrained surfaces.
+  const displayText = truncatePathsForTaskbar(text);
   if (lockedHue !== null) {
     (async () => {
       try {
@@ -1195,8 +1178,7 @@ function onPromptCaptured(promptText) {
     // "Migrate the database…", or [icon: "Migr"] + "ate the database…".
     // We render the icon first so we know the chosen N; the title is set
     // from the same N, keeping the icon and title text in sync. Identity
-    // starts as the verbatim prompt; if `initialTitle` arrives in the grace
-    // window, the set-title handler re-renders both icon and rest from it.
+    // is the verbatim first prompt.
     renderIdentityIconAndTitle();
     syncChromeState();
   }
@@ -1229,7 +1211,6 @@ function resumeFromSession(picked) {
   sessionIndex = picked.id;
   lockedHue = (typeof picked.hue === 'number') ? picked.hue : null;
   lockedTitle = picked.title || null;
-  initialTitle = picked.initialTitle || null;
   firstPrompt = picked.prompt || null;
   sessionCwd = picked.cwd || shellStartCwd();
   detectedCli = picked.cli || null;
@@ -1267,9 +1248,9 @@ function resumeFromSession(picked) {
   startCapTimers();
 
   // Render + apply icon and thumbnail bitmap in the background. The icon
-  // uses identityString() — initialTitle if the original session had one,
-  // else firstPrompt — so the resumed window's icon matches what the
-  // original session showed. Doesn't block the resume keystroke flow.
+  // uses identityString() (the first prompt) so the resumed window's icon
+  // matches what the original session showed. Doesn't block the resume
+  // keystroke flow.
   renderIdentityIconAndTitle();
   renderAndPushIconicBitmaps();
 
@@ -1340,8 +1321,8 @@ function pickerSessionPayload(userDataDir, s) {
     id: s.id,
     hue: s.hue,
     cli: s.cli,
-    initialTitle: s.initialTitle,
     title: s.title,
+    lastTitle: s.lastTitle,
     prompt: s.prompt,
     lastEventAt: s.lastEventAt,
     isActive: s.isActive,

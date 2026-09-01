@@ -135,7 +135,7 @@ function listSessions(userDataDir) {
     if (typeof ev.id !== 'number') continue;
     let s = map.get(ev.id);
     if (!s) {
-      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, initialTitle: null, prompt: null, lastPrompt: null, cwd: null, capturedBranches: [], closedAt: null, token: null };
+      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, lastTitle: null, prompt: null, lastPrompt: null, cwd: null, capturedBranches: [], closedAt: null, token: null };
       map.set(ev.id, s);
     }
     s.lastEventAt = ev.t;
@@ -146,15 +146,18 @@ function listSessions(userDataDir) {
       // new sessions; 'token' backfills one recorded before tokens were stored.
       case 'token':   if (ev.token) s.token = ev.token; break;
       case 'cli':     if (ev.cli) s.cli = ev.cli; break;
-      // Title fold: `s.title` is LAST-WINS — the most recent OSC title from
-      // the CLI, which tracks the string its own resume selector shows.
-      // `s.initialTitle` is FIRST-WINS on the `initial:true` flag, written
-      // by the retired promotion path; folded here so sessions recorded
-      // before its retirement keep their stored subject line.
+      // Title fold: `s.title` is the session's identity title — the FIRST
+      // title the CLI emitted after the first prompt, i.e. the name it gave
+      // this conversation. It always agrees with `s.prompt`. Titles before
+      // any prompt are boot banners and never qualify. `s.lastTitle` is
+      // LAST-WINS: what the window most recently ran, which differs from
+      // the identity when a resume picked another conversation in the
+      // CLI's own dialog. Identity surfaces (resume hint, picker title
+      // line) use `title`; the picker's search and drift line use both.
       case 'title':
         if (ev.title) {
-          s.title = ev.title;
-          if (ev.initial && !s.initialTitle) s.initialTitle = ev.title;
+          s.lastTitle = ev.title;
+          if (!s.title && s.prompt) s.title = ev.title;
         }
         break;
       // Prompt fold: s.prompt is FIRST-WINS (the session's identity — matches

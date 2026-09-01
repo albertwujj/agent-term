@@ -82,16 +82,17 @@ window.pty.onShowPicker((payload) => {
     startHiddenPromptSearch: (payload) => window.pty.startHiddenPromptSearch(payload),
     cancelHiddenPromptSearch: (requestId) => window.pty.cancelHiddenPromptSearch(requestId),
     onPick: (id) => {
-      // Surface the resume hint immediately — the CLI's resume dialog
-      // may search against either the prompt we show in the chrome line
-      // or the AI-emitted title shown inside the CLI's own resume UI.
+      // Surface the resume hint immediately. `title` is the identity
+      // title (the CLI's name for this conversation, first after the
+      // first prompt), so it always agrees with the prompt shown in the
+      // chrome line; the CLI's own resume dialog lists it.
       const picked = sessions.find(s => s.id === id);
       window.pty.pickerPick(id);
       if (picked) {
         resumeHint.show({
           cli: picked.cli,
           prompt: picked.prompt,
-          title: picked.initialTitle || picked.title,
+          title: picked.title,
         });
       }
       closeActivePicker();

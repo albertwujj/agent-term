@@ -56,16 +56,17 @@ test('appendEvent + readLog round-trips', (dir) => {
 test('listSessions folds events by id', (dir) => {
   log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
   log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
-  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Old title' });
-  log.appendEvent(dir, { e: 'title',   id: 1, title: 'New title' });   // overrides
   log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Fix the auth bug' });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Old title' });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'New title' });
   log.appendEvent(dir, { e: 'started', id: 2, hue: 24 });
 
   const sessions = log.listSessions(dir);
   assert.strictEqual(sessions.length, 2);
   const s1 = sessions.find(s => s.id === 1);
   assert.strictEqual(s1.cli, 'claude');
-  assert.strictEqual(s1.title, 'New title');         // newer overrides older
+  assert.strictEqual(s1.title, 'Old title');         // identity: first after the prompt
+  assert.strictEqual(s1.lastTitle, 'New title');     // drift: last-wins
   assert.strictEqual(s1.prompt, 'Fix the auth bug');
   assert.strictEqual(s1.closedAt, null);
 });
@@ -87,37 +88,42 @@ test('closed event marks session closed', (dir) => {
   assert.ok(s.closedAt > 0);
 });
 
-test('listSessions folds initial:true title into s.initialTitle', (dir) => {
-  // First title is just the CLI banner — not marked initial.
+test('listSessions: the identity title is the first title after the first prompt', (dir) => {
+  // A pre-prompt title is the CLI's boot banner, never the identity.
   log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
   log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
   log.appendEvent(dir, { e: 'title',   id: 1, title: 'claude' });
   log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Investigate timeout in worker pool' });
-  // Meaningful summary title arrives inside the grace window, flagged initial.
-  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Investigate timeout', initial: true });
-  // Later titles drift; s.title follows them but initialTitle stays.
+  // The CLI names the conversation; later titles drift.
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Investigate timeout' });
   log.appendEvent(dir, { e: 'title',   id: 1, title: 'Looking at the locking code' });
 
   const s = log.listSessions(dir).find(x => x.id === 1);
-  assert.strictEqual(s.initialTitle, 'Investigate timeout');   // first initial wins
-  assert.strictEqual(s.title, 'Looking at the locking code');  // s.title still last-wins
+  assert.strictEqual(s.title, 'Investigate timeout');
+  assert.strictEqual(s.lastTitle, 'Looking at the locking code');
 });
 
-test('listSessions: only first initial:true wins (subsequent ignored)', (dir) => {
-  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
-  log.appendEvent(dir, { e: 'title',   id: 1, title: 'First subject', initial: true });
-  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Bogus second initial', initial: true });
-  const s = log.listSessions(dir).find(x => x.id === 1);
-  assert.strictEqual(s.initialTitle, 'First subject');
-});
-
-test('listSessions: no initial-flagged title leaves initialTitle null', (dir) => {
+test('listSessions: titles before any prompt never become the identity title', (dir) => {
   log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
   log.appendEvent(dir, { e: 'title',   id: 1, title: 'Drifting title' });
   log.appendEvent(dir, { e: 'title',   id: 1, title: 'Another' });
   const s = log.listSessions(dir).find(x => x.id === 1);
-  assert.strictEqual(s.initialTitle, null);
-  assert.strictEqual(s.title, 'Another');
+  assert.strictEqual(s.title, null);
+  assert.strictEqual(s.lastTitle, 'Another');
+});
+
+test('listSessions: a resume that ran another conversation leaves the identity title alone', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Demote the web viewer' });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Web viewer invocation changes' });
+  // Resume: the CLI banner, then the title of whichever conversation the
+  // user picked in the CLI's own dialog (here, a different one).
+  log.appendEvent(dir, { e: 'title',   id: 1, title: '✳ Claude Code' });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Resume hint UI visibility' });
+  const s = log.listSessions(dir).find(x => x.id === 1);
+  assert.strictEqual(s.title, 'Web viewer invocation changes');
+  assert.strictEqual(s.lastTitle, 'Resume hint UI visibility');
 });
 
 test('readLog handles malformed lines without crashing', (dir) => {

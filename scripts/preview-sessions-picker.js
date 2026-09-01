@@ -62,8 +62,8 @@ const SAMPLE_SESSIONS = [
     lastPrompt: null,
     title:      null,
     lastEventAt: NOW - 8 * 60 * 60 * 1000 },
-  // Drifted titles — initialTitle was the boot subject, lockedTitle has
-  // drifted as the conversation evolved. Picker shows both italic lines:
+  // Drifted titles — title is the name the CLI first gave the conversation,
+  // lastTitle is what the window most recently ran. Picker shows both italic lines:
   //   "Backfill migration"
   //   ↳ "Investigating worker timeouts"
   // Bumped to the most-recent slot so it's the first past-session row
@@ -71,15 +71,15 @@ const SAMPLE_SESSIONS = [
   { id: 7, hue: 24,  cli: 'claude',  isActive: false,
     prompt:       'Backfill the user_email column with batch size 1000',
     lastPrompt:   'Pause backfill, the workers are timing out at the deploy gateway',
-    initialTitle: 'Backfill migration',
-    title:        'Investigating worker timeouts',
+    title:        'Backfill migration',
+    lastTitle:    'Investigating worker timeouts',
     lastEventAt: NOW - 5 * 60 * 1000 },
-  // initialTitle === title (no drift) — picker collapses to a single italic line:
+  // lastTitle === title (no drift) — picker collapses to a single italic line:
   { id: 8, hue: 96,  cli: 'codex',   isActive: false,
     prompt:       'Fix the auth token refresh race condition',
     lastPrompt:   'Add a regression test for the double-refresh path',
-    initialTitle: 'Auth flow review',
     title:        'Auth flow review',
+    lastTitle:    'Auth flow review',
     lastEventAt: NOW - 48 * 60 * 60 * 1000 },
   // First only — no later prompts, no title:
   { id: 9, hue: 192, cli: 'claude',  isActive: false,

@@ -122,17 +122,18 @@ function createPicker({
     let list = beforeFilter;
     if (terms.length > 0) {
       list = list.filter(s => {
-        // Free-form term-intersection match: prompt + lastPrompt + subject titles.
-        // Both `initialTitle` (frozen subject) and `title` (latest OSC) go
-        // in — the user might remember either. We deliberately EXCLUDE
+        // Free-form term-intersection match: prompt + lastPrompt + titles.
+        // Both `title` (the identity title) and `lastTitle` (what the window
+        // most recently ran) go in — the user might remember either. We
+        // deliberately EXCLUDE
         // s.cli from the haystack — typing "cl" with the intent "start a
         // claude" already pins row 0 to the new-claude action; we don't
         // want to also flood the past list with every claude session ever,
         // since that drowns out the cases where the user typed something
         // topical like "rate database".
         const haystack = [
-          cleanAiTitle(s.initialTitle, s.cli),
           cleanAiTitle(s.title, s.cli),
+          cleanAiTitle(s.lastTitle, s.cli),
           s.prompt,
           s.lastPrompt,
           // Branches captured from review:// links — find a session by the
@@ -262,6 +263,7 @@ function createPicker({
           hue: s.hue,
           cli: s.cli,
           title: s.title,
+          lastTitle: s.lastTitle,
           prompt: s.prompt,
           lastEventAt: s.lastEventAt,
           isActive: s.isActive,
@@ -538,13 +540,11 @@ function createPicker({
       //     on") with a ↳ continuation glyph. Suppressed when there's no
       //     follow-up (lastPrompt == prompt) or no prompt at all.
       //   · title lines — symmetric with the prompts pair above:
-      //       initialTitle (italic, the session's frozen subject), then
-      //       ↳ latest title (italic) when it has materially drifted.
+      //       title (italic, the identity title: the CLI's name for this
+      //       conversation), then ↳ lastTitle (italic) when the window
+      //       most recently ran something else.
       //     Both fall through redundancy filters (empty / equal to cli /
-      //     equal to either prompt) and dedupe against each other. For
-      //     older sessions without an `initial:true` event, initialTitle
-      //     is null and we fall back to showing s.title alone — same
-      //     visual outcome as the single-title design.
+      //     equal to either prompt) and dedupe against each other.
       const showLast = s.lastPrompt && s.lastPrompt !== s.prompt;
       const titleCandidates = [];
       const titleKeys = new Set([
@@ -559,8 +559,8 @@ function createPicker({
         titleKeys.add(key);
         titleCandidates.push(t);
       }
-      addTitleCandidate(s.initialTitle);
       addTitleCandidate(s.title);
+      addTitleCandidate(s.lastTitle);
       const lastLine = showLast
         ? `<div class="at-picker-last-line"><span class="at-picker-last-prefix">↳</span> ${highlightSearchTerms(s.lastPrompt, filtered.terms)}</div>`
         : '';
