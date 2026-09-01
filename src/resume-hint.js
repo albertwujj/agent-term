@@ -9,13 +9,15 @@
 //                  dialog may sit in front of the input box, so the human is
 //                  the only reliable "ready now" signal. The wording says
 //                  when, because timing is the user's job.
-//   post-Enter     "Filter for the prompt above, or try "<title>""
+//   post-Enter     "Filter for "<title>", or try the prompt above"
 //                  Shown once the intercept fired and the CLI's resume dialog
-//                  is on screen. The prompt is the chrome line directly above.
-//                  Some CLIs surface their own title in resume UI, so a
-//                  distinct title is offered as an alternate search term.
+//                  is on screen. The CLI's own title leads: resume UIs surface
+//                  it, and the title feed is reliable. The prompt in the
+//                  chrome line directly above is the fallback when the title
+//                  is missing or is just the prompt itself, and the alternate
+//                  search term when both exist.
 //   intercept-off  "Type /resume when the input box appears, then filter for
-//                  the prompt above, or try "<title>""
+//                  "<title>", or try the prompt above"
 //                  Main cancels the intercept on any non-Enter input (the
 //                  user answered a startup dialog with arrows or y, or is
 //                  typing their own command). Enter is plain again, so the
@@ -133,7 +135,7 @@ const HINT_CSS = `
 .at-resume-hint.intercept-off .at-resume-hint-label { display: none; }
 .at-resume-hint.intercept-off .at-resume-hint-manual,
 .at-resume-hint.intercept-off .at-resume-hint-tail { display: inline; }
-.at-resume-hint-primary {
+.at-resume-hint-lead {
   color: #ffffff;
   font-weight: 600;
 }
@@ -219,15 +221,12 @@ function hintParts(input) {
   const titleKey = aiTitleDedupeKey(title, opts.cli) || normalizeHintCompare(title);
   const hasDistinctTitle = !!title && titleKey !== promptKey;
 
-  if (hasPrompt) {
-    return {
-      primary: 'the prompt above',
-      title: hasDistinctTitle ? title : '',
-    };
-  }
+  // Title leads; a title that is just the prompt adds nothing, so only the
+  // prompt reference is shown then. promptRef says whether "the prompt
+  // above" is available as the fallback or the alternate.
   return {
-    primary: '',
-    title: title || '(this session)',
+    title: hasDistinctTitle ? title : '',
+    promptRef: hasPrompt,
   };
 }
 
@@ -236,17 +235,20 @@ function hintParts(input) {
 // it via show().
 function renderHintMarkup(input) {
   const parts = hintParts(input);
-  const primary = parts.primary
-    ? `<span class="at-resume-hint-primary">${escapeHtml(parts.primary)}</span>`
-    : '';
-  const extra = parts.primary && parts.title
-    ? '<span class="at-resume-hint-extra">, or try</span> '
-    : '';
   const title = parts.title
     ? `“<span class="at-resume-hint-title" title="${escapeHtml(parts.title)}">${escapeHtml(parts.title)}</span>”`
     : '';
+  const prompt = parts.promptRef
+    ? '<span class="at-resume-hint-prompt">the prompt above</span>'
+    : '';
+  // The lead is the one thing to remember: the title, else the prompt
+  // above, else (callers with no context at all) the session itself.
+  const lead = `<span class="at-resume-hint-lead">${title || prompt || 'this session'}</span>`;
+  const alt = title && prompt
+    ? `<span class="at-resume-hint-extra">, or try</span> ${prompt}`
+    : '';
   return `
-    <span class="at-resume-hint-text"><span class="at-resume-hint-pre">When the input box appears, press <kbd>Enter</kbd> to send /resume.</span><span class="at-resume-hint-manual">Type /resume when the input box appears, then filter for </span><span class="at-resume-hint-label">Filter for </span><span class="at-resume-hint-tail">${primary}${extra}${title}</span></span>
+    <span class="at-resume-hint-text"><span class="at-resume-hint-pre">When the input box appears, press <kbd>Enter</kbd> to send /resume.</span><span class="at-resume-hint-manual">Type /resume when the input box appears, then filter for </span><span class="at-resume-hint-label">Filter for </span><span class="at-resume-hint-tail">${lead}${alt}</span></span>
     <button class="at-resume-hint-close" aria-label="Dismiss" title="Dismiss">✕</button>
   `;
 

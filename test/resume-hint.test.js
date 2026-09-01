@@ -35,33 +35,34 @@ function test(name, fn) {
 
 console.log('resume-hint');
 
-test('points to the prompt above without repeating prompt text', () => {
+test('title leads; the prompt above is the alternate; prompt text is never repeated', () => {
   const html = renderHintMarkup({
     prompt: 'Fix auth retry handling',
     title: 'Auth retry work',
   });
   const doc = fragment(html);
 
-  assert.strictEqual(doc.querySelector('.at-resume-hint-primary').textContent, 'the prompt above');
+  assert.strictEqual(doc.querySelector('.at-resume-hint-lead .at-resume-hint-title').textContent, 'Auth retry work');
   assert.strictEqual(doc.querySelector('.at-resume-hint-extra').textContent, ', or try');
-  assert.strictEqual(doc.querySelector('.at-resume-hint-title').textContent, 'Auth retry work');
+  assert.strictEqual(doc.querySelector('.at-resume-hint-prompt').textContent, 'the prompt above');
+  assert.ok(!doc.querySelector('.at-resume-hint-lead .at-resume-hint-prompt'));
   assert.ok(!html.includes('Fix auth retry handling'));
 });
 
-test('omits title alternative when it matches the prompt', () => {
+test('falls back to the prompt above when the title is just the prompt', () => {
   const html = renderHintMarkup({
     prompt: 'Fix auth retry handling',
     title: 'Fix auth retry handling',
   });
   const doc = fragment(html);
 
-  assert.strictEqual(doc.querySelector('.at-resume-hint-primary').textContent, 'the prompt above');
+  assert.strictEqual(doc.querySelector('.at-resume-hint-lead .at-resume-hint-prompt').textContent, 'the prompt above');
   assert.strictEqual(doc.querySelector('.at-resume-hint-extra'), null);
   assert.strictEqual(doc.querySelector('.at-resume-hint-title'), null);
   assert.ok(!html.includes('Fix auth retry handling'));
 });
 
-test('omits branded title alternative when it cleans to the prompt', () => {
+test('falls back to the prompt above when the branded title cleans to the prompt', () => {
   const html = renderHintMarkup({
     cli: 'claude',
     prompt: 'Fix auth retry handling',
@@ -69,13 +70,13 @@ test('omits branded title alternative when it cleans to the prompt', () => {
   });
   const doc = fragment(html);
 
-  assert.strictEqual(doc.querySelector('.at-resume-hint-primary').textContent, 'the prompt above');
+  assert.strictEqual(doc.querySelector('.at-resume-hint-lead .at-resume-hint-prompt').textContent, 'the prompt above');
   assert.strictEqual(doc.querySelector('.at-resume-hint-extra'), null);
   assert.strictEqual(doc.querySelector('.at-resume-hint-title'), null);
   assert.ok(!html.includes('Fix auth retry handling'));
 });
 
-test('shows cleaned branded title when it is distinct from the prompt', () => {
+test('cleaned branded title leads when it is distinct from the prompt', () => {
   const html = renderHintMarkup({
     cli: 'claude',
     prompt: 'Fix auth retry handling',
@@ -83,19 +84,27 @@ test('shows cleaned branded title when it is distinct from the prompt', () => {
   });
   const doc = fragment(html);
 
-  assert.strictEqual(doc.querySelector('.at-resume-hint-primary').textContent, 'the prompt above');
+  assert.strictEqual(doc.querySelector('.at-resume-hint-lead .at-resume-hint-title').textContent, 'Auth retry investigation');
   assert.strictEqual(doc.querySelector('.at-resume-hint-extra').textContent, ', or try');
-  assert.strictEqual(doc.querySelector('.at-resume-hint-title').textContent, 'Auth retry investigation');
+  assert.strictEqual(doc.querySelector('.at-resume-hint-prompt').textContent, 'the prompt above');
   assert.ok(!html.includes('Claude Code'));
   assert.ok(!html.includes('\u2733'));
 });
 
-test('keeps title-only fallback for callers without prompt context', () => {
+test('title-only callers get the title with no prompt alternate', () => {
   const html = renderHintMarkup('Auth retry work');
   const doc = fragment(html);
 
-  assert.strictEqual(doc.querySelector('.at-resume-hint-primary'), null);
-  assert.strictEqual(doc.querySelector('.at-resume-hint-title').textContent, 'Auth retry work');
+  assert.strictEqual(doc.querySelector('.at-resume-hint-prompt'), null);
+  assert.strictEqual(doc.querySelector('.at-resume-hint-extra'), null);
+  assert.strictEqual(doc.querySelector('.at-resume-hint-lead .at-resume-hint-title').textContent, 'Auth retry work');
+});
+
+test('no title and no prompt names the session itself', () => {
+  const doc = fragment(renderHintMarkup({}));
+  assert.strictEqual(doc.querySelector('.at-resume-hint-lead').textContent, 'this session');
+  assert.strictEqual(doc.querySelector('.at-resume-hint-title'), null);
+  assert.strictEqual(doc.querySelector('.at-resume-hint-prompt'), null);
 });
 
 test('pre-Enter wording says when to press and leaves the filter to later states', () => {
@@ -103,7 +112,7 @@ test('pre-Enter wording says when to press and leaves the filter to later states
   const pre = doc.querySelector('.at-resume-hint-pre').textContent;
   assert.ok(pre.startsWith('When the input box appears'), pre);
   assert.ok(!/filter/i.test(pre), 'pre-Enter copy should not mention the filter');
-  assert.ok(doc.querySelector('.at-resume-hint-tail .at-resume-hint-primary'), 'filter tail is present for later states');
+  assert.ok(doc.querySelector('.at-resume-hint-tail .at-resume-hint-lead'), 'filter tail is present for later states');
   assert.ok(/Type \/resume when the input box appears, then filter for/.test(
     doc.querySelector('.at-resume-hint-manual').textContent));
 });

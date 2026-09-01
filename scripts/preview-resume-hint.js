@@ -51,7 +51,7 @@ const SCENARIOS = [
   },
   {
     name: 'title-missing-fallback',
-    label: 'Title null — points to prompt above without repeating it',
+    label: 'Title null — falls back to the prompt above',
     title: null,
     postEnter: false,
     chrome: { hue: 216, cli: 'agent', prompt: 'Wire the websocket reconnect logic into the new dispatcher', isWorking: false },
