@@ -53,7 +53,7 @@ const HINT_CSS = `
   display: flex;
   align-items: center;
   padding: 0 12px 0 18px;
-  gap: 6px;
+  gap: 8px;
   box-sizing: border-box;
   /* Session hue at low strength: the divider's colour bleeds into the
      band, so it belongs to this session yet stands apart from the
@@ -61,7 +61,7 @@ const HINT_CSS = `
   background: color-mix(in srgb, var(--at-resume-accent) 14%, #0c0c0c);
   border-bottom: 1px solid color-mix(in srgb, var(--at-resume-accent) 35%, #0c0c0c);
   box-shadow: inset 4px 0 0 var(--at-resume-accent);
-  font: 15px "Segoe UI", "Segoe UI Variable", system-ui, sans-serif;
+  font: 15px/20px "Segoe UI", "Segoe UI Variable", system-ui, sans-serif;
   color: #c8c8c8;
   user-select: none;
   transition: background 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
@@ -73,24 +73,33 @@ const HINT_CSS = `
 }
 .at-resume-hint-icon {
   flex: 0 0 auto;
-  margin-right: 4px;
+  margin-right: 2px;
   font-size: 19px;
   color: var(--at-resume-accent);
   line-height: 1;
 }
+/* All wording is one inline run: sans, mono and the keycap share a
+   baseline by inline-flow rules, and the run centres in the band as a
+   whole. The run ellipsizes at the ✕. */
+.at-resume-hint-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* Pre-Enter wording shown by default; hidden after the first submit via
    the .post-enter class on the host. */
 .at-resume-hint-pre {
-  flex: 0 0 auto;
   color: #c8c8c8;
 }
 .at-resume-hint-pre kbd {
   display: inline-block;
-  padding: 2px 11px 3px;
-  margin: 0 4px;
+  padding: 1px 10px 2px;
+  margin: 0 6px;   /* clears the pulse ring so the word-spaces stay visible */
   font: inherit;
-  font-size: 14px;
   font-weight: 600;
+  line-height: 20px;
   background: #262c36;
   border: 1px solid #3c4452;
   border-bottom-width: 2px;
@@ -104,9 +113,13 @@ const HINT_CSS = `
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--at-resume-accent) 0%, transparent); }
   45%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--at-resume-accent) 55%, transparent); }
 }
-.at-resume-hint-pre code {
+/* Mono at 14px sits at the sans's visual size; the title uses the same. */
+.at-resume-hint-pre code,
+.at-resume-hint-title {
   font-family: "Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace;
   font-size: 14px;
+}
+.at-resume-hint-pre code {
   color: #f0f0f0;
 }
 .at-resume-hint-pre .then {
@@ -114,46 +127,28 @@ const HINT_CSS = `
 }
 /* Post-Enter wording (hidden by default; shown after the first submit). */
 .at-resume-hint-label {
-  flex: 0 0 auto;
   color: #c8c8c8;
   display: none;
 }
 .at-resume-hint.post-enter .at-resume-hint-pre { display: none; }
 .at-resume-hint.post-enter .at-resume-hint-label { display: inline; }
 .at-resume-hint-primary {
-  flex: 0 0 auto;
   color: #ffffff;
   font-weight: 600;
 }
 /* Points at the chrome line directly above, where the prompt is shown. */
 .at-resume-hint-up {
-  flex: 0 0 auto;
-  margin-left: -2px;
   color: var(--at-resume-accent);
   font-weight: 600;
 }
 .at-resume-hint-extra {
-  flex: 0 0 auto;
-  margin-left: -6px;   /* cancel the flex gap so the comma hugs the word before it */
   color: #909090;
 }
-.at-resume-hint-spacer {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 .at-resume-hint-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   color: #e6e6e6;
-  font-family: "Cascadia Mono", "Cascadia Code", Consolas, "Courier New", monospace;
-  font-size: 13px;
 }
 .at-resume-hint-close {
   flex: 0 0 auto;
-  margin-left: 8px;
   background: none;
   border: none;
   color: #909090;
@@ -247,22 +242,15 @@ function renderHintMarkup(input) {
     ? `<span class="at-resume-hint-primary">${escapeHtml(parts.primary)}</span>`
     : '';
   const extra = parts.primary && parts.title
-    ? '<span class="at-resume-hint-extra">, or try</span>'
+    ? '<span class="at-resume-hint-extra">, or try</span> '
     : '';
   const title = parts.title
     ? `<span class="at-resume-hint-title" title="${escapeHtml(parts.title)}">${escapeHtml(parts.title)}</span>`
     : '';
-  const up = parts.primary ? '<span class="at-resume-hint-up">↑</span>' : '';
-  const spacer = parts.title ? '' : '<span class="at-resume-hint-spacer"></span>';
+  const up = parts.primary ? '<span class="at-resume-hint-up"> ↑</span>' : '';
   return `
     <span class="at-resume-hint-icon">↻</span>
-    <span class="at-resume-hint-pre">Press <kbd>Enter</kbd> to send <code>/resume</code><span class="then">, then</span> filter for</span>
-    <span class="at-resume-hint-label">Filter for</span>
-    ${primary}
-    ${up}
-    ${extra}
-    ${title}
-    ${spacer}
+    <span class="at-resume-hint-text"><span class="at-resume-hint-pre">Press <kbd>Enter</kbd> to send <code>/resume</code><span class="then">, then</span> filter for </span><span class="at-resume-hint-label">Filter for </span>${primary}${up}${extra}${title}</span>
     <button class="at-resume-hint-close" aria-label="Dismiss" title="Dismiss">✕</button>
   `;
 }
