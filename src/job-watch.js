@@ -1,5 +1,5 @@
 // job-watch.js — pure decision logic for the background-job monitor (the
-// "job-done nudge"). Host contract: job-events.md. I/O-free: main.js feeds
+// "job-done nudge"). Host contract: docs/job-events.md. I/O-free: main.js feeds
 // it one spool dump per poll (completion events plus start records, each
 // start record carrying a liveness bit main resolved with kill -0); this
 // decides which spool files to remove, which to keep pending, which jobs

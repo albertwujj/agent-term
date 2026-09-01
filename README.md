@@ -2,7 +2,7 @@
 
 **Jump-start with this repo and its suite.**
 
-![the walk in stills, one per row of the table below](assets/hero-walk.gif)
+![the walk in stills, one per row of the table below](docs/assets/hero-walk.gif)
 
 ## The terminal path
 
@@ -44,7 +44,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 **Run it.**
 
 1. Clone: `git clone https://github.com/albertwujj/agent-term` (on Windows, into WSL's native filesystem).
-2. Install [Node.js](https://nodejs.org) if you don't have it (the [development guide](DEVELOPMENT.md) covers the Windows setup).
+2. Install [Node.js](https://nodejs.org) if you don't have it (the [development guide](docs/development.md) covers the Windows setup).
 3. From the checkout: `npm ci` once, to install the dependencies, then `npm run start` (`npm run start:wsl` on WSL); or start from your own repo with `--prefix` pointing at the checkout ([sessions](docs/sessions.md)).
 
 The above already covers the top of the table: sessions as windows with their taskbar buttons and picker, and commenting on anything the agent prints.

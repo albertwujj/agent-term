@@ -2,7 +2,7 @@
 
 AgentTerm runs directly from the rolling `main` branch of its source checkout; it has no application release channel, installer, or package. The Electron UI must run on the host operating system. On Windows, the shell and the coding agents still run inside WSL.
 
-The former Windows installer pipeline is frozen and no longer tested. Its last-known design and build procedure are preserved only as historical reference in [WINDOWS_INSTALLER.md](WINDOWS_INSTALLER.md).
+The former Windows installer pipeline is frozen and no longer tested. Its last-known design and build procedure are preserved only as historical reference in [maintainer/windows-installer.md](maintainer/windows-installer.md).
 
 ## Platform differences
 

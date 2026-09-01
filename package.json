@@ -31,18 +31,18 @@
     "productName": "AgentTerm",
     "npmRebuild": false,
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "scripts/installer"
     },
     "files": [
       "src/**/*",
       "dist/**/*",
-      "tools/**/*",
       "node_modules/**/*",
       "package.json"
     ],
     "asarUnpack": [
       "node_modules/node-pty/**",
-      "tools/**"
+      "src/tools/**"
     ],
     "win": {
       "target": [
@@ -63,7 +63,7 @@
     "nsis": {
       "oneClick": true,
       "allowToChangeInstallationDirectory": false,
-      "include": "build/installer.nsh"
+      "include": "scripts/installer/installer.nsh"
     }
   },
   "dependencies": {

@@ -1,6 +1,6 @@
 """Pins the package directive grammar and the directive-errors surface.
 
-Run from the repo root:  python3 -m unittest tools.review_test
+Run from the repo root:  python3 -m unittest src.tools.review_test
 (needs git and markdown-it-py, like review.py itself).
 """
 import json

@@ -1,6 +1,6 @@
 # Review, not a wall of diff
 
-![the review loop: comment on a line, the agent fixes it and replies, the review re-renders in place](../assets/review-loop.gif)
+![the review loop: comment on a line, the agent fixes it and replies, the review re-renders in place](assets/review-loop.gif)
 
 When the agent finishes, it prepares your review: it hands you the parts that need your judgment, ordered and explained with trade-offs flagged, and leaves out what doesn't need it: the routine changes (renames, imports, boilerplate) and what you already settled during the session. Comment inline, on the code *and* on its reasoning; it edits, replies in the thread, and the review re-renders in place.
 

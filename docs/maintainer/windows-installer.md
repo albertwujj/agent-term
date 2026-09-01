@@ -2,7 +2,7 @@
 
 > **Frozen historical documentation — no longer tested.** This records the Windows installer pipeline as it existed on 2026-08-24. AgentTerm now runs from the rolling `main` branch and has no application release workflow. The commands and implementation below remain as a reference, but they may gradually stop working as Electron, Node.js, native dependencies, NSIS, GitHub Releases, or Windows change.
 
-For the supported workflow, use [DEVELOPMENT.md](DEVELOPMENT.md). Do not restore the installer to a release merely because these notes still exist; doing so first requires owning and re-establishing its build and Windows validation coverage.
+For the supported workflow, use [development.md](../development.md). Do not restore the installer to a release merely because these notes still exist; doing so first requires owning and re-establishing its build and Windows validation coverage.
 
 ## Recovery starting point
 
@@ -66,9 +66,9 @@ electron-builder --win --x64
 The stages were:
 
 1. `scripts/build-runtime.js` bundled the renderer and web-viewer preload into `dist/`.
-2. `scripts/build-launcher.js` used Electron Builder's downloaded NSIS toolchain to compile `build/launcher.nsi` into `build/launcher.exe`.
-3. Electron Builder packaged `src/`, `dist/`, `tools/`, `node_modules/`, and `package.json`, unpacking `node-pty` and `tools` from the application archive.
-4. The custom NSIS hooks in `build/installer.nsh` rearranged the installed files into the side-by-side layout described below.
+2. `scripts/build-launcher.js` used Electron Builder's downloaded NSIS toolchain to compile `scripts/installer/launcher.nsi` into `scripts/installer/launcher.exe`.
+3. Electron Builder packaged `src/`, `dist/`, `src/tools/`, `node_modules/`, and `package.json`, unpacking `node-pty` and `src/tools` from the application archive.
+4. The custom NSIS hooks in `scripts/installer/installer.nsh` rearranged the installed files into the side-by-side layout described below.
 
 `npmRebuild` was disabled. The package therefore relied on the Windows prebuilt binaries shipped by native dependencies such as `node-pty` and `koffi`, rather than rebuilding them during packaging. This is a likely point of failure as dependency and Electron versions drift.
 
@@ -88,8 +88,8 @@ The installer did not replace a running application's files in place. Its custom
 
 The pieces worked together as follows:
 
-- `build/launcher.nsi` compiled the small root launcher. It waited for any `.installing` transaction, read `.current`, and started the selected version's `AgentTerm.exe` with the original arguments.
-- `build/installer.nsh` created `.installing`, chose a unique `app-<version>` directory (adding `-2`, `-3`, and so on for same-version refreshes), moved the newly installed application into it, and atomically replaced `.current`.
+- `scripts/installer/launcher.nsi` compiled the small root launcher. It waited for any `.installing` transaction, read `.current`, and started the selected version's `AgentTerm.exe` with the original arguments.
+- `scripts/installer/installer.nsh` created `.installing`, chose a unique `app-<version>` directory (adding `-2`, `-3`, and so on for same-version refreshes), moved the newly installed application into it, and atomically replaced `.current`.
 - Each installed version received an immutable `.agent-term-launcher-<app-directory>.exe`. A running app used that launcher when relaunching, so an install racing with a close/restart could not accidentally start half-published flat files.
 - Old `app-*` directories and their immutable launchers were removed only when Windows no longer held them open.
 - Uninstall removed every versioned application directory, launcher, pointer, and transaction file.
@@ -130,8 +130,8 @@ These modes are no longer implemented on `main`. Use `npm run dist:win -- --x64`
 - `package.json` — Electron Builder targets, packaged files, NSIS hook, portable settings, and npm scripts.
 - `scripts/build-runtime.js` — generated runtime bundles.
 - `scripts/build-launcher.js` — downloaded/resolved NSIS and compiled the root launcher.
-- `build/launcher.nsi` — root/stable launcher implementation.
-- `build/installer.nsh` — side-by-side install, atomic pointer publication, cleanup, and uninstall hooks.
+- `scripts/installer/launcher.nsi` — root/stable launcher implementation.
+- `scripts/installer/installer.nsh` — side-by-side install, atomic pointer publication, cleanup, and uninstall hooks.
 - `src/relaunch.js` — installed and portable successor selection at runtime.
 - `scripts/release.sh` — removed from `main`; retrieve the former versioning and installer publisher with `git show v0.1.15:scripts/release.sh`.
 - `test/relaunch.test.js` — pure contract coverage for relaunch selection and the installer/launcher handshake.

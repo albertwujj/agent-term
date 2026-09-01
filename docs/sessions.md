@@ -4,12 +4,12 @@ Every session is a whole OS window; there are no tabs.
 
 **Starting an agent.** Type its command (`claude`, `codex`, whichever CLI you run) and press Return; each session is a real shell, so anything you would type in a terminal works the same here.
 
-![your active agent sessions: each a live taskbar button with a thumbnail preview](../assets/taskbar-preview.png)
+![your active agent sessions: each a live taskbar button with a thumbnail preview](assets/taskbar-preview.png)
 <sub>Session content blurred; the taskbar labels are as they render.</sub>
 
 **The sessions you are juggling.** On Windows each sits in the taskbar as its own button, generated from the session's initial prompt: the label never changes, so you can memorize it, and its color is locked to the session, lively yet steady, for recognition at a glance. The button carries a working indicator and a preview showing what the session is for and what it is doing, so you grab the one that needs you. On a Mac, run each session full screen: a Mission Control swipe shows every session, readable, its initial prompt pinned at the top.
 
-![filter your sessions and pick the right one](../assets/hero-session-picker.gif)
+![filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
 **The sessions you set aside.** A keystroke opens a new window on the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by what you asked them or what the agent called the work, with a deeper pass searching every prompt you typed; resume any of them, run what you typed as a shell command, or press Esc for a plain shell. No hunting through look-alike terminals.
 

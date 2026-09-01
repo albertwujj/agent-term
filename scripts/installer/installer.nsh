@@ -1,4 +1,4 @@
-; Frozen Windows installer support. See WINDOWS_INSTALLER.md for the v0.1.15
+; Frozen Windows installer support. See docs/maintainer/windows-installer.md for the v0.1.15
 ; recovery baseline and the validation required before publishing it again.
 
 ; ---------------------------------------------------------------------------

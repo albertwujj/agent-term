@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const RUNTIME_ENTRIES = ['src', 'tools'];
+const RUNTIME_ENTRIES = ['src'];
 // Browser file URLs do not use Node's ancestor-based module resolution.
 const RUNTIME_ASSETS = [
   path.join('node_modules', '@xterm', 'xterm', 'css', 'xterm.css'),

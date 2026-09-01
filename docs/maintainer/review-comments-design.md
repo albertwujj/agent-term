@@ -218,7 +218,7 @@ ship as a thread, the agent amends the commit and the regen shows the result.
 
 A package directive that embeds a slice of a file as it stands at the range
 tip, with no diff: code the change depends on or copies, which the diff cannot
-show because it did not change. `tools/review.py` renders it; the viewer needed
+show because it did not change. `src/tools/review.py` renders it; the viewer needed
 two small fixes.
 
 - **The geometry is the diff's.** The block is a grid of `50% | 48px + rest`;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Frozen Windows installer support. Before using or changing this path, read
-// WINDOWS_INSTALLER.md for the v0.1.15 recovery baseline and validation scope.
+// docs/maintainer/windows-installer.md for the v0.1.15 recovery baseline and validation scope.
 
 const path = require('path');
 const { spawn } = require('child_process');
@@ -22,7 +22,7 @@ async function buildLauncher() {
   const repoRoot = path.resolve(__dirname, '..');
 
   await new Promise((resolve, reject) => {
-    const child = spawn(makensis, ['-V2', 'build/launcher.nsi'], {
+    const child = spawn(makensis, ['-V2', 'scripts/installer/launcher.nsi'], {
       cwd: repoRoot,
       env: { ...process.env, NSISDIR: nsisPath },
       stdio: 'inherit',

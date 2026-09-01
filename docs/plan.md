@@ -1,6 +1,6 @@
 # Plan with it
 
-![the plan loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list](../assets/doc-edit-loop.gif)
+![the plan loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list](assets/doc-edit-loop.gif)
 
 The viewer turns markdown into a place you write English, live. A doc opens rendered and updates as the agent works. Comment on any passage, or edit the rendered text directly; you write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
 

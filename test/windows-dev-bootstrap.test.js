@@ -39,10 +39,10 @@ test('stages runtime source and browser assets beneath a process-specific direct
   const runner = path.join(root, 'runner');
   try {
     fs.mkdirSync(path.join(source, 'src'), { recursive: true });
-    fs.mkdirSync(path.join(source, 'tools'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'src', 'tools'), { recursive: true });
     fs.mkdirSync(path.join(source, 'node_modules', 'linux-only'), { recursive: true });
     fs.writeFileSync(path.join(source, 'src', 'main.js'), 'main-v1');
-    fs.writeFileSync(path.join(source, 'tools', 'review.py'), 'review-v1');
+    fs.writeFileSync(path.join(source, 'src', 'tools', 'review.py'), 'review-v1');
     fs.writeFileSync(path.join(source, 'package.json'), '{"version":"1.2.3"}');
     fs.writeFileSync(path.join(source, 'node_modules', 'linux-only', 'binding.node'), 'linux');
     writeRunnerAssets(runner);
@@ -50,11 +50,11 @@ test('stages runtime source and browser assets beneath a process-specific direct
     const staged = stageSource(source, runner, 1234);
     assert.strictEqual(staged, path.join(runner, 'stage', '1234'));
     assert.strictEqual(fs.readFileSync(path.join(staged, 'src', 'main.js'), 'utf8'), 'main-v1');
-    assert.strictEqual(fs.readFileSync(path.join(staged, 'tools', 'review.py'), 'utf8'), 'review-v1');
+    assert.strictEqual(fs.readFileSync(path.join(staged, 'src', 'tools', 'review.py'), 'utf8'), 'review-v1');
     assert.strictEqual(fs.readFileSync(path.join(staged, 'package.json'), 'utf8'), '{"version":"1.2.3"}');
     assert.strictEqual(fs.readFileSync(path.join(staged, RUNTIME_ASSETS[0]), 'utf8'), 'xterm-css');
     assert.strictEqual(fs.existsSync(path.join(staged, 'node_modules', 'linux-only')), false);
-    assert.deepStrictEqual(RUNTIME_ENTRIES, ['src', 'tools']);
+    assert.deepStrictEqual(RUNTIME_ENTRIES, ['src']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -66,9 +66,9 @@ test('a new process snapshot reads fresh source without replacing another snapsh
   const runner = path.join(root, 'runner');
   try {
     fs.mkdirSync(path.join(source, 'src'), { recursive: true });
-    fs.mkdirSync(path.join(source, 'tools'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'src', 'tools'), { recursive: true });
     fs.writeFileSync(path.join(source, 'src', 'main.js'), 'main-v1');
-    fs.writeFileSync(path.join(source, 'tools', 'review.py'), 'review');
+    fs.writeFileSync(path.join(source, 'src', 'tools', 'review.py'), 'review');
     fs.writeFileSync(path.join(source, 'package.json'), '{}');
     writeRunnerAssets(runner);
 
@@ -89,7 +89,7 @@ test('fails clearly when the staged browser stylesheet is missing', () => {
   const runner = path.join(root, 'runner');
   try {
     fs.mkdirSync(path.join(source, 'src'), { recursive: true });
-    fs.mkdirSync(path.join(source, 'tools'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'src', 'tools'), { recursive: true });
     fs.writeFileSync(path.join(source, 'package.json'), '{}');
     assert.throws(
       () => stageSource(source, runner, 42),
@@ -104,10 +104,11 @@ test('fails clearly when a runtime source directory is missing', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-win-dev-'));
   const source = path.join(root, 'source');
   try {
-    fs.mkdirSync(path.join(source, 'src'), { recursive: true });
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(path.join(source, 'package.json'), '{}');
     assert.throws(
       () => stageSource(source, path.join(root, 'runner'), 42),
-      /development source is missing tools\//,
+      /development source is missing src\//,
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

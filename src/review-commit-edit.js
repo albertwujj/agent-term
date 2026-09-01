@@ -1,5 +1,5 @@
 // Commit-message editing on a review page — the md viewer's "edit is a
-// comment" model on the review surface (md-editing-design.md; marks semantics
+// comment" model on the review surface (docs/maintainer/md-editing-design.md; marks semantics
 // in agent-threads/md/user-intent.md). The commit section is a frozen render
 // regenerated from git, so a user edit is a pure suggestion: strike-in-place
 // marks over the rendered text, committed as an [Edit] thread in the review

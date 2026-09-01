@@ -1,6 +1,6 @@
 # The checkout lock
 
-![the agent takes the lock and branches; the padlock at the top right turns green](../assets/lock-padlock.png)
+![the agent takes the lock and branches; the padlock at the top right turns green](assets/lock-padlock.png)
 
 Several agents sharing one checkout step on each other: HEAD and the working tree move underneath, and heavy local tests bind host-global resources such as ports, so runs collide. `git worktree` splits the working tree but not those resources, and parallel worktrees are harder to track.
 

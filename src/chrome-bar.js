@@ -9,7 +9,7 @@
 //     (same font as the terminal body below). Dim italic fallback when
 //     no prompt yet ("waiting for prompt…" / "Sessions").
 //   · Jobs icon — a background job of this session is running (a start
-//     record with a live process in the job-events.md spool). Presence
+//     record with a live process in the docs/job-events.md spool). Presence
 //     only, no count drawn: the question it answers is "is anything still
 //     working for me", asked mostly after a session resume, when the
 //     CLI's own task display is gone but the jobs survived. Grey for the

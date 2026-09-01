@@ -7,7 +7,7 @@ dist/
 .DS_Store
 __pycache__/
 release/
-build/launcher.exe
+scripts/installer/launcher.exe
 .claude/settings.local.json
 # Personal Claude Code config (Bash allowlist, enabled plugins) — kept local so
 # it isn't published in this public repo, where a committed permission allowlist

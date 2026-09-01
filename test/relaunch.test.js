@@ -376,8 +376,8 @@ test('portable package uses a per-launch extraction directory', () => {
 });
 
 test('installer and app agree on the stable relaunch transaction contract', () => {
-  const installer = fs.readFileSync(path.join(__dirname, '..', 'build', 'installer.nsh'), 'utf8');
-  const launcher = fs.readFileSync(path.join(__dirname, '..', 'build', 'launcher.nsi'), 'utf8');
+  const installer = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'installer', 'installer.nsh'), 'utf8');
+  const launcher = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'installer', 'launcher.nsi'), 'utf8');
   assert.ok(installer.includes(`/oname=${INSTALLED_RELAUNCHER_PREFIX}$3.exe`));
   assert.ok(installer.includes('MoveFileEx'));
   assert.ok(installer.includes('.installing'));
