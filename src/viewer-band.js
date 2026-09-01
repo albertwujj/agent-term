@@ -274,8 +274,9 @@ function createViewerBand({
     btn.className = 'vb-btn';
     btn.title = title;
     btn.textContent = label;
-    // Don't let a bar-widget click bubble to the bar's toggle handler.
-    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    // Don't let a bar-widget click bubble to the bar's toggle handler. The
+    // event goes along so a widget can offer a modifier-click variant.
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(e); });
     return btn;
   }
 

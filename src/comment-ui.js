@@ -268,4 +268,5 @@ module.exports = {
   modKeyLabel, isModKey,
   highlightRange, clearHighlight, highlightRanges, rangeOfText,
   isPasteCommentShortcut,
+  isMac,
 };

@@ -11,7 +11,7 @@ const {
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { createViewerBand } = require('./viewer-band');
-const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isPasteCommentShortcut } = require('./comment-ui');
+const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isMac, isPasteCommentShortcut } = require('./comment-ui');
 const {
   isPlainCommentKey,
   isCommentEntryKey,
@@ -1236,9 +1236,17 @@ function createMarkdownViewer({
     // Right-side bar button: copy the document body as plain text (comments
     // excluded), for pasting a drafted message into a chat or email. Sits apart
     // from the (left-aligned) file path — it's the body, not the filename.
+    // A modifier-click (Ctrl/Cmd/Alt, the viewer's link modifiers) copies the
+    // markdown source instead, for a surface that renders markdown itself
+    // (Reddit, GitHub): one button, the rarer variant behind the modifier.
     if (band.barRight && !band.barRight.querySelector('.md-copy-body')) {
       let copyBtn;
-      copyBtn = band.makeBtn('⧉ text', 'Copy the document body as plain text (no comments) — for a chat or email', () => copyDocBody(copyBtn));
+      const modClick = (isMac() ? '⌘' : 'Ctrl') + '-click';
+      copyBtn = band.makeBtn(
+        '⧉ text',
+        `Copy the document body as plain text (no comments), for a chat or email. ${modClick}: the markdown source, for Reddit or GitHub`,
+        (e) => copyDocBody(copyBtn, !!(e && (e.ctrlKey || e.metaKey || e.altKey))),
+      );
       copyBtn.classList.add('md-copy-body');
       copyBtn._restLabel = copyBtn.textContent;
       band.barRight.appendChild(copyBtn);
@@ -4122,18 +4130,21 @@ function createMarkdownViewer({
     return parts.join('\n\n');
   }
 
-  function copyDocBody(btn) {
+  // `source` copies the frozen markdown source verbatim (comments and un-sent
+  // edits live in the sidecar, so they stay out either way); the flash says
+  // which copy fired.
+  function copyDocBody(btn, source = false) {
     const flash = (label) => {
       if (!btn) return;
       btn.textContent = label;
       clearTimeout(btn._copyTimer);
       btn._copyTimer = setTimeout(() => { btn.textContent = btn._restLabel || label; }, 1400);
     };
-    const text = buildDocBodyText();
-    if (!text) { flash('∅'); return; }
+    const text = source ? String(state.sourceText || '') : buildDocBodyText();
+    if (!text.trim()) { flash('∅'); return; }
     Promise.resolve()
       .then(() => navigator.clipboard.writeText(text))
-      .then(() => flash('✓'), () => flash('✕')); // ✓ mirrors the web viewer's copy-url
+      .then(() => flash(source ? '✓ md' : '✓'), () => flash('✕')); // ✓ mirrors the web viewer's copy-url
   }
 
   // When an edit ends with no live strike-in-place marks (its content was
