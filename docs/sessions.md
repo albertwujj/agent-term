@@ -13,7 +13,7 @@ Every session is a whole OS window; there are no tabs.
 
 ![filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
-**The sessions you set aside.** A keystroke opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your first prompts and the agent's own titles; resume any of them, run what you typed as a shell command, or press Esc for a plain shell. No hunting through look-alike terminals.
+**The sessions you set aside.** A keystroke opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your prompts and the agent's own titles; resume any of them, run what you typed as a shell command, or press Esc for a plain shell. No hunting through look-alike terminals.
 
 **Type `npm run start` (`start:wsl` on WSL) from the source enlistment once.** Three ways a window comes to be, and where each starts:
 
