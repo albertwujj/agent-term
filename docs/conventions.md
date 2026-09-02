@@ -6,7 +6,7 @@ One resolution rule covers the suite: everything binds to these docs by filename
 
 ## Placement
 
-Two places a clone can live. Which fits depends on who reads the docs: the terminal, for the runbooks the terminal resolves itself ([voice-to-agent](https://github.com/albertwujj/voice-to-agent)), or you, for the verb docs you pick with `@` ([agent-lock](https://github.com/yunxin/agent-lock)'s, mentioned above, and agent-threads' [produce-review.md](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md)).
+Two places a clone can live. Which fits depends on who reads the docs: the terminal, for the runbooks the terminal resolves itself ([voice-to-agent](https://github.com/albertwujj/voice-to-agent)), or you, for the verb docs you pick with `@` ([agent-lock](https://github.com/yunxin/agent-lock)'s `proceed-by-lock-and-branch.md`, mentioned above, and agent-threads' [produce-review.md](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md)).
 
 1. **Embedded in the repo** (recommended). Everything under one short folder, `ai/`: nested clones of agent-lock, agent-jobs, and agent-threads, so `@` completion reaches every verb doc, and the whole set shows as a single `ai/` line in `git status` (nested clones stay out of the outer repo on their own, and the short name keeps the noise low). Leave the folder unignored; a `.gitignore` entry would hide the docs from `@` pickers (Cursor's CLI does). The terminal's own runbook resolution looks in `ai/` too, right after the repo root, so the one agent-threads clone there serves both your `@` and the terminal.
 

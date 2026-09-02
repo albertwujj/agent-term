@@ -15,7 +15,7 @@ Every session is a whole OS window; there are no tabs.
 
 **The sessions you set aside.** A keystroke opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your prompts and the agent's own titles; resume any of them, run what you typed as a shell command, or press Esc for a plain shell. No hunting through look-alike terminals.
 
-**Type `npm run start` (`start:wsl` on WSL) from the source enlistment once.** Three ways a window comes to be, and where each starts:
+**Type `npm run start` (`start:wsl` on WSL) from the source checkout once.** Three ways a window comes to be, and where each starts:
 
 | Window | How it opens | Starts in |
 |---|---|---|
@@ -23,6 +23,6 @@ Every session is a whole OS window; there are no tabs.
 | Another | `Ctrl/Cmd+Shift+N` | the directory the current session's agent was started in; before a first prompt, the window's own start directory |
 | After the last closes | spawned automatically, so you only need to run npm once | the same rule, from the window that closed |
 
-- Every new window picks up the latest source from your agent-term enlistment.
+- Every new window picks up the latest source from your agent-term checkout.
 - The picker shows the directory. If it is not the one you want, `cd` there and type the AI CLI's name.
 - To quit for good instead of getting a fresh window, type `exit`. Like `cd` and the CLI's name, it is just a shell command.

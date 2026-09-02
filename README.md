@@ -10,7 +10,7 @@ People run coding agents in an IDE, in the terminal, or in the vendor's desktop 
 
 So why do people still run agents in the IDE, and why are the vendors adding their agents to desktop apps? Partly because the standard terminal interface (TUI), although great for text-centric iteration, cannot offer agents and users the essentials and the boosters a richer interface can. One answer is to move the agent out, into an app built around it. The other is to treat the terminal as the core and extend it. This repo is the second path: a full terminal wrapped in a modern extensible window (Electron), retaining everything you already have and raising the ceiling.
 
-What about the vendor desktop apps, which also offer a richer interface? An app built around one vendor's agent trades away some key benefits: the other agents, and the closeness to your shell environment, etc. For coding it can also disorient, adding a workspace of its own between you and the code; many who try it drift back to the terminal, where the familiar, the continuity, the repo, the shell, and the tests already live. The grown terminal here keeps all the goodness, yet offers a lot more.
+What about the vendor desktop apps, which also offer a richer interface? An app built around one vendor's agent trades away key benefits, the other agents and the closeness to your shell environment among them. For coding it can also disorient, adding a workspace of its own between you and the code; many who try it drift back to the terminal, where the familiar, the continuity, the repo, the shell, and the tests already live. The grown terminal here keeps all the goodness, yet offers a lot more.
 
 ## Why it holds
 
@@ -20,7 +20,7 @@ There is also a benefit over what the vendor CLIs can do alone. A CLI does not o
 
 ## Yours to grow
 
-It is yours. The agents, made better by running in this grown terminal, grow it further: when something falls short for you, the symptom is right there with you, and you and your agents are in a good position to evaluate and build the fix. That is also part of the larger point: with coding agents at your disposal, you can quickly grow your own tool to fit your own needs, which you know best. So start your own, use and build upon this repo.
+It is yours. The agents, made better by running in this grown terminal, grow it further: when something falls short for you, the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix. That is also part of the larger point: with coding agents at your disposal, you can quickly grow your own tool to fit your own needs, which you know best. So start your own, use and build upon this repo.
 
 ## What's added so far
 
@@ -31,7 +31,7 @@ It is yours. The agents, made better by running in this grown terminal, grow it 
 | Its plans and docs are raw markdown in an editor. | They render live; you **[write in the rendered page](docs/plan.md)** and the agent maintains the source. |
 | Agents sharing a checkout have no awareness of each other: branches move, files change, test ports collide underneath. | Start the task with [one doc reference](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) and the agent **[takes the checkout lock](docs/lock.md)** and cuts a branch before its first edit; a padlock at the top right of each window shows who holds it. |
 | The agent finishes a change and you get a wall of diff. | It hands you a **[curated package, rendered for your review](docs/review.md)**; you comment inline, it fixes and replies in place. |
-| A long CI run either blocks the session, or outlives the agent's turn and finishes unnoticed. | The agent starts the job and hands the terminal back; **[the job reports its own completion](docs/jobs.md)** through the terminal and the idle agent is prompted to pick it up, surviving session restarts; a runner icon at the top right shows what is running. |
+| A long CI run either blocks the session, or outlives the agent's turn and finishes unnoticed. | The agent starts the job and hands the terminal back; **[the job reports its own completion](docs/jobs.md)** through the terminal and the idle agent is prompted to pick it up, even across a session restart; a runner icon at the top right shows what is running. |
 | It sits blocked on a question until you're back at your desk. | **[Your phone shows the same terminal](docs/phone.md)**; unblock it by voice. |
 | The agent cites file:line and symbols; checking a claim means finding it by hand. | Ctrl/Cmd-click any reference and **[your IDE jumps to that exact line](docs/ide.md)** to verify the claim, with the editor read-only so a stray key changes nothing. |
 
