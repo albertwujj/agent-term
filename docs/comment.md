@@ -2,7 +2,7 @@
 
 ![select a claim in the agent's brainstorm and ask, right on the output](assets/comment-brainstorm.png)
 
-Most of what an agent tells you scrolls past in the terminal (`Ctrl/Cmd+F` fuzzy-searches the whole scrollback). Select any of it (a line, a claim, a command it is about to run) and comment; your note goes back to the agent with the exact text quoted, so a few words are enough.
+Most of what an agent tells you scrolls past in the terminal (`Ctrl/Cmd+F` fuzzy-searches the whole scrollback). Double-click a word, triple-click a line, or select any stretch of it (a claim, a command it is about to run) and comment; your note goes back to the agent with the exact text quoted, so a few words are enough.
 
 ![the sent message carries the quoted selection, and the agent acts on it](assets/comment-sent-brainstorm.png)
 
