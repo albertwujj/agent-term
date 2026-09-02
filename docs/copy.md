@@ -1,6 +1,6 @@
 # Copy a doc into a message
 
-A plan or a draft written in the viewer often leaves as a message: a Teams post, an email, a reply on GitHub. The `⧉` button at the right of the viewer's bottom bar copies it in the shape the destination wants, so nothing needs to be retyped or cleaned up on the other side. Your comments and unsent edits live beside the doc and stay behind, whichever copy you take.
+A plan or a draft written in the viewer often ends up as a message: a Teams post, an email, a reply on GitHub. The `⧉` button at the right of the viewer's bottom bar copies it in the form the destination needs, so nothing needs to be retyped or cleaned up on the other side. Your comments and unsent edits live beside the doc and stay behind, whichever copy you take.
 
 **Plain text, for Teams or email.** The plain click copies text only: headings drop out, each paragraph becomes one line, list items stay one per line, code keeps its line breaks, and a blank line separates the blocks.
 

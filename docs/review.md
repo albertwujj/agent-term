@@ -6,4 +6,4 @@ When the agent finishes, it prepares your review: it hands you the parts that ne
 
 The loop's instruction docs live in [agent-threads](https://github.com/albertwujj/agent-threads): reference [produce-review.md](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md) in a prompt and the agent produces the package and prints its `review://` link, which this terminal opens on its own.
 
-The spec is open, the review is markdown, this terminal renders it and carries your inline comments back. Other hosts welcome.
+The spec is open and the review is markdown: this terminal renders it and carries your inline comments back, and any other host can do the same.

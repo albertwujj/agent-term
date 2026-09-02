@@ -2,7 +2,7 @@
 
 ![a long run wrapped in agent-job: the runner icon at the top right, its popover listing the job](assets/jobs-runner.png)
 
-A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard session with two bad options: the agent either sits watching it, blocking the terminal, or ends its turn and the finish arrives to nobody, the result sitting unhandled until you notice.
+A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard session with two bad options: the agent either sits watching it, blocking the terminal, or ends its turn and nobody is there when the job finishes, so the result sits until you notice.
 
 [agent-jobs](https://github.com/yunxin/agent-jobs) is the convention that fixes this. Point the agent at your clone of it and it works out the rest: it runs the job under `agent-job`, ends its turn without stopping the work, and hands the terminal back to you. The job reports its own completion, per agent-term's [job-events.md](job-events.md) contract, and when it finishes and the agent has been idle since, the terminal prompts the agent to pick the result up:
 
