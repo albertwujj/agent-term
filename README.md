@@ -56,6 +56,6 @@ The above already covers the top of the table: sessions as windows with their ta
 3. Phone: self-host [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) and add it to your home screen.
 4. IDE jump: install the [IntelliJ Navigator plugins](https://github.com/albertwujj/intellij-navigator/releases).
 
-**Grow it.** Fill what you need: you do that with your agents, using this terminal itself as a boost.
+**Grow it.** Fill what you need with your agents, using this terminal itself as a boost.
 
 Built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT.
