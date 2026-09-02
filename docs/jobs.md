@@ -8,6 +8,8 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 ![the report the terminal hands the idle agent when the job finishes](assets/jobs-nudge.png)
 
+To make it automatic, bake the convention into the project's guide file, a verb doc of your own, or a skill that wraps `agent-job`, so no prompt has to mention it.
+
 The records survive a session restart or resume, so a job outlives the session that started it.
 
 A runner icon at the top right of the window shows the running jobs; click it for the list.
