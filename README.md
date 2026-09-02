@@ -41,7 +41,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 ## How to start
 
-**Run it.** Directly from source: there is no prebuilt package or binary. Launch is fast, even right after you change the source, so you see the result at once. The first launch is the slow one, since it installs the dependencies; every launch after is quicker.
+**Run it.** Directly from source: there is no prebuilt package or binary. Launch is fast, and you see the result of a source change right away.
 
 1. Clone: `git clone https://github.com/albertwujj/agent-term` (on Windows, into WSL's native filesystem).
 2. Install [Node.js](https://nodejs.org) if you don't have it (the [development guide](docs/development.md) covers the Windows setup).
