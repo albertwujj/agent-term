@@ -41,7 +41,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 ## Pick up your existing sessions
 
-Have Claude Code or Codex conversations in other terminals, recent or old? Nothing to migrate: they live in the CLI's own store. Start the same way as a new session and resume inside the CLI; it then becomes a known session like any other, one per conversation ([sessions](docs/sessions.md)).
+Have Claude Code or Codex conversations in other terminals, recent or old? Easy to connect with what lives in the CLI's own store. Start the same way as a new session and resume inside the CLI; it then becomes a known session like any other, one per conversation ([sessions](docs/sessions.md)).
 
 ## How to start
 
