@@ -13,3 +13,5 @@ The rule is shaped for commenting. Selecting output to comment on it is the most
 Inside the md viewer, a plain click on a link arms the block under it for a comment; `Ctrl/Cmd`-click follows the link.
 
 `Ctrl/Cmd+Shift+U` lists everything the session can open in a viewer; `Ctrl/Cmd+Shift+O` and `+I` grow and shrink the open band. Commenting works the same in every viewer ([comment](comment.md)).
+
+The one thing to remember: if a plain click does nothing, `Ctrl/Cmd`-click it.
