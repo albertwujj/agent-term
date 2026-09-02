@@ -4,11 +4,9 @@
 
 A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard session with two bad options: the agent either sits watching it, blocking the terminal, or ends its turn and the finish arrives to nobody, the result sitting unhandled until you notice.
 
-[agent-jobs](https://github.com/yunxin/agent-jobs) is the convention that fixes this, and its whole interface is a wrapper: the agent runs `agent-job <command>`, ends its turn, and hands the terminal back to you; the job records its start and reports its own completion, per agent-term's [job-events.md](job-events.md) contract. When it finishes and the agent has been idle since, the terminal prompts the agent to pick the result up:
+[agent-jobs](https://github.com/yunxin/agent-jobs) is the convention that fixes this. Point the agent at your clone of it and it works out the rest: it runs the job under `agent-job`, ends its turn without stopping the work, and hands the terminal back to you. The job reports its own completion, per agent-term's [job-events.md](job-events.md) contract, and when it finishes and the agent has been idle since, the terminal prompts the agent to pick the result up:
 
 ![the report the terminal hands the idle agent when the job finishes](assets/jobs-nudge.png)
-
-**How to use it.** Point the agent at your agent-jobs clone and it works out the rest. What you see: the agent starts the job, ends its turn without stopping the work, and picks the result up when it lands.
 
 The records survive a session restart or resume, so a job outlives the session that started it.
 
