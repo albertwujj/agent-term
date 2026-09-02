@@ -2,7 +2,7 @@
 
 Most loops in the suite are driven by a **verb doc**: an instruction file named for what the agent is to do, like `produce-review.md` or `proceed-by-lock-and-branch.md`. Reference it in a prompt and the agent carries it out; `@` completion partial-matches, so `@proceed-b` is typically more than enough to land on `proceed-by-lock-and-branch.md`.
 
-One resolution rule covers the suite: everything binds to these docs by filename, taking the nearest copy up the directory tree, the repo's `ai/` folder counting as in the repo, with your home directory as the fallback. A clone under home serves every project; a clone inside a project overrides it there. No central config.
+One resolution rule covers the suite: everything binds to these docs by filename, taking the nearest copy up the directory tree, the repo's `ai/` folder (a convention of this terminal, see below) counting as in the repo, with your home directory as the fallback. A clone under home serves every project; a clone inside a project overrides it there. No central config.
 
 ## Placement
 
