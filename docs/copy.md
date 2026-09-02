@@ -6,6 +6,6 @@ A plan or a draft written in the viewer often leaves as a message: a Teams post,
 
 **Copy takes what you have clicked.** With nothing clicked, the button reads `⧉ text` and copies the whole doc. Click a heading first and it reads `⧉ section`: the copy is the body under that heading, up to the next heading of the same level, sub-sections included. Click a paragraph, a list, or a code block and the button names it and copies just that block. The button's label, in the viewer's bottom bar, is the preview: read it, then click.
 
-Besides copying, the click also arms the block for a comment or an edit: type a letter after copying and you are commenting on the same block. `Esc` or a click elsewhere clears it. `Ctrl/Cmd+C` with a block clicked copies the same thing, as normal, so with a heading clicked it copies the section under it, exactly as the button does.
+Besides copying, the click also arms the block for a comment or an edit ([plan](plan.md)): type a letter after copying and you are commenting on the same block. `Esc` or a click elsewhere clears it. `Ctrl/Cmd+C` with a block clicked copies the same thing, as normal, so with a heading clicked it copies the section under it, exactly as the button does.
 
 **Markdown, for GitHub or Reddit.** `Ctrl/Cmd`-click the button (`Alt` works too) to copy the markdown source of the same scope, for a surface that renders markdown itself. The flash on the button says which copy fired: `✓` for text, `✓ md` for source.
