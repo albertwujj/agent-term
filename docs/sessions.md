@@ -2,7 +2,7 @@
 
 Every session is a whole OS window; there are no tabs.
 
-**Starting an agent.** Type its command (`claude`, `codex`, whichever CLI you run) and press Return; each session is a real shell, so anything you would type in a terminal works the same here.
+**Starting an agent.** The window opens on your shell. Type the CLI's command (`claude`, `codex`, whichever you run) and press Return; anything else you would type in a terminal works there too, before the CLI starts and after it exits.
 
 **Picking up an existing session from before this terminal.** Sessions started in another terminal live in the CLI's own store. Start the CLI as above, as a new session, and resume the existing one normally in the CLI; capture starts with the first prompt after the resume, and the rest is the same as for a session started here.
 
