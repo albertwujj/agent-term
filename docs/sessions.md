@@ -4,7 +4,7 @@ Every session is a whole OS window; there are no tabs.
 
 **Starting an agent.** Type its command (`claude`, `codex`, whichever CLI you run) and press Return; each session is a real shell, so anything you would type in a terminal works the same here.
 
-**Picking up a conversation from elsewhere.** Conversations started in another terminal live in the CLI's own store. Start the CLI as above, as a new session, and resume the conversation normally in the CLI; your first prompt after the resume is captured as the session's prompt, and the rest is the same as for a session started in this terminal.
+**Picking up a conversation from elsewhere.** Conversations started in another terminal live in the CLI's own store. Start the CLI as above, as a new session, and resume the conversation normally in the CLI; capture starts with the first prompt after the resume, and the rest is the same as for a session started in this terminal.
 
 ![your active agent sessions: each a live taskbar button with a thumbnail preview](assets/taskbar-preview.png)
 <sub>Session content blurred; the taskbar labels are as they render.</sub>
