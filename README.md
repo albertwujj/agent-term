@@ -39,10 +39,6 @@ It is yours. The agents, made better by running in this grown terminal, grow it 
 
 Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. An agent and its host act as one unit, independent of the other units and cooperating through conventions such as the checkout lock. Subagents belong inside that unit, under the main agent.
 
-## Pick up your existing sessions
-
-It is easy to pick up your existing sessions from before this terminal. Start the same way as a new session and resume inside the CLI; it then becomes a known session like any other ([sessions](docs/sessions.md)).
-
 ## How to start
 
 **Run it.** Directly from source. Launch is fast, and you see the result of a source change right away.
@@ -50,6 +46,8 @@ It is easy to pick up your existing sessions from before this terminal. Start th
 1. Clone: `git clone https://github.com/albertwujj/agent-term` (on Windows, into WSL's native filesystem).
 2. Install [Node.js](https://nodejs.org) if you don't have it (the [development guide](docs/development.md) covers the Windows setup).
 3. From the checkout: `npm ci` once, to install the dependencies, then `npm run start` (`npm run start:wsl` on WSL); or start from your own repo with `--prefix` pointing at the checkout ([sessions](docs/sessions.md)).
+
+**Both [existing](docs/sessions.md) and new sessions work.**
 
 The above covers the first set of features: sessions as windows with their taskbar buttons and picker, and commenting on anything the agent prints.
 
