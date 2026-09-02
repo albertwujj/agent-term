@@ -41,7 +41,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 ## Pick up your existing sessions
 
-Have Claude Code or Codex conversations in other terminals, recent or months old? Nothing to migrate: they live in the CLI's own store, so nothing moves and nothing is copied. Open a window here, `cd` to the project, start the CLI as usual, and resume any of them the CLI's own way (`/resume` in Claude Code, `codex resume` in Codex). At your first prompt the window takes that conversation's name, and from then on it is a session like any other here: a taskbar button, a picker entry, every loop above. One window per conversation, as many as you revive.
+Have Claude Code or Codex conversations in other terminals, recent or months old? Nothing to migrate: they live in the CLI's own store. Start the CLI in a window here and resume any of them as you always do; the window takes the conversation's name and becomes a session like any other, one per conversation ([sessions](docs/sessions.md)).
 
 ## How to start
 
