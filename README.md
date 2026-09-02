@@ -37,7 +37,7 @@ It is yours. The agents, made better by running in this grown terminal, grow it 
 
 ## Native to the OS
 
-Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The sessions still cooperate, through the same open conventions the agents use: the checkout lock, and the sessions log. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. Independent like the agents, cooperating like the agents; hierarchy, when it helps, lives inside a session, where an agent runs its own subagents.
+Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The sessions still cooperate, through plain-file conventions: the checkout lock, which an agent takes and every window reads to show who holds it, and the sessions log the windows share. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. Independent like the agents, cooperating like the agents; hierarchy, when it helps, lives inside a session, where an agent runs its own subagents.
 
 ## How to start
 
