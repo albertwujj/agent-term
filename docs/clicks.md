@@ -2,7 +2,7 @@
 
 One rule: a plain click keeps you in the window, and `Ctrl/Cmd`-click hands you to another application. Web links are the one exception, below.
 
-The rule is shaped for commenting. Selecting output to comment on it is the most frequent gesture here, and a double-click on a word is a selection too; so only the most common resources (what stays in the window) earn the plain click, without the modifier. A word that looks like a symbol or a path stays a word by default.
+The rule is shaped for commenting. Selecting output to comment on it is the most frequent gesture here, and a double-click on a word is a selection too; so only the most common targets (what stays in the window) earn the plain click, without the modifier. A word that looks like a symbol or a path stays a word by default.
 
 **Plain click, in the window.** Whatever the agent prints that renders opens in a viewer band above the prompt: a markdown path (`docs/plan.md`) in the md viewer, a `review://` link in the review viewer, an image in the image viewer, a local page (`file://`, `.html`) in the web band. A diff line on a doc, the common case when the agent edits one, jumps to that line in the md viewer, for you to comment on or edit. The viewer is part of the terminal, and expands and hides on its own.
 

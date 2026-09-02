@@ -4,7 +4,7 @@ Every session is a whole OS window; there are no tabs.
 
 **Starting an agent.** Type the CLI's command (`claude`, `codex`, whichever you run) and press Return. From that point on, the AI CLI runs in a real shell, just like in any other terminal.
 
-**Picking up an existing session from before this terminal.** Start the CLI as above, as a new session, and resume the existing one normally in the CLI; capture starts with the first prompt after the resume, and the rest is the same.
+**Picking up an existing session from before this terminal.** Start the CLI as above, as a new session, and resume the existing one normally in the CLI; the first prompt after the resume counts as the session's initial prompt, and the rest is the same.
 
 ![your active agent sessions: each a live taskbar button with a thumbnail preview](assets/taskbar-preview.png)
 <sub>Session content blurred; the taskbar labels are as they render.</sub>
