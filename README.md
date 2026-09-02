@@ -39,6 +39,10 @@ It is yours. The agents, made better by running in this grown terminal, grow it 
 
 Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. An agent and its host act as one unit, independent of the other units and cooperating through conventions such as the checkout lock. Subagents belong inside that unit, under the main agent.
 
+## Pick up your existing sessions
+
+Already deep in a Claude Code or Codex conversation in another terminal? Nothing to migrate: the conversations live in the CLI's own store, so nothing moves and nothing is copied. Open a window here, `cd` to the project, start the CLI as usual, and resume the conversation the CLI's own way (`/resume` in Claude Code, `codex resume` in Codex). At your first prompt the window takes the conversation's name, and from then on it is a session like any other here: a taskbar button, a picker entry, every loop above.
+
 ## How to start
 
 **Run it.** Directly from source. Launch is fast, and you see the result of a source change right away.
