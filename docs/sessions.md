@@ -4,7 +4,7 @@ Every session is a whole OS window; there are no tabs.
 
 **Starting an agent.** Type its command (`claude`, `codex`, whichever CLI you run) and press Return; each session is a real shell, so anything you would type in a terminal works the same here.
 
-**Picking up a conversation from elsewhere.** Conversations started in another terminal live in the CLI's own store. Start the CLI as above and resume the conversation in its own dialog before typing (`/resume` in Claude Code, `codex resume` in Codex); at your first prompt the window adopts the conversation's name, so the taskbar button and the picker entry carry the name the CLI's resume list shows. One window per conversation; the other terminal can still open it later.
+**Picking up a conversation from elsewhere.** Conversations started in another terminal live in the CLI's own store. Start the CLI as above and resume the conversation normally in the CLI; at your first prompt the window adopts the conversation's name, so the taskbar button and the picker entry carry the name the CLI's resume list shows. One window per conversation; the other terminal can still open it later.
 
 ![your active agent sessions: each a live taskbar button with a thumbnail preview](assets/taskbar-preview.png)
 <sub>Session content blurred; the taskbar labels are as they render.</sub>
