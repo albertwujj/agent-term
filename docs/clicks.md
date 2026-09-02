@@ -6,7 +6,7 @@ The rule is shaped for commenting. Selecting output to comment on it is the most
 
 **Plain click, in the window.** Whatever the agent prints that renders opens in a viewer band above the prompt: a markdown path (`docs/plan.md`) in the md viewer, a `review://` link in the review viewer, an image in the image viewer, a local page (`file://`, `.html`) in the web band. A diff line on a doc, the common case when the agent edits one, jumps to that line in the md viewer, for you to comment on or edit. The viewer is part of the terminal, and expands and hides on its own.
 
-**`Ctrl/Cmd`-click, to another application.** A symbol, a `file:line`, or a diff or source line over code goes to your IDE at that line ([ide](ide.md)). A bare path, a folder, a pdf, an archive, or an audio or video file goes to the OS handler. The modifier is the price of an application switch.
+**`Ctrl/Cmd`-click, to another application.** A symbol, a `file:line`, or a diff or source line over code goes to your IDE at that line ([ide](ide.md)). A bare path, a folder, a pdf, an archive, or an audio or video file goes to the OS handler.
 
 **Web links.** A plain click on an `http(s)` URL opens your browser, where logins, SSO cookies, and device auth already live. `Ctrl/Cmd`-click pulls the page into the in-app web band instead.
 
