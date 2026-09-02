@@ -1,4 +1,4 @@
-# Review, not a wall of diff
+# The curated review
 
 ![the review loop: comment on a line, the agent fixes it and replies, the review re-renders in place](assets/review-loop.gif)
 
