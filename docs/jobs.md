@@ -8,7 +8,7 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 ![the report the terminal hands the idle agent when the job finishes](assets/jobs-nudge.png)
 
-**How to use it.** Tell the agent the convention once, in the project's guide file (`CLAUDE.md`, `AGENTS.md`) or in the prompt itself: run long jobs under `agent-job` in the background, then end the turn; the terminal hands over the result. `agent-job` runs the command in the foreground and reports when it exits, so the agent starts it as a background command (the CLI's background run, or a trailing `&`) and ends its turn. Scripts of your own can report a richer result by sourcing agent-jobs' `job-events.sh`: a build watch, say, reports the verdict and the build link as its message.
+**How to use it.** Point the agent at your agent-jobs clone and it works out the rest. What you see: the agent starts the job, ends its turn without stopping the work, and picks the result up when it lands.
 
 The records survive a session restart or resume, so a job outlives the session that started it.
 
