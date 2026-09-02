@@ -49,7 +49,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 The above covers the first set of features: sessions as windows with their taskbar buttons and picker, and commenting on anything the agent prints.
 
-Both **existing** and new [sessions](docs/sessions.md) work.
+**Existing** [sessions](docs/sessions.md) from before this terminal work too.
 
 **Add the loops you want.**
 
