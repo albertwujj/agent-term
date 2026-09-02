@@ -225,7 +225,11 @@ let sessionCwd = null;
 // CLI could not have said before it saw a prompt — so anything in this set
 // (brand banners like "✳ Claude Code", shell noise, and their spinner-frame
 // variants) stays out of the title event log. CLI-agnostic by construction:
-// no per-CLI knowledge needed here.
+// no per-CLI knowledge needed here. One key is released at the first prompt:
+// the title on screen at that moment, when it is a real name and not a
+// banner (see onPromptCaptured). The user resumed a conversation in the
+// CLI's own dialog before typing here, and that conversation's topic is
+// the session's name, not boot noise.
 const bootTitleKeys = new Set();
 // Dedupe key of the last title event appended to the sessions log. OSC
 // titles arrive per spinner frame ("✳ Fix bug" / "✻ Fix bug" …); gating
@@ -1097,9 +1101,6 @@ function assignSessionIdentity() {
     if (detectedCli) {
       sessionsLog.appendEvent(userDataDir, { e: 'cli', id: sessionIndex, cli: detectedCli });
     }
-    if (lockedTitle) {
-      sessionsLog.appendEvent(userDataDir, { e: 'title', id: sessionIndex, title: lockedTitle });
-    }
     // The CLI runs as the shell's foreground child, so the shell's cwd is
     // frozen at the directory the CLI was launched from — sample it now
     // (POSIX on both platforms: /proc/<pid>/cwd in WSL, lsof on macOS) so a
@@ -1198,6 +1199,23 @@ function onPromptCaptured(promptText) {
     // The boot vocabulary closes here — from now on, arriving OSC titles
     // outside it are logged as the session's drifting title (see the
     // set-title handler).
+    // The title on screen right now is the CLI's current name for what it
+    // is running. On a fresh start that is the brand banner: its key is
+    // empty and nothing is logged. When the user resumed a conversation in
+    // the CLI's own dialog before typing here (attaching this window to a
+    // conversation started outside agent-term), the CLI has already
+    // re-emitted that conversation's topic. That is a real name, the one
+    // its resume dialog lists, so it is logged after the prompt, where the
+    // fold takes it as the identity title, and released from the boot
+    // vocabulary so its re-emissions and returns keep logging as drift.
+    const onScreenKey = aiTitleDedupeKey(lockedTitle || '', detectedCli);
+    if (onScreenKey && sessionIndex !== null) {
+      bootTitleKeys.delete(onScreenKey);
+      lastTitleEventKey = onScreenKey;
+      sessionsLog.appendEvent(app.getPath('userData'), {
+        e: 'title', id: sessionIndex, title: lockedTitle,
+      });
+    }
     // Window title is the "rest" of the identity string — everything past
     // the first N letters that the icon ended up drawing (N is 3 by default,
     // 4 if there was room). Together: [icon: "Mig"] + "rate the database…" =
