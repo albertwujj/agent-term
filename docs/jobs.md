@@ -8,6 +8,8 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 ![the report the terminal hands the idle agent when the job finishes](assets/jobs-nudge.png)
 
+**How to use it.** Tell the agent the convention once, in the project's guide file (`CLAUDE.md`, `AGENTS.md`) or in the prompt itself: run long jobs under `agent-job` in the background, then end the turn; the terminal hands over the result. `agent-job` runs the command in the foreground and reports when it exits, so the agent starts it as a background command (the CLI's background run, or a trailing `&`) and ends its turn. Scripts of your own can report a richer result by sourcing agent-jobs' `job-events.sh`; agent-cicd, the Jenkins build-watch kit, does this, with the verdict as the report.
+
 The records survive a session restart or resume, so a job outlives the session that started it.
 
 A runner icon at the top right of the window shows the running jobs; click it for the list.
