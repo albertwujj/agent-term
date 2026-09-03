@@ -85,6 +85,10 @@ contextBridge.exposeInMainWorld('pty', {
   setTitle: (title) => ipcRenderer.send('set-title', title),
   // Listen for logs from main process
   onMainLog: (callback) => ipcRenderer.on('main-log', (event, msg) => callback(msg)),
+  // Low-volume renderer diagnostics are persisted by main, whose log survives
+  // a renderer hang/reload. Callers send only state/timing metadata, never
+  // terminal contents or typed keys.
+  reportDiagnostic: (message) => ipcRenderer.send('renderer-diagnostic', message),
   // Get real filesystem path from a dropped File object (Electron 33+ removed file.path)
   getPathForFile: (file) => webUtils.getPathForFile(file),
   // ---- Sessions picker ----

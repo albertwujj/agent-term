@@ -38,6 +38,23 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
   if (window.__rvInit) return;
   window.__rvInit = true;
 
+  // A guest page has its own renderer process. Long-task observation avoids a
+  // polling timer: Chromium clamps guest timers to ~1s even while the host can
+  // see the webview, which looks exactly like a false 750ms "stall" to a 250ms
+  // heartbeat. Only an actual 500ms+ task produces IPC or disk traffic.
+  try {
+    const longTaskObserver = new PerformanceObserver(function (list) {
+      list.getEntries().forEach(function (entry) {
+        if (entry.duration < 500) return;
+        try {
+          ipcRenderer.sendToHost('viewer-diagnostic',
+            'long-task duration=' + Math.round(entry.duration) + 'ms');
+        } catch {}
+      });
+    });
+    longTaskObserver.observe({ entryTypes: ['longtask'] });
+  } catch {}
+
   let commentsUrl = null;
   let store = { threads: [] };
   // The turn of this session's FIRST send (0 = the agent was never pinged this

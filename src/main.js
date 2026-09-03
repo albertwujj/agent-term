@@ -139,6 +139,9 @@ const FRONTEND_PORT = 8766;
 // the exit paths below log through here from a process whose window is gone.
 const LOG_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 let diskLogPath;
+let diskLogFd;
+let lastSlowDiskWriteMs = 0;
+let lastSlowDiskWriteAt = 0;
 
 function diskLog(line) {
   if (diskLogPath === null) return;
@@ -148,8 +151,25 @@ function diskLog(line) {
       fs.mkdirSync(dir, { recursive: true });
       diskLogPath = path.join(dir, `main-${process.pid}.log`);
     }
-    fs.appendFileSync(diskLogPath, new Date().toISOString() + ' ' + line + '\n');
+    // Keep the append handle open. Besides avoiding an open/close pair for
+    // every ordinary log line, this makes the diagnostic write immediately
+    // before a synchronous native call as small as possible. A crash still
+    // closes the handle in the OS; each process has its own PID-named file.
+    if (diskLogFd === undefined) diskLogFd = fs.openSync(diskLogPath, 'a');
+    const writeStartedAt = process.hrtime.bigint();
+    fs.writeSync(diskLogFd, new Date().toISOString() + ' ' + line + '\n');
+    const writeMs = Number(process.hrtime.bigint() - writeStartedAt) / 1e6;
+    if (writeMs >= 50) {
+      // Do not recursively log a slow diagnostic write. The main-loop monitor
+      // includes this measurement in its next bounded report instead.
+      lastSlowDiskWriteMs = writeMs;
+      lastSlowDiskWriteAt = Number(process.hrtime.bigint()) / 1e6;
+    }
   } catch (err) {
+    if (Number.isInteger(diskLogFd)) {
+      try { fs.closeSync(diskLogFd); } catch {}
+    }
+    diskLogFd = null;
     diskLogPath = null;
     console.warn('[main] disk log disabled:', err && err.message);
   }
@@ -173,6 +193,41 @@ function log(...args) {
   try {
     if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('main-log', line);
   } catch {}
+}
+
+// This timer does not write a heartbeat. It emits one line only after the
+// main event loop has actually missed its deadline by a noticeable amount.
+// It therefore distinguishes a main-process stall from a renderer-only one
+// without creating steady-state disk traffic. A system suspend also delays
+// the loop, so the message deliberately preserves that possibility for later
+// correlation with Windows events.
+const MAIN_LOOP_SAMPLE_MS = 1000;
+const MAIN_LOOP_DELAY_LOG_MS = 2000;
+let mainLoopDelayTimer = null;
+let lastMainLoopDelayLogAt = 0;
+
+function monotonicMs() {
+  return Number(process.hrtime.bigint()) / 1e6;
+}
+
+function startMainLoopDelayDiagnostics() {
+  if (mainLoopDelayTimer) return;
+  let expectedAt = monotonicMs() + MAIN_LOOP_SAMPLE_MS;
+  mainLoopDelayTimer = setInterval(() => {
+    const observedAt = monotonicMs();
+    const delayMs = observedAt - expectedAt;
+    expectedAt = observedAt + MAIN_LOOP_SAMPLE_MS;
+    if (delayMs >= MAIN_LOOP_DELAY_LOG_MS &&
+        observedAt - lastMainLoopDelayLogAt >= 10_000) {
+      lastMainLoopDelayLogAt = observedAt;
+      const recentDiskWrite = observedAt - lastSlowDiskWriteAt <= 10_000
+        ? ' recentSlowDiskWriteMs=' + Math.round(lastSlowDiskWriteMs)
+        : '';
+      log('[main-loop] delayed=' + Math.round(delayMs) + recentDiskWrite +
+          ' (main thread blocked or machine suspended)');
+    }
+  }, MAIN_LOOP_SAMPLE_MS);
+  if (typeof mainLoopDelayTimer.unref === 'function') mainLoopDelayTimer.unref();
 }
 
 let mainWindow;
@@ -790,6 +845,35 @@ let cachedHwnd = null;
 let iconicHooksInstalled = false;
 const WM_DWMSENDICONICTHUMBNAIL = 0x0323;
 const WM_DWMSENDICONICLIVEPREVIEWBITMAP = 0x0326;
+let dwmNativeCallSequence = 0;
+
+// Koffi calls are synchronous on Electron's main thread. A JavaScript timeout
+// cannot fire while one is blocked, so persist a boundary immediately before
+// and after every DWM/GDI operation. A lone "begin" identifies the native
+// boundary at which a hang or crash occurred; a late "end" measures a call
+// that eventually recovered. These are rare, event-driven writes rather than
+// a polling trace.
+function runDwmNativeCall(operation, detail, invoke) {
+  const id = ++dwmNativeCallSequence;
+  const suffix = detail ? ' ' + detail : '';
+  diskLog('[dwm-native] begin id=' + id + ' op=' + operation + suffix);
+  const startedAt = process.hrtime.bigint();
+  try {
+    const result = invoke();
+    const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    diskLog('[dwm-native] end id=' + id + ' op=' + operation +
+        ' outcome=returned elapsedMs=' + elapsedMs.toFixed(3) + suffix);
+    return result;
+  } catch (err) {
+    const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    const message = String(err && err.message ? err.message : err)
+      .replace(/[\r\n]+/g, ' ').slice(0, 240);
+    diskLog('[dwm-native] end id=' + id + ' op=' + operation +
+        ' outcome=threw elapsedMs=' + elapsedMs.toFixed(3) +
+        ' error=' + message + suffix);
+    throw err;
+  }
+}
 
 // Debug toggle: when true, the iconic hooks short-circuit without pushing
 // any bitmap. Per Microsoft docs, if a window doesn't respond to the
@@ -920,7 +1004,8 @@ async function renderAndPushIconicBitmaps() {
     }
     const hwnd = mainWindow.getNativeWindowHandle();
     if (!dwmIconicEnabled) {
-      const enableResult = dwm.enableIconicMode(hwnd);
+      const enableResult = runDwmNativeCall(
+        'enableIconicMode', '', () => dwm.enableIconicMode(hwnd));
       dwmIconicEnabled = enableResult.ok;
       log('[thumbnail] enableIconicMode ok=' + enableResult.ok +
           ' has=' + enableResult.has +
@@ -948,8 +1033,12 @@ async function renderAndPushIconicBitmaps() {
     // can push them instantly. Atomic swap: build new, swap into cache,
     // delete previous handles. If a build fails, log and keep the old
     // cache rather than ending up with no bitmap at all.
-    const newThumbHBitmap = dwm.buildHBitmap(thumbBitmap, THUMB_W, THUMB_H);
-    const newLiveHBitmap  = dwm.buildHBitmap(liveBitmap,  physicalW, physicalH);
+    const newThumbHBitmap = runDwmNativeCall(
+      'buildHBitmap', 'surface=thumbnail size=' + THUMB_W + 'x' + THUMB_H,
+      () => dwm.buildHBitmap(thumbBitmap, THUMB_W, THUMB_H));
+    const newLiveHBitmap = runDwmNativeCall(
+      'buildHBitmap', 'surface=live-preview size=' + physicalW + 'x' + physicalH,
+      () => dwm.buildHBitmap(liveBitmap, physicalW, physicalH));
     if (newThumbHBitmap && newLiveHBitmap) {
       const oldThumb = cachedThumbHBitmap;
       const oldLive  = cachedLiveHBitmap;
@@ -957,18 +1046,25 @@ async function renderAndPushIconicBitmaps() {
       cachedLiveHBitmap  = newLiveHBitmap;
       cachedThumbSize = { width: THUMB_W,   height: THUMB_H };
       cachedLiveSize  = { width: physicalW, height: physicalH };
-      if (oldThumb) dwm.deleteHBitmap(oldThumb);
-      if (oldLive)  dwm.deleteHBitmap(oldLive);
+      if (oldThumb) runDwmNativeCall(
+        'deleteHBitmap', 'surface=old-thumbnail', () => dwm.deleteHBitmap(oldThumb));
+      if (oldLive) runDwmNativeCall(
+        'deleteHBitmap', 'surface=old-live-preview', () => dwm.deleteHBitmap(oldLive));
     } else {
-      if (newThumbHBitmap) dwm.deleteHBitmap(newThumbHBitmap);
-      if (newLiveHBitmap)  dwm.deleteHBitmap(newLiveHBitmap);
+      if (newThumbHBitmap) runDwmNativeCall(
+        'deleteHBitmap', 'surface=failed-new-thumbnail',
+        () => dwm.deleteHBitmap(newThumbHBitmap));
+      if (newLiveHBitmap) runDwmNativeCall(
+        'deleteHBitmap', 'surface=failed-new-live-preview',
+        () => dwm.deleteHBitmap(newLiveHBitmap));
       log('[thumbnail] buildHBitmap failed thumb=' + !!newThumbHBitmap +
           ' live=' + !!newLiveHBitmap);
     }
     // Tell DWM both cached representations are stale so the NEXT display
     // request goes through our hooks. The hooks now push pre-built
     // HBITMAPs directly — sub-millisecond response.
-    const invalidated = dwm.invalidate(hwnd);
+    const invalidated = runDwmNativeCall(
+      'invalidateIconicBitmaps', 'source=render', () => dwm.invalidate(hwnd));
 
     everPushed = true;
     lastPushedPayloadHash = hash;
@@ -1027,10 +1123,12 @@ function installIconicHooks() {
         return;
       }
       if (!cachedThumbHBitmap || !cachedHwnd) return;
-      const ok = dwm.pushThumbnailHBitmap(cachedHwnd, cachedThumbHBitmap);
+      const s = cachedThumbSize || { width: 0, height: 0 };
+      const ok = runDwmNativeCall(
+        'DwmSetIconicThumbnail', 'size=' + s.width + 'x' + s.height,
+        () => dwm.pushThumbnailHBitmap(cachedHwnd, cachedThumbHBitmap));
       // Defer log so the hook returns to the OS dispatcher promptly.
       setImmediate(() => {
-        const s = cachedThumbSize || { width: 0, height: 0 };
         log('[thumb-hook] push ok=' + ok + ' size=' + s.width + 'x' + s.height);
       });
     });
@@ -1045,9 +1143,11 @@ function installIconicHooks() {
         return;
       }
       if (!cachedLiveHBitmap || !cachedHwnd) return;
-      const ok = dwm.pushLivePreviewHBitmap(cachedHwnd, cachedLiveHBitmap);
+      const s = cachedLiveSize || { width: 0, height: 0 };
+      const ok = runDwmNativeCall(
+        'DwmSetIconicLivePreviewBitmap', 'size=' + s.width + 'x' + s.height,
+        () => dwm.pushLivePreviewHBitmap(cachedHwnd, cachedLiveHBitmap));
       setImmediate(() => {
-        const s = cachedLiveSize || { width: 0, height: 0 };
         log('[live-hook] push ok=' + ok + ' size=' + s.width + 'x' + s.height);
       });
     });
@@ -2070,8 +2170,26 @@ function createWindow() {
   // against this; a stamp first taken after a compositor crash would match
   // the new compositor and certify a dead window as live.
   getOwnGuiSession();
-  // A renderer that stops answering is one more sign the window may be gone.
-  mainWindow.on('unresponsive', () => { checkGuiSessionAlive(); });
+  // Pair renderer state transitions in the persistent main log. If these fire
+  // while the main-loop monitor stays quiet, the renderer/webview is isolated
+  // as the failed side of the bridge rather than the Electron main process.
+  let rendererUnresponsiveAt = null;
+  mainWindow.on('unresponsive', () => {
+    rendererUnresponsiveAt = monotonicMs();
+    log('[renderer] unresponsive');
+    checkGuiSessionAlive();
+  });
+  mainWindow.on('responsive', () => {
+    const elapsed = rendererUnresponsiveAt === null
+      ? 'unknown'
+      : Math.round(monotonicMs() - rendererUnresponsiveAt) + 'ms';
+    rendererUnresponsiveAt = null;
+    log('[renderer] responsive after=' + elapsed);
+  });
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    log('[renderer] process gone reason=' + (details && details.reason) +
+        ' exitCode=' + (details && details.exitCode));
+  });
 
   mainWindow.on('closed', () => {
     // Unhook our window-message subscriptions before the HWND is destroyed.
@@ -2081,8 +2199,16 @@ function createWindow() {
     }
     iconicHooksInstalled = false;
     // Free the GDI HBITMAPs we own before the HWND is destroyed.
-    if (cachedThumbHBitmap) { dwm.deleteHBitmap(cachedThumbHBitmap); cachedThumbHBitmap = null; }
-    if (cachedLiveHBitmap)  { dwm.deleteHBitmap(cachedLiveHBitmap);  cachedLiveHBitmap  = null; }
+    if (cachedThumbHBitmap) {
+      runDwmNativeCall('deleteHBitmap', 'surface=close-thumbnail',
+        () => dwm.deleteHBitmap(cachedThumbHBitmap));
+      cachedThumbHBitmap = null;
+    }
+    if (cachedLiveHBitmap) {
+      runDwmNativeCall('deleteHBitmap', 'surface=close-live-preview',
+        () => dwm.deleteHBitmap(cachedLiveHBitmap));
+      cachedLiveHBitmap = null;
+    }
     cachedThumbSize = null;
     cachedLiveSize  = null;
     cachedHwnd = null;
@@ -2297,6 +2423,18 @@ ipcMain.on('stream:buffer-flip', (event, payload) => {
     noteAgentScreenActivity();
     if (streamState) streamState.onBufferFlip(payload);
   } catch {}
+});
+
+// Renderer-side timing/state evidence belongs in the persistent main-process
+// log. Accept it only from this window's trusted preload and cap it so neither
+// an accidental stack nor page content can turn diagnostics into log volume.
+ipcMain.on('renderer-diagnostic', (event, message) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  if (typeof message !== 'string') return;
+  const clean = message.replace(/[\r\n\x00-\x1f\x7f]+/g, ' ').trim().slice(0, 1000);
+  if (!clean) return;
+  console.log('[renderer-diag]', clean);
+  diskLog('[renderer-diag] ' + clean);
 });
 
 // IPC handlers
@@ -4675,6 +4813,23 @@ function normalizeViewerContentType() {
 
 app.on('web-contents-created', (event, contents) => {
   if (contents.getType() !== 'webview') return;
+  let guestUnresponsiveAt = null;
+  contents.on('unresponsive', () => {
+    guestUnresponsiveAt = monotonicMs();
+    log('[webview] unresponsive id=' + contents.id);
+  });
+  contents.on('responsive', () => {
+    const elapsed = guestUnresponsiveAt === null
+      ? 'unknown'
+      : Math.round(monotonicMs() - guestUnresponsiveAt) + 'ms';
+    guestUnresponsiveAt = null;
+    log('[webview] responsive id=' + contents.id + ' after=' + elapsed);
+  });
+  contents.on('render-process-gone', (goneEvent, details) => {
+    log('[webview] process gone id=' + contents.id +
+        ' reason=' + (details && details.reason) +
+        ' exitCode=' + (details && details.exitCode));
+  });
   // A link asking for a new window (target=_blank, window.open) used to get a bare
   // BrowserWindow: our icon and title, no address bar, no back button — a remote page
   // wearing the app's face. A login form there is one nobody can verify, which is
@@ -4791,6 +4946,7 @@ app.whenReady().then(async () => {
   }
 
   createWindow();
+  startMainLoopDelayDiagnostics();
 
   // Debug shortcut for pixel-picking DWM's fallback/transition surface.
   // Toggles forceFallbackForScreenshot — when ON, both iconic hooks return
@@ -4807,7 +4963,8 @@ app.whenReady().then(async () => {
       log('[force-fallback] toggled ' + (forceFallbackForScreenshot ? 'ON' : 'OFF'));
       try {
         if (cachedHwnd && typeof dwm.invalidate === 'function') {
-          dwm.invalidate(cachedHwnd);
+          runDwmNativeCall('invalidateIconicBitmaps', 'source=force-fallback',
+            () => dwm.invalidate(cachedHwnd));
         }
       } catch (err) {
         log('[force-fallback] invalidate failed: ' + (err && err.message));
@@ -4867,6 +5024,10 @@ app.on('before-quit', (event) => {
 
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll(); } catch {}
+  if (mainLoopDelayTimer) {
+    clearInterval(mainLoopDelayTimer);
+    mainLoopDelayTimer = null;
+  }
 });
 
 // Chromium's GPU process dies with the compositor, so its loss is the earliest
@@ -4874,8 +5035,13 @@ app.on('will-quit', () => {
 // process that merely crashed and restarted passes it. The compositor may
 // still be coming back at the first check, so a second one follows.
 app.on('child-process-gone', (event, details) => {
-  if (!details || details.type !== 'GPU') return;
-  log('[main] GPU process gone (' + details.reason + '); probing the compositor');
+  if (!details) return;
+  log('[main] child process gone type=' + details.type +
+      ' reason=' + details.reason + ' exitCode=' + details.exitCode +
+      (details.name ? ' name=' + details.name : '') +
+      (details.serviceName ? ' service=' + details.serviceName : ''));
+  if (details.type !== 'GPU') return;
+  log('[main] GPU process loss; probing the compositor');
   if (!checkGuiSessionAlive()) setTimeout(checkGuiSessionAlive, 15 * 1000);
 });
 

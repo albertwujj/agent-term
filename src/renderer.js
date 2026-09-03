@@ -803,6 +803,14 @@ if (window.pty && typeof window.pty.onStallReminder === 'function') {
 // or a URL that is both a visible match and an OSC 8 link opens twice.
 let pressConsumedByDecoration = false;
 
+function reportRendererDiagnostic(message) {
+  try {
+    if (window.pty && typeof window.pty.reportDiagnostic === 'function') {
+      window.pty.reportDiagnostic(String(message).slice(0, 1000));
+    }
+  } catch {}
+}
+
 const terminal = new Terminal({
   cursorBlink: true,
   // Alt/Option-click is the search-everywhere chooser on decorations; xterm's
@@ -892,11 +900,14 @@ if (window.pty.platform !== 'darwin') {
   try {
     webglAddon = new WebglAddon();
     webglAddon.onContextLoss(() => {
+      reportRendererDiagnostic('webgl context-lost action=fallback-to-dom');
       webglAddon.dispose();
       webglAddon = null;
     });
     terminal.loadAddon(webglAddon);
   } catch (e) {
+    reportRendererDiagnostic('webgl load-failed action=fallback-to-dom error=' +
+      String(e && e.message ? e.message : e).replace(/[\r\n]+/g, ' ').slice(0, 240));
     console.warn('WebGL addon failed to load, falling back to DOM:', e);
   }
 
@@ -946,6 +957,13 @@ streamWatch.start(terminal);
 let terminalOutputFrozen = false;
 let lastTerminalOutputAt = 0;
 const frozenTerminalChunks = [];
+let frozenTerminalChars = 0;
+let terminalFrozenAt = 0;
+let terminalFreezeReason = '';
+let terminalFreezeMouseMoves = 0;
+let terminalFreezeLastHover = '';
+let terminalWritePendingAt = 0;
+let terminalWritePendingChars = 0;
 let terminalFrozenPill = null;
 const TERMINAL_LIVE_OUTPUT_MS = 1500;
 // An accidental freeze — a stray press that paused the view but led to no
@@ -972,6 +990,45 @@ const TERMINAL_NAV_THAW_KEYS = new Set([
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown',
 ]);
 
+function activeElementDiagnosticLabel() {
+  const el = document.activeElement;
+  if (!el) return 'none';
+  const tag = String(el.tagName || 'unknown').toLowerCase();
+  const id = el.id ? '#' + String(el.id).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) : '';
+  const classes = typeof el.className === 'string'
+    ? el.className.trim().split(/\s+/).filter(Boolean).slice(0, 3).join('.')
+    : '';
+  return tag + id + (classes ? '.' + classes : '');
+}
+
+// Four cheap clock checks per second, no steady-state logging. Backgrounded
+// windows are excluded because Chromium intentionally throttles their timers.
+// A recovered delay of 500ms+ catches the user's 1–few-second typing pauses,
+// below Electron's much coarser BrowserWindow "unresponsive" threshold.
+const RENDERER_LOOP_SAMPLE_MS = 250;
+const RENDERER_LOOP_DELAY_LOG_MS = 500;
+let rendererLoopExpectedAt = performance.now() + RENDERER_LOOP_SAMPLE_MS;
+setInterval(() => {
+  const observedAt = performance.now();
+  const delayMs = observedAt - rendererLoopExpectedAt;
+  rendererLoopExpectedAt = observedAt + RENDERER_LOOP_SAMPLE_MS;
+  if (document.visibilityState !== 'visible') return;
+  if (delayMs >= RENDERER_LOOP_DELAY_LOG_MS) {
+    reportRendererDiagnostic('event-loop delayed=' + Math.round(delayMs) +
+      'ms outputFrozen=' + terminalOutputFrozen +
+      ' focus=' + activeElementDiagnosticLabel());
+  }
+}, RENDERER_LOOP_SAMPLE_MS);
+document.addEventListener('visibilitychange', () => {
+  rendererLoopExpectedAt = performance.now() + RENDERER_LOOP_SAMPLE_MS;
+});
+
+function writeTerminalOutput(data) {
+  if (!terminalWritePendingAt) terminalWritePendingAt = performance.now();
+  terminalWritePendingChars += data.length;
+  terminal.write(data);
+}
+
 function showTerminalFrozenPill() {
   if (terminalFrozenPill) return;
   ensureTerminalCommentStyles();
@@ -980,7 +1037,7 @@ function showTerminalFrozenPill() {
   pill.textContent = '❄ Output paused — right-click or Esc to resume';
   pill.title = 'Resume live output';
   pill.addEventListener('mousedown', (e) => e.stopPropagation());
-  pill.addEventListener('click', (e) => { e.stopPropagation(); cancelTerminalFreeze(); });
+  pill.addEventListener('click', (e) => { e.stopPropagation(); cancelTerminalFreeze('pill-click'); });
   document.body.appendChild(pill);
   terminalFrozenPill = pill;
 }
@@ -1006,24 +1063,45 @@ function armTerminalFreezeIdleTimer() {
   terminalFreezeIdleTimer = setTimeout(() => {
     terminalFreezeIdleTimer = null;
     if (!terminalOutputFrozen || activeTerminalComment || queuedTerminalComments.length) return;
-    unfreezeTerminalOutput();
+    unfreezeTerminalOutput('idle-timeout');
   }, TERMINAL_FREEZE_IDLE_MS);
 }
-function freezeTerminalOutput() {
+function freezeTerminalOutput(reason = 'unspecified') {
   if (terminalOutputFrozen) return;
   terminalOutputFrozen = true;
+  terminalFrozenAt = performance.now();
+  terminalFreezeReason = reason;
+  frozenTerminalChars = 0;
+  terminalFreezeMouseMoves = 0;
+  terminalFreezeLastHover = '';
+  reportRendererDiagnostic('output-freeze begin reason=' + reason +
+    ' outputAgeMs=' + Math.max(0, Date.now() - lastTerminalOutputAt) +
+    ' focus=' + activeElementDiagnosticLabel());
   showTerminalFrozenPill();
   armTerminalFreezeIdleTimer();
 }
-function unfreezeTerminalOutput() {
+function unfreezeTerminalOutput(reason = 'unspecified') {
   if (!terminalOutputFrozen) return;
   terminalOutputFrozen = false;
   clearTerminalFreezeIdleTimer();
   hideTerminalFrozenPill();
+  const chunkCount = frozenTerminalChunks.length;
+  reportRendererDiagnostic('output-freeze end reason=' + reason +
+    ' beganBy=' + terminalFreezeReason +
+    ' durationMs=' + Math.max(0, Math.round(performance.now() - terminalFrozenAt)) +
+    ' bufferedChunks=' + chunkCount + ' bufferedChars=' + frozenTerminalChars +
+    ' mouseMoves=' + terminalFreezeMouseMoves +
+    ' lastHover=' + (terminalFreezeLastHover || 'none') +
+    ' focus=' + activeElementDiagnosticLabel());
+  terminalFrozenAt = 0;
+  terminalFreezeReason = '';
+  frozenTerminalChars = 0;
+  terminalFreezeMouseMoves = 0;
+  terminalFreezeLastHover = '';
   if (frozenTerminalChunks.length) {
     const pending = frozenTerminalChunks.join('');
     frozenTerminalChunks.length = 0;
-    try { terminal.write(pending); } catch {}
+    try { writeTerminalOutput(pending); } catch {}
   }
   scheduleReviewSurvey();
 }
@@ -1034,7 +1112,7 @@ function unfreezeTerminalOutput() {
 // after dismissing (arrows/Enter reach nothing, e.g. a codex selection prompt).
 // closeTerminalComment is called with focusTerminal:false so we focus once, here,
 // after the whole teardown.
-function cancelTerminalFreeze() {
+function cancelTerminalFreeze(reason = 'cancel') {
   clearPendingFreezePress(); // a hold-freeze in flight must not refreeze after the cancel
   if (!terminalOutputFrozen) return;
   // The queued batch survives resuming. This used to clear it, which made Esc
@@ -1050,7 +1128,7 @@ function cancelTerminalFreeze() {
   if (activeTerminalComment) closeTerminalComment({ focusTerminal: false });
   try { terminal.clearSelection(); } catch {}
   hideTerminalSelectionCommentHint();
-  unfreezeTerminalOutput();
+  unfreezeTerminalOutput(reason);
   try { terminal.focus(); } catch {}
 }
 
@@ -1081,7 +1159,7 @@ terminal.onData((data) => {
   // withdraws — see the printable-only gate below.)
   const isAutoProtocol = data.length > 1 && /^\u001b[\[\]OP_^]/.test(data);
   if (!isAutoProtocol) {
-    if (terminalOutputFrozen) unfreezeTerminalOutput();
+    if (terminalOutputFrozen) unfreezeTerminalOutput('terminal-input');
     // Genuine input reaching the shell (Enter, Esc, Ctrl-*) means attention is
     // back on the CLI — disarm the type-to-comment pill. Plain chars never get
     // here while armed (the pill's keydown handler opens the composer instead),
@@ -1099,8 +1177,10 @@ terminal.onData((data) => {
 window.pty.onData((data) => {
   lastTerminalOutputAt = Date.now();
   captureViewerCandidates(data); // durable URL/md history, including alt-screen output
-  if (terminalOutputFrozen) frozenTerminalChunks.push(data);
-  else terminal.write(data);
+  if (terminalOutputFrozen) {
+    frozenTerminalChunks.push(data);
+    frozenTerminalChars += data.length;
+  } else writeTerminalOutput(data);
   scheduleReviewSurvey();
 });
 
@@ -1231,7 +1311,7 @@ terminal.attachCustomKeyEventHandler((event) => {
   // protocol replies to it (see TERMINAL_NAV_THAW_KEYS). Printables/Enter already
   // thaw via onData, so this only closes the arrow-key gap.
   if (proceed && event.type === 'keydown' && terminalOutputFrozen && TERMINAL_NAV_THAW_KEYS.has(event.key)) {
-    unfreezeTerminalOutput();
+    unfreezeTerminalOutput('navigation-key');
   }
   return proceed;
 });
@@ -2210,7 +2290,7 @@ async function submitTerminalCommentBatch({ toPrompt = false } = {}) {
     queuedTerminalComments.length = 0;
     updateTerminalCommentFooter();
     clearTerminalSelection();
-    unfreezeTerminalOutput();
+    unfreezeTerminalOutput('comment-batch-sent');
     showToast(toPrompt
       ? 'In the prompt — finish and press Enter'
       : (comments.length === 1 ? 'Comment sent' : `${comments.length} comments sent`));
@@ -2265,7 +2345,9 @@ function openTerminalCommentEditor({
   // Same live-output gate as the press path: idle output needs no hold. The
   // selection that fed this composer has usually frozen the view already; this
   // covers a composer opened from an idle-output selection that then went live.
-  if (Date.now() - lastTerminalOutputAt <= TERMINAL_LIVE_OUTPUT_MS) freezeTerminalOutput();
+  if (Date.now() - lastTerminalOutputAt <= TERMINAL_LIVE_OUTPUT_MS) {
+    freezeTerminalOutput('comment-editor-open');
+  }
   hideTerminalSelectionCommentHint();
   ensureTerminalCommentStyles();
   const bubble = document.createElement('div');
@@ -2377,7 +2459,7 @@ function openTerminalCommentEditor({
         return;
       }
       closeTerminalComment();
-      unfreezeTerminalOutput();
+      unfreezeTerminalOutput('comment-sent');
       showToast(toPrompt ? 'In the prompt — finish and press Enter' : 'Comment sent');
     } catch (error) {
       showToast(error && error.message ? error.message : 'Could not send comment');
@@ -2557,14 +2639,14 @@ screenElement.addEventListener('mousedown', (event) => {
   if (Date.now() - lastTerminalOutputAt > TERMINAL_LIVE_OUTPUT_MS) return;
   if (isPromptAreaMouseEvent(event)) return;
   if (event.shiftKey) {
-    freezeTerminalOutput();
+    freezeTerminalOutput('shift-press');
     return;
   }
   // A double/triple click is xterm's word/line select: selection intent is
   // already declared, so freeze now rather than waiting out the hold — the word
   // under the pointer must not scroll away mid-gesture.
   if (event.detail >= 2) {
-    freezeTerminalOutput();
+    freezeTerminalOutput('multi-click');
     return;
   }
   // While the CLI owns the mouse, a plain press/drag is the app's gesture and
@@ -2577,7 +2659,7 @@ screenElement.addEventListener('mousedown', (event) => {
     y: event.clientY,
     timer: setTimeout(() => {
       clearPendingFreezePress();
-      freezeTerminalOutput();
+      freezeTerminalOutput('held-press');
     }, TERMINAL_FREEZE_HOLD_MS),
     onMove: (moveEvent) => {
       if (
@@ -2585,7 +2667,7 @@ screenElement.addEventListener('mousedown', (event) => {
         || Math.abs(moveEvent.clientY - press.y) > DEFAULT_DRAG_THRESHOLD_PX
       ) {
         clearPendingFreezePress();
-        freezeTerminalOutput();
+        freezeTerminalOutput('drag');
       }
     },
     onUp: () => clearPendingFreezePress(),
@@ -2621,7 +2703,7 @@ screenElement.addEventListener('contextmenu', (event) => {
     terminal.focus();
     return;
   }
-  cancelTerminalFreeze();
+  cancelTerminalFreeze('right-click');
 }, true);
 
 // xterm fires onSelectionChange on mouse UP, never while the drag is in flight,
@@ -2655,8 +2737,13 @@ attachTerminalMouseShortcuts({
 });
 
 screenElement.addEventListener('mousemove', (event) => {
-  setHoveredMatch(getClickableMatchAtMouseEvent(event), event);
-  if (terminalOutputFrozen) armTerminalFreezeIdleTimer(); // presence over the frozen frame = engagement
+  const match = getClickableMatchAtMouseEvent(event);
+  setHoveredMatch(match, event);
+  if (terminalOutputFrozen) {
+    terminalFreezeMouseMoves++;
+    if (match && match.patternName) terminalFreezeLastHover = match.patternName;
+    armTerminalFreezeIdleTimer(); // presence over the frozen frame = engagement
+  }
 });
 
 screenElement.addEventListener('mouseleave', () => {
@@ -2691,7 +2778,7 @@ document.addEventListener('keydown', (event) => {
     hideTerminalSelectionCommentHint();
     return;
   }
-  cancelTerminalFreeze();
+  cancelTerminalFreeze('escape');
 }, true);
 document.addEventListener('keydown', handleSelectionCommentHintKeydown, true);
 
@@ -2744,7 +2831,7 @@ document.addEventListener('mouseup', (event) => {
   // may have caused (a slow click can outlast the hold threshold). A freeze
   // anchoring comment work stays.
   if (terminalOutputFrozen && !activeTerminalComment && !queuedTerminalComments.length) {
-    unfreezeTerminalOutput();
+    unfreezeTerminalOutput('decoration-navigation');
   }
   const m = press.match;
   if (typeof m.action === 'function') m.action(m, decorationPressOptions(event));
@@ -5837,16 +5924,32 @@ function rebuildAlternateViewportDecorations(buffer, viewportStart, viewportEnd)
 //   - In the visible viewport
 //   - Above the cursor (rows at/below cursor may still be receiving input)
 //   - Not already processed (append-only strategy)
-function processVisibleRows() {
+function processVisibleRowsNow() {
   const buffer = terminal.buffer.active;
   const viewportStart = buffer.viewportY;
   const viewportEnd = Math.min(buffer.length, viewportStart + terminal.rows);
+  const profile = {
+    mode: buffer.type,
+    viewportRows: Math.max(0, viewportEnd - viewportStart),
+    visited: 0,
+    processed: 0,
+    wrappedChecks: 0,
+    wrappedHits: 0,
+    wrappedMs: 0,
+    existingMs: 0,
+    imageMs: 0,
+    logicalMs: 0,
+    sweepMs: 0,
+    alternateMs: 0,
+  };
 
   if (buffer.type === 'alternate') {
-    if (!altBufferDirty) return;
+    if (!altBufferDirty) return profile;
     debug(`Processing alternate buffer: viewport=${viewportStart}-${viewportEnd}`);
+    const alternateStartedAt = performance.now();
     rebuildAlternateViewportDecorations(buffer, viewportStart, viewportEnd);
-    return;
+    profile.alternateMs = performance.now() - alternateStartedAt;
+    return profile;
   }
 
   // Cursor position in absolute buffer coordinates
@@ -5866,8 +5969,14 @@ function processVisibleRows() {
   const rendererWrappedHeads = new Set();
 
   while (row < viewportEnd) {
+    profile.visited++;
+    profile.wrappedChecks++;
+    const wrappedStartedAt = performance.now();
     const rendererWrappedEnd = decorateRendererWrappedDocumentRow(buffer, row);
+    profile.wrappedMs += performance.now() - wrappedStartedAt;
     if (rendererWrappedEnd >= 0) {
+      profile.wrappedHits++;
+      profile.processed++;
       rendererWrappedHeads.add(row);
       processedCount++;
       row = rendererWrappedEnd + 1;
@@ -5884,7 +5993,9 @@ function processVisibleRows() {
 
     // Skip if already processed — but check for content drift
     if (processedRows.has(row)) {
+      const existingStartedAt = performance.now();
       const { text: currentText } = getRowText(row);
+      profile.existingMs += performance.now() - existingStartedAt;
       if (currentText === processedRows.get(row)) {
         row++;
         continue;  // Same content, skip
@@ -5909,8 +6020,11 @@ function processVisibleRows() {
 
     // Claude Code image attachments span rows by hanging indent, not xterm wrap;
     // stitch and decorate them as one span before the generic per-row matchers.
+    const imageStartedAt = performance.now();
     const imageEnd = decorateImageAttachmentRow(buffer, row);
+    profile.imageMs += performance.now() - imageStartedAt;
     if (imageEnd >= 0) {
+      profile.processed++;
       processedCount++;
       row = imageEnd + 1;
       continue;
@@ -5918,13 +6032,17 @@ function processVisibleRows() {
 
     // Get full text (including wrapped continuations)
     const { text, endIndex } = getRowText(row);
+    const logicalStartedAt = performance.now();
     decorateLogicalRow(row, text, endIndex);
+    profile.logicalMs += performance.now() - logicalStartedAt;
+    profile.processed++;
     processedCount++;
     row = endIndex + 1;
   }
 
   // Sweep: dispose stale decorations on in-viewport rows at/below cursor
   // (the range the main loop skips). Dispose-only — no new decorations.
+  const sweepStartedAt = performance.now();
   for (let sRow = Math.max(viewportStart, cursorRow); sRow < viewportEnd; sRow++) {
     if (!decorations.has(sRow)) continue;
     if (rendererWrappedHeads.has(sRow)) continue;
@@ -5936,9 +6054,44 @@ function processVisibleRows() {
     debug(`Stale sweep: row ${sRow} content changed, disposing`);
     clearStoredRow(sRow, buffer);
   }
+  profile.sweepMs = performance.now() - sweepStartedAt;
 
   if (processedCount > 0) {
     debug(`Processed ${processedCount} new rows`);
+  }
+  return profile;
+}
+
+function processVisibleRows() {
+  const startedAt = performance.now();
+  let profile = null;
+  try {
+    profile = processVisibleRowsNow();
+    return profile;
+  } finally {
+    const elapsedMs = performance.now() - startedAt;
+    if (elapsedMs >= 100) {
+      let bufferType = 'unknown';
+      let bufferLength = -1;
+      try {
+        bufferType = terminal.buffer.active.type;
+        bufferLength = terminal.buffer.active.length;
+      } catch {}
+      reportRendererDiagnostic('decorations slow-pass=' + Math.round(elapsedMs) +
+        'ms buffer=' + bufferType + ' bufferRows=' + bufferLength +
+        ' trackedRows=' + processedRows.size + ' decorations=' + decorations.size +
+        (profile
+          ? ' viewportRows=' + profile.viewportRows +
+            ' visited=' + profile.visited + ' processed=' + profile.processed +
+            ' wrapped=' + Math.round(profile.wrappedMs) + 'ms/' + profile.wrappedChecks +
+            '/' + profile.wrappedHits +
+            ' existing=' + Math.round(profile.existingMs) + 'ms' +
+            ' image=' + Math.round(profile.imageMs) + 'ms' +
+            ' logical=' + Math.round(profile.logicalMs) + 'ms' +
+            ' sweep=' + Math.round(profile.sweepMs) + 'ms' +
+            ' alternate=' + Math.round(profile.alternateMs) + 'ms'
+          : ' profile=unavailable'));
+    }
   }
 }
 
@@ -5982,6 +6135,16 @@ terminal.buffer.onBufferChange((buffer) => {
 });
 
 terminal.onWriteParsed(() => {
+  if (terminalWritePendingAt) {
+    const elapsedMs = performance.now() - terminalWritePendingAt;
+    const chars = terminalWritePendingChars;
+    terminalWritePendingAt = 0;
+    terminalWritePendingChars = 0;
+    if (elapsedMs >= 500) {
+      reportRendererDiagnostic('terminal write-parsed=' + Math.round(elapsedMs) +
+        'ms chars=' + chars + ' outputFrozen=' + terminalOutputFrozen);
+    }
+  }
   if (!isAlternateBufferActive()) return;
   altBufferDirty = true;
   scheduleDecorationProcessing();

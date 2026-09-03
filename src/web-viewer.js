@@ -217,6 +217,11 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     // the host's xterm key handler never sees it) → open the find bar. Only while
     // the page is on screen — never over a collapsed strip.
     view.addEventListener('ipc-message', (e) => {
+      if (e.channel === 'viewer-diagnostic' && window.pty &&
+          typeof window.pty.reportDiagnostic === 'function') {
+        const message = e.args && e.args[0];
+        if (typeof message === 'string') window.pty.reportDiagnostic('webview ' + message);
+      }
       if (e.channel === 'rv-find' && band.isOpen()) openFind();
       if (e.channel === 'viewer-shortcut' && typeof onShortcut === 'function') {
         const action = e.args && e.args[0];
