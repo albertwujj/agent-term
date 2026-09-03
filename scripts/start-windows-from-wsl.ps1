@@ -10,7 +10,7 @@ function Write-Utf8NoBom([string]$Path, [string]$Text) {
   [System.IO.File]::WriteAllText($Path, $Text, $encoding)
 }
 
-function Get-RunnerKey([string]$Identity) {
+function Get-HashPrefix([string]$Identity) {
   $sha = [System.Security.Cryptography.SHA256]::Create()
   try {
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($Identity)
@@ -19,6 +19,13 @@ function Get-RunnerKey([string]$Identity) {
   } finally {
     $sha.Dispose()
   }
+}
+
+function Get-JsonProperty($Object, [string]$Name) {
+  if ($null -eq $Object) { return $null }
+  $property = $Object.PSObject.Properties[$Name]
+  if ($null -eq $property) { return $null }
+  return $property.Value
 }
 
 $sourcePackage = Join-Path $SourceRoot 'package.json'
@@ -32,8 +39,42 @@ foreach ($required in @($sourcePackage, $sourceLock, $sourceBootstrap, $sourcePo
   }
 }
 
-$runnerKey = Get-RunnerKey "$Distro`n$SourceRoot"
-$runnerRoot = Join-Path $env:LOCALAPPDATA "AgentTermWslDev\$runnerKey"
+$runnerKey = Get-HashPrefix "$Distro`n$SourceRoot"
+$runnerBase = Join-Path $env:LOCALAPPDATA "AgentTermWslDev\$runnerKey"
+
+# A source launch may overlap older AgentTerm processes. Windows keeps files in
+# their Electron distribution locked, so npm ci must never replace a dependency
+# tree that a running generation can still be using. Derive an immutable cache
+# generation from the inputs that affect npm ci; test/build command edits do not
+# create a needless generation, while dependency or lifecycle changes do.
+$manifest = Get-Content -Raw -LiteralPath $sourcePackage | ConvertFrom-Json
+$lockHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceLock).Hash
+$installManifest = [ordered]@{}
+foreach ($name in @(
+  'dependencies', 'devDependencies', 'optionalDependencies',
+  'peerDependencies', 'peerDependenciesMeta', 'bundledDependencies',
+  'bundleDependencies', 'overrides', 'workspaces', 'os', 'cpu', 'libc',
+  'engines', 'packageManager'
+)) {
+  $installManifest[$name] = Get-JsonProperty $manifest $name
+}
+$lifecycleScripts = [ordered]@{}
+$sourceScripts = Get-JsonProperty $manifest 'scripts'
+foreach ($name in @(
+  'preinstall', 'install', 'postinstall', 'prepublish',
+  'preprepare', 'prepare', 'postprepare'
+)) {
+  $lifecycleScripts[$name] = Get-JsonProperty $sourceScripts $name
+}
+$installManifest['scripts'] = $lifecycleScripts
+$installIdentity = @(
+  $lockHash,
+  ($installManifest | ConvertTo-Json -Depth 100 -Compress),
+  (Get-FileHash -Algorithm SHA256 -LiteralPath $sourcePostinstall).Hash,
+  (Get-FileHash -Algorithm SHA256 -LiteralPath $sourcePtyPerms).Hash
+) -join "`n"
+$dependencyKey = Get-HashPrefix $installIdentity
+$runnerRoot = Join-Path $runnerBase "runtime\$dependencyKey"
 $runnerScripts = Join-Path $runnerRoot 'scripts'
 $runnerPackage = Join-Path $runnerRoot 'package.json'
 $runnerLock = Join-Path $runnerRoot 'package-lock.json'
@@ -45,7 +86,6 @@ New-Item -ItemType Directory -Force -Path $runnerScripts | Out-Null
 # bootstrap the Electron entry point. Its per-process source snapshot has this
 # runner's Windows node_modules as an ancestor, so Linux and Windows native
 # modules never share a directory.
-$manifest = Get-Content -Raw -LiteralPath $sourcePackage | ConvertFrom-Json
 $manifest.main = 'bootstrap.js'
 Write-Utf8NoBom $runnerPackage ($manifest | ConvertTo-Json -Depth 100)
 Copy-Item -Force -LiteralPath $sourceLock -Destination $runnerLock
@@ -53,9 +93,7 @@ Copy-Item -Force -LiteralPath $sourceBootstrap -Destination $runnerBootstrap
 Copy-Item -Force -LiteralPath $sourcePostinstall -Destination (Join-Path $runnerScripts 'postinstall.js')
 Copy-Item -Force -LiteralPath $sourcePtyPerms -Destination (Join-Path $runnerScripts 'fix-pty-perms.js')
 
-$packageHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourcePackage).Hash
-$lockHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceLock).Hash
-$wantedStamp = "$packageHash`n$lockHash"
+$wantedStamp = $installIdentity
 $electronExe = Join-Path $runnerRoot 'node_modules\electron\dist\electron.exe'
 $currentStamp = if (Test-Path -LiteralPath $installStamp) {
   Get-Content -Raw -LiteralPath $installStamp
@@ -64,9 +102,8 @@ $currentStamp = if (Test-Path -LiteralPath $installStamp) {
 }
 
 if ($currentStamp -ne $wantedStamp -or -not (Test-Path -LiteralPath $electronExe)) {
-  # Invalidate before mutating node_modules. If npm ci is interrupted or a
-  # running Electron process holds a file open, the next launch must retry the
-  # install instead of trusting the stamp from the previous successful run.
+  # Invalidate before mutating node_modules. If npm ci is interrupted, the next
+  # launch must retry instead of trusting the stamp from a partial install.
   Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath $installStamp
 
   $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue

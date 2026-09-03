@@ -156,6 +156,21 @@ test('Windows dependency install invalidates its stamp before npm ci', () => {
   assert.ok(invalidateAt < installAt, 'dependency stamp must be invalidated before npm ci');
 });
 
+test('Windows dependencies use install-specific generations safe from live Electron locks', () => {
+  const launcher = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'start-windows-from-wsl.ps1'),
+    'utf8',
+  );
+  const generationAt = launcher.indexOf('$runnerRoot = Join-Path $runnerBase "runtime\\$dependencyKey"');
+  const installAt = launcher.indexOf('& $npmPath ci');
+
+  assert.ok(generationAt >= 0, 'dependency cache generation is missing');
+  assert.ok(generationAt < installAt, 'the generation must be selected before npm ci');
+  assert.match(launcher, /'dependencies', 'devDependencies', 'optionalDependencies'/);
+  assert.match(launcher, /'preinstall', 'install', 'postinstall', 'prepublish'/);
+  assert.doesNotMatch(launcher, /Get-FileHash[^\r\n]+\$sourcePackage/);
+});
+
 test('WSL launcher does not load the UNC PowerShell file through -File', () => {
   const launcher = fs.readFileSync(
     path.join(__dirname, '..', 'scripts', 'start-windows-from-wsl.sh'),
