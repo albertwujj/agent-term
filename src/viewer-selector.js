@@ -6,9 +6,11 @@
 // The known list is what this session has shown. A resumed session reprints a
 // slice of its transcript, so a doc from before that slice is not in it, and a
 // doc never mentioned never was. Once the filter has three characters the
-// selector also searches the disk: one walk per open (repo, siblings, home,
-// see markdown-disk-search.js), filtered in memory per keystroke, listed as a
-// second section under the known rows with a running count in its heading.
+// selector also searches the disk for every file the band renders (markdown,
+// html, images, video, audio, pdf: band-viewable.js): one walk per open
+// (repo, siblings, home, see viewer-disk-search.js), filtered in memory per
+// keystroke, listed as a second section under the known rows with a running
+// count in its heading.
 // The walk starts on the first qualifying keystroke, the way the sessions
 // picker's hidden-prompt search does, so the section appears by itself.
 // Opening a disk row records it, so the second time it is a known row.
@@ -18,7 +20,9 @@
 //     entries: [{ kind: 'md'|'url'|'review', key }, ...],  // newest first
 //     current: { kind, key } | null,   // the viewer open right now, if any
 //     onPick(entry):    user chose an entry to open; a disk row carries
-//                       source: 'disk' and an absolute md path as its key
+//                       source: 'disk' and an absolute path as its key, kind
+//                       'md' for a doc and 'file' for anything else the band
+//                       renders (opened through the file route)
 //     onRemove(entry):  user pressed Delete on an entry (purge from history)
 //     onClose():        user dismissed (Esc / clicked outside)
 //     startDiskSearch({ requestId }):  begin the on-disk walk (optional; the
@@ -48,7 +52,9 @@ const {
   textMatchesSearchTerms,
   findAllTermRanges,
 } = require('./search-terms');
-const { markdownDiskLabel } = require('./markdown-disk-search');
+const { diskLabel } = require('./viewer-disk-search');
+const { bandViewableKind } = require('./band-viewable');
+const { viewerFileUrlToPath } = require('./viewer-history');
 
 // The disk section wakes at three typed characters (spaces aside), like the
 // picker's hidden-prompt search, and shows this many rows before asking for
@@ -61,27 +67,36 @@ function diskTermLength(text) {
   return parseSearchTerms(text).join('').length;
 }
 
-// A disk row that a known row already stands for. Known md keys are what the
-// terminal printed: absolute, ~/-relative, repo-relative, or a bare name, so
-// each of those forms is tried against the disk path. A bare known name hides
-// every same-named file on disk: the known row already resolves through the
-// chooser that lists them.
+// A disk row that a known row already stands for. A known file:// row (an
+// image or pdf opened from the terminal) covers the disk row for that path.
+// Known md keys are what the terminal printed: absolute, ~/-relative,
+// repo-relative, or a bare name, so each of those forms is tried against the
+// disk path. A bare known name hides every same-named file on disk: the known
+// row already resolves through the chooser that lists them.
 function knownCoversDiskEntry(known, entry) {
-  if (known.kind !== 'md') return false;
+  if (known.kind === 'url') {
+    return /^file:/i.test(known.key) && viewerFileUrlToPath(known.key) === entry.key;
+  }
+  if (known.kind !== 'md' || entry.kind !== 'md') return false;
   const key = String(known.key || '').replace(/^\.\/+/, '');
   if (!key) return false;
   return entry.key === key || entry.label === key || entry.key.endsWith('/' + key);
 }
 
 // Kind tag + stripe hue per row: a fast peripheral cue for "what sort of page
-// is this" while the eye scans the key text.
+// is this" while the eye scans the key text. A local file is tagged by what
+// the band renders it as (band-viewable.js), whether it arrived as a file://
+// URL from the terminal or as a path from the disk walk.
 function entryTag(entry) {
   if (entry.kind === 'md') return 'md';
   if (entry.kind === 'review') return 'review';
-  return /^file:/i.test(entry.key) ? 'file' : 'web';
+  if (entry.kind === 'file') return bandViewableKind(entry.key) || 'file';
+  return /^file:/i.test(entry.key) ? (bandViewableKind(entry.key) || 'file') : 'web';
 }
 
-const TAG_HUES = { md: 150, web: 240, file: 80, review: 310 };
+const TAG_HUES = {
+  md: 150, html: 80, image: 30, video: 350, audio: 200, pdf: 20, web: 240, file: 80, review: 310,
+};
 
 function sameEntry(a, b) {
   return !!a && !!b && a.kind === b.kind && a.key === b.key;
@@ -184,9 +199,9 @@ function createViewerSelector({
       if (!key || disk.seen.has(key)) continue;
       disk.seen.add(key);
       disk.files.push({
-        kind: 'md',
+        kind: bandViewableKind(key) === 'md' ? 'md' : 'file',
         key,
-        label: markdownDiskLabel(key, { cwd: disk.cwd, home: disk.home }),
+        label: diskLabel(key, { cwd: disk.cwd, home: disk.home }),
         tier: payload.tier || null,
         source: 'disk',
       });

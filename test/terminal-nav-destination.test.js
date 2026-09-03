@@ -94,9 +94,8 @@ check('a reconstructed markdown segment uses its full viewer target', () => {
 check('a handoff to the OS waits for a modifier', () => {
   assert.strictEqual(navigationNeedsModifier(m('plain_file', 'src/renderer.js')), true);
   assert.strictEqual(navigationNeedsModifier(m('plain_file', 'src/components')), true);
-  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'report.pdf')), true);
   assert.strictEqual(navigationNeedsModifier(m('resource_file', 'bundle.zip')), true);
-  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'clip.mp4')), true);
+  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'clip.mov')), true);
   assert.strictEqual(navigationNeedsModifier(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\a')), true);
 });
 
@@ -109,6 +108,16 @@ check('an image is a built-in viewer', () => {
   assert.strictEqual(navigationNeedsModifier(m('resource_file', 'photo.JPEG')), false);
   assert.strictEqual(navigationNeedsModifier(m('image_attachment', '/tmp/scree')), false);
   assert.strictEqual(navigationNeedsModifier(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\shot.png')), false);
+});
+
+// Video, audio and pdf render in the band too (band-viewable.js), so they keep
+// the plain click; a format Chromium can't play (mov) is still a handoff.
+check('media and pdf the band renders are built-in viewers', () => {
+  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'clip.mp4')), false);
+  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'take.mp3')), false);
+  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'report.pdf')), false);
+  assert.strictEqual(navigationNeedsModifier(m('plain_file', 'assets/hero.webm')), false);
+  assert.strictEqual(navigationNeedsModifier(m('resource_file', 'clip.mov')), true);
 });
 
 // Stated as what opens in-app, so anything unrecognised has to earn the plain

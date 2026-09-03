@@ -64,7 +64,7 @@ await test('renders every entry with kind tags, newest first', () => {
   assert.strictEqual(rows.length, 4);
   assert.ok(rows[0].textContent.includes('/home/user/notes/design.md'));
   const tags = rows.map(r => r.querySelector('.at-vsel-tag').textContent);
-  assert.deepStrictEqual(tags, ['md', 'web', 'review', 'file']);
+  assert.deepStrictEqual(tags, ['md', 'web', 'review', 'html']);
 
   selector.destroy();
 });
@@ -461,6 +461,57 @@ await test('Delete on a disk row forgets nothing', () => {
   key(el, 'Delete');
   assert.strictEqual(removed, null);
   assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 1);
+
+  selector.destroy();
+});
+
+await test('a disk row for what the band renders is a file row, tagged by kind, picked with its absolute path', () => {
+  const spy = diskSpy();
+  let picked = null;
+  const selector = createViewerSelector({ entries: [], onPick: (e) => { picked = e; }, ...spy });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'hero');
+  progress(selector, spy, {
+    done: true, tier: 'siblings',
+    files: [
+      '/Users/u/launch/hero.mp4', '/Users/u/launch/hero.png', '/Users/u/launch/hero.pdf',
+      '/Users/u/launch/hero.md', '/Users/u/launch/hero.html', '/Users/u/launch/hero.flac',
+    ],
+  });
+  const rows = [...document.querySelectorAll('.at-vsel-row')];
+  assert.deepStrictEqual(
+    rows.map((r) => r.querySelector('.at-vsel-tag').textContent),
+    ['video', 'image', 'pdf', 'md', 'html', 'audio']
+  );
+  key(el, 'Enter');
+  assert.deepStrictEqual([picked.kind, picked.key, picked.source], ['file', '/Users/u/launch/hero.mp4', 'disk']);
+  key(el, 'ArrowDown'); key(el, 'ArrowDown'); key(el, 'ArrowDown');
+  key(el, 'Enter');
+  assert.deepStrictEqual([picked.kind, picked.key], ['md', '/Users/u/launch/hero.md']);
+
+  selector.destroy();
+});
+
+await test('a file:// row the terminal printed hides its disk copy', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({
+    entries: [{ kind: 'url', key: 'file:///Users/u/launch/hero%20shot.png' }],
+    onPick: () => {},
+    ...spy,
+  });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'hero');
+  progress(selector, spy, {
+    done: true, tier: 'siblings',
+    files: ['/Users/u/launch/hero shot.png', '/Users/u/launch/hero.mp4'],
+  });
+  const keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
+  assert.deepStrictEqual(keys, ['file:///Users/u/launch/hero%20shot.png', '~/launch/hero.mp4']);
+  assert.deepStrictEqual(
+    [...document.querySelectorAll('.at-vsel-row .at-vsel-tag')].map((t) => t.textContent),
+    ['image', 'video']
+  );
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 1 matching hero');
 
   selector.destroy();
 });

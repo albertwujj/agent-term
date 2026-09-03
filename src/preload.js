@@ -109,10 +109,10 @@ contextBridge.exposeInMainWorld('pty', {
   startHiddenPromptSearch: (payload) => ipcRenderer.send('hidden-search-start', payload),
   cancelHiddenPromptSearch: (requestId) => ipcRenderer.send('hidden-search-cancel', { requestId }),
   onHiddenPromptSearchProgress: (callback) => ipcRenderer.on('hidden-search-progress', (event, payload) => callback(payload)),
-  // Viewer selector's on-disk markdown search: same start/cancel/progress shape.
-  startMarkdownDiskSearch: (payload) => ipcRenderer.send('md-disk-search-start', payload),
-  cancelMarkdownDiskSearch: (requestId) => ipcRenderer.send('md-disk-search-cancel', { requestId }),
-  onMarkdownDiskSearchProgress: (callback) => ipcRenderer.on('md-disk-search-progress', (event, payload) => callback(payload)),
+  // Viewer selector's on-disk search: same start/cancel/progress shape.
+  startViewerDiskSearch: (payload) => ipcRenderer.send('viewer-disk-search-start', payload),
+  cancelViewerDiskSearch: (requestId) => ipcRenderer.send('viewer-disk-search-cancel', { requestId }),
+  onViewerDiskSearchProgress: (callback) => ipcRenderer.on('viewer-disk-search-progress', (event, payload) => callback(payload)),
   // Custom chrome bar (replaces session banner + app menu). main pushes
   // {hue, cli, prompt, isWorking} whenever any of those change.
   onChromeState: (callback) => ipcRenderer.on('chrome-state', (event, payload) => callback(payload)),

@@ -3,7 +3,8 @@
 //
 // One rule: a plain click opens something in a built-in viewer. A file:// URL
 // or an .html path in the web band, a review:// package in the diff viewer, an
-// .md path in the md viewer — and a diff or source row whose enclosing file is
+// .md path in the md viewer, an image, a video, an audio file or a pdf in the
+// band (band-viewable.js) — and a diff or source row whose enclosing file is
 // a doc, which jumps to its line in that viewer. Those keep the terminal where
 // it is — the scrollback is untouched and Esc puts the band away.
 //
@@ -14,7 +15,8 @@
 //
 // Everything else hands you to another application, and that takes ctrl/cmd:
 // the IDE for a symbol, a file:line, a source or diff line over code; the OS
-// for a bare path, a folder, an image or an archive. An application switch is the most
+// for a bare path, a folder, an archive or a format the band can't render. An
+// application switch is the most
 // expensive thing a stray click can do, and the IDE side is also the widest
 // part of the match surface — the bare-identifier symbol patterns claim most
 // technical words in ordinary agent prose, so a double click meant to select a
@@ -23,6 +25,8 @@
 // Stated as what earns the plain click rather than what does not, so a pattern
 // added later needs an explicit decision to earn it instead of taking it by
 // default.
+
+const { BAND_FILE_TARGET } = require('./band-viewable');
 
 // Patterns that act on a plain click whatever their text says. `url` covers
 // http(s) (system browser; the web band under a modifier), file:// (web band;
@@ -71,11 +75,11 @@ const CONTEXT_PATH_PATTERNS = new Set([
 // reference a pattern carries — README.md:42, docs/a.md#L4, notes.html(12).
 const DOC_TARGET = /\.(?:markdown|mdown|xhtml|html|htm|md)(?=$|[\s:(#,;)\]}'"])/i;
 
-// Images the band renders itself, so they are a built-in viewer too. Narrower
-// than the resource set on purpose: pdf, archives and media stay handoffs,
-// because the band has nothing better to do with them than the OS does. Keep in
-// step with VIEWABLE_IMAGE_EXTENSIONS in renderer.js, which does the routing.
-const IMAGE_TARGET = /\.(?:png|jpe?g|gif|svg|webp|bmp|ico)(?=$|[\s:(#,;)\]}'"])/i;
+// Files the band renders itself — images, video, audio, pdf — are a built-in
+// viewer too. The set is band-viewable.js's, shared with the renderer's click
+// sites and the selector's disk walk; archives, office documents and the media
+// formats Chromium can't play stay handoffs, because the band has nothing
+// better to do with them than the OS does.
 
 // True when a plain click on this match acts — opens a built-in viewer, or a
 // web URL's browser tab — rather than waiting for a modifier.
@@ -84,7 +88,7 @@ function actsOnPlainClick(match) {
   if (PLAIN_CLICK_PATTERN_NAMES.has(match.patternName)) return true;
   if (PATH_IS_THE_TEXT.has(match.patternName)) {
     const text = String(match.viewerTarget || match.text || '');
-    return DOC_TARGET.test(text) || IMAGE_TARGET.test(text);
+    return DOC_TARGET.test(text) || BAND_FILE_TARGET.test(text);
   }
   if (CONTEXT_PATH_PATTERNS.has(match.patternName)) {
     return DOC_TARGET.test(String(match.contextPath || ''));

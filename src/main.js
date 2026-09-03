@@ -62,11 +62,8 @@ const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
 const { cleanAiTitle, aiTitleDedupeKey } = require('./ai-title');
 const { isReviewPackagePath } = require('./review-package-path');
-const {
-  MARKDOWN_LIST_PY,
-  MARKDOWN_DISK_TIER_CAP,
-  markdownDiskTiers,
-} = require('./markdown-disk-search');
+const { DISK_LIST_PY, DISK_TIER_CAP, diskTiers } = require('./viewer-disk-search');
+const { DISK_SEARCH_EXTENSIONS } = require('./band-viewable');
 const {
   journalPathForStore,
   parseJournal,
@@ -307,7 +304,7 @@ let promptCapture = null;
 let streamClient = null;
 let streamState = null;
 const hiddenPromptSearches = new Map();
-const markdownDiskSearches = new Map();
+const viewerDiskSearches = new Map();
 let dwmIconicEnabled = false;
 let detectedCli = null;
 let activeFileWritten = false;
@@ -2736,33 +2733,33 @@ ipcMain.on('hidden-search-cancel', (event, payload = {}) => {
   cancelHiddenPromptSearch(String(payload.requestId || ''));
 });
 
-// Disk search behind the viewer selector: every markdown file under the repo,
-// its siblings, then home, walked once per selector open and handed over tier
-// by tier (src/markdown-disk-search.js). Same start/cancel/progress shape as
+// Disk search behind the viewer selector: every file the band renders under
+// the repo, its siblings, then home, walked once per selector open and handed
+// over tier by tier (src/viewer-disk-search.js, band-viewable.js). Same start/cancel/progress shape as
 // the hidden-prompt search above. Cancel stops the hand-over between tiers; a
 // walk already running finishes on its own budget and is discarded.
-function sendMarkdownDiskSearchProgress(sender, payload) {
+function sendViewerDiskSearchProgress(sender, payload) {
   try {
     if (!sender || (typeof sender.isDestroyed === 'function' && sender.isDestroyed())) return false;
-    sender.send('md-disk-search-progress', payload);
+    sender.send('viewer-disk-search-progress', payload);
     return true;
   } catch {
     return false;
   }
 }
 
-function cancelMarkdownDiskSearch(requestId) {
+function cancelViewerDiskSearch(requestId) {
   if (!requestId) return;
-  const search = markdownDiskSearches.get(requestId);
+  const search = viewerDiskSearches.get(requestId);
   if (search) search.cancelled = true;
 }
 
 // One tier's walk through the POSIX seam. The deadline lives in the script,
 // so the process timeout is only a backstop a few seconds past it. A walk the
 // deadline or the cap stopped reports partial, and the selector says so.
-async function listMarkdownDiskTier({ top, skip, budget }) {
+async function listDiskTier({ top, skip, budget }) {
   const r = await posixSh(
-    `python3 -c ${shellEscape(MARKDOWN_LIST_PY)} ${shellEscape(top)} ${shellEscape(skip || '')} ${budget} ${MARKDOWN_DISK_TIER_CAP}`,
+    `python3 -c ${shellEscape(DISK_LIST_PY)} ${shellEscape(top)} ${shellEscape(skip || '')} ${budget} ${DISK_TIER_CAP} ${shellEscape(DISK_SEARCH_EXTENSIONS.join(','))}`,
     { timeout: (budget + 4) * 1000 });
   const lines = r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
   return {
@@ -2771,7 +2768,7 @@ async function listMarkdownDiskTier({ top, skip, budget }) {
   };
 }
 
-async function runMarkdownDiskSearch(sender, requestId, search) {
+async function runViewerDiskSearch(sender, requestId, search) {
   let cwd = null;
   let home = null;
   try {
@@ -2779,11 +2776,11 @@ async function runMarkdownDiskSearch(sender, requestId, search) {
     if (cwd) {
       home = (await posixSh('printf %s "$HOME"')).stdout.trim() || null;
       const root = markdownSiblingRoot(cwd);
-      for (const plan of markdownDiskTiers({ cwd, root, home })) {
+      for (const plan of diskTiers({ cwd, root, home })) {
         if (search.cancelled) return;
-        const { files, partial } = await listMarkdownDiskTier(plan);
+        const { files, partial } = await listDiskTier(plan);
         if (search.cancelled) return;
-        const ok = sendMarkdownDiskSearchProgress(sender, {
+        const ok = sendViewerDiskSearchProgress(sender, {
           requestId, done: false, tier: plan.tier, cwd, home, files, partial,
         });
         if (!ok) {
@@ -2793,28 +2790,28 @@ async function runMarkdownDiskSearch(sender, requestId, search) {
       }
     }
   } catch (err) {
-    console.warn('[main] md-disk-search failed:', err && err.message);
+    console.warn('[main] viewer-disk-search failed:', err && err.message);
   } finally {
     if (!search.cancelled) {
-      sendMarkdownDiskSearchProgress(sender, { requestId, done: true, tier: null, cwd, home, files: [] });
+      sendViewerDiskSearchProgress(sender, { requestId, done: true, tier: null, cwd, home, files: [] });
     }
-    if (markdownDiskSearches.get(requestId) === search) {
-      markdownDiskSearches.delete(requestId);
+    if (viewerDiskSearches.get(requestId) === search) {
+      viewerDiskSearches.delete(requestId);
     }
   }
 }
 
-ipcMain.on('md-disk-search-start', (event, payload = {}) => {
+ipcMain.on('viewer-disk-search-start', (event, payload = {}) => {
   const requestId = String(payload.requestId || '');
   if (!requestId) return;
-  cancelMarkdownDiskSearch(requestId);
+  cancelViewerDiskSearch(requestId);
   const search = { cancelled: false };
-  markdownDiskSearches.set(requestId, search);
-  runMarkdownDiskSearch(event.sender, requestId, search);
+  viewerDiskSearches.set(requestId, search);
+  runViewerDiskSearch(event.sender, requestId, search);
 });
 
-ipcMain.on('md-disk-search-cancel', (event, payload = {}) => {
-  cancelMarkdownDiskSearch(String(payload.requestId || ''));
+ipcMain.on('viewer-disk-search-cancel', (event, payload = {}) => {
+  cancelViewerDiskSearch(String(payload.requestId || ''));
 });
 
 ipcMain.on('picker-pick', (event, id) => {
