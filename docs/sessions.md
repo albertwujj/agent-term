@@ -6,8 +6,10 @@ Every session is a whole OS window; there are no tabs.
 
 **Picking up an existing session from before this terminal.** Start the CLI as above, as a new session, and resume the existing one normally in the CLI; the first prompt after the resume becomes the session's initial prompt, and the rest is the same.
 
-![your active agent sessions: each a live taskbar button with a thumbnail preview](assets/taskbar-preview.png)
-<sub>Session content blurred; the taskbar labels are as they render.</sub>
+<p align="center">
+<img src="assets/taskbar-preview.png" alt="your active agent sessions: each a live taskbar button with a thumbnail preview">
+<br><sub>Session content blurred; the taskbar labels are as they render.</sub>
+</p>
 
 <p align="center">
 <img src="assets/dock-tiles.png" width="50%" alt="your sessions on a Mac: one Dock tile each, among the other apps">
