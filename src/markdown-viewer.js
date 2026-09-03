@@ -772,6 +772,7 @@ function ensureStyles() {
     .md-thread-resolved-line,
     .md-thread-waiting-line,
     .md-pending-note-mark,
+    .md-thread-draft-mark,
     .md-queued-comment-mark {
       display: flex;
       align-items: center;
@@ -1073,6 +1074,17 @@ function ensureStyles() {
        prompt reads muted so it doesn't compete with real notes and comments. */
     .md-pending-note-mark.empty .md-anno-text { opacity: 0.55; font-style: italic; }
     .md-queued-comment-mark { border-left-color: rgba(217, 119, 6, 0.85); color: #92610a; }
+    /* A reply typed and clicked away rests inside its card as a draft row, in
+       the queued comment's grammar (amber = unsent, yours); click reopens the
+       composer, where sending and discarding live. It stands where the Reply
+       button was. */
+    .md-thread-draft-mark {
+      margin: 6px 0 0;
+      font-size: 1em;
+      border-left-color: rgba(217, 119, 6, 0.85);
+      color: #92610a;
+      cursor: pointer;
+    }
     .md-viewer-body del.md-pending-del,
     .md-viewer-body ins.md-pending-ins { cursor: pointer; }
     .md-comment-card-spacer {
@@ -1135,6 +1147,7 @@ function createMarkdownViewer({
     // a re-render can put back the blanks above the page top verbatim — the
     // reader's top line must not move because a spacer above it was recomputed.
     keepSpacerByKey: new Map(),
+    replyDrafts: new Map(), // thread id → reply text typed and clicked away (rests as a row in the card)
     resumeFullPending: false, // a full-size send receded to golden; resume full when the agent's turn ends
     resolvedExpanded: new Set(), // block anchorIds whose resolved history is unfolded to lines
     expandedThreads: new Set(), // thread ids opened from a resolved/waiting line into a full card
@@ -1869,6 +1882,7 @@ function createMarkdownViewer({
     // page window (band full→golden, window resize, an image settling), the
     // page bottom sweeps through the open bubble unless it re-fits here.
     fitActiveCommentCard();
+    fitThreadReplyCard();
   }
 
   // Content-anchored counterpart to the pixel-preserving realign above. The
@@ -3366,6 +3380,7 @@ function createMarkdownViewer({
       return false;
     }
 
+    collapseThreadReply(); // a selection elsewhere is a click-away for an open reply
     if (state.activeCard) {
       if (getActiveMarkdownCommentText()) {
         queueActiveMarkdownCommentDraft();
@@ -3816,6 +3831,7 @@ function createMarkdownViewer({
     return !!state.activeTarget
       || !!state.activeCard
       || !!state.editing
+      || !!state.threadReply
       || state.queuedComments.length > 0;
   }
 
@@ -3968,6 +3984,7 @@ function createMarkdownViewer({
     clearSelectionHighlights();
     clearMarkdownChangeHighlightState();
     closeThreadReply({ render: false });
+    state.replyDrafts.clear();
     state.threadStore = null;
     state.threadStoreSig = '';
     state.threadRenderPending = false;
@@ -5498,6 +5515,7 @@ function createMarkdownViewer({
   // set and the page always converge, at worst one tick later.
   function applyThreadFold(mutate) {
     clearActiveTarget();
+    collapseThreadReply(); // folding another thread is a click-away for an open reply
     mutate();
     if (state.activeCard || state.editing) state.threadRenderPending = true;
     else relayoutThroughQueuedComments();
@@ -5721,8 +5739,34 @@ function createMarkdownViewer({
       card.appendChild(row);
     }
 
+    card.appendChild(buildThreadFoot(card, thread));
+    return card;
+  }
+
+  // The card's foot: the Reply button, or — when a reply was typed and clicked
+  // away — its draft resting as a row (click reopens the composer). While the
+  // composer is open the foot is the button row, as before.
+  function buildThreadFoot(card, thread, { composing = false } = {}) {
+    const draft = composing ? '' : (state.replyDrafts.get(thread.id) || '');
+    if (draft) {
+      const row = document.createElement('div');
+      row.className = 'md-thread-draft-mark md-thread-foot';
+      const text = document.createElement('span');
+      text.className = 'md-anno-text';
+      text.textContent = draft.split('\n')[0].replace(/\s+/g, ' ').trim();
+      row.append(text);
+      row.title = `${draft} — click to continue the reply`;
+      row.addEventListener('mousedown', (event) => event.stopPropagation());
+      row.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openThreadReply(card, thread);
+      });
+      row.addEventListener('dblclick', (event) => event.stopPropagation());
+      return row;
+    }
     const actions = document.createElement('div');
-    actions.className = 'md-thread-actions';
+    actions.className = 'md-thread-actions md-thread-foot';
     const reply = document.createElement('button');
     reply.type = 'button';
     reply.textContent = 'Reply';
@@ -5731,8 +5775,15 @@ function createMarkdownViewer({
       openThreadReply(card, thread);
     });
     actions.append(reply);
-    card.appendChild(actions);
-    return card;
+    return actions;
+  }
+
+  function refreshThreadFoot(card, thread, opts) {
+    if (!card) return;
+    const foot = card.querySelector(':scope > .md-thread-foot');
+    const next = buildThreadFoot(card, thread, opts);
+    if (foot) foot.replaceWith(next);
+    else card.appendChild(next);
   }
 
   // A sent-but-unconsumed edit, rendered in place of its block: the same
@@ -5899,12 +5950,43 @@ function createMarkdownViewer({
     if (sync) syncSecondaryPane();
   }
 
-  function closeThreadReply({ render = true } = {}) {
-    if (!state.threadReply) return;
-    const { root, mirror } = state.threadReply;
+  // Reply composer exits, in the comment bubble's grammar:
+  //  • click-away COLLAPSES — what was typed rests in the card as a draft row
+  //    (empty = nothing kept), so a stray click never loses a reply;
+  //  • Escape RETREATS — the session's typing is dropped; an earlier draft
+  //    survives as its row;
+  //  • Discard DESTROYS — draft and all.
+  // Send clears the draft with its re-render. The collapse rebuilds the card's
+  // foot in place (both copies) rather than re-rendering the layer, so the
+  // click that caused it still finds its block in the DOM and acts.
+  function removeThreadReplyDom() {
+    const reply = state.threadReply;
+    if (!reply) return null;
     state.threadReply = null;
-    try { root.remove(); } catch {}
-    try { if (mirror) mirror.remove(); } catch {}
+    try { reply.root.remove(); } catch {}
+    try { if (reply.mirror) reply.mirror.remove(); } catch {}
+    return reply;
+  }
+
+  function collapseThreadReply() {
+    const reply = state.threadReply;
+    if (!reply) return;
+    const text = reply.composer.textarea.value;
+    if (text.trim()) state.replyDrafts.set(reply.threadId, text);
+    else state.replyDrafts.delete(reply.threadId);
+    preserveSpreadTopAcross(() => {
+      removeThreadReplyDom();
+      refreshThreadFoot(reply.card, reply.thread);
+      refreshThreadFoot(counterpartKeepBox(reply.card), reply.thread);
+    });
+    syncSecondaryPane(); // the card re-seats now that it is no longer the fitted one
+  }
+
+  function closeThreadReply({ render = true, discard = false } = {}) {
+    const reply = state.threadReply;
+    if (!reply) return;
+    if (discard) state.replyDrafts.delete(reply.threadId);
+    removeThreadReplyDom();
     if (render) scheduleThreadLayerRender();
   }
 
@@ -5922,16 +6004,20 @@ function createMarkdownViewer({
   function fitThreadReplyCard() {
     const reply = state.threadReply;
     if (!reply || !state.primaryPane) return;
-    const card = reply.root.closest ? reply.root.closest(KEEP_SELECTOR) : null;
-    if (!card) return;
+    const card = reply.card;
+    if (!card || !card.isConnected) return;
     const cardTop = getProjectedOffsetTop(card);
     fitSpanOnPane(cardTop, cardTop + card.offsetHeight, isInSecondaryPane(card) ? 'right' : 'left');
   }
 
   function openThreadReply(card, thread) {
-    closeThreadReply({ render: false });
+    collapseThreadReply(); // another card's open reply rests as its draft
+    const counterpart = counterpartKeepBox(card);
+    refreshThreadFoot(card, thread, { composing: true });
+    refreshThreadFoot(counterpart, thread, { composing: true });
     const composer = createComposer({
       placeholder: 'Reply...',
+      seed: state.replyDrafts.get(thread.id) || '',
       rows: 2,
       onCancel: () => closeThreadReply(),
       onInput: () => {
@@ -5940,7 +6026,7 @@ function createMarkdownViewer({
         fitThreadReplyCard();
       },
       actions: [
-        { label: 'Discard', onClick: () => closeThreadReply() },
+        { label: 'Discard', onClick: () => closeThreadReply({ discard: true }) },
         { label: 'Send', primary: true, title: 'Enter', onClick: () => submitThreadReply(thread, composer) },
         toPromptAction(() => submitThreadReply(thread, composer, { toPrompt: true })),
       ],
@@ -5951,13 +6037,12 @@ function createMarkdownViewer({
     holder.appendChild(composer.root);
     card.appendChild(holder);
     let mirror = null;
-    const counterpart = counterpartKeepBox(card);
     if (counterpart) {
       mirror = document.createElement('div');
       mirror.className = 'md-thread-reply-spacer';
       counterpart.appendChild(mirror);
     }
-    state.threadReply = { root: holder, threadId: thread.id, composer, mirror };
+    state.threadReply = { root: holder, threadId: thread.id, composer, mirror, card, thread };
     autoGrowTextarea(composer.textarea);
     syncThreadReplyMirror();
     fitThreadReplyCard();
@@ -5990,6 +6075,7 @@ function createMarkdownViewer({
         return;
       }
       state.threadReply = null; // its holder vanishes in the re-render
+      state.replyDrafts.delete(thread.id);
       // Replying reopens the thread to `open` (main.js) with the turn handed
       // back to the agent — the same just-sent state as a fresh comment, so it
       // rests as the waiting line rather than staying expanded.
@@ -6140,6 +6226,7 @@ function createMarkdownViewer({
     clearActiveTarget();
     clearMarkdownChangeHighlightState();
     closeThreadReply({ render: false });
+    state.replyDrafts.clear();
     state.threadStore = null;
     state.threadStoreSig = '';
     state.threadRenderPending = false;
@@ -6231,6 +6318,11 @@ function createMarkdownViewer({
     if (link) event.preventDefault();
 
     if (state.editing) return; // caret moves natively inside the editable block
+    // A click outside an open reply's card collapses the reply (its text rests
+    // as a draft row in the card); the click then acts as usual.
+    if (state.threadReply && !(state.threadReply.card && state.threadReply.card.contains(event.target))) {
+      collapseThreadReply();
+    }
     // The plain click belongs to the doc, not to the link. Every word here is
     // something to comment on or rewrite, link text included — and arming a block
     // costs nothing (a caret and a hint, cleared by the next click elsewhere)
@@ -6599,7 +6691,7 @@ function createMarkdownViewer({
     // A composer whose DOM was ripped by a re-render must not keep the
     // keyboard hostage — heal the state instead of swallowing every key.
     if (state.threadReply && state.threadReply.root && !state.threadReply.root.isConnected) {
-      closeThreadReply({ render: false });
+      collapseThreadReply();
     }
     if (state.activeCard && state.activeCard.card && !state.activeCard.card.isConnected) {
       closeActiveCard();
@@ -6632,9 +6724,10 @@ function createMarkdownViewer({
       closeThreadReply();
       return;
     }
-    // An open reply composer owns the keyboard (like activeCard below) — flips
-    // and comment dispatch must not fire under a typing reply.
-    if (state.threadReply) return;
+    // Keys typed in the reply composer are its own — flips and comment dispatch
+    // must not fire under a typing reply. Keys landing elsewhere (a click-away
+    // collapses the reply; focus can also leave it) are the page's as usual.
+    if (state.threadReply && state.threadReply.root.contains(event.target)) return;
     // The card's own composer consumes Esc when focused; this rung catches a
     // card the keyboard can no longer reach, so Esc always has an exit.
     if (event.key === 'Escape' && state.activeCard) {

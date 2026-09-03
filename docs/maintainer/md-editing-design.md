@@ -785,6 +785,25 @@ DOM selection is gone by then (Chromium collapses it into the focused
 textarea), so the switch works from the armed record's offsets — the same
 fallback a virtual-drag selection uses.
 
+## Reply composer exits (2026-09-03)
+
+A reply composer has the comment bubble's three exits. Click-away collapses
+it: the typed text rests inside the card as an amber draft row standing where
+the Reply button was (empty text keeps nothing), and the click acts as usual;
+clicking the row reopens the composer seeded with the draft. Escape retreats:
+the session's typing is dropped and an earlier draft survives as its row.
+Discard destroys draft and all; Send clears it. Drafts live in the viewer
+session only, keyed by thread id, and die with the document.
+
+The collapse rebuilds the card's foot in place in both copies rather than
+re-rendering the thread layer, so the click that caused it still finds its
+block in the DOM. Keys typed inside the composer stay its own (no flips, no
+comment dispatch under a typing reply); keys landing anywhere else are the
+page's, so an armed selection takes its letter. Before this, an open reply
+swallowed every key page-wide and nothing closed it on click-away, which read
+as "typing to comment does nothing". Rebuilds are frozen while a reply is
+open, so a resize no longer rips the composer out from under the typist.
+
 ## Open questions
 
 - Default wording of the instruction template (tune against real agent behavior).
