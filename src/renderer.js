@@ -124,12 +124,18 @@ const openHttpUrl = createHttpUrlOpener({
 // and plain-clicked local pages open here; a plain-clicked web URL goes to
 // openHttpUrl (system browser) — see urlClickWantsExternal. Lazily built on
 // first use so the DOM/webview cost is only paid once the band is asked for.
-// The webview's comment-overlay preload lives in the asar; main resolves its
-// file:// URL. Fetch it once at startup so it's cached before the first click;
-// the web viewer reads it via getPreloadUrl when creating the <webview>.
-let webviewPreloadUrl = null;
-if (window.pty && typeof window.pty.getWebviewPreloadUrl === 'function') {
-  window.pty.getWebviewPreloadUrl().then((u) => { webviewPreloadUrl = u || null; }).catch(() => {});
+// Main resolves the bundled preload URLs. A generic page gets only shortcuts
+// and diagnostics; AgentTerm reviews get the full comment/editing preload.
+// Fetch both once at startup so selection stays synchronous when a URL opens.
+let webviewPreloadUrls = { remote: null, review: null };
+if (window.pty && typeof window.pty.getWebviewPreloadUrls === 'function') {
+  window.pty.getWebviewPreloadUrls().then((urls) => {
+    if (!urls || typeof urls !== 'object') return;
+    webviewPreloadUrls = {
+      remote: typeof urls.remote === 'string' ? urls.remote : null,
+      review: typeof urls.review === 'string' ? urls.review : null,
+    };
+  }).catch(() => {});
 }
 
 let webViewer = null;
@@ -148,9 +154,9 @@ function getWebViewer() {
         const rows = Math.max(1, terminal.rows);
         return { top: rect.top, cellHeight: rect.height / rows };
       },
-      // Self-review comment overlay (Track B): the webview preload reads/writes
-      // the store itself; the host only supplies its URL.
-      getPreloadUrl: () => webviewPreloadUrl,
+      // Select the minimal remote preload or the full AgentTerm-review preload
+      // before the guest navigates.
+      getPreloadUrl: (kind) => webviewPreloadUrls[kind] || null,
       // For the viewer's own Cmd/Ctrl+F (find-in-page) shortcut detection.
       platform: window.pty.platform,
       onShortcut: (action) => { handleViewerShortcut(action); },

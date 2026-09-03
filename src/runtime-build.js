@@ -16,7 +16,18 @@ function runtimeBundleSpecs(srcDir, distDir) {
       },
     },
     {
-      name: 'web-viewer preload',
+      name: 'remote web-viewer preload',
+      options: {
+        entryPoints: [path.join(srcDir, 'web-viewer-remote-preload.js')],
+        bundle: true,
+        outfile: path.join(distDir, 'web-viewer-remote-preload.js'),
+        platform: 'node',
+        format: 'cjs',
+        external: ['electron'],
+      },
+    },
+    {
+      name: 'review web-viewer preload',
       options: {
         entryPoints: [path.join(srcDir, 'web-viewer-preload.js')],
         bundle: true,
@@ -29,8 +40,7 @@ function runtimeBundleSpecs(srcDir, distDir) {
   ];
 }
 
-function rebuildRuntimeBundles({ esbuild, fs, srcDir, distDir }) {
-  const specs = runtimeBundleSpecs(srcDir, distDir);
+function rebuildBundleSpecs({ esbuild, fs, distDir, specs }) {
   fs.mkdirSync(distDir, { recursive: true });
 
   // Remove every prior runtime artifact before compiling either one. If a
@@ -40,4 +50,23 @@ function rebuildRuntimeBundles({ esbuild, fs, srcDir, distDir }) {
   return specs.map((spec) => spec.options.outfile);
 }
 
-module.exports = { runtimeBundleSpecs, rebuildRuntimeBundles };
+function rebuildRuntimeBundles({ esbuild, fs, srcDir, distDir }) {
+  return rebuildBundleSpecs({
+    esbuild,
+    fs,
+    distDir,
+    specs: runtimeBundleSpecs(srcDir, distDir),
+  });
+}
+
+function rebuildWebViewerPreloads({ esbuild, fs, srcDir, distDir }) {
+  return rebuildBundleSpecs({
+    esbuild,
+    fs,
+    distDir,
+    specs: runtimeBundleSpecs(srcDir, distDir).filter((spec) =>
+      spec.name.includes('web-viewer preload')),
+  });
+}
+
+module.exports = { runtimeBundleSpecs, rebuildRuntimeBundles, rebuildWebViewerPreloads };

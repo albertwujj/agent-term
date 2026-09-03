@@ -7,6 +7,9 @@
 // place. shell.openExternal is stubbed in-process, so a run opens no browser.
 
 import { _electron as electron } from 'playwright-core';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -24,7 +27,27 @@ function check(name, ok, detail) {
   if (!ok) failures++;
 }
 
+function makeReviewRepo() {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'at-link-routing-'));
+  const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' }).toString().trim();
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 'e2e@example.com');
+  git('config', 'user.name', 'e2e');
+  fs.writeFileSync(path.join(repo, 'f.py'), 'a = 1\n');
+  git('add', '.');
+  git('commit', '-qm', 'one');
+  fs.appendFileSync(path.join(repo, 'f.py'), 'a = 2\n');
+  git('commit', '-qam', 'two');
+  const range = `${git('rev-parse', 'HEAD~1')}..${git('rev-parse', 'HEAD')}`;
+  const dir = path.join(repo, '.git', 'review', 'main');
+  fs.mkdirSync(dir, { recursive: true });
+  const pkg = path.join(dir, 'main.md');
+  fs.writeFileSync(pkg, `---\nrange: ${range}\n---\n\n# Review\n\nA change to f.py.\n\n:::diff f.py\n`);
+  return { repo, pkg };
+}
+
 async function run() {
+  let reviewRepo = null;
   const app = await electron.launch({
     executablePath: ELECTRON_BIN,
     args: ['--no-sandbox', APP_DIR],
@@ -103,28 +126,46 @@ async function run() {
     check('plain link still browses in place', /e2e-link-popup\.html\?browsed=1/.test(s.guest || ''), s.guest);
     check('plain link stayed in the viewer', (await drainExternal()).length === 0);
 
-    // --- review page: http links leave, the review itself stays put ---
-    await page.locator('.vb-shell.vb-web .vb-close').click();
-    await sleep(600);
-    await openViewer(url.pathToFileURL(path.join(FIXTURES, 'e2e-review-links.html')).href, '.vb-shell.vb-web.open');
+    // --- review page: switching from an existing generic guest recreates it
+    // with the review preload; http links leave and the review stays put. ---
+    reviewRepo = makeReviewRepo();
+    await runCommand(`echo review://${reviewRepo.pkg}`);
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('open-recent-viewer-url');
+    });
+    await page.waitForSelector('.vb-shell.vb-web.open', { timeout: 10_000 });
+    await sleep(1200);
+    // Add deterministic links to a genuine generated review. The review
+    // preload's handlers are delegated, so these exercise the real routing
+    // without coupling this test to the renderer's document prose.
+    await app.evaluate(({ webContents }) => {
+      const guest = webContents.getAllWebContents().find((w) => w.getType() === 'webview');
+      return guest.executeJavaScript(`(() => {
+        const fixture = document.createElement('div');
+        fixture.innerHTML = '<h2 id="top">review link fixture</h2>'
+          + '<p><a id="ext" href="https://example.com/review-ext">external</a></p>'
+          + '<p><a id="frag" href="#top">fragment</a></p>';
+        document.body.prepend(fixture);
+      })()`);
+    });
 
     await clickInGuest('ext');
     await sleep(900);
     s = await state();
     check('a plain click on a review link follows nothing', (await drainExternal()).length === 0);
-    check('and the review page stays put', /e2e-review-links\.html$/.test(s.guest || ''), s.guest);
+    check('and the review page stays put', /\/\.git\/review\/main\/main\.html$/.test(s.guest || ''), s.guest);
 
     await clickInGuest('ext', { follow: true });
     await sleep(900);
     s = await state();
     check('a modified click on a review link goes to the system browser',
       (await drainExternal()).includes('https://example.com/review-ext'));
-    check('review page was not navigated away', /e2e-review-links\.html$/.test(s.guest || ''), s.guest);
+    check('review page was not navigated away', /\/\.git\/review\/main\/main\.html$/.test(s.guest || ''), s.guest);
 
     await clickInGuest('frag');
     await sleep(600);
     s = await state();
-    check('review in-page fragment nav still works', /e2e-review-links\.html#top$/.test(s.guest || ''), s.guest);
+    check('review in-page fragment nav still works', /\/\.git\/review\/main\/main\.html#top$/.test(s.guest || ''), s.guest);
     check('fragment nav stayed in the viewer', (await drainExternal()).length === 0);
 
     // --- md viewer: http leaves, a relative link never eats the app shell ---
@@ -179,6 +220,7 @@ async function run() {
       (await drainExternal()).includes('https://example.com/host-nav'));
   } finally {
     await app.close();
+    if (reviewRepo) fs.rmSync(reviewRepo.repo, { recursive: true, force: true });
   }
   if (failures) throw new Error(`${failures} link-routing check(s) failed`);
 }

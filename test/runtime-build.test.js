@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { rebuildRuntimeBundles } = require('../src/runtime-build');
+const { rebuildRuntimeBundles, rebuildWebViewerPreloads } = require('../src/runtime-build');
 
 let testsPassed = 0, testsFailed = 0;
 
@@ -20,7 +20,7 @@ function test(name, fn) {
 
 console.log('runtime-build');
 
-test('removes both stale artifacts before rebuilding every runtime bundle', () => {
+test('removes all stale artifacts before rebuilding every runtime bundle', () => {
   const events = [];
   const fakeFs = {
     mkdirSync(dir, options) { events.push(['mkdir', dir, options]); },
@@ -41,10 +41,11 @@ test('removes both stale artifacts before rebuilding every runtime bundle', () =
 
   assert.deepStrictEqual(outputs, [
     path.join(distDir, 'renderer.js'),
+    path.join(distDir, 'web-viewer-remote-preload.js'),
     path.join(distDir, 'web-viewer-preload.js'),
   ]);
   assert.deepStrictEqual(events.map((event) => event[0]), [
-    'mkdir', 'remove', 'remove', 'build', 'build',
+    'mkdir', 'remove', 'remove', 'remove', 'build', 'build', 'build',
   ]);
 
   const builds = events.filter((event) => event[0] === 'build').map((event) => event[1]);
@@ -56,6 +57,14 @@ test('removes both stale artifacts before rebuilding every runtime bundle', () =
     format: 'iife',
   });
   assert.deepStrictEqual(builds[1], {
+    entryPoints: [path.join(srcDir, 'web-viewer-remote-preload.js')],
+    bundle: true,
+    outfile: path.join(distDir, 'web-viewer-remote-preload.js'),
+    platform: 'node',
+    format: 'cjs',
+    external: ['electron'],
+  });
+  assert.deepStrictEqual(builds[2], {
     entryPoints: [path.join(srcDir, 'web-viewer-preload.js')],
     bundle: true,
     outfile: path.join(distDir, 'web-viewer-preload.js'),
@@ -63,6 +72,34 @@ test('removes both stale artifacts before rebuilding every runtime bundle', () =
     format: 'cjs',
     external: ['electron'],
   });
+});
+
+test('the preload-only build rebuilds both webview preload modes', () => {
+  const events = [];
+  const fakeFs = {
+    mkdirSync(dir, options) { events.push(['mkdir', dir, options]); },
+    rmSync(file, options) { events.push(['remove', file, options]); },
+  };
+  const fakeEsbuild = {
+    buildSync(options) { events.push(['build', options.outfile]); },
+  };
+  const srcDir = path.join('/repo', 'src');
+  const distDir = path.join('/repo', 'dist');
+
+  const outputs = rebuildWebViewerPreloads({
+    esbuild: fakeEsbuild,
+    fs: fakeFs,
+    srcDir,
+    distDir,
+  });
+
+  assert.deepStrictEqual(outputs, [
+    path.join(distDir, 'web-viewer-remote-preload.js'),
+    path.join(distDir, 'web-viewer-preload.js'),
+  ]);
+  assert.deepStrictEqual(events.map((event) => event[0]), [
+    'mkdir', 'remove', 'remove', 'build', 'build',
+  ]);
 });
 
 test('a failed build leaves no stale runtime artifact to fall back to', () => {
@@ -73,6 +110,7 @@ test('a failed build leaves no stale runtime artifact to fall back to', () => {
   fs.mkdirSync(distDir);
   const outputs = [
     path.join(distDir, 'renderer.js'),
+    path.join(distDir, 'web-viewer-remote-preload.js'),
     path.join(distDir, 'web-viewer-preload.js'),
   ];
   for (const output of outputs) fs.writeFileSync(output, 'old code');
@@ -93,16 +131,18 @@ test('a failed build leaves no stale runtime artifact to fall back to', () => {
   }
 });
 
-test('a second-bundle failure cannot leave the old preload beside a new renderer', () => {
+test('a preload failure cannot leave old preloads beside a new renderer', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-runtime-build-'));
   const srcDir = path.join(root, 'src');
   const distDir = path.join(root, 'dist');
   fs.mkdirSync(srcDir);
   fs.mkdirSync(distDir);
   const rendererOut = path.join(distDir, 'renderer.js');
-  const preloadOut = path.join(distDir, 'web-viewer-preload.js');
+  const remotePreloadOut = path.join(distDir, 'web-viewer-remote-preload.js');
+  const reviewPreloadOut = path.join(distDir, 'web-viewer-preload.js');
   fs.writeFileSync(rendererOut, 'old renderer');
-  fs.writeFileSync(preloadOut, 'old preload');
+  fs.writeFileSync(remotePreloadOut, 'old remote preload');
+  fs.writeFileSync(reviewPreloadOut, 'old review preload');
 
   try {
     let buildCount = 0;
@@ -122,7 +162,8 @@ test('a second-bundle failure cannot leave the old preload beside a new renderer
       /synthetic preload failure/,
     );
     assert.strictEqual(fs.readFileSync(rendererOut, 'utf8'), 'new renderer');
-    assert.strictEqual(fs.existsSync(preloadOut), false);
+    assert.strictEqual(fs.existsSync(remotePreloadOut), false);
+    assert.strictEqual(fs.existsSync(reviewPreloadOut), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

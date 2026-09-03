@@ -4691,14 +4691,22 @@ ipcMain.handle('md-add-message', async (event, { docPath, threadId, body, allowM
 });
 
 
-// The webview overlay (review comments) loads from a preload that talks to main
-// directly. The renderer fetches this file:// URL and sets it as the <webview>
-// preload attribute. We load the BUNDLED copy (dist/) so the preload can share
-// modules (comment-ui) inlined by esbuild across the host/guest boundary — raw
-// src can't require shared files in the sandboxed guest. Works from the asar.
-ipcMain.handle('get-webview-preload-url', () => {
-  try { return require('url').pathToFileURL(path.join(__dirname, '..', 'dist', 'web-viewer-preload.js')).href; }
-  catch { return null; }
+// The generic web viewer gets a minimal preload; only an AgentTerm-generated
+// review receives the full comment/editing preload. Both are bundled because a
+// sandboxed guest cannot require our raw shared modules. The host selects one
+// before navigation and recreates the <webview> when that trust/mode boundary
+// changes.
+ipcMain.handle('get-webview-preload-urls', () => {
+  try {
+    const { pathToFileURL } = require('url');
+    const distDir = path.join(__dirname, '..', 'dist');
+    return {
+      remote: pathToFileURL(path.join(distDir, 'web-viewer-remote-preload.js')).href,
+      review: pathToFileURL(path.join(distDir, 'web-viewer-preload.js')).href,
+    };
+  } catch {
+    return { remote: null, review: null };
+  }
 });
 
 // Alt-click support: resolve a clicked path with the full everywhere-sweep and

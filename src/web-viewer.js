@@ -47,6 +47,7 @@ function ensureWebStyles() {
 
 function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTerminalGrid, getPreloadUrl, platform } = {}) {
   let view = null;
+  let viewPreloadKind = null;
   let backBtn = null;
   let fwdBtn = null;
   let copyBtn = null;
@@ -182,13 +183,22 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     navReady = true;
   }
 
-  function ensureView() {
+  function ensureView(preloadKind) {
+    // Preloads are fixed at guest creation. Crossing between an ordinary page
+    // and an AgentTerm review therefore gets a fresh WebContents instead of
+    // leaving privileged review code resident across the navigation.
+    if (view && viewPreloadKind !== preloadKind) destroyView();
     if (view) return;
     band.mount();
     ensureWebStyles();
     ensureNavButtons();
     view = document.createElement('webview');
+    viewPreloadKind = preloadKind;
     view.className = 'web-viewer-view';
+    const preloadUrl = typeof getPreloadUrl === 'function'
+      ? getPreloadUrl(preloadKind)
+      : null;
+    if (preloadUrl) view.setAttribute('preload', preloadUrl);
     // Persistent partition → clear an SSO wall once; cookies survive teardown.
     view.setAttribute('partition', 'persist:webviewer');
     // Keep allowpopups: it's what routes a target=_blank / window.open through
@@ -344,6 +354,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     if (!view) return;
     try { view.remove(); } catch {}
     view = null;
+    viewPreloadKind = null;
   }
 
   // `review: true` marks a rendered review package (the renderer knows at the
@@ -360,14 +371,9 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     if (destroyTimer) { clearTimeout(destroyTimer); destroyTimer = null; }
     // A reload held for a composer on the previous page must not fire on this one.
     if (heldReloadTimer) { clearTimeout(heldReloadTimer); heldReloadTimer = null; }
-    ensureView();
+    ensureView(review ? 'review' : 'remote');
     band.open();
     band.setTitle(target);
-    // Attach the comment-overlay preload before the first navigation so it's live
-    // for review pages. If it's not ready on the very first click the overlay
-    // simply waits for reopen.
-    const purl = typeof getPreloadUrl === 'function' ? getPreloadUrl() : null;
-    if (purl && view.getAttribute('preload') !== purl) view.setAttribute('preload', purl);
     // Each clicked URL is a normal navigation, so back returns to the previous
     // page. Navigate via src (reliable pre-dom-ready).
     view.setAttribute('src', target);

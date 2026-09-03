@@ -8,9 +8,9 @@
 // the <slug>-comments.json store (read-modify-write); this only sends deltas
 // and re-renders from the snapshot main returns.
 //
-// Self-contained on purpose: requires only `electron` so it loads under the
-// default sandbox with no bundling. No-op on any non-review page (remote
-// Gerrit etc.), so it's safe as the partition-wide webview preload.
+// This is the full AgentTerm-review preload. Ordinary web pages use the much
+// smaller web-viewer-remote-preload.js entry point instead; the body guard
+// below remains as defense in depth if a page is ever routed incorrectly.
 //
 // Thread-state model is the md viewer's: needs-send / awaiting-agent /
 // back-to-user / resolved, with the agent owning `resolved`. The encodings of
@@ -30,30 +30,15 @@
 
 const { ipcRenderer } = require('electron');
 const { normWS, nearestHeading, toast, createComposer, toPromptAction, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
-const { getViewerShortcutAction } = require('./viewer-shortcut');
 const { createCommitEditController } = require('./review-commit-edit');
 const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
+const { installWebViewerPreloadCommon } = require('./web-viewer-preload-common');
+
+installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
 
 (function () {
   if (window.__rvInit) return;
   window.__rvInit = true;
-
-  // A guest page has its own renderer process. Long-task observation avoids a
-  // polling timer: Chromium clamps guest timers to ~1s even while the host can
-  // see the webview, which looks exactly like a false 750ms "stall" to a 250ms
-  // heartbeat. Only an actual 500ms+ task produces IPC or disk traffic.
-  try {
-    const longTaskObserver = new PerformanceObserver(function (list) {
-      list.getEntries().forEach(function (entry) {
-        if (entry.duration < 500) return;
-        try {
-          ipcRenderer.sendToHost('viewer-diagnostic',
-            'long-task duration=' + Math.round(entry.duration) + 'ms');
-        } catch {}
-      });
-    });
-    longTaskObserver.observe({ entryTypes: ['longtask'] });
-  } catch {}
 
   let commentsUrl = null;
   let store = { threads: [] };
@@ -107,7 +92,6 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
   }
 
   ready(function () {
-    bindHostShortcuts(); // Host shortcuts work on any viewer page, including remote pages.
     if (!document.body || !document.body.dataset || !document.body.dataset.review) return;
     bindExternalLinks(); // review page only — a remote page keeps normal in-place browsing
     // Strip query AND fragment before deriving the store URL: the page's own
@@ -314,23 +298,6 @@ const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
       sel.addRange(range);
       refreshQuoteButton();
     });
-  }
-
-  // The guest is a separate WebContents, so host-window shortcuts do not see
-  // keystrokes while the page has focus. Forward find and viewer chords.
-  function bindHostShortcuts() {
-    document.addEventListener('keydown', function (e) {
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
-        e.preventDefault();
-        try { ipcRenderer.sendToHost('rv-find'); } catch {}
-        return;
-      }
-      const action = getViewerShortcutAction(e, process.platform);
-      if (!action) return;
-      e.preventDefault();
-      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-      try { ipcRenderer.sendToHost('viewer-shortcut', action); } catch {}
-    }, true);
   }
 
   function bindSelection() {

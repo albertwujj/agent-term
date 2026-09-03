@@ -78,9 +78,9 @@ contextBridge.exposeInMainWorld('pty', {
   // A review:// was captured → record the reviewed repo's branch in the
   // session log (picker search). Returns { ok, repo, branch }.
   captureReviewBranch: (reviewUrl) => ipcRenderer.invoke('capture-review-branch', reviewUrl),
-  // file:// URL of the webview comment-overlay preload (set as the <webview>
-  // preload attribute by the web viewer).
-  getWebviewPreloadUrl: () => ipcRenderer.invoke('get-webview-preload-url'),
+  // file:// URLs for the minimal generic-page and full AgentTerm-review
+  // preloads. The web viewer selects one before creating its guest.
+  getWebviewPreloadUrls: () => ipcRenderer.invoke('get-webview-preload-urls'),
   // Set the window title (from terminal OSC sequences)
   setTitle: (title) => ipcRenderer.send('set-title', title),
   // Listen for logs from main process

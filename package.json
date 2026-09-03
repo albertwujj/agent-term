@@ -6,7 +6,7 @@
   "main": "src/main.js",
   "scripts": {
     "build": "node scripts/build-runtime.js",
-    "build:preload": "esbuild src/web-viewer-preload.js --bundle --outfile=dist/web-viewer-preload.js --platform=node --format=cjs --external:electron",
+    "build:preload": "node scripts/build-web-viewer-preloads.js",
     "build:launcher": "node scripts/build-launcher.js",
     "postinstall": "node scripts/postinstall.js",
     "demo:alt": "node scripts/alt-screen-demo.js",
