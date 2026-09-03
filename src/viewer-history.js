@@ -559,6 +559,7 @@ module.exports = {
   collectBufferViewerMatchRows,
   extractViewerCandidateMatches,
   extractViewerCandidates,
+  readBufferLogicalLine,
   sameViewer,
   stripTerminalSequences,
   viewerFileUrlToPath,

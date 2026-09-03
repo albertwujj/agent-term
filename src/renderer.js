@@ -37,6 +37,7 @@ const {
   canonicalViewerUrl,
   collectBufferViewerCandidates,
   collectBufferViewerMatchRows,
+  readBufferLogicalLine,
   sameViewer,
   viewerFileUrlToPath,
 } = require('./viewer-history');
@@ -5298,27 +5299,8 @@ function parseRow(text) {
 
 // Get text content from a buffer row, joining wrapped lines
 function getRowText(bufferLineIndex) {
-  const buffer = terminal.buffer.active;
-  let text = '';
-  let currentIndex = bufferLineIndex;
-
-  // Get first line
-  const firstLine = buffer.getLine(currentIndex);
-  if (!firstLine) return { text: '', endIndex: bufferLineIndex };
-
-  text = firstLine.translateToString();
-  currentIndex++;
-
-  // Join wrapped continuations
-  const parts = [text];
-  while (currentIndex < buffer.length) {
-    const line = buffer.getLine(currentIndex);
-    if (!line || !line.isWrapped) break;
-    parts.push(line.translateToString());
-    currentIndex++;
-  }
-
-  return { text: parts.length === 1 ? parts[0] : parts.join(''), endIndex: currentIndex - 1 };
+  const logical = readBufferLogicalLine(terminal.buffer.active, bufferLineIndex);
+  return logical ? { text: logical.text, endIndex: logical.endRow } : { text: '', endIndex: bufferLineIndex };
 }
 
 function getLogicalLineStart(buffer, bufferLineIndex) {
