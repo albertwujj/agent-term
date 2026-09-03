@@ -2,7 +2,7 @@
 
 **Jump-start with this repo and its suite.**
 
-![the walk in stills, one per row of the table below](docs/assets/hero-walk.gif)
+![the walk in stills, one feature per row of the table below](docs/assets/hero-walk.gif)
 
 ## The terminal path
 
