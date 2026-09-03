@@ -4696,6 +4696,16 @@ app.whenReady().then(async () => {
   // Standard Edit accelerators (Copy/Paste/etc.) on the terminal are handled
   // by src/terminal-keyboard.js, so removing the menu doesn't break them.
   Menu.setApplicationMenu(null);
+  // The Dock tile's menu: every session is its own window, so another session
+  // is the one action the tile offers, the same as Cmd+Shift+N. The new window
+  // opens on the picker, where a typed CLI name starts a session and a past
+  // one resumes; the ellipsis says a chooser follows. The Dock drops key
+  // equivalents from its menus, so the shortcut is spelled in the label.
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setMenu(Menu.buildFromTemplate([
+      { label: 'Start or Resume Session…  ⇧⌘N', click: () => launchNewInstance() },
+    ]));
+  }
 
   if (!app.isPackaged) {
     try {
