@@ -36,6 +36,7 @@ const {
   letterCandidates,
   iconRenderScript,
   dockIconScript,
+  pickerIconScript,
   dockLetterCandidates,
   truncatePathsForTaskbar,
   extractPathsAndUrls,
@@ -525,6 +526,19 @@ async function makeBrandIconImage(cli) {
   const script = cliIcons.brandIconScript(cli);
   if (!script) return null;
   const raw = await mainWindow.webContents.executeJavaScript(script);
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return null; }
+  if (!parsed || !parsed.url) return null;
+  const img = nativeImage.createFromDataURL(parsed.url);
+  if (img.isEmpty()) return null;
+  return { img };
+}
+
+// Windows taskbar icon before any CLI: the picker's list (see
+// pickerIconScript), the counterpart of the Dock app tile.
+async function makePickerIconImage() {
+  if (!mainWindow || !mainWindow.webContents) return null;
+  const raw = await mainWindow.webContents.executeJavaScript(pickerIconScript());
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return null; }
   if (!parsed || !parsed.url) return null;
@@ -1942,14 +1956,22 @@ function createWindow() {
         mainWindow.webContents.send('stream:status', streamClient.getStatus());
       }
     } catch {}
-    // darwin: the process's Dock tile from the first frame is the app tile
-    // (see makeDockIconImage); the CLI's mark and then the session hue
-    // replace it as the session takes shape.
+    // From the first frame the window carries the app tile, the picker's
+    // list: the process's Dock tile on darwin (see makeDockIconImage), the
+    // taskbar icon on Windows (see makePickerIconImage). The CLI's mark and
+    // then the session hue replace it as the session takes shape.
     if (process.platform === 'darwin') {
       (async () => {
         try {
           const result = await makeDockIconImage({});
           if (result) setDockIcon(result.img);
+        } catch {}
+      })();
+    } else if (process.platform === 'win32') {
+      (async () => {
+        try {
+          const result = await makePickerIconImage();
+          if (result && mainWindow) mainWindow.setIcon(result.img);
         } catch {}
       })();
     }

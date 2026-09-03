@@ -551,9 +551,38 @@ function extractPathsAndUrls(text) {
   return { text: out, refs };
 }
 
+// Windows taskbar icon before any CLI (picker open, plain shell, or a CLI
+// with no mark): the picker's list, the same three rows as the Dock app
+// tile, drawn on transparency in the chip's style and sized like the brand
+// glyph (about three quarters of the canvas).
+function pickerIconScript() {
+  const colors = APP_TILE_ROW_HUES.map(h => `oklch(${ICON_OKLCH_L}% ${ICON_OKLCH_C} ${h})`);
+  return `(function(){
+    const C = 256;
+    const c = document.createElement('canvas');
+    c.width = C; c.height = C;
+    const ctx = c.getContext('2d');
+    const colors = ${JSON.stringify(colors)};
+    const widths = [0.74, 0.53, 0.63];
+    const rh = C * 0.13;
+    const rg = C * 0.10;
+    const total = 3 * rh + 2 * rg;
+    const x0 = (C - C * Math.max(...widths)) / 2;
+    for (let i = 0; i < 3; i++) {
+      const y = C / 2 - total / 2 + i * (rh + rg);
+      ctx.fillStyle = colors[i];
+      ctx.beginPath();
+      ctx.roundRect(x0, y, C * widths[i], rh, rh / 2);
+      ctx.fill();
+    }
+    return JSON.stringify({ url: c.toDataURL('image/png'), rows: true });
+  })()`;
+}
+
 module.exports = {
   ICON_OKLCH_L,
   ICON_OKLCH_C,
+  pickerIconScript,
   ICON_LETTERS_N,
   ICON_LETTERS_N_MAX,
   TASKBAR_TITLE_REST_MAX,

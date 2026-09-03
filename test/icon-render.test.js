@@ -1,7 +1,7 @@
 // Tests for src/icon-render.js — pure JS helpers, runs in Node.
 
 const assert = require('assert');
-const { truncatePathsForTaskbar, extractPathsAndUrls, dockIconScript, dockLetterCandidates, letterCandidates } = require('../src/icon-render');
+const { truncatePathsForTaskbar, extractPathsAndUrls, dockIconScript, dockLetterCandidates, letterCandidates, pickerIconScript } = require('../src/icon-render');
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -192,6 +192,14 @@ test('dock tile with no hue and no brand glyph is the app tile: session rows on 
   assert.ok(script.includes('rows: true'));
   for (const hue of [336, 192, 72]) assert.ok(script.includes(`oklch(65% 0.27 ${hue})`));
   assert.ok(!script.includes('oklch(69%'));
+});
+
+test('windows picker icon draws the same session rows on a transparent 256px canvas', () => {
+  const script = pickerIconScript();
+  assert.ok(script.includes('const C = 256'));
+  assert.ok(script.includes('rows: true'));
+  for (const hue of [336, 192, 72]) assert.ok(script.includes(`oklch(65% 0.27 ${hue})`));
+  assert.ok(!script.includes('oklch(40% 0.012 260)'));
 });
 
 test('dock letter candidates never end in whitespace or a lone letter of a new word', () => {
