@@ -12,7 +12,7 @@ Every session is a whole OS window; there are no tabs.
 </p>
 
 <p align="center">
-<img src="assets/dock-tiles.png" width="50%" alt="your sessions on a Mac: one Dock tile each, among the other apps">
+<img src="assets/dock-tiles.png" width="42%" alt="your sessions on a Mac: one Dock tile each, among the other apps">
 <br><sub>On a Mac: one Dock tile per session, among the other apps.</sub>
 </p>
 
