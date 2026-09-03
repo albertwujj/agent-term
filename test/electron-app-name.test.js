@@ -1,8 +1,8 @@
 const assert = require('assert');
 const path = require('path');
 const {
-  APP_NAME, electronPlistPath, namedBundleExecPath, renamePlist, applyElectronAppName,
-  ensureNamedBundleLink,
+  APP_NAME, electronPlistPath, namedBundleExecPath, namedLaunchPath, renamePlist,
+  applyElectronAppName, ensureNamedBundleLink,
 } = require('../src/electron-app-name');
 
 let testsPassed = 0, testsFailed = 0;
@@ -113,6 +113,22 @@ test('repoints a link that points elsewhere', () => {
     ['unlink', link],
     ['symlink', 'Electron.app', link, 'dir'],
   ]);
+});
+
+test('routes a successor through the link when Electron reports the real path', () => {
+  const real = path.join(electronDir, 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron');
+  const named = path.join(link, 'Contents', 'MacOS', 'Electron');
+  const withLink = { existsSync: (p) => p === named };
+  assert.strictEqual(namedLaunchPath(real, { fs: withLink }), named);
+  const withoutLink = { existsSync: () => false };
+  assert.strictEqual(namedLaunchPath(real, { fs: withoutLink }), real);
+});
+
+test('leaves other executables alone', () => {
+  const packaged = path.join('/Applications', 'AgentTerm.app', 'Contents', 'MacOS', 'AgentTerm');
+  const fakeFs = { existsSync: () => { throw new Error('should not look'); } };
+  assert.strictEqual(namedLaunchPath(packaged, { fs: fakeFs }), packaged);
+  assert.strictEqual(namedLaunchPath('C:\\app\\electron.exe', { fs: fakeFs }), 'C:\\app\\electron.exe');
 });
 
 test('refuses to replace a real directory at the link path', () => {

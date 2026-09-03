@@ -51,6 +51,10 @@ const {
   resolveLatestRelaunchTarget,
   spawnNewInstance,
 } = require('./relaunch');
+const { namedLaunchPath } = require('./electron-app-name');
+// Successors (Cmd/Ctrl+Shift+N, relaunch) start from the path that carries the
+// app's name; on macOS that is the AgentTerm.app link the build makes.
+const successorExecPath = namedLaunchPath(process.execPath, { fs });
 const { rebuildRuntimeBundles } = require('./runtime-build');
 const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
@@ -1688,7 +1692,7 @@ function relaunchLatestAndExit() {
     if (target.mode === 'portable-spawn') {
       relaunchPortableAndExit(app, process.argv, target.execPath, { startCwd });
     } else {
-      relaunchAndExit(app, process.argv, { execPath: target.execPath, startCwd });
+      relaunchAndExit(app, process.argv, { execPath: target.execPath || successorExecPath, startCwd });
     }
   } catch (err) {
     log('[relaunch] successor launch failed: ' + (err && err.message));
@@ -1729,7 +1733,7 @@ function launchNewInstance() {
   announce('new-instance-launching', cwd);
   let child = null;
   try {
-    child = spawnNewInstance(process.argv, target.execPath || process.execPath, {
+    child = spawnNewInstance(process.argv, target.execPath || successorExecPath, {
       cwd: target.execPath ? path.dirname(target.execPath) : undefined,
       env: cwd ? { ...process.env, AGENT_TERM_START_CWD: cwd } : undefined,
     });

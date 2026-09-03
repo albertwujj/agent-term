@@ -64,11 +64,24 @@ function ensureNamedBundleLink({ fs, electronDir, name = APP_NAME }) {
   return true;
 }
 
+// Electron reports its real executable path, inside Electron.app, whatever link
+// it was launched through. A successor spawned from that path would lose the
+// name, so route it through the link when the link is there.
+function namedLaunchPath(execPath, { fs, name = APP_NAME }) {
+  const inner = path.join('Contents', 'MacOS', 'Electron');
+  const suffix = path.join(BUNDLE, inner);
+  if (!execPath.endsWith(path.sep + suffix)) return execPath;
+  const distDir = execPath.slice(0, -(suffix.length + 1));
+  const named = path.join(distDir, `${name}.app`, inner);
+  return fs.existsSync(named) ? named : execPath;
+}
+
 module.exports = {
   APP_NAME,
   electronPlistPath,
   namedBundlePath,
   namedBundleExecPath,
+  namedLaunchPath,
   renamePlist,
   applyElectronAppName,
   ensureNamedBundleLink,
