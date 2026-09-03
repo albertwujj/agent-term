@@ -58,6 +58,27 @@ function shouldRun(processApi = process) {
   );
 }
 
+// The taskbar Jump List task ("Start or resume session") starts this bootstrap
+// with no environment of ours; the running app wrote the launcher's
+// environment to a file and the task names it here. Variables already set win,
+// as a Ctrl+Shift+N child carries fresher ones. The argument name is shared
+// with src/windows-launch-env.js by contract.
+const LAUNCH_ENV_ARG = '--agent-term-launch-env=';
+
+function applyLaunchEnv(argv, env, fsApi = fs) {
+  const arg = (argv || []).find((a) => typeof a === 'string' && a.startsWith(LAUNCH_ENV_ARG));
+  if (!arg) return null;
+  const file = arg.slice(LAUNCH_ENV_ARG.length);
+  const values = JSON.parse(fsApi.readFileSync(file, 'utf8'));
+  for (const [key, value] of Object.entries(values)) {
+    if (env[key] === undefined) env[key] = value;
+  }
+  return file;
+}
+
+applyLaunchEnv(process.argv, process.env);
 if (shouldRun()) run();
 
-module.exports = { RUNTIME_ASSETS, RUNTIME_ENTRIES, shouldRun, stageSource };
+module.exports = {
+  LAUNCH_ENV_ARG, RUNTIME_ASSETS, RUNTIME_ENTRIES, applyLaunchEnv, shouldRun, stageSource,
+};

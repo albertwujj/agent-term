@@ -52,6 +52,7 @@ const {
   spawnNewInstance,
 } = require('./relaunch');
 const { namedLaunchPath } = require('./electron-app-name');
+const { launchEnvFile, writeLaunchEnv, taskbarTask } = require('./windows-launch-env');
 // Successors (Cmd/Ctrl+Shift+N, relaunch) start from the path that carries the
 // app's name; on macOS that is the AgentTerm.app link the build makes.
 const successorExecPath = namedLaunchPath(process.execPath, { fs });
@@ -4716,6 +4717,21 @@ app.whenReady().then(async () => {
       dialog.showErrorBox('AgentTerm source launch failed', message);
       app.quit();
       return;
+    }
+  }
+
+  // Windows taskbar: the button's Jump List offers another session, the same
+  // as Ctrl+Shift+N. A task starts with no environment of ours, and the
+  // from-source launch lives on the environment the WSL launcher set, so that
+  // environment goes to a file the task hands to the bootstrap.
+  if (process.platform === 'win32' && !app.isPackaged) {
+    try {
+      const appPath = app.getAppPath();
+      const file = launchEnvFile(appPath);
+      writeLaunchEnv({ fs, file, env: process.env });
+      app.setUserTasks([taskbarTask({ execPath: process.execPath, appPath, file })]);
+    } catch (err) {
+      log('[taskbar] jump list task unavailable: ' + (err && err.message));
     }
   }
 
