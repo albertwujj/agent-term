@@ -272,10 +272,45 @@ test('non-img HTML stays literal, and a src-less or event-laden img is defused',
   assert(!doc.html.includes('onerror'), 'only src/alt/width/height may cross over');
 });
 
-test('a p wrapper without any img in its run stays literal text', () => {
-  const doc = renderMarkdownDocument('<p>\njust prose\n</p>');
+test('a p wrapper around a run is dropped, and align="center" centers the paragraph', () => {
+  const doc = renderMarkdownDocument('<p align="center">\njust prose\n</p>');
 
-  assert(doc.html.includes('&lt;p&gt;'), `bare p should stay literal, got: ${doc.html}`);
+  assert(!doc.html.includes('&lt;p'), `the wrapper should not remain as literal text, got: ${doc.html}`);
+  assert(doc.html.includes('class="md-center md-anchor"'), `the paragraph should carry md-center, got: ${doc.html}`);
+  assert(doc.html.includes('>just prose</p>'), `the wrapper's line breaks should go with it, got: ${doc.html}`);
+  assert(doc.anchors.length === 1 && doc.anchors[0].type === 'paragraph_open', 'the paragraph stays the anchor');
+});
+
+test('an image caption authored the GitHub way renders as one centered paragraph', () => {
+  const doc = renderMarkdownDocument([
+    '<p align="center">',
+    '<img src="assets/dock.png" width="50%" alt="dock tiles">',
+    '<br><sub>On a Mac: one tile per session.</sub>',
+    '</p>',
+  ].join('\n'), { rootUrl: 'file://', docDir: '/docs' });
+
+  assert(doc.html.includes('class="md-center md-anchor"'), `centered, got: ${doc.html}`);
+  assert(doc.html.includes('src="file:///docs/assets/dock.png"'), 'the img inside still goes through the image pipeline');
+  assert(doc.html.includes('width="50%"'), 'width should carry over');
+  assert(doc.html.includes('<br>\n<sub>'), `br should be a hard break, got: ${doc.html}`);
+  assert(doc.html.includes('<sub>On a Mac: one tile per session.</sub>'), `sub should render as sub, got: ${doc.html}`);
+  assert(!doc.html.includes('&lt;'), `no literal tag text should remain, got: ${doc.html}`);
+  assert(doc.anchors.length === 1 && doc.anchors[0].type === 'paragraph_open', 'the caption paragraph is the anchor');
+});
+
+test('sub and sup pair within a run; a stray open or close, and any other tag, stay literal', () => {
+  const doc = renderMarkdownDocument(
+    'H<sub>2</sub>O, x<sup>*2*</sup>, a <sub>lone open, a </sup>lone close, '
+    + '<span>span</span>, <p>mid-run p</p>, <br/> and <BR /> break.',
+  );
+
+  assert(doc.html.includes('H<sub>2</sub>O'), `sub pair, got: ${doc.html}`);
+  assert(doc.html.includes('x<sup><em>2</em></sup>'), `sup pair around emphasis, got: ${doc.html}`);
+  assert(doc.html.includes('a &lt;sub&gt;lone open'), `stray open stays literal, got: ${doc.html}`);
+  assert(doc.html.includes('a &lt;/sup&gt;lone close'), `stray close stays literal, got: ${doc.html}`);
+  assert(doc.html.includes('&lt;span&gt;span&lt;/span&gt;'), 'span stays literal');
+  assert(doc.html.includes('&lt;p&gt;mid-run p&lt;/p&gt;'), `a p that is not the run's wrapper stays literal, got: ${doc.html}`);
+  assert((doc.html.match(/<br>\n/g) || []).length === 2, `both br spellings break, got: ${doc.html}`);
 });
 
 test('every anchor names an element the renderer actually emits', () => {

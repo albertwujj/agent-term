@@ -102,19 +102,27 @@ function resolveImageSrc(src, { rootUrl, docDir, version, versionByPath }) {
   return { url: `${rootUrl}${segments.map(encodeURIComponent).join('/')}${query}`, path };
 }
 
-// Raw HTML is never parsed (html: false above), so a document's tags render as
-// the literal text the author typed. The one exception is <img>: markdown image
-// syntax has no size control, so sized images are authored as HTML tags across
-// the ecosystem (GitHub READMEs being the canonical case). A text token
-// containing one is split around a real image token, which the src rewriting
-// and anchor machinery then treat like any authored image. Only src, alt,
-// width and height cross over; every other attribute is dropped. A <p> wrapper
-// line would be left rendering as stray text once its images become images, so
-// it is removed only from an inline run where the split produced one.
-const HTML_IMG_TAG = /<img\s[^<>]*>/gi;
-const HTML_P_WRAPPER = /^<\/?p(?:\s[^<>]*)?>$/i;
+// Raw HTML is never parsed (html: false above): parsing it would hand an
+// agent-written document control of the app's DOM, and the anchor, comment and
+// diff machinery works over markdown structure. Instead a small fixed set of
+// tags, the ones GitHub-authored docs use for sized images and their captions,
+// is recognized after the parse and mapped onto real markdown-it tokens. No
+// attribute crosses over except the four an image needs, and the text around
+// them stays ordinary inline text: anchorable, selectable, editable, diffed.
+//   <img src …>    an image token; src, alt, width and height carry over, so
+//                  src rewriting and image anchoring treat it like any
+//                  authored image. A src-less tag stays literal text.
+//   <br>           a hard break.
+//   <sub>…</sub>   the sub/sup tokens, when the pair is balanced within the
+//   <sup>…</sup>   run; a stray open or close stays literal text.
+//   <p …>…</p>     a wrapper around the whole run is dropped, and its
+//                  align="center" becomes the md-center class on the paragraph
+//                  (the GitHub idiom for a centered image with a caption). A
+//                  <p> anywhere else in a run stays literal text.
+// Every other tag renders as the literal text the author typed.
+const HTML_TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)(\s[^<>]*)?\/?>/g;
 
-function parseImgTagAttrs(tag) {
+function parseTagAttrs(tag) {
   const attrs = {};
   const attrPattern = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>]+))/g;
   let match;
@@ -122,6 +130,30 @@ function parseImgTagAttrs(tag) {
     attrs[match[1].toLowerCase()] = match[2] ?? match[3] ?? match[4] ?? '';
   }
   return attrs;
+}
+
+// A recognized tag as an item, or null for one that stays literal text.
+function classifyTag(match) {
+  const [raw, slash, rawName, rawAttrs] = match;
+  const name = rawName.toLowerCase();
+  const close = slash === '/';
+  if (close && rawAttrs && rawAttrs.trim()) return null;
+  switch (name) {
+    case 'img': {
+      if (close) return null;
+      const attrs = parseTagAttrs(raw);
+      return attrs.src ? { tag: 'img', attrs, raw } : null;
+    }
+    case 'br':
+      return close ? null : { tag: 'br', raw };
+    case 'sub':
+    case 'sup':
+      return { tag: name, close, raw };
+    case 'p':
+      return { tag: 'p', close, attrs: close ? {} : parseTagAttrs(raw), raw };
+    default:
+      return null;
+  }
 }
 
 function buildImageToken(TokenCtor, attrs, level) {
@@ -142,49 +174,118 @@ function buildImageToken(TokenCtor, attrs, level) {
   return token;
 }
 
-function recognizeHtmlImages(tokens) {
-  for (const token of tokens) {
-    if (token.type !== 'inline' || !Array.isArray(token.children)) continue;
-    const TokenCtor = token.constructor;
-    let produced = false;
-    const rebuilt = [];
-    for (const child of token.children) {
-      if (child.type !== 'text' || !/<img\s/i.test(child.content)) {
-        rebuilt.push(child);
-        continue;
-      }
-      const pieces = [];
-      let last = 0;
-      let match;
-      HTML_IMG_TAG.lastIndex = 0;
-      while ((match = HTML_IMG_TAG.exec(child.content))) {
-        const attrs = parseImgTagAttrs(match[0]);
-        if (!attrs.src) continue; // a src-less tag stays literal text
-        pieces.push({ text: child.content.slice(last, match.index) });
-        pieces.push({ image: attrs });
-        last = match.index + match[0].length;
-      }
-      if (pieces.length === 0) {
-        rebuilt.push(child);
-        continue;
-      }
-      pieces.push({ text: child.content.slice(last) });
-      for (const piece of pieces) {
-        if (piece.image) {
-          rebuilt.push(buildImageToken(TokenCtor, piece.image, child.level));
-          produced = true;
-        } else if (piece.text) {
-          const text = new TokenCtor('text', '', 0);
-          text.level = child.level;
-          text.content = piece.text;
-          rebuilt.push(text);
-        }
-      }
+function buildTextToken(TokenCtor, content, level) {
+  const token = new TokenCtor('text', '', 0);
+  token.level = level;
+  token.content = content;
+  return token;
+}
+
+function buildTagToken(TokenCtor, type, tag, nesting, level) {
+  const token = new TokenCtor(type, tag, nesting);
+  token.level = level;
+  return token;
+}
+
+// Split an inline run's text children around the recognized tags. Items are
+// { child } for a token kept as is, { text } for a text slice, or a classified
+// tag; each carries the level of the child it came from.
+function splitRunAroundTags(children) {
+  const items = [];
+  let anyTag = false;
+  for (const child of children) {
+    if (child.type !== 'text' || !child.content.includes('<')) {
+      items.push({ child });
+      continue;
     }
-    if (!produced) continue;
-    token.children = rebuilt.filter((child) => !(
-      child.type === 'text' && HTML_P_WRAPPER.test(child.content.trim())
-    ));
+    let last = 0;
+    let match;
+    HTML_TAG.lastIndex = 0;
+    while ((match = HTML_TAG.exec(child.content))) {
+      const tag = classifyTag(match);
+      if (!tag) continue;
+      if (match.index > last) items.push({ text: child.content.slice(last, match.index), level: child.level });
+      items.push({ ...tag, level: child.level });
+      anyTag = true;
+      last = match.index + match[0].length;
+    }
+    if (last === 0) {
+      items.push({ child });
+    } else if (last < child.content.length) {
+      items.push({ text: child.content.slice(last), level: child.level });
+    }
+  }
+  return anyTag ? items : null;
+}
+
+function isSoftbreakItem(item) {
+  return !!(item.child && item.child.type === 'softbreak');
+}
+
+function isBlankItem(item) {
+  return isSoftbreakItem(item) || (item.text !== undefined && !item.text.trim());
+}
+
+// Drop a <p …>…</p> wrapping the whole run, with the line breaks that set it
+// off from its content. Returns the open tag's attrs, or null without one.
+function unwrapParagraphTags(items) {
+  let first = 0;
+  while (first < items.length && isBlankItem(items[first])) first++;
+  let last = items.length - 1;
+  while (last > first && isBlankItem(items[last])) last--;
+  const open = items[first];
+  const close = items[last];
+  if (!open || !close || last <= first) return null;
+  if (open.tag !== 'p' || open.close || close.tag !== 'p' || !close.close) return null;
+  items.splice(last, 1);
+  items.splice(first, 1);
+  while (items.length && isSoftbreakItem(items[0])) items.shift();
+  while (items.length && isSoftbreakItem(items[items.length - 1])) items.pop();
+  return open.attrs;
+}
+
+// Mark the sub/sup opens and closes that pair up in order; the rest stay text.
+function pairSubSup(items) {
+  const stack = [];
+  for (const item of items) {
+    if (item.tag !== 'sub' && item.tag !== 'sup') continue;
+    if (!item.close) {
+      stack.push(item);
+      continue;
+    }
+    const top = stack[stack.length - 1];
+    if (top && top.tag === item.tag) {
+      stack.pop();
+      top.paired = true;
+      item.paired = true;
+    }
+  }
+}
+
+function recognizeHtmlTags(tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type !== 'inline' || !Array.isArray(token.children)) continue;
+    const items = splitRunAroundTags(token.children);
+    if (!items) continue;
+    const TokenCtor = token.constructor;
+    const wrapper = unwrapParagraphTags(items);
+    if (wrapper && String(wrapper.align || '').toLowerCase() === 'center') {
+      const open = tokens[i - 1];
+      if (open && open.type === 'paragraph_open') open.attrJoin('class', 'md-center');
+    }
+    pairSubSup(items);
+    token.children = items.map((item) => {
+      if (item.child) return item.child;
+      if (item.tag === 'img') return buildImageToken(TokenCtor, item.attrs, item.level);
+      if (item.tag === 'br') return buildTagToken(TokenCtor, 'hardbreak', 'br', 0, item.level);
+      if ((item.tag === 'sub' || item.tag === 'sup') && item.paired) {
+        return item.close
+          ? buildTagToken(TokenCtor, `${item.tag}_close`, item.tag, -1, item.level)
+          : buildTagToken(TokenCtor, `${item.tag}_open`, item.tag, 1, item.level);
+      }
+      return buildTextToken(TokenCtor, item.text !== undefined ? item.text : item.raw, item.level);
+    });
   }
 }
 
@@ -330,7 +431,7 @@ function renderMarkdownDocument(source, imageOptions) {
   const text = String(source == null ? '' : source);
   const env = {};
   const tokens = markdown.parse(text, env);
-  recognizeHtmlImages(tokens);
+  recognizeHtmlTags(tokens);
   // Local image files the doc embeds, as absolute decoded POSIX paths — the
   // viewer's image poll stats these to catch regenerated images.
   const imagePaths = rewriteImageSources(tokens, imageOptions);

@@ -294,6 +294,11 @@ function ensureStyles() {
       max-width: 100%;
       height: auto;
     }
+    /* A <p align="center"> wrapper in the source (see recognizeHtmlTags):
+       the GitHub idiom for an image with its caption beneath it. */
+    .md-viewer-body p.md-center {
+      text-align: center;
+    }
     .md-viewer-body code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
       font-size: 0.92em;
