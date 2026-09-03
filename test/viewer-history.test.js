@@ -5,6 +5,7 @@ const {
   ViewerValidationMemory,
   analyzeRendererWrappedDocument,
   collectBufferViewerCandidates,
+  collectBufferViewerMatchRows,
   extractViewerCandidateMatches,
   extractViewerCandidates,
   stripTerminalSequences,
@@ -408,6 +409,58 @@ test('explicit opens become newest while source merge preserves current identity
   history.merge([{ kind: 'url', key: 'A' }, { kind: 'url', key: 'B' }]);
   assert.deepStrictEqual(history.current, { kind: 'md', key: 'C.md' });
   assert.deepStrictEqual(keys(history.entries()), ['url:A', 'url:B', 'md:C.md']);
+});
+
+test('match rows list every copy of a link with the row it starts on', () => {
+  const link = 'review:///repo/.git/review/main/main.md';
+  const rows = (buffer, startRow) => collectBufferViewerMatchRows(buffer, startRow)
+    .filter(({ entry }) => entry.kind === 'review' && entry.key === link)
+    .map(({ row }) => row);
+  assert.deepStrictEqual(rows(fakeBuffer([])), []);
+  assert.deepStrictEqual(rows(fakeBuffer([
+    { text: `Review: ${link}` },
+    { text: 'other output' },
+    { text: `Updated the review: ${link}` },
+    { text: `${link} and ${link}` },
+  ])), [0, 2, 3, 3]);
+});
+
+test('a soft-wrapped copy and the tolerated spaced form are one match each on their head row', () => {
+  const link = 'review:///repo/.git/review/feature/feature.md';
+  const buffer = fakeBuffer([
+    { text: 'noise' },
+    { text: 'Review: review:///repo/.git/review/' },
+    { text: 'feature/feature.md', wrapped: true },
+    { text: 'Again: review:// /repo/.git/review/feature/feature.md' },
+  ]);
+  assert.deepStrictEqual(collectBufferViewerMatchRows(buffer), [
+    { entry: { kind: 'review', key: link }, row: 1 },
+    { entry: { kind: 'review', key: link }, row: 3 },
+  ]);
+});
+
+test('a renderer hard-wrapped copy is one match on its head row', () => {
+  const buffer = fakeBuffer([
+    { text: 'Review: review:///repo/.git/review/feature/' },
+    { text: '  feature.md' },
+  ]);
+  assert.deepStrictEqual(collectBufferViewerMatchRows(buffer), [
+    { entry: { kind: 'review', key: 'review:///repo/.git/review/feature/feature.md', rendererWrapped: true }, row: 0 },
+  ]);
+});
+
+test('a window start inside a wrapped line widens to the line start', () => {
+  const link = 'review:///repo/.git/review/main/main.md';
+  const buffer = fakeBuffer([
+    { text: `old: ${link}` },
+    { text: 'Review: review:///repo/.git/review/' },
+    { text: 'main/main.md', wrapped: true },
+    { text: 'tail' },
+  ]);
+  const keys = (startRow) => collectBufferViewerMatchRows(buffer, startRow).map(({ entry, row }) => `${row}:${entry.key}`);
+  assert.deepStrictEqual(keys(2), [`1:${link}`]);
+  assert.deepStrictEqual(keys(3), []);
+  assert.deepStrictEqual(keys(0), [`0:${link}`, `1:${link}`]);
 });
 
 run();

@@ -384,30 +384,53 @@ class ViewerStreamAccumulator {
   }
 }
 
-function collectBufferViewerCandidates(buffer) {
+// Every candidate the buffer holds from `startRow` down, in buffer order, each
+// with the head row of the logical line it starts on — the row a marker can
+// follow as output scrolls. The walk is by logical line (soft-wrapped rows
+// rejoined, renderer hard-wraps left as the newline + gutter the extractor
+// reconstructs), so a wrapped copy is one match on its first row; a copy
+// printed twice is two matches. `startRow` is widened to its logical line's
+// start so a window never begins mid-line.
+function collectBufferViewerMatchRows(buffer, startRow = 0) {
   if (!buffer || typeof buffer.getLine !== 'function') return [];
-  const logicalLines = [];
   const length = Number.isFinite(buffer.length) ? buffer.length : 0;
+  const heads = []; // { row, start }: where each logical line begins in the joined text
+  const parts = [];
+  let offset = 0;
 
-  for (let row = 0; row < length;) {
+  for (let row = bufferLogicalLineStart(buffer, startRow); row < length;) {
     const logical = readBufferLogicalLine(buffer, row);
     if (!logical) {
       row++;
       continue;
     }
-    logicalLines.push(logical.text);
+    heads.push({ row, start: offset });
+    parts.push(logical.text);
+    offset += logical.text.length + 1;
     row = logical.endRow + 1;
   }
 
+  const matches = [];
+  let head = 0;
+  for (const match of extractViewerCandidateMatches(parts.join('\n'))) {
+    while (head + 1 < heads.length && heads[head + 1].start <= match.start) head++;
+    matches.push({
+      entry: {
+        ...match.entry,
+        ...(match.rendererWrapped ? { rendererWrapped: true } : {}),
+      },
+      row: heads[head].row,
+    });
+  }
+  return matches;
+}
+
+function collectBufferViewerCandidates(buffer) {
   const entries = [];
   const seen = new Set();
-  const discovered = extractViewerCandidateMatches(logicalLines.join('\n'));
+  const discovered = collectBufferViewerMatchRows(buffer);
   for (let index = discovered.length - 1; index >= 0; index--) {
-    const match = discovered[index];
-    const entry = {
-      ...match.entry,
-      ...(match.rendererWrapped ? { rendererWrapped: true } : {}),
-    };
+    const { entry } = discovered[index];
     const id = viewerIdentity(entry);
     if (seen.has(id)) continue;
     seen.add(id);
@@ -533,6 +556,7 @@ module.exports = {
   bufferLogicalLineStart,
   canonicalViewerUrl,
   collectBufferViewerCandidates,
+  collectBufferViewerMatchRows,
   extractViewerCandidateMatches,
   extractViewerCandidates,
   sameViewer,

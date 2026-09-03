@@ -36,6 +36,7 @@ const {
   bufferLogicalLineStart,
   canonicalViewerUrl,
   collectBufferViewerCandidates,
+  collectBufferViewerMatchRows,
   sameViewer,
   viewerFileUrlToPath,
 } = require('./viewer-history');
@@ -326,11 +327,15 @@ async function renderAndOpenReview(reviewUrl) {
 // boundaries, removes terminal control styling, retains OSC 8 URL targets, and
 // records every individual URL/markdown candidate rather than one per type.
 const streamViewerCandidates = new ViewerStreamAccumulator({ limit: 100 });
-// url → when the stream last carried it. A first sighting auto-opens; a LATER
-// sighting is either the agent deliberately printing the link again (the "look
-// at this" ping) or a TUI repainting bytes already on screen — told apart by
-// recency in maybeRevealReprintedReview.
+// url → the copies of the link the terminal buffer is known to hold, one
+// xterm marker per copy (a marker follows its line as output scrolls and is
+// disposed when the line is trimmed); null: sighted, not yet surveyed. A first
+// sighting auto-opens; a LATER sighting is either the agent deliberately
+// printing the link again (the "look at this" ping) or a TUI repainting bytes
+// already on screen — told apart by surveyReviewSightings.
 const reviewSightings = new Map();
+// Sightings waiting for a survey.
+const pendingReviewSurveys = new Set();
 
 function captureViewerCandidates(data) {
   const captured = streamViewerCandidates.push(data);
@@ -341,18 +346,84 @@ function captureViewerCandidates(data) {
       void ensureRendererWrappedViewerValidation(entry).promise;
     }
     if (entry.kind !== 'review' || !looksLikeRealViewerUrl(entry.key)) continue;
-    const lastSeenAt = reviewSightings.get(entry.key);
-    reviewSightings.set(entry.key, Date.now());
-    if (lastSeenAt !== undefined) { maybeRevealReprintedReview(entry.key, lastSeenAt); continue; }
+    pendingReviewSurveys.add(entry.key);
+    if (reviewSightings.has(entry.key)) continue;
+    reviewSightings.set(entry.key, null);
     // First sighting captures the reviewed branch and auto-opens a real package.
     try { window.pty.captureReviewBranch(entry.key); } catch {}
     maybeAutoOpenReview(entry.key);
   }
 }
 
+// A sighting is bytes in the stream; whether they are a new copy of the link
+// or a redraw of one shows in the terminal buffer, which exists only once
+// xterm has parsed them. So the survey waits: a beat after the last sighting
+// (a screen repainting every frame coalesces into one survey), then queued
+// behind the parser through an empty write, so a repaint whose erase and
+// rewrite landed in separate PTY chunks is surveyed whole. Frozen output is
+// not yet written; unfreezing writes it and schedules the survey then.
+const REVIEW_SURVEY_SETTLE_MS = 1000;
+// How far up the buffer a survey reads. A repaint redraws the screen and a new
+// print lands at the cursor, so everything that moves is within a few screens
+// of the bottom; a copy above that only ever leaves, by trimming, which
+// disposes its marker. Reading the whole scrollback would stall the renderer
+// for hundreds of milliseconds at its 100k-line cap.
+const REVIEW_SURVEY_ROWS = 2000;
+let reviewSurveyTimer = null;
+function scheduleReviewSurvey() {
+  if (!pendingReviewSurveys.size || terminalOutputFrozen) return;
+  if (reviewSurveyTimer) clearTimeout(reviewSurveyTimer);
+  reviewSurveyTimer = setTimeout(() => {
+    reviewSurveyTimer = null;
+    try { terminal.write('', surveyReviewSightings); } catch {}
+  }, REVIEW_SURVEY_SETTLE_MS);
+}
+// Match each link's copies in the window against its markers. A copy on its
+// marker's row is the same copy; a marker whose row is gone or holds the link
+// no more is a copy lost; a copy on a row without a marker is new. More new
+// than lost means the agent printed the link again — a repaint only moves
+// copies (one lost, one new) or redraws them in place (neither).
+function surveyReviewSightings() {
+  const buffer = terminal.buffer.active;
+  // Markers live on the normal buffer: a TUI on the alternate screen is
+  // surveyed once the normal buffer is back (the next chunk reschedules).
+  if (buffer.type === 'alternate') return;
+  const keys = [...pendingReviewSurveys];
+  pendingReviewSurveys.clear();
+  const start = Math.max(0, buffer.length - REVIEW_SURVEY_ROWS);
+  const foundRows = new Map(); // key → the row of each copy, one entry per copy
+  for (const { entry, row } of collectBufferViewerMatchRows(buffer, start)) {
+    if (entry.kind !== 'review' || !keys.includes(entry.key)) continue;
+    if (!foundRows.has(entry.key)) foundRows.set(entry.key, []);
+    foundRows.get(entry.key).push(row);
+  }
+  for (const key of keys) {
+    if (!reviewSightings.has(key)) continue;
+    const known = reviewSightings.get(key);
+    const rows = foundRows.get(key) || [];
+    const kept = [];
+    let lost = 0;
+    for (const marker of known || []) {
+      if (marker.isDisposed) { lost++; continue; }
+      if (marker.line < start) { kept.push(marker); continue; }
+      const at = rows.indexOf(marker.line);
+      if (at !== -1) { rows.splice(at, 1); kept.push(marker); continue; }
+      lost++;
+      marker.dispose();
+    }
+    for (const row of rows) {
+      const marker = terminal.registerMarker(row - buffer.baseY - buffer.cursorY);
+      if (marker) kept.push(marker);
+    }
+    reviewSightings.set(key, kept);
+    if (known !== null && rows.length > lost) maybeRevealReprintedReview(key);
+  }
+}
+
 // Auto-open a freshly-printed review:// so the user needn't click the link.
 // The capture site filters example links and routes only a URL's FIRST sighting
-// here (later sightings go to maybeRevealReprintedReview). Guards: the .md must
+// here (later sightings are surveyed, and a new copy goes to
+// maybeRevealReprintedReview). Guards: the .md must
 // actually exist — a stale or hypothetical path is skipped silently, never
 // popped or toasted (the "md path is not valid" corner case) — and if a viewer
 // is already open, don't yank it away: just toast that a review is ready (the
@@ -370,19 +441,16 @@ async function maybeAutoOpenReview(url) {
 // signal that moves the band (a content change merely flashes it; see the
 // review-rerendered handler). It reveals the current review from its rolled-up
 // handle, or re-opens it after a ✕. Repaint noise is the hazard: a TUI re-emitting
-// bytes already on screen is byte-identical to a deliberate re-print, so two
-// recency guards separate them — (1) the URL must have been ABSENT from the stream
-// for a beat (a continuously-repainted screen never goes quiet, so it can never
-// ping), and (2) not within a breath of the user typing (typing just rolled the
-// band up; a keystroke-triggered repaint mustn't pop it straight back). The
-// actions are also idempotent — revealing an open band and re-opening the current
-// review are no-ops — and another viewer on stage stays untouched (the link in the
-// terminal remains clickable).
-const REVIEW_REPRINT_QUIET_MS = 10_000;
-const REVIEW_REPRINT_TYPING_GUARD_MS = 3000;
-async function maybeRevealReprintedReview(url, lastSeenAt) {
-  if (Date.now() - lastSeenAt < REVIEW_REPRINT_QUIET_MS) return;
-  if (Date.now() - lastTerminalTypingAt < REVIEW_REPRINT_TYPING_GUARD_MS) return;
+// bytes already on screen is byte-identical to a deliberate re-print, and
+// repaints come in every shape — a full-screen TUI redrawing each frame, an
+// inline CLI resetting its viewport when its output shrinks or the window
+// resizes, a keystroke redrawing the input line. What separates the two is the
+// terminal buffer: a repaint rewrites rows the buffer already has, a re-print
+// adds one, so only a sighting that adds a copy of the link
+// (surveyReviewSightings) reaches here. The actions are idempotent — revealing
+// an open band and re-opening the current review are no-ops — and another
+// viewer on stage stays untouched (the link in the terminal remains clickable).
+async function maybeRevealReprintedReview(url) {
   if (openReviewUrl === url && webViewer && webViewer.isOpen()) {
     webViewer.show();
     return;
@@ -956,6 +1024,7 @@ function unfreezeTerminalOutput() {
     frozenTerminalChunks.length = 0;
     try { terminal.write(pending); } catch {}
   }
+  scheduleReviewSurvey();
 }
 // Esc / pill click / right-click: abandon any in-progress comment, then resume.
 // Focus MUST land back on the terminal: the click that froze (and the double-click
@@ -988,11 +1057,7 @@ function cancelTerminalFreeze() {
 // any OPEN viewer to its handle (reversible; the content stays alive) so the terminal
 // is unobstructed and un-dimmed (the recede only applies while a viewer is open).
 // hide() is a no-op unless the viewer is open, so this only acts when one is showing.
-// When the user last composed printable input — the re-print reveal consults it
-// so a keystroke-triggered TUI repaint can't pop the band back up mid-typing.
-let lastTerminalTypingAt = 0;
 function withdrawViewersOnInput() {
-  lastTerminalTypingAt = Date.now();
   try { webViewer && webViewer.hide && webViewer.hide(); } catch {}
   try { markdownViewer && markdownViewer.hide && markdownViewer.hide(); } catch {}
 }
@@ -1035,6 +1100,7 @@ window.pty.onData((data) => {
   captureViewerCandidates(data); // durable URL/md history, including alt-screen output
   if (terminalOutputFrozen) frozenTerminalChunks.push(data);
   else terminal.write(data);
+  scheduleReviewSurvey();
 });
 
 // Handle PTY exit
