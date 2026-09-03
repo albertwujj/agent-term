@@ -1,7 +1,7 @@
 // Visual preview for the macOS Dock tile (src/icon-render dockIconScript).
 //
 // Renders icon-preview/dock-tile-grid.png: every hue of the rotation with a
-// sample prompt, plus the pre-prompt brand tiles, each at Dock size (64pt on
+// sample prompt, plus the app tile and the pre-prompt brand tiles, each at Dock size (64pt on
 // a Retina display = 128px) on a light and a dark Dock strip, and one tile at
 // the full 512px canvas. Checks: white letters read on every hue (the
 // yellow-green band is the weakest), the brand glyphs read on the neutral
@@ -15,7 +15,7 @@
 const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { dockIconScript, letterCandidates, DOCK_ICON_PX } = require('../src/icon-render');
+const { dockIconScript, dockLetterCandidates, DOCK_ICON_PX } = require('../src/icon-render');
 const cliIcons = require('../src/cli-icons');
 
 const ICON_HUE_STEP = 24;
@@ -33,19 +33,20 @@ const PROMPTS = [
   'Why does the tunnel flap',
   'Explain the lock warnings',
   'Generate the changelog',
-  'Sweep orphaned threads',
-  'Move the hub launcher',
+  'In case the build fails',
+  'I hit a wall with the tunnel',
 ];
 
 function gridScript() {
   const tiles = PROMPTS.map((prompt, idx) => ({
     label: `${(idx * ICON_HUE_STEP) % 360}°`,
-    script: dockIconScript({ hue: (idx * ICON_HUE_STEP) % 360, letterCandidates: letterCandidates(prompt) }),
+    script: dockIconScript({ hue: (idx * ICON_HUE_STEP) % 360, letterCandidates: dockLetterCandidates(prompt) }),
   }));
+  tiles.push({ label: 'app', script: dockIconScript() });
   for (const cli of ['claude', 'codex', 'copilot', 'agent']) {
     tiles.push({ label: cli, script: dockIconScript({ brandSvg: cliIcons.iconSvg(cli, 256, '#ffffff') }) });
   }
-  tiles.push({ label: 'no letters', script: dockIconScript({ hue: 96, letterCandidates: letterCandidates('') }) });
+  tiles.push({ label: 'no letters', script: dockIconScript({ hue: 96, letterCandidates: dockLetterCandidates('') }) });
   return `(async function(){
     const tiles = ${JSON.stringify(tiles)};
     const DOCK = 128;                 // 64pt @2x

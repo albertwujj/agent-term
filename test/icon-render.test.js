@@ -1,7 +1,7 @@
 // Tests for src/icon-render.js — pure JS helpers, runs in Node.
 
 const assert = require('assert');
-const { truncatePathsForTaskbar, extractPathsAndUrls, dockIconScript, letterCandidates } = require('../src/icon-render');
+const { truncatePathsForTaskbar, extractPathsAndUrls, dockIconScript, dockLetterCandidates, letterCandidates } = require('../src/icon-render');
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -186,9 +186,19 @@ test('Empty / null / non-string input normalised to empty string', () => {
 
 // ---- dockIconScript — macOS Dock tile ----
 
-test('dock tile with no hue and no brand glyph renders nothing', () => {
-  assert.strictEqual(dockIconScript(), null);
-  assert.strictEqual(dockIconScript({ letterCandidates: ['Mig'] }), null);
+test('dock tile with no hue and no brand glyph is the app tile: chevron on the neutral fill', () => {
+  const script = dockIconScript();
+  assert.ok(script.includes('oklch(40% 0.012 260)'));
+  assert.ok(script.includes('chevron: true'));
+  assert.ok(!script.includes('oklch(69%'));
+});
+
+test('dock letter candidates never end in whitespace or a lone letter of a new word', () => {
+  assert.deepStrictEqual(dockLetterCandidates('In case the build fails'), ['In', 'In', 'In']);
+  assert.deepStrictEqual(dockLetterCandidates('I hit a wall'), ['I hi', 'I', 'I']);
+  assert.deepStrictEqual(dockLetterCandidates('Why does the tunnel flap'), ['Why', 'Why', 'Wh']);
+  assert.deepStrictEqual(dockLetterCandidates("I'd like a review"), ["I'd ", "I'd", "I'"].map(c => c.trimEnd()));
+  assert.deepStrictEqual(dockLetterCandidates('Migrate the schema'), ['Migr', 'Mig', 'Mi']);
 });
 
 test('dock tile with a hue paints that hue and carries the letter candidates', () => {

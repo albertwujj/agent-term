@@ -228,9 +228,11 @@ function iconRenderScript(hue, letterCandidatesArr) {
 // history: a rounded square filled with the session hue, drawn on Apple's
 // icon grid (the tile occupies 824/1024 of the canvas, ~22% corner radius)
 // so it sits at the same size as neighbouring app icons. The prompt's
-// leading letters are set in white at the centre. Pre-prompt, the tile is
-// neutral dark grey carrying the CLI's brand glyph; the first prompt lights
-// it up with the hue.
+// leading letters are set in white at the centre. The tile fills in as the
+// session takes shape: from the first frame it is the app tile, a prompt
+// chevron on a neutral dark tile (terminal open, nothing typed); the CLI's
+// brand glyph replaces the chevron once a CLI is running; the first prompt
+// lights it up with the hue.
 //
 // The hue fill keeps the chip's L/C (see chrome-bar.js / sessions-picker.js,
 // which paint the same oklch(65% 0.27 h)) with a gentle top-to-bottom
@@ -241,13 +243,19 @@ function iconRenderScript(hue, letterCandidatesArr) {
 // while the one-time PNG round trip stays small.
 const DOCK_ICON_PX = 512;
 
+// Dock letters stand alone (no title continues them, unlike the Windows
+// chip), so a candidate never ends in whitespace or in a lone letter of a
+// new word: "In c" → "In", "Why " → "Why". Same shape as letterCandidates
+// (longest first, shortest last) so the fit policy below reads it the same.
+function dockLetterCandidates(prompt) {
+  return letterCandidates(prompt).map(c => c.replace(/\s+\S$/, '').trimEnd());
+}
+
 // Returns the canvas script for executeJavaScript (same contract as
-// iconRenderScript: a JSON string { url, n }), or null when there is nothing
-// to draw — neither a hue nor a brand glyph — so the caller leaves the
-// process's default icon alone.
+// iconRenderScript: a JSON string { url, n }). With neither a hue nor a
+// brand glyph it draws the app tile.
 function dockIconScript({ hue = null, letterCandidates: letterCandidatesArr = null, brandSvg = null } = {}) {
   const hasHue = typeof hue === 'number' && Number.isFinite(hue);
-  if (!hasHue && !brandSvg) return null;
   const candidates = (Array.isArray(letterCandidatesArr) && letterCandidatesArr.length > 0)
     ? letterCandidatesArr
     : [];
@@ -288,7 +296,26 @@ function dockIconScript({ hue = null, letterCandidates: letterCandidatesArr = nu
     const cx = pad + tile / 2;
     const cy = pad + tile / 2;
 
+    const hasHue = ${hasHue};
     const brandSvg = ${JSON.stringify(brandSvg || '')};
+    if (!hasHue && !brandSvg) {
+      // App tile: a prompt chevron, the CLI input marker at Dock scale.
+      // Its apex leans right, so the bounding box sits a touch left of
+      // centre to balance the visual mass.
+      const h = tile * 0.40;
+      const w = h * 0.52;
+      const x0 = cx - w / 2 - tile * 0.02;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.round(tile * 0.085);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x0, cy - h / 2);
+      ctx.lineTo(x0 + w, cy);
+      ctx.lineTo(x0, cy + h / 2);
+      ctx.stroke();
+      return JSON.stringify({ url: c.toDataURL('image/png'), n: 0, chevron: true });
+    }
     if (brandSvg) {
       const img = new Image();
       try {
@@ -530,6 +557,7 @@ module.exports = {
   iconRenderScript,
   DOCK_ICON_PX,
   dockIconScript,
+  dockLetterCandidates,
   truncatePathsForTaskbar,
   extractPathsAndUrls,
   splitChromeTopAndOverflow,

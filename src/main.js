@@ -36,6 +36,7 @@ const {
   letterCandidates,
   iconRenderScript,
   dockIconScript,
+  dockLetterCandidates,
   truncatePathsForTaskbar,
   extractPathsAndUrls,
   splitChromeTopAndOverflow,
@@ -532,15 +533,15 @@ async function makeBrandIconImage(cli) {
 // icon (each AgentTerm window is its own process, so each Dock tile is its
 // own session), and Cmd-Tab shows the same image. The tile form lives in
 // icon-render.js (dockIconScript): hue-filled rounded square with the
-// prompt's leading letters, or the CLI brand glyph on a neutral tile
-// pre-prompt. Unknown CLI with no hue → nothing to draw, Electron's default
-// stays.
+// prompt's leading letters, the CLI brand glyph on a neutral tile
+// pre-prompt, and before any CLI (picker open, plain shell, or a CLI we
+// have no mark for) the app tile: a prompt chevron on the neutral tile.
 async function makeDockIconImage({ hue = null, prompt = '', cli = null } = {}) {
   if (!mainWindow || !mainWindow.webContents) return null;
   const hasHue = typeof hue === 'number';
   const script = dockIconScript({
     hue: hasHue ? hue : null,
-    letterCandidates: hasHue ? letterCandidates(prompt) : null,
+    letterCandidates: hasHue ? dockLetterCandidates(prompt) : null,
     brandSvg: hasHue ? null : cliIcons.iconSvg(cli, 256, '#ffffff'),
   });
   if (!script) return null;
@@ -1936,6 +1937,17 @@ function createWindow() {
         mainWindow.webContents.send('stream:status', streamClient.getStatus());
       }
     } catch {}
+    // darwin: the process's Dock tile from the first frame is the app tile
+    // (see makeDockIconImage); the CLI's mark and then the session hue
+    // replace it as the session takes shape.
+    if (process.platform === 'darwin') {
+      (async () => {
+        try {
+          const result = await makeDockIconImage({});
+          if (result) setDockIcon(result.img);
+        } catch {}
+      })();
+    }
   });
 
   // index.html IS the app: the shell never navigates and never opens a window of
