@@ -35,6 +35,7 @@ const {
   firstLettersAndRest,
   letterCandidates,
   iconRenderScript,
+  dockIconScript,
   truncatePathsForTaskbar,
   extractPathsAndUrls,
   splitChromeTopAndOverflow,
@@ -524,6 +525,37 @@ async function makeBrandIconImage(cli) {
   const img = nativeImage.createFromDataURL(parsed.url);
   if (img.isEmpty()) return null;
   return { img };
+}
+
+// macOS: the per-process Dock tile is the counterpart of the Windows
+// taskbar icon. app.dock.setIcon sets the running process's application
+// icon (each AgentTerm window is its own process, so each Dock tile is its
+// own session), and Cmd-Tab shows the same image. The tile form lives in
+// icon-render.js (dockIconScript): hue-filled rounded square with the
+// prompt's leading letters, or the CLI brand glyph on a neutral tile
+// pre-prompt. Unknown CLI with no hue → nothing to draw, Electron's default
+// stays.
+async function makeDockIconImage({ hue = null, prompt = '', cli = null } = {}) {
+  if (!mainWindow || !mainWindow.webContents) return null;
+  const hasHue = typeof hue === 'number';
+  const script = dockIconScript({
+    hue: hasHue ? hue : null,
+    letterCandidates: hasHue ? letterCandidates(prompt) : null,
+    brandSvg: hasHue ? null : cliIcons.iconSvg(cli, 256, '#ffffff'),
+  });
+  if (!script) return null;
+  const raw = await mainWindow.webContents.executeJavaScript(script);
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return null; }
+  if (!parsed || !parsed.url) return null;
+  const img = nativeImage.createFromDataURL(parsed.url);
+  if (img.isEmpty()) return null;
+  return { img };
+}
+
+function setDockIcon(img) {
+  if (process.platform !== 'darwin' || !app.dock || !img) return;
+  try { app.dock.setIcon(img); } catch {}
 }
 
 function relativeTime(ageMs) {
@@ -1029,8 +1061,13 @@ async function tryLockIcon(title) {
   if (detectedCli) {
     (async () => {
       try {
-        const result = await makeBrandIconImage(detectedCli);
-        if (result && mainWindow) mainWindow.setIcon(result.img);
+        if (process.platform === 'darwin') {
+          const result = await makeDockIconImage({ cli: detectedCli });
+          if (result) setDockIcon(result.img);
+        } else {
+          const result = await makeBrandIconImage(detectedCli);
+          if (result && mainWindow) mainWindow.setIcon(result.img);
+        }
       } catch {}
     })();
   }
@@ -1126,11 +1163,12 @@ function assignSessionIdentity() {
 // macOS window title. The native title bar sits directly above the chrome
 // band, which already shows the verbatim prompt (or "waiting for prompt…"),
 // so the title must not repeat either. It also can't host the icon-letter
-// split (setIcon is a Windows/Linux API). Instead it carries what the band
-// doesn't show: the CLI name plus the CLI's latest distilled OSC task title,
-// drifting as the session progresses ("claude · Fix window titles"). Before
-// the first usable OSC title — or when the title cleans away to nothing
-// (brand-only / spinner-only pushes) — it's the CLI name alone.
+// split (setIcon is a Windows/Linux API; the letters go on the Dock tile
+// instead, see makeDockIconImage). It carries what the band doesn't show:
+// the CLI name plus the CLI's latest distilled OSC task title, drifting as
+// the session progresses ("claude · Fix window titles"). Before the first
+// usable OSC title — or when the title cleans away to nothing (brand-only /
+// spinner-only pushes) — it's the CLI name alone.
 function macWindowTitle() {
   const subject = cleanAiTitle(lockedTitle || '', detectedCli);
   if (detectedCli && subject) return `${detectedCli} · ${subject}`;
@@ -1153,10 +1191,19 @@ function syncMacWindowTitle() {
 function renderIdentityIconAndTitle() {
   const text = identityString();
   if (!mainWindow || !text) return;
-  if (syncMacWindowTitle()) return;
   // The verbatim prompt typically contains URLs/paths/@-mentions that
   // need stripping for the size-constrained surfaces.
   const displayText = truncatePathsForTaskbar(text);
+  if (syncMacWindowTitle()) {
+    if (lockedHue === null) return;
+    (async () => {
+      try {
+        const result = await makeDockIconImage({ hue: lockedHue, prompt: displayText });
+        if (result) setDockIcon(result.img);
+      } catch {}
+    })();
+    return;
+  }
   if (lockedHue !== null) {
     (async () => {
       try {

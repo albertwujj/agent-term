@@ -219,6 +219,146 @@ function iconRenderScript(hue, letterCandidatesArr) {
   })()`;
 }
 
+// macOS Dock tile renderer.
+//
+// The Dock has no adjacent title text and a translucent background that
+// flips with the wallpaper and the light/dark appearance, so the Windows
+// chip above (grey letters on transparency, pill underline) would be
+// illegible there. The Dock form is the original recipe from the design
+// history: a rounded square filled with the session hue, drawn on Apple's
+// icon grid (the tile occupies 824/1024 of the canvas, ~22% corner radius)
+// so it sits at the same size as neighbouring app icons. The prompt's
+// leading letters are set in white at the centre. Pre-prompt, the tile is
+// neutral dark grey carrying the CLI's brand glyph; the first prompt lights
+// it up with the hue.
+//
+// The hue fill keeps the chip's L/C (see chrome-bar.js / sessions-picker.js,
+// which paint the same oklch(65% 0.27 h)) with a gentle top-to-bottom
+// lightness gradient around it, so the Dock colour is the in-app colour.
+//
+// Rendered at 512px: the Dock's largest tile (128pt, magnified) is 256px on
+// a Retina display and Cmd-Tab is the same size, so 512 leaves 2x headroom
+// while the one-time PNG round trip stays small.
+const DOCK_ICON_PX = 512;
+
+// Returns the canvas script for executeJavaScript (same contract as
+// iconRenderScript: a JSON string { url, n }), or null when there is nothing
+// to draw — neither a hue nor a brand glyph — so the caller leaves the
+// process's default icon alone.
+function dockIconScript({ hue = null, letterCandidates: letterCandidatesArr = null, brandSvg = null } = {}) {
+  const hasHue = typeof hue === 'number' && Number.isFinite(hue);
+  if (!hasHue && !brandSvg) return null;
+  const candidates = (Array.isArray(letterCandidatesArr) && letterCandidatesArr.length > 0)
+    ? letterCandidatesArr
+    : [];
+  const fillTop = hasHue
+    ? `oklch(${ICON_OKLCH_L + 4}% ${ICON_OKLCH_C} ${hue})`
+    : 'oklch(40% 0.012 260)';
+  const fillBottom = hasHue
+    ? `oklch(${ICON_OKLCH_L - 4}% ${ICON_OKLCH_C} ${hue})`
+    : 'oklch(33% 0.012 260)';
+  return `(async function(){
+    const C = ${DOCK_ICON_PX};
+    const c = document.createElement('canvas');
+    c.width = C; c.height = C;
+    const ctx = c.getContext('2d');
+
+    // Apple's macOS icon grid: the tile is 824/1024 of the canvas, centred,
+    // with a corner radius near 22.4% of the tile edge.
+    const tile = Math.round(C * 824 / 1024);
+    const pad = Math.round((C - tile) / 2);
+    const radius = Math.round(tile * 0.2237);
+
+    ctx.beginPath();
+    ctx.moveTo(pad + radius, pad);
+    ctx.arcTo(pad + tile, pad, pad + tile, pad + radius, radius);
+    ctx.lineTo(pad + tile, pad + tile - radius);
+    ctx.arcTo(pad + tile, pad + tile, pad + tile - radius, pad + tile, radius);
+    ctx.lineTo(pad + radius, pad + tile);
+    ctx.arcTo(pad, pad + tile, pad, pad + tile - radius, radius);
+    ctx.lineTo(pad, pad + radius);
+    ctx.arcTo(pad, pad, pad + radius, pad, radius);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, pad, 0, pad + tile);
+    grad.addColorStop(0, ${JSON.stringify(fillTop)});
+    grad.addColorStop(1, ${JSON.stringify(fillBottom)});
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    const cx = pad + tile / 2;
+    const cy = pad + tile / 2;
+
+    const brandSvg = ${JSON.stringify(brandSvg || '')};
+    if (brandSvg) {
+      const img = new Image();
+      try {
+        await new Promise((res, rej) => {
+          img.onload = res; img.onerror = rej;
+          img.src = 'data:image/svg+xml;base64,' + btoa(brandSvg);
+        });
+      } catch (err) {
+        return JSON.stringify({ url: c.toDataURL('image/png'), n: 0 });
+      }
+      const drawSize = Math.round(tile * 0.58);
+      ctx.drawImage(img, Math.round(cx - drawSize / 2), Math.round(cy - drawSize / 2), drawSize, drawSize);
+      return JSON.stringify({ url: c.toDataURL('image/png'), n: 0 });
+    }
+
+    const candidates = ${JSON.stringify(candidates)};
+    const fontFamily = 'system-ui, -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
+    const targetFontPx = Math.round(tile * 0.44);
+    const maxInkWidth = Math.round(tile * 0.82);
+
+    function measure(letters, fontPx) {
+      ctx.font = '600 ' + fontPx + 'px ' + fontFamily;
+      const m = ctx.measureText(letters);
+      const inkWidth = m.actualBoundingBoxRight + m.actualBoundingBoxLeft;
+      return { capH: m.actualBoundingBoxAscent, inkWidth, fitsWidth: inkWidth <= maxInkWidth };
+    }
+
+    // Longest candidate that fits at the target size, so tiles share one
+    // letter height. Unlike the Windows chip there is no adjacent text to
+    // match, so a wide default set ("Why") shrinks a little rather than
+    // dropping a letter; only then does the shortest set shrink freely.
+    // candidates run longest first and end with the shortest reach-down
+    // set; that last one is the fallback, tried only after the others.
+    const reach = candidates.slice(0, -1);
+    let chosen = null;
+    for (const cand of reach) {
+      if (!cand) continue;
+      const r = measure(cand, targetFontPx);
+      if (r.fitsWidth) { chosen = { letters: cand, fontPx: targetFontPx, ...r }; break; }
+    }
+    if (!chosen) {
+      const floor = Math.round(targetFontPx * 0.85);
+      outer: for (const cand of reach.slice(1)) {
+        if (!cand) continue;
+        for (let fontPx = targetFontPx - 4; fontPx >= floor; fontPx -= 4) {
+          const r = measure(cand, fontPx);
+          if (r.fitsWidth) { chosen = { letters: cand, fontPx, ...r }; break outer; }
+        }
+      }
+    }
+    if (!chosen) {
+      const fallback = candidates.filter(Boolean).pop() || '';
+      let fontPx = targetFontPx - 4;
+      while (fallback && fontPx > 40) {
+        const r = measure(fallback, fontPx);
+        if (r.fitsWidth) { chosen = { letters: fallback, fontPx, ...r }; break; }
+        fontPx -= 4;
+      }
+    }
+    if (!chosen) return JSON.stringify({ url: c.toDataURL('image/png'), n: 0 });
+
+    ctx.font = '600 ' + chosen.fontPx + 'px ' + fontFamily;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(chosen.letters, cx, cy + chosen.capH / 2);   // cap-centred
+    return JSON.stringify({ url: c.toDataURL('image/png'), n: chosen.letters.length });
+  })()`;
+}
+
 // Split the "rest" portion of a prompt into the part that fits in the
 // chrome top (taskbar button title, set via mainWindow.setTitle) and the
 // overflow that picks up where chrome top leaves off. Two strategies:
@@ -388,6 +528,8 @@ module.exports = {
   firstLettersAndRest,
   letterCandidates,
   iconRenderScript,
+  DOCK_ICON_PX,
+  dockIconScript,
   truncatePathsForTaskbar,
   extractPathsAndUrls,
   splitChromeTopAndOverflow,

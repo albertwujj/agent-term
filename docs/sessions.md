@@ -9,7 +9,7 @@ Every session is a whole OS window; there are no tabs.
 ![your active agent sessions: each a live taskbar button with a thumbnail preview](assets/taskbar-preview.png)
 <sub>Session content blurred; the taskbar labels are as they render.</sub>
 
-**The sessions you are juggling.** On Windows each sits in the taskbar as its own button, generated from the session's initial prompt: the label never changes, so you can memorize it, and its color is locked to the session, distinct and calm. The button carries a working indicator and a preview showing what the session is for and what it is doing, to help you recognize and pick it. On a Mac, run each session full screen: a Mission Control swipe shows every session, readable, its initial prompt pinned at the top.
+**The sessions you are juggling.** On Windows each sits in the taskbar as its own button, generated from the session's initial prompt: the label never changes, so you can memorize it, and its color is locked to the session, distinct and calm. The button carries a working indicator and a preview showing what the session is for and what it is doing, to help you recognize and pick it. On a Mac each session is its own Dock tile, in the session's color with the first letters of its initial prompt, and Cmd-Tab shows the same tiles; before the first prompt the tile carries the mark of the CLI running inside. Run each session full screen as well: a Mission Control swipe shows every session, readable, its initial prompt pinned at the top.
 
 ![filter your sessions and pick the right one](assets/hero-session-picker.gif)
 

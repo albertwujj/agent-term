@@ -1,7 +1,7 @@
 // Tests for src/icon-render.js — pure JS helpers, runs in Node.
 
 const assert = require('assert');
-const { truncatePathsForTaskbar, extractPathsAndUrls } = require('../src/icon-render');
+const { truncatePathsForTaskbar, extractPathsAndUrls, dockIconScript, letterCandidates } = require('../src/icon-render');
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -182,6 +182,26 @@ test('Empty / null / non-string input normalised to empty string', () => {
   assert.strictEqual(truncatePathsForTaskbar(null), '');
   assert.strictEqual(truncatePathsForTaskbar(undefined), '');
   assert.strictEqual(truncatePathsForTaskbar(42), '');
+});
+
+// ---- dockIconScript — macOS Dock tile ----
+
+test('dock tile with no hue and no brand glyph renders nothing', () => {
+  assert.strictEqual(dockIconScript(), null);
+  assert.strictEqual(dockIconScript({ letterCandidates: ['Mig'] }), null);
+});
+
+test('dock tile with a hue paints that hue and carries the letter candidates', () => {
+  const script = dockIconScript({ hue: 48, letterCandidates: letterCandidates('Migrate the schema') });
+  assert.ok(script.includes('oklch(69% 0.27 48)'));
+  assert.ok(script.includes('["Migr","Mig","Mi"]'));
+});
+
+test('dock tile with a brand glyph uses the neutral fill and embeds the svg', () => {
+  const script = dockIconScript({ brandSvg: '<svg id="brand"/>' });
+  assert.ok(script.includes('oklch(40% 0.012 260)'));
+  assert.ok(script.includes('<svg id=\\"brand\\"/>'));
+  assert.ok(!script.includes('oklch(69%'));
 });
 
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
