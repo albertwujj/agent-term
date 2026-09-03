@@ -186,10 +186,11 @@ test('Empty / null / non-string input normalised to empty string', () => {
 
 // ---- dockIconScript — macOS Dock tile ----
 
-test('dock tile with no hue and no brand glyph is the app tile: chevron on the neutral fill', () => {
+test('dock tile with no hue and no brand glyph is the app tile: session rows on the neutral fill', () => {
   const script = dockIconScript();
   assert.ok(script.includes('oklch(40% 0.012 260)'));
-  assert.ok(script.includes('chevron: true'));
+  assert.ok(script.includes('rows: true'));
+  for (const hue of [336, 192, 72]) assert.ok(script.includes(`oklch(65% 0.27 ${hue})`));
   assert.ok(!script.includes('oklch(69%'));
 });
 

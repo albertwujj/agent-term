@@ -229,10 +229,11 @@ function iconRenderScript(hue, letterCandidatesArr) {
 // icon grid (the tile occupies 824/1024 of the canvas, ~22% corner radius)
 // so it sits at the same size as neighbouring app icons. The prompt's
 // leading letters are set in white at the centre. The tile fills in as the
-// session takes shape: from the first frame it is the app tile, a prompt
-// chevron on a neutral dark tile (terminal open, nothing typed); the CLI's
-// brand glyph replaces the chevron once a CLI is running; the first prompt
-// lights it up with the hue.
+// session takes shape: from the first frame it is the app tile, three rows in
+// session colours on a neutral dark tile, the picker's list (that window is
+// most often used to pick a session, or to type a CLI name); the CLI's brand
+// glyph replaces the rows once a CLI is running; the first prompt lights the
+// tile up with the hue.
 //
 // The hue fill keeps the chip's L/C (see chrome-bar.js / sessions-picker.js,
 // which paint the same oklch(65% 0.27 h)) with a gentle top-to-bottom
@@ -242,6 +243,10 @@ function iconRenderScript(hue, letterCandidatesArr) {
 // a Retina display and Cmd-Tab is the same size, so 512 leaves 2x headroom
 // while the one-time PNG round trip stays small.
 const DOCK_ICON_PX = 512;
+
+// The app tile's three rows, in hues from the rotation chosen to sit apart
+// from each other without reading as a red-green-blue triad.
+const APP_TILE_ROW_HUES = [336, 192, 72];
 
 // Dock letters stand alone (no title continues them, unlike the Windows
 // chip), so a candidate never ends in whitespace or in a lone letter of a
@@ -299,22 +304,22 @@ function dockIconScript({ hue = null, letterCandidates: letterCandidatesArr = nu
     const hasHue = ${hasHue};
     const brandSvg = ${JSON.stringify(brandSvg || '')};
     if (!hasHue && !brandSvg) {
-      // App tile: a prompt chevron, the CLI input marker at Dock scale.
-      // Its apex leans right, so the bounding box sits a touch left of
-      // centre to balance the visual mass.
-      const h = tile * 0.40;
-      const w = h * 0.52;
-      const x0 = cx - w / 2 - tile * 0.02;
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.round(tile * 0.085);
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(x0, cy - h / 2);
-      ctx.lineTo(x0 + w, cy);
-      ctx.lineTo(x0, cy + h / 2);
-      ctx.stroke();
-      return JSON.stringify({ url: c.toDataURL('image/png'), n: 0, chevron: true });
+      // App tile: the picker's list, three rows in session colours with
+      // the widths of text lines, the block centred on the widest row.
+      const rowColors = ${JSON.stringify(APP_TILE_ROW_HUES.map(h => `oklch(${ICON_OKLCH_L}% ${ICON_OKLCH_C} ${h})`))};
+      const widths = [0.56, 0.40, 0.48];
+      const rh = tile * 0.09;
+      const rg = tile * 0.09;
+      const total = 3 * rh + 2 * rg;
+      const x0 = cx - tile * Math.max(...widths) / 2;
+      for (let i = 0; i < 3; i++) {
+        const y = cy - total / 2 + i * (rh + rg);
+        ctx.fillStyle = rowColors[i];
+        ctx.beginPath();
+        ctx.roundRect(x0, y, tile * widths[i], rh, rh / 2);
+        ctx.fill();
+      }
+      return JSON.stringify({ url: c.toDataURL('image/png'), n: 0, rows: true });
     }
     if (brandSvg) {
       const img = new Image();

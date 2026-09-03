@@ -540,7 +540,7 @@ async function makeBrandIconImage(cli) {
 // icon-render.js (dockIconScript): hue-filled rounded square with the
 // prompt's leading letters, the CLI brand glyph on a neutral tile
 // pre-prompt, and before any CLI (picker open, plain shell, or a CLI we
-// have no mark for) the app tile: a prompt chevron on the neutral tile.
+// have no mark for) the app tile: session-coloured rows on the neutral tile.
 async function makeDockIconImage({ hue = null, prompt = '', cli = null } = {}) {
   if (!mainWindow || !mainWindow.webContents) return null;
   const hasHue = typeof hue === 'number';
