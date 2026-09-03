@@ -108,6 +108,11 @@ window.pty.onHiddenPromptSearchProgress((payload) => {
     activePicker.handleHiddenSearchProgress(payload);
   }
 });
+window.pty.onMarkdownDiskSearchProgress((payload) => {
+  if (activeViewerSelector && typeof activeViewerSelector.handleDiskSearchProgress === 'function') {
+    activeViewerSelector.handleDiskSearchProgress(payload);
+  }
+});
 window.pty.onResumeHintSubmit(() => {
   resumeHint.recordSubmit();
 });
@@ -595,7 +600,9 @@ function purgeViewerEntry(entry) {
 
 // Re-open without recording again. Shortcut traversal must move only the
 // cursor; explicit terminal clicks still call recordViewer through the normal
-// open paths and become the newest entry.
+// open paths and become the newest entry. An entry history does not hold (a
+// selector row found on disk) is recorded instead: opened once, it is a known
+// row from then on, and the selector is the way back to it without the disk.
 async function openViewerFromHistory(entry, openKey) {
   if (!entry) return false;
   if (entry.kind === 'md') {
@@ -611,7 +618,7 @@ async function openViewerFromHistory(entry, openKey) {
     );
     if (!opened) return false;
   }
-  viewerHistory.select(entry);
+  if (!viewerHistory.select(entry)) viewerHistory.record({ kind: entry.kind, key: entry.key });
   return true;
 }
 
@@ -651,7 +658,10 @@ function queueRecentViewerOpen() {
 }
 
 // Viewer selector (Cmd/Ctrl+Shift+U) — the merged candidate list as a filterable
-// overlay: type any fragment of the URL/path to open it.
+// overlay: type any fragment of the URL/path to open it. It opens with an
+// empty list too: three typed characters search the disk (an md the session
+// never printed, or one a resume's reprint left behind), so there is always
+// something to type at.
 let activeViewerSelector = null;
 let viewerSelectorOpening = false;
 let viewerSelectorRequest = 0;
@@ -674,10 +684,11 @@ async function toggleViewerSelector() {
   viewerSelectorOpening = false;
   viewerHistory.merge(discovered);
   const entries = viewerHistory.entries();
-  if (!entries.length) { showToast('No viewer to open'); return; }
   activeViewerSelector = createViewerSelector({
     entries,
     current: viewerHistory.current,
+    startDiskSearch: (payload) => window.pty.startMarkdownDiskSearch(payload),
+    cancelDiskSearch: (requestId) => window.pty.cancelMarkdownDiskSearch(requestId),
     onPick: (entry) => {
       closeViewerSelector();
       viewerNavigationQueue = viewerNavigationQueue

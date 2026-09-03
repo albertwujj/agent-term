@@ -260,6 +260,226 @@ await test('overlay carries the modal marker document-level Esc handlers yield t
   selector.destroy();
 });
 
+// ---- on-disk section ----
+
+const DISK_CTX = { cwd: '/Users/u/repo', home: '/Users/u' };
+
+function diskSpy() {
+  const calls = [];
+  const cancels = [];
+  return {
+    calls,
+    cancels,
+    startDiskSearch: (payload) => calls.push(payload),
+    cancelDiskSearch: (requestId) => cancels.push(requestId),
+  };
+}
+
+function progress(selector, spy, extra) {
+  selector.handleDiskSearchProgress({ requestId: spy.calls[0].requestId, ...DISK_CTX, ...extra });
+}
+
+await test('opens with no entries and says the disk is one typed name away', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({ entries: [], onPick: () => {}, ...spy });
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 0);
+  assert.strictEqual(
+    document.querySelector('.at-vsel-divider').textContent,
+    'No viewers yet · type a name to find one on disk'
+  );
+  selector.destroy();
+
+  const plain = createViewerSelector({ entries: [], onPick: () => {} });
+  assert.strictEqual(document.querySelector('.at-vsel-divider').textContent, 'No viewers yet');
+  plain.destroy();
+});
+
+await test('three typed characters start the disk walk, once per open', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({ entries: ENTRIES, onPick: () => {}, ...spy });
+  const el = document.querySelector('.at-vsel-input');
+
+  input(el, 're');
+  assert.strictEqual(spy.calls.length, 0);
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider'), null);
+
+  input(el, 'red');
+  assert.strictEqual(spy.calls.length, 1);
+  assert.ok(/^disk-/.test(spy.calls[0].requestId));
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — searching…');
+
+  input(el, 'reddit');
+  assert.strictEqual(spy.calls.length, 1);
+
+  selector.destroy();
+});
+
+await test('disk rows land under the known rows, labelled by tier and filtered by the term', () => {
+  const spy = diskSpy();
+  let picked = null;
+  const selector = createViewerSelector({ entries: ENTRIES, onPick: (e) => { picked = e; }, ...spy });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'reddit');
+
+  progress(selector, spy, {
+    done: false, tier: 'cwd',
+    files: ['/Users/u/repo/docs/reddit-post.md', '/Users/u/repo/README.md'],
+  });
+  let rows = [...document.querySelectorAll('.at-vsel-row')];
+  assert.deepStrictEqual(rows.map((r) => r.querySelector('.at-vsel-key').textContent), ['docs/reddit-post.md']);
+  assert.strictEqual(
+    document.querySelector('.at-vsel-disk-divider').textContent,
+    'On disk — 1 matching reddit · searching…'
+  );
+
+  progress(selector, spy, {
+    done: false, tier: 'siblings',
+    files: ['/Users/u/launch/reddit-notes.md', '/Users/u/other/nothing.md'],
+  });
+  progress(selector, spy, { done: true, tier: null, files: [] });
+  rows = [...document.querySelectorAll('.at-vsel-row')];
+  assert.deepStrictEqual(
+    rows.map((r) => r.querySelector('.at-vsel-key').textContent),
+    ['docs/reddit-post.md', '~/launch/reddit-notes.md']
+  );
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 2 matching reddit');
+  assert.strictEqual(rows[1].querySelector('mark.at-vsel-match').textContent, 'reddit');
+
+  key(el, 'ArrowDown');
+  key(el, 'Enter');
+  assert.strictEqual(picked.kind, 'md');
+  assert.strictEqual(picked.key, '/Users/u/launch/reddit-notes.md');
+  assert.strictEqual(picked.source, 'disk');
+
+  selector.destroy();
+});
+
+await test('known rows come first and a known row hides its disk copy', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({
+    entries: [{ kind: 'md', key: 'docs/reddit-post.md' }, { kind: 'md', key: 'reddit-faq.md' }],
+    onPick: () => {},
+    ...spy,
+  });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'reddit');
+  progress(selector, spy, {
+    done: true, tier: 'cwd',
+    files: [
+      '/Users/u/repo/docs/reddit-post.md',
+      '/Users/u/repo/notes/reddit-faq.md',
+      '/Users/u/repo/reddit-draft.md',
+    ],
+  });
+
+  const keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
+  assert.deepStrictEqual(keys, ['docs/reddit-post.md', 'reddit-faq.md', 'reddit-draft.md']);
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 1 matching reddit');
+
+  selector.destroy();
+});
+
+await test('the disk list caps at twelve rows and asks for more letters', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({ entries: [], onPick: () => {}, ...spy });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'note');
+  const files = Array.from({ length: 15 }, (_, i) => `/Users/u/repo/note-${String(i).padStart(2, '0')}.md`);
+  progress(selector, spy, { done: true, tier: 'cwd', files });
+
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 12);
+  assert.strictEqual(document.querySelector('.at-vsel-more').textContent, '3 more · keep typing to narrow');
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 15 matching note');
+
+  input(el, 'note-1');
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 5);
+  assert.strictEqual(document.querySelector('.at-vsel-more'), null);
+
+  selector.destroy();
+});
+
+await test('a finished walk with no match says so; a stale request id is ignored', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({ entries: ENTRIES, onPick: () => {}, ...spy });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'zzz');
+
+  selector.handleDiskSearchProgress({
+    requestId: 'disk-stale', ...DISK_CTX, done: false, tier: 'cwd', files: ['/Users/u/repo/zzz.md'],
+  });
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 0);
+
+  progress(selector, spy, { done: true, tier: null, files: [] });
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — none matching zzz');
+  assert.ok(document.querySelector('.at-vsel-divider').textContent.includes('No viewers match'));
+
+  selector.destroy();
+});
+
+await test('a tier the budget cut short is called a partial walk', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({ entries: [], onPick: () => {}, ...spy });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'reddit');
+  progress(selector, spy, { done: false, tier: 'cwd', files: [], partial: false });
+  progress(selector, spy, { done: false, tier: 'siblings', files: ['/Users/u/x/reddit.md'], partial: true });
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 1 matching reddit · searching…');
+  progress(selector, spy, { done: true, tier: null, files: [] });
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 1 matching reddit · partial walk');
+  assert.strictEqual(selector._state().disk.partial, true);
+
+  selector.destroy();
+});
+
+await test('the disk section hides below three letters and returns without a new walk', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({ entries: [], onPick: () => {}, ...spy });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'reddit');
+  progress(selector, spy, { done: true, tier: 'cwd', files: ['/Users/u/repo/reddit.md'] });
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 1);
+
+  input(el, 're');
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider'), null);
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 0);
+
+  input(el, 'red');
+  assert.strictEqual(spy.calls.length, 1);
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 1);
+
+  selector.destroy();
+});
+
+await test('Delete on a disk row forgets nothing', () => {
+  const spy = diskSpy();
+  let removed = null;
+  const selector = createViewerSelector({ entries: [], onPick: () => {}, onRemove: (e) => { removed = e; }, ...spy });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'reddit');
+  progress(selector, spy, { done: true, tier: 'cwd', files: ['/Users/u/repo/reddit.md'] });
+
+  key(el, 'Delete');
+  assert.strictEqual(removed, null);
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 1);
+
+  selector.destroy();
+});
+
+await test('destroy cancels a walk still running and leaves a finished one alone', () => {
+  const running = diskSpy();
+  const selector = createViewerSelector({ entries: [], onPick: () => {}, ...running });
+  input(document.querySelector('.at-vsel-input'), 'reddit');
+  selector.destroy();
+  assert.deepStrictEqual(running.cancels, [running.calls[0].requestId]);
+
+  const finished = diskSpy();
+  const other = createViewerSelector({ entries: [], onPick: () => {}, ...finished });
+  input(document.querySelector('.at-vsel-input'), 'reddit');
+  progress(other, finished, { done: true, tier: null, files: [] });
+  other.destroy();
+  assert.deepStrictEqual(finished.cancels, []);
+});
+
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
 if (testsFailed > 0) process.exit(1);
 

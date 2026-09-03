@@ -3,20 +3,38 @@
 // viewer buried deep in the recents list is one typed fragment away. Vanilla DOM,
 // no framework — patterned on sessions-picker.
 //
+// The known list is what this session has shown. A resumed session reprints a
+// slice of its transcript, so a doc from before that slice is not in it, and a
+// doc never mentioned never was. Once the filter has three characters the
+// selector also searches the disk: one walk per open (repo, siblings, home,
+// see markdown-disk-search.js), filtered in memory per keystroke, listed as a
+// second section under the known rows with a running count in its heading.
+// The walk starts on the first qualifying keystroke, the way the sessions
+// picker's hidden-prompt search does, so the section appears by itself.
+// Opening a disk row records it, so the second time it is a known row.
+//
 // Public API:
 //   const handle = createViewerSelector({
 //     entries: [{ kind: 'md'|'url'|'review', key }, ...],  // newest first
 //     current: { kind, key } | null,   // the viewer open right now, if any
-//     onPick(entry):    user chose an entry to open
+//     onPick(entry):    user chose an entry to open; a disk row carries
+//                       source: 'disk' and an absolute md path as its key
 //     onRemove(entry):  user pressed Delete on an entry (purge from history)
 //     onClose():        user dismissed (Esc / clicked outside)
+//     startDiskSearch({ requestId }):  begin the on-disk walk (optional; the
+//                       section is omitted without it)
+//     cancelDiskSearch(requestId):     stop it (selector closed while walking)
 //   });
+//   handle.handleDiskSearchProgress(payload);  // { requestId, done, tier,
+//                       cwd, home, files, partial } from the walk, one per
+//                       tier + done; partial = that tier ran out of budget
 //   handle.destroy();   // tear down (called by caller after onPick / onClose)
 //
 // Filtering matches the session picker and search: case-insensitive
 // term-intersection substring match against the entry's key, with matched
 // ranges highlighted. No fuzzy scoring — the key text is what the user saw in
-// the terminal, so a remembered fragment is the natural query.
+// the terminal, so a remembered fragment is the natural query. Disk rows match
+// on their label: repo-relative for a repo doc, ~/-relative under home.
 //
 // Keyboard:
 //   ↑/↓, Tab/Shift+Tab   navigate rows
@@ -30,6 +48,30 @@ const {
   textMatchesSearchTerms,
   findAllTermRanges,
 } = require('./search-terms');
+const { markdownDiskLabel } = require('./markdown-disk-search');
+
+// The disk section wakes at three typed characters (spaces aside), like the
+// picker's hidden-prompt search, and shows this many rows before asking for
+// more letters: the list is for opening one file, and the filter narrows.
+const DISK_SEARCH_MIN_CHARS = 3;
+const DISK_ROWS_MAX = 12;
+let diskSearchSeq = 0;
+
+function diskTermLength(text) {
+  return parseSearchTerms(text).join('').length;
+}
+
+// A disk row that a known row already stands for. Known md keys are what the
+// terminal printed: absolute, ~/-relative, repo-relative, or a bare name, so
+// each of those forms is tried against the disk path. A bare known name hides
+// every same-named file on disk: the known row already resolves through the
+// chooser that lists them.
+function knownCoversDiskEntry(known, entry) {
+  if (known.kind !== 'md') return false;
+  const key = String(known.key || '').replace(/^\.\/+/, '');
+  if (!key) return false;
+  return entry.key === key || entry.label === key || entry.key.endsWith('/' + key);
+}
 
 // Kind tag + stripe hue per row: a fast peripheral cue for "what sort of page
 // is this" while the eye scans the key text.
@@ -51,10 +93,17 @@ function createViewerSelector({
   onPick,
   onRemove,
   onClose,
+  startDiskSearch,
+  cancelDiskSearch,
 } = {}) {
   let all = entries.map((e) => ({ kind: e.kind, key: e.key }));
   let filterText = '';
   let visibleRows = [];
+  // The one disk walk of this open: null until the filter first qualifies.
+  // files accumulate tier by tier; cwd/home arrive with the first tier and
+  // shape the labels.
+  let disk = null;
+  const diskSearchAvailable = typeof startDiskSearch === 'function';
   // Land the initial selection on the most recent viewer that is NOT the one
   // already open (cmd-tab semantics): plain chord + Enter switches away.
   let selectedIndex = current && all.length > 1 && sameEntry(all[0], current) ? 1 : 0;
@@ -114,40 +163,113 @@ function createViewerSelector({
     return { list, terms };
   }
 
+  // ---- disk search ----
+
+  function ensureDiskSearch() {
+    if (disk || !diskSearchAvailable) return;
+    const requestId = `disk-${Date.now()}-${++diskSearchSeq}`;
+    disk = { requestId, running: true, done: false, partial: false, cwd: null, home: null, files: [], seen: new Set() };
+    try { startDiskSearch({ requestId }); }
+    catch { disk.running = false; disk.done = true; }
+  }
+
+  function handleDiskSearchProgress(payload = {}) {
+    if (!disk || payload.requestId !== disk.requestId) return;
+    if (payload.cwd) disk.cwd = payload.cwd;
+    if (payload.home) disk.home = payload.home;
+    if (payload.partial) disk.partial = true;
+    const files = Array.isArray(payload.files) ? payload.files : [];
+    for (const file of files) {
+      const key = String(file || '');
+      if (!key || disk.seen.has(key)) continue;
+      disk.seen.add(key);
+      disk.files.push({
+        kind: 'md',
+        key,
+        label: markdownDiskLabel(key, { cwd: disk.cwd, home: disk.home }),
+        tier: payload.tier || null,
+        source: 'disk',
+      });
+    }
+    if (payload.done) { disk.running = false; disk.done = true; }
+    render();
+  }
+
+  function filterDiskEntries(terms) {
+    if (!disk || terms.length === 0) return [];
+    return disk.files.filter((entry) =>
+      textMatchesSearchTerms(entry.label, terms)
+      && !all.some((known) => knownCoversDiskEntry(known, entry)));
+  }
+
+  // A tier the budget cut short is said in the heading: "none matching" from
+  // a partial walk would read as the disk's answer when it is the clock's.
+  function diskHeading(matchCount, filterDisplay) {
+    const term = `<code>${escapeHtml(filterDisplay)}</code>`;
+    const count = matchCount > 0 ? `${matchCount} matching ${term}` : `none matching ${term}`;
+    if (disk.running) {
+      return matchCount > 0 ? `On disk — ${count} · searching…` : 'On disk — searching…';
+    }
+    return disk.partial ? `On disk — ${count} · partial walk` : `On disk — ${count}`;
+  }
+
+  function appendRow(entry, i, terms) {
+    const row = document.createElement('div');
+    row.className = 'at-vsel-row';
+    const tag = entryTag(entry);
+    const isCurrent = sameEntry(entry, current);
+    const badge = isCurrent ? '<span class="at-vsel-open-badge">open</span>' : '';
+    row.innerHTML = `
+      <span class="at-vsel-stripe" style="background:oklch(60% 0.14 ${TAG_HUES[tag]})"></span>
+      <span class="at-vsel-key">${highlightTerms(entry.label || entry.key, terms)}</span>
+      ${badge}
+      <span class="at-vsel-tag">${tag}</span>
+    `;
+    row.addEventListener('click', () => activate(i));
+    listEl.appendChild(row);
+  }
+
   // ---- render ----
 
   function render() {
     const { list, terms } = filterEntries(filterText);
-    visibleRows = list;
     listEl.innerHTML = '';
 
     const heading = document.createElement('div');
     heading.className = 'at-vsel-divider';
     const filterDisplay = filterText.trim();
     if (!filterDisplay) {
-      heading.textContent = 'Recent viewers';
-    } else if (visibleRows.length > 0) {
-      heading.innerHTML = `Viewers — ${visibleRows.length} of ${all.length} matching <code>${escapeHtml(filterDisplay)}</code>`;
+      heading.textContent = all.length > 0
+        ? 'Recent viewers'
+        : (diskSearchAvailable ? 'No viewers yet · type a name to find one on disk' : 'No viewers yet');
+    } else if (list.length > 0) {
+      heading.innerHTML = `Viewers — ${list.length} of ${all.length} matching <code>${escapeHtml(filterDisplay)}</code>`;
     } else {
       heading.innerHTML = `No viewers match <code>${escapeHtml(filterDisplay)}</code>`;
     }
     listEl.appendChild(heading);
+    list.forEach((entry, i) => appendRow(entry, i, terms));
 
-    visibleRows.forEach((entry, i) => {
-      const row = document.createElement('div');
-      row.className = 'at-vsel-row';
-      const tag = entryTag(entry);
-      const isCurrent = sameEntry(entry, current);
-      const badge = isCurrent ? '<span class="at-vsel-open-badge">open</span>' : '';
-      row.innerHTML = `
-        <span class="at-vsel-stripe" style="background:oklch(60% 0.14 ${TAG_HUES[tag]})"></span>
-        <span class="at-vsel-key">${highlightTerms(entry.key, terms)}</span>
-        ${badge}
-        <span class="at-vsel-tag">${tag}</span>
-      `;
-      row.addEventListener('click', () => activate(i));
-      listEl.appendChild(row);
-    });
+    // Disk section: present once the walk has started (three typed
+    // characters), under the known rows, capped so a broad term asks for
+    // more letters instead of a scroll.
+    let shown = [];
+    if (disk && diskTermLength(filterText) >= DISK_SEARCH_MIN_CHARS) {
+      const matches = filterDiskEntries(terms);
+      shown = matches.slice(0, DISK_ROWS_MAX);
+      const diskDivider = document.createElement('div');
+      diskDivider.className = 'at-vsel-divider at-vsel-disk-divider';
+      diskDivider.innerHTML = diskHeading(matches.length, filterDisplay);
+      listEl.appendChild(diskDivider);
+      shown.forEach((entry, i) => appendRow(entry, list.length + i, terms));
+      if (matches.length > shown.length) {
+        const more = document.createElement('div');
+        more.className = 'at-vsel-more';
+        more.textContent = `${matches.length - shown.length} more · keep typing to narrow`;
+        listEl.appendChild(more);
+      }
+    }
+    visibleRows = [...list, ...shown];
 
     if (selectedIndex > visibleRows.length - 1) selectedIndex = visibleRows.length - 1;
     if (selectedIndex < 0) selectedIndex = 0;
@@ -179,6 +301,8 @@ function createViewerSelector({
   function removeSelected() {
     const entry = visibleRows[selectedIndex];
     if (!entry) return;
+    // A disk row is not in any history to forget.
+    if (entry.source === 'disk') return;
     all = all.filter((candidate) => !sameEntry(candidate, entry));
     if (typeof onRemove === 'function') onRemove({ ...entry });
     render();
@@ -214,6 +338,7 @@ function createViewerSelector({
   input.addEventListener('input', () => {
     filterText = input.value;
     selectedIndex = 0;
+    if (diskTermLength(filterText) >= DISK_SEARCH_MIN_CHARS) ensureDiskSearch();
     render();
   });
   input.addEventListener('keydown', onKeyDown);
@@ -229,10 +354,26 @@ function createViewerSelector({
   // Defer focus so the event that triggered the selector doesn't blur us.
   setTimeout(() => input.focus(), 0);
 
+  function destroy() {
+    if (disk && disk.running && typeof cancelDiskSearch === 'function') {
+      try { cancelDiskSearch(disk.requestId); } catch {}
+      disk.running = false;
+    }
+    try { overlay.remove(); } catch {}
+  }
+
   return {
-    destroy: () => { try { overlay.remove(); } catch {} },
+    destroy,
+    handleDiskSearchProgress,
     // exposed for tests
-    _state: () => ({ filterText, selectedIndex, visibleRows }),
+    _state: () => ({
+      filterText,
+      selectedIndex,
+      visibleRows,
+      disk: disk
+        ? { requestId: disk.requestId, running: disk.running, done: disk.done, partial: disk.partial, files: disk.files.length }
+        : null,
+    }),
   };
 }
 
@@ -303,6 +444,15 @@ function injectStyles() {
   border-radius: 3px;
   color: #d0d5db;
   text-transform: none;
+}
+.at-vsel-disk-divider {
+  margin-top: 6px;
+  border-top: 1px solid #33363c;
+}
+.at-vsel-more {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  color: #8a9098;
 }
 .at-vsel-row {
   display: flex; align-items: baseline; gap: 10px;
