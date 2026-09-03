@@ -30,19 +30,20 @@ const ICON_LETTERS_N_MAX = 4;       // upper bound: try 4 letters first if they 
 // title strip at common DPI configs.
 const TASKBAR_TITLE_REST_MAX = 25;
 
-// Extract the first N letters of the prompt (skipping leading non-letter
-// chars like '"' or '✻ ') plus the "rest" — everything past those N chars.
+// Extract the first N identity characters of the prompt (skipping leading
+// punctuation like '"' or '✻ ') plus the "rest" — everything past those N
+// chars. Digits count: a compact issue/change number is often the most useful
+// identity left after a URL's routing noise has been removed.
 // The first letter is uppercased; subsequent chars preserve original case.
 // Default N=3: icon shows the first 3 chars, title shows the rest, so the
 // taskbar button reads "[icon: Mig] + 'rate the database schema'" =
 // "Migrate the database schema" continuously.
 function firstLettersAndRest(prompt, n = ICON_LETTERS_N) {
-  // Empty / no-letter prompts return blank letters; the icon renderer
+  // Empty / no-alphanumeric prompts return blank letters; the icon renderer
   // draws a "pill-only" placeholder in that case (hue identity preserved,
-  // no question-mark text). Caller behavior is consistent for normal
-  // prompts (idx ≥ 0) and unusual ones (empty / digits-only).
+  // no question-mark text).
   if (!prompt) return { letters: '', rest: '' };
-  const idx = prompt.search(/[A-Za-z]/);
+  const idx = prompt.search(/[A-Za-z0-9]/);
   if (idx < 0) return { letters: '', rest: prompt };
   let letters = prompt[idx].toUpperCase();
   let restStart = idx + 1;
@@ -451,10 +452,14 @@ function splitChromeTopAndOverflow(rest, maxLen) {
 // "/home/me/proj/src/sub/file.py" leaves no room for the rest of the prompt.
 //
 // Conservative substitutions, scoped to compact identity surfaces:
-//   · URLs:   https://host.com/path/1234 → …34
-//             Last two chars of the last path segment win; root URLs fall
-//             back to the host stem.
+//   · URLs:   https://host.com/path/1234 → 1234
+//             A numeric leaf is already a compact, distinctive identifier,
+//             so it stays whole. Other leaves keep only their last two chars;
+//             root URLs fall back to the host stem.
 //             Applied per-URL so multiple URLs in one prompt each shorten.
+//   · A prompt made only of an @-mentioned workflow and a target URL uses
+//     the URL's compact identity. The workflow is shared scaffolding, not what
+//     distinguishes one taskbar button from another.
 //   · Paths:  /a/b/c/d/file.ext  → file
 //             ~/a/b/file.py      → file
 //             src/file.js        → file
@@ -470,7 +475,7 @@ function truncatePathsForTaskbar(text) {
 // Same substitutions as truncatePathsForTaskbar but ALSO returns the
 // originals so the live-preview footer can surface them as verbatim
 // references. Three ref kinds:
-//   · url:     https://host.com/path/1234 → …34
+//   · url:     https://host.com/path/1234 → 1234
 //   · path:    /a/b/c/file.ext          → file
 //   · mention: @scope/file.ext          → file        (scope and @ dropped)
 // The @-mention form covers Claude Code / Cursor style file refs like
@@ -502,6 +507,7 @@ function extractPathsAndUrls(text) {
       let decoded = last;
       try { decoded = decodeURIComponent(last); } catch {}
       const stem = stripFileExtension(decoded) || decoded;
+      if (/^\d+$/.test(stem)) return stem;
       return stem ? `…${stem.slice(-2)}` : stem;
     }
     return compactHostname(url.hostname);
@@ -548,6 +554,14 @@ function extractPathsAndUrls(text) {
     refs.push({ kind: 'mention', full: mentionStr });
     return `${lead}${stripFileExtension(filename)}`;
   });
+  // A bare workflow reference followed by one URL is an invocation shape,
+  // not a prose identity. Prefer the target's compact leaf so prompts such as
+  // "@ai/gerrit/pr-review.md https://.../10427036" become "10427036": the
+  // icon can carry "104" and the adjacent title can carry "27036".
+  const invocation = text.match(/^\s*@[^\s@\/`'"]+\/[^\s`'"]+\s+(https?:\/\/[^\s`'"]+)\s*$/i);
+  if (invocation) {
+    try { out = compactUrl(new URL(invocation[1])); } catch {}
+  }
   return { text: out, refs };
 }
 

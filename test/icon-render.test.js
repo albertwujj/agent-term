@@ -19,10 +19,10 @@ console.log('icon-render');
 
 // ---- truncatePathsForTaskbar — URLs ----
 
-test('URL with path → ellipsis plus last two chars', () => {
+test('URL with a numeric leaf keeps the whole distinctive identifier', () => {
   assert.strictEqual(
     truncatePathsForTaskbar('Review https://github.com/owner/repo/issues/42'),
-    'Review …42'
+    'Review 42'
   );
 });
 
@@ -61,11 +61,22 @@ test('Subdomain URL with path keeps last two path chars', () => {
   );
 });
 
-test('GitHub PR URL keeps tail of PR number', () => {
+test('GitHub PR URL keeps the whole PR number', () => {
   assert.strictEqual(
     truncatePathsForTaskbar('Review https://github.com/owner/repo/pull/1234'),
-    'Review …34'
+    'Review 1234'
   );
+});
+
+test('workflow invocation uses the Gerrit change number as taskbar identity', () => {
+  const prompt = '@ai/gerrit/pr-review.md https://gerrit.ext.net.nokia.com/gerrit/c/ENET/Eden-NET/+/10427036';
+  const result = extractPathsAndUrls(prompt);
+  assert.strictEqual(result.text, '10427036');
+  assert.deepStrictEqual(letterCandidates(result.text), ['1042', '104', '10']);
+  assert.deepStrictEqual(result.refs, [
+    { kind: 'url', full: 'https://gerrit.ext.net.nokia.com/gerrit/c/ENET/Eden-NET/+/10427036' },
+    { kind: 'mention', full: '@ai/gerrit/pr-review.md' },
+  ]);
 });
 
 // ---- truncatePathsForTaskbar — file paths ----
