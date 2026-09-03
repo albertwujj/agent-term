@@ -33,6 +33,20 @@ scroll view would.
 
 Measure: 66ch at 17px Charter/Georgia (~75 chars/line) per page.
 
+Keep-together: a thread card or resting row is one unit (its messages, its
+Reply, its composer), so unlike a paragraph it is never cut by a page edge.
+A box that would straddle a page top gets a blank spacer before it, in both
+article copies, moving it whole onto that page; the page before ends above it
+(the bottom trim treats a box like a line), leaving a blank tail the way a
+book moves a figure. Seating is computed from the current page top downward
+against the live grid; boxes above the page top keep the spacer they last got
+(recomputing them would move the reader's top line), with heights remembered
+by box key so a re-render restores them verbatim. A box taller than a page
+splits on its lines like text. The card hosting an open reply composer is
+fitted onto its page by scroll instead, the comment bubble's precedent, so a
+growing reply never throws the card onto another page; the other copy carries
+a blank of the composer's height so the facing page keeps lining up.
+
 ## Mode dispatch: the first key decides
 
 Commenting and editing share the existing target gesture (click a block, or

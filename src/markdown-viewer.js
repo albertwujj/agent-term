@@ -750,6 +750,19 @@ function ensureStyles() {
     .md-thread-reply {
       margin-top: 6px;
     }
+    /* The reply composer lives in one article copy; this stands in for it in
+       the other so both copies keep the same height (see openThreadReply). */
+    .md-thread-reply-spacer {
+      margin-top: 6px;
+      pointer-events: none;
+    }
+    /* Keep-together blank: pushes a thread card or row that would straddle a
+       page top down to that page (seatKeepBoxesBelowTop). The previous page
+       ends early, the way a book leaves a tail blank rather than cut a figure. */
+    .md-keep-spacer {
+      margin: 0;
+      pointer-events: none;
+    }
     /* Resting annotation row — one low-profile bordered line standing in for a
        comment thread or an edit's note. Detail and actions reveal on click; the
        row never fills (a fill reads as an inserted code/callout block). The
@@ -1118,6 +1131,10 @@ function createMarkdownViewer({
     threadPollInFlight: false,
     threadRenderPending: false,
     threadReply: null,
+    // Keep-together spacer heights by box key (thread id / resolved fold key), so
+    // a re-render can put back the blanks above the page top verbatim — the
+    // reader's top line must not move because a spacer above it was recomputed.
+    keepSpacerByKey: new Map(),
     resumeFullPending: false, // a full-size send receded to golden; resume full when the agent's turn ends
     resolvedExpanded: new Set(), // block anchorIds whose resolved history is unfolded to lines
     expandedThreads: new Set(), // thread ids opened from a resolved/waiting line into a full card
@@ -1481,6 +1498,13 @@ function createMarkdownViewer({
   // cut there, nothing to align). Guarded for runtimes without
   // caretRangeFromPoint (tests): alignment then no-ops.
   function getLineRectAtEdge(rect, y) {
+    const probe = probeLineAtEdge(rect, y);
+    return probe ? probe.line : null;
+  }
+
+  // The straddling line's rect plus its text node, for callers that need to
+  // know which box the line belongs to (the seam rule, the bottom trim).
+  function probeLineAtEdge(rect, y) {
     if (typeof document.caretRangeFromPoint !== 'function') return null;
     const maxLine = getRenderedLineHeight() * 2;
     for (const x of [rect.left + 40, rect.left + rect.width / 2, rect.right - 40]) {
@@ -1493,7 +1517,7 @@ function createMarkdownViewer({
       // apparatus, not a content line, and a pinned strip sits right at the
       // page bottom where this probe runs. Never let it define a page edge.
       if (node.parentElement && node.parentElement.closest
-        && node.parentElement.closest('.md-pending-strip')) continue;
+        && node.parentElement.closest('.md-pending-strip, .cu-composer, .md-thread-actions')) continue;
       const probe = document.createRange();
       const start = Math.min(range.startOffset, node.length - 1);
       probe.setStart(node, start);
@@ -1506,20 +1530,53 @@ function createMarkdownViewer({
       // contains the probe y is a straddle; anything else means no line is
       // cut at this edge.
       if (line.top > y + 2 || line.bottom < y - 2) continue;
-      return line;
+      return { line, node };
     }
     return null;
+  }
+
+  // The keep-together box (thread card / resting row) under a page edge, if
+  // any. Hit-tested rather than text-probed: the edge may fall in the box's
+  // border or padding, where no text line exists.
+  function keepBoxAtEdge(rect, y) {
+    if (typeof document.elementFromPoint !== 'function') return null;
+    for (const x of [rect.left + 40, rect.left + rect.width / 2, rect.right - 40]) {
+      let el = null;
+      try { el = document.elementFromPoint(x, y); } catch { continue; }
+      const box = el && el.closest ? el.closest(KEEP_SELECTOR) : null;
+      if (box) return box;
+    }
+    return null;
+  }
+
+  function keepBoxOuterTop(box) {
+    const mt = parseFloat(window.getComputedStyle(box).marginTop) || 0;
+    return box.getBoundingClientRect().top - mt;
   }
 
   // A page ends on a whole line: if the viewport's bottom edge cuts a line,
   // shrink the viewport so that line falls outside it — the leftover slack
   // reads as bottom margin, which is how books absorb it. Reset to full
   // height before every measurement pass (syncSecondaryPane, flipSpread).
+  // A thread card or row is a unit the same way a line is: one cut by the
+  // bottom edge ends the page above the box (its margin edge), so no card
+  // sliver or headless tail survives at a page bottom. A box too tall for the
+  // trim floor splits on its lines like text.
   function trimPageBottom(viewport) {
     const rect = viewport.getBoundingClientRect();
+    let cutTop = null;
     const line = getLineRectAtEdge(rect, rect.bottom - 1);
-    if (!line || line.bottom <= rect.bottom + 0.5) return;
-    const height = line.top - rect.top;
+    if (line && line.bottom > rect.bottom + 0.5) cutTop = line.top;
+    const box = keepBoxAtEdge(rect, rect.bottom - 1);
+    if (box) {
+      const boxRect = box.getBoundingClientRect();
+      const outerTop = keepBoxOuterTop(box);
+      if (boxRect.bottom > rect.bottom + 0.5 && outerTop < rect.bottom - 0.5 && outerTop - rect.top > 80) {
+        cutTop = cutTop == null ? outerTop : Math.min(cutTop, outerTop);
+      }
+    }
+    if (cutTop == null) return;
+    const height = cutTop - rect.top;
     if (height > 80) viewport.style.height = `${height}px`;
   }
 
@@ -1532,6 +1589,9 @@ function createMarkdownViewer({
     if (!state.primaryPane || !state.secondaryPane || !state.secondaryArticle) return;
     state.primaryPane.style.height = '';
     state.secondaryPane.style.height = '';
+    // Cards and rows first: any that would straddle a page top from here down
+    // move whole onto that page, so the alignment below measures final content.
+    seatKeepBoxesBelowTop();
 
     // Full-page metrics, captured before any nudge or bottom-trim shrinks them.
     const paneHFull = state.primaryPane.clientHeight;
@@ -1585,6 +1645,132 @@ function createMarkdownViewer({
     placeSeamRule(state.primaryVeil, state.primaryPane, flipOverlap, lineH, insetLeft, insetRight);
   }
 
+  // ── Keep-together for the comment apparatus ────────────────────────────
+  // A thread card or resting row is read as one unit (its messages, its Reply,
+  // its composer), so unlike a paragraph it must not be split by a page edge.
+  // Pages are windows on the grid gridTop + k·advance; a box that would
+  // straddle a page top gets a blank spacer before it (in both article copies)
+  // pushing its margin edge onto that page top. The page before ends early
+  // (trimPageBottom cuts above the box), the way a book leaves a tail blank
+  // rather than cut a figure.
+  //
+  // The grid is viewport-anchored (it re-bases on landings, fits and live
+  // updates above), so seating is a function of the CURRENT grid, computed
+  // from the page top downward. Boxes above the page top keep whatever spacer
+  // they last got: recomputing them against a moved grid would shift the
+  // reader's top line, and the top-preserving relayout would then move the
+  // grid again — the two never settle. Their heights are remembered by box
+  // key so a full re-render restores them verbatim; they re-seat when the
+  // reader flips back onto them. A box taller than a page splits on its lines
+  // like text. The card hosting an open reply composer is fitted onto its
+  // page by scroll (like the comment bubble) rather than seated, so growing
+  // the reply never throws the card onto another page mid-typing.
+  const KEEP_SELECTOR = '.md-thread-card, .md-thread-resolved-summary, .md-thread-resolved-line, .md-thread-waiting-line';
+
+  function keepKeyOf(el) {
+    return el && el.getAttribute ? (el.getAttribute('data-md-keep-key') || '') : '';
+  }
+
+  function stampKeepKey(el, key) {
+    if (el && el.setAttribute && key) el.setAttribute('data-md-keep-key', key);
+    return el;
+  }
+
+  function keepSpacerOf(box) {
+    const prev = box.previousElementSibling;
+    return prev && prev.classList.contains('md-keep-spacer') ? prev : null;
+  }
+
+  function setKeepSpacer(box, height) {
+    if (!box) return;
+    let spacer = keepSpacerOf(box);
+    if (!(height > 0.5)) { if (spacer) spacer.remove(); return; }
+    if (!spacer) {
+      spacer = document.createElement('div');
+      spacer.className = 'md-keep-spacer';
+      // Same flow chain as the box, so later insertions after the block
+      // (queued marks) still land after the box, not between spacer and box.
+      const anchorId = box.getAttribute('data-md-comment-anchor-id');
+      if (anchorId) spacer.setAttribute('data-md-comment-anchor-id', anchorId);
+      box.insertAdjacentElement('beforebegin', spacer);
+    }
+    spacer.style.height = `${height}px`;
+  }
+
+  function counterpartKeepBox(box) {
+    const key = keepKeyOf(box);
+    if (!key) return null;
+    const other = isInSecondaryPane(box) ? state.article : state.secondaryArticle;
+    return other ? other.querySelector(`[data-md-keep-key="${escapeSelectorValue(key)}"]`) : null;
+  }
+
+  // After a thread-layer render: put back every remembered spacer, in both
+  // copies, before anything measures the page top.
+  function restoreKeepSpacers() {
+    for (const article of [state.article, state.secondaryArticle]) {
+      if (!article) continue;
+      for (const box of article.querySelectorAll(KEEP_SELECTOR)) {
+        const key = keepKeyOf(box);
+        if (key) setKeepSpacer(box, state.keepSpacerByKey.get(key) || 0);
+      }
+    }
+  }
+
+  function seatKeepBoxesBelowTop() {
+    if (!state.primaryPane || !state.article) return;
+    const paneH = state.primaryPane.clientHeight || 0;
+    const advance = getSpreadPageAdvance();
+    if (!paneH || !advance) return;
+    const lineH = getRenderedLineHeight();
+    const maxKeep = paneH - 2 * lineH; // taller boxes split on their lines
+    const gridTop = state.spreadGridTop || 0;
+    const replyCard = state.threadReply && state.threadReply.root && state.threadReply.root.closest
+      ? state.threadReply.root.closest(KEEP_SELECTOR) : null;
+    const replyKey = replyCard ? keepKeyOf(replyCard) : '';
+    // Content coordinates: the article's border edge is the scroller's origin,
+    // and stays put while spacers change the article's height below.
+    const articleTop = state.article.getBoundingClientRect().top;
+    const measure = (box) => {
+      const rect = box.getBoundingClientRect();
+      const marginTop = parseFloat(window.getComputedStyle(box).marginTop) || 0;
+      return { top: rect.top - articleTop, bottom: rect.bottom - articleTop, height: rect.height, marginTop };
+    };
+    for (const box of state.article.querySelectorAll(KEEP_SELECTOR)) {
+      const key = keepKeyOf(box);
+      if (!key || key === replyKey) continue;
+      let m = measure(box);
+      if (m.bottom <= gridTop + 0.5) continue; // above the page top: left as last seated
+      const spacer = keepSpacerOf(box);
+      const current = spacer ? (parseFloat(spacer.style.height) || 0) : 0;
+      const counterpart = counterpartKeepBox(box);
+      let want = 0;
+      if (m.height > 0 && m.height <= maxKeep) {
+        // Where the box sits without its spacer, and the first page top below
+        // that natural top. Straddling it means the box moves onto that page.
+        const naturalTop = m.top - current;
+        const naturalBottom = m.bottom - current;
+        const pageTop = gridTop + (Math.floor((naturalTop - gridTop) / advance) + 1) * advance;
+        if (pageTop > naturalTop + 0.5 && pageTop < naturalBottom - 0.5) {
+          want = pageTop - (naturalTop - m.marginTop);
+        }
+      }
+      if (Math.abs(want - current) >= 0.5) {
+        setKeepSpacer(box, want);
+        if (want > 0.5) {
+          // The spacer un-collapses the margins around the box; correct once
+          // from the measured landing so the margin edge sits on the page top.
+          m = measure(box);
+          const pageTop = gridTop + Math.round((m.top - m.marginTop - gridTop) / advance) * advance;
+          const err = pageTop - (m.top - m.marginTop);
+          if (Math.abs(err) >= 0.5) { want += err; setKeepSpacer(box, want); }
+        }
+        setKeepSpacer(counterpart, want);
+      }
+      if (want > 0.5) state.keepSpacerByKey.set(key, want);
+      else state.keepSpacerByKey.delete(key);
+    }
+  }
+
   const MD_PANE_PAD_TOP = 18; // keep in sync with --md-pane-pad-top
   const MD_SEAM_CAP_H = 5;    // keep in sync with .md-recap-veil height (cap height)
   // Draw a seam bracket with its underline near the bottom of the recap, snapped
@@ -1600,7 +1786,18 @@ function createMarkdownViewer({
     // (getLineRectAtEdge returns a single-glyph rect, so use its top as the line's
     // top edge; a line box bottom is ~one line below its top.)
     let boundaryTop = null; // fresh line's top == last repeated line's bottom, rel. to viewport
-    const straddled = getLineRectAtEdge(rect, rect.top + overlapPx);
+    const probe = probeLineAtEdge(rect, rect.top + overlapPx);
+    let straddled = probe ? probe.line : null;
+    // A keep-together box never straddles a page top, and the page before it
+    // was trimmed above it — so a box that begins on this page is fresh even
+    // when its first line sits inside the designed overlap. The repeat, if
+    // any, ends above the box.
+    const probedBox = probe && probe.node.parentElement && probe.node.parentElement.closest
+      ? probe.node.parentElement.closest(KEEP_SELECTOR) : null;
+    if (probedBox && keepBoxOuterTop(probedBox) >= rect.top - 1) {
+      straddled = null;
+      overlapPx = Math.min(overlapPx, keepBoxOuterTop(probedBox) - rect.top);
+    }
     if (straddled) {
       // The overlap depth lands on a line. Round to the nearer line edge: a line
       // more than half inside the overlap is (mostly) a repeat, so hug its bottom;
@@ -1902,6 +2099,12 @@ function createMarkdownViewer({
     clearActiveTarget();
     if (preserveScroll) recordMarkdownObservedChange(changeRecords);
     else clearMarkdownChangeHighlightState();
+    if (!preserveScroll) {
+      // Another document (or a cold re-read): its cards seat against a grid
+      // from the top, not the previous document's remembered blanks.
+      state.spreadGridTop = 0;
+      state.keepSpacerByKey.clear();
+    }
     layoutSpread();
     if (preserveScroll && state.primaryPane) {
       const maxScrollTop = Math.max(0, state.primaryPane.scrollHeight - state.primaryPane.clientHeight);
@@ -5566,7 +5769,7 @@ function createMarkdownViewer({
     if (!state.article) return;
     for (const article of [state.article, state.secondaryArticle]) {
       if (!article) continue;
-      for (const el of article.querySelectorAll(THREAD_FLOW_SELECTOR)) el.remove();
+      for (const el of article.querySelectorAll(`${THREAD_FLOW_SELECTOR}, .md-keep-spacer`)) el.remove();
       for (const el of article.querySelectorAll('.md-sealed')) el.classList.remove('md-sealed');
     }
     const store = state.threadStore;
@@ -5601,7 +5804,7 @@ function createMarkdownViewer({
               // the note itself, so no separate note row either.
               if ((thread.messages || []).some((m) => m.author === 'agent')) {
                 insertCommentFlowElementAfterTarget(target,
-                  buildOpenThreadElement(thread, false, { skipEnvelope: true }));
+                  stampKeepKey(buildOpenThreadElement(thread, false, { skipEnvelope: true }), `thread:${thread.id}`));
                 continue;
               }
               // Awaiting the agent: the seal alone represents the edit. A note is
@@ -5614,7 +5817,7 @@ function createMarkdownViewer({
               const noteMsg = (thread.messages || []).find((m, i) => i > 0 && m.author === 'user');
               if (noteMsg) {
                 insertCommentFlowElementAfterTarget(target,
-                  buildOpenThreadElement(thread, false, { skipEnvelope: true }));
+                  stampKeepKey(buildOpenThreadElement(thread, false, { skipEnvelope: true }), `thread:${thread.id}`));
               }
               continue;
             }
@@ -5626,7 +5829,7 @@ function createMarkdownViewer({
             target.replaceWith(box);
             if ((thread.messages || []).some((m) => m.author === 'agent')) {
               box.insertAdjacentElement('afterend',
-                buildOpenThreadElement(thread, false, { skipEnvelope: true }));
+                stampKeepKey(buildOpenThreadElement(thread, false, { skipEnvelope: true }), `thread:${thread.id}`));
             } else {
               box.classList.add('md-await-agent'); // awaiting — pulse like a waiting comment
             }
@@ -5641,7 +5844,7 @@ function createMarkdownViewer({
             resolvedByBlock.get(key).threads.push(thread);
             continue;
           }
-          const el = buildOpenThreadElement(thread, !target);
+          const el = stampKeepKey(buildOpenThreadElement(thread, !target), `thread:${thread.id}`);
           // Card-on-show is buildOpenThreadElement's own condition: the
           // readback highlight exists exactly when a full card does.
           if (target && (threadNeedsUser(thread) || state.expandedThreads.has(thread.id))) {
@@ -5666,11 +5869,13 @@ function createMarkdownViewer({
           // the full card only for the one you open.
           const rows = expanded
             ? group.map((thread) => {
-              if (!state.expandedThreads.has(thread.id)) return buildResolvedThreadLine(thread);
+              if (!state.expandedThreads.has(thread.id)) {
+                return stampKeepKey(buildResolvedThreadLine(thread), `thread:${thread.id}`);
+              }
               if (target) anchorRanges.push(...createThreadAnchorRanges(target, thread));
-              return buildThreadCard(thread, !target);
+              return stampKeepKey(buildThreadCard(thread, !target), `thread:${thread.id}`);
             })
-            : [buildResolvedFoldedRow(group)];
+            : [stampKeepKey(buildResolvedFoldedRow(group), `fold:${key}`)];
           for (const row of rows) row.classList.add('md-resolved-item');
           if (!single) addResolvedFoldControl(rows[0], key, expanded);
           for (const row of rows) put(row);
@@ -5686,16 +5891,41 @@ function createMarkdownViewer({
         else window.CSS.highlights.delete('md-thread-anchor');
       } catch { /* decoration only — never block the thread render */ }
     }
+    // Blanks above the page top come back exactly as they were, so the
+    // top-preserving relayout around this render sees the top line unmoved;
+    // everything from the page top down re-seats in syncSecondaryPane.
+    restoreKeepSpacers();
     updateBottomSpacer();
     if (sync) syncSecondaryPane();
   }
 
   function closeThreadReply({ render = true } = {}) {
     if (!state.threadReply) return;
-    const { root } = state.threadReply;
+    const { root, mirror } = state.threadReply;
     state.threadReply = null;
     try { root.remove(); } catch {}
+    try { if (mirror) mirror.remove(); } catch {}
     if (render) scheduleThreadLayerRender();
+  }
+
+  // The composer grows the card in ONE article copy; the other copy's card
+  // carries a blank of the same height so the two copies stay the same
+  // height and the facing page keeps lining up. Then the card is fitted onto
+  // its page by scroll (the comment bubble's precedent), never left cut by the
+  // page bottom or thrown onto the next page by the keep-together seating.
+  function syncThreadReplyMirror() {
+    const reply = state.threadReply;
+    if (!reply || !reply.mirror) return;
+    reply.mirror.style.height = `${reply.root.getBoundingClientRect().height}px`;
+  }
+
+  function fitThreadReplyCard() {
+    const reply = state.threadReply;
+    if (!reply || !state.primaryPane) return;
+    const card = reply.root.closest ? reply.root.closest(KEEP_SELECTOR) : null;
+    if (!card) return;
+    const cardTop = getProjectedOffsetTop(card);
+    fitSpanOnPane(cardTop, cardTop + card.offsetHeight, isInSecondaryPane(card) ? 'right' : 'left');
   }
 
   function openThreadReply(card, thread) {
@@ -5704,7 +5934,11 @@ function createMarkdownViewer({
       placeholder: 'Reply...',
       rows: 2,
       onCancel: () => closeThreadReply(),
-      onInput: () => autoGrowTextarea(composer.textarea),
+      onInput: () => {
+        autoGrowTextarea(composer.textarea);
+        syncThreadReplyMirror();
+        fitThreadReplyCard();
+      },
       actions: [
         { label: 'Discard', onClick: () => closeThreadReply() },
         { label: 'Send', primary: true, title: 'Enter', onClick: () => submitThreadReply(thread, composer) },
@@ -5716,7 +5950,17 @@ function createMarkdownViewer({
     holder.className = 'md-thread-reply';
     holder.appendChild(composer.root);
     card.appendChild(holder);
-    state.threadReply = { root: holder, threadId: thread.id, composer };
+    let mirror = null;
+    const counterpart = counterpartKeepBox(card);
+    if (counterpart) {
+      mirror = document.createElement('div');
+      mirror.className = 'md-thread-reply-spacer';
+      counterpart.appendChild(mirror);
+    }
+    state.threadReply = { root: holder, threadId: thread.id, composer, mirror };
+    autoGrowTextarea(composer.textarea);
+    syncThreadReplyMirror();
+    fitThreadReplyCard();
     composer.focus();
   }
 
