@@ -14,7 +14,7 @@ What about the vendor desktop apps, which also offer a richer interface? An app 
 
 ## Why it holds
 
-This path can look hacky: the host parses text, and reacts to it. But text is the stable interface. An agent's intentions arrive as text through every turn, and good output style persists, so parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles the agents use intuitively. Enhancement is quick when something new shows up. In practice the parsing has grown well, more robust while staying flexible, without being tied to vendor SDKs or APIs.
+This path can look hacky: the host parses text, and reacts to it. But the patterns in that text are the stable interface. An agent's intentions arrive in those patterns through every turn, and its output style persists, so the parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles the agents use intuitively. Enhancement is quick when something new shows up. In practice the parsing has grown well, more robust while staying flexible, without being tied to vendor SDKs or APIs.
 
 There is also a benefit over what the vendor CLIs can do alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. With a host that reacts, the printed line alone is enough: the viewer opens right in the window, with placement and sizing optimized for the situation.
 
