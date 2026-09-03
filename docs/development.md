@@ -15,7 +15,7 @@ The former Windows installer pipeline is frozen and no longer tested. Its last-k
 | Start command | `npm run start` | `npm run start:wsl` |
 | UI end-to-end tests | Native desktop | WSLg |
 
-Windows gets taskbar buttons and live DWM previews for active sessions. macOS gets a Dock tile per session: the session color with the prompt's leading letters, the CLI's mark before the first prompt, a prompt chevron before any CLI. Each session there works best in its own full-screen space, where Mission Control shows the initial prompt pinned at the top of each window.
+Windows gets taskbar buttons and live DWM previews for active sessions. macOS gets a Dock tile per session: the session color with the prompt's leading letters, the CLI's mark before the first prompt, a prompt chevron before any CLI. The Dock label and Cmd-Tab name a process after the bundle folder it was launched through, so `npm run start` launches through an AgentTerm.app link that the build places next to the unpackaged Electron.app; the build also writes the name into the bundle's Info.plist, which titles the application menu. Each session there works best in its own full-screen space, where Mission Control shows the initial prompt pinned at the top of each window.
 
 ## macOS
 
