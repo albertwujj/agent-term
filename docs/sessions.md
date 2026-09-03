@@ -20,14 +20,14 @@ Every session is a whole OS window; there are no tabs.
 
 ![filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
-**The sessions you set aside.** A keystroke, or the Dock tile's menu on a Mac, opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your prompts and the agent's own titles; resume any of them, run what you typed as a shell command, or press Esc for a plain shell.
+**The sessions you set aside.** Right-click the taskbar button or the Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N while an AgentTerm window is in front. Either opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your prompts and the agent's own titles; resume any of them, run what you typed as a shell command, or press Esc for a plain shell.
 
 **Type `npm run start` (`start:wsl` on WSL) from your agent-term clone once.** Three ways a window comes to be, and where each starts:
 
 | Window | How it opens | Starts in |
 |---|---|---|
 | The first | `npm run start` (`start:wsl` on WSL; from any directory, with `--prefix` pointing to the agent-term source) | the directory you ran npm in |
-| Another | `Ctrl/Cmd+Shift+N` | the directory the current session's agent was started in; before a first prompt, the window's own start directory |
+| Another | right-click a taskbar button or Dock tile, or `Ctrl/Cmd+Shift+N` with an AgentTerm window in front | the directory the current session's agent was started in; before a first prompt, the window's own start directory |
 | After the last closes | spawned automatically, so you only need to run npm once | the same rule, from the window that closed |
 
 - Every new window picks up the latest source from your agent-term clone.
