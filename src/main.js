@@ -26,7 +26,7 @@ const sessionsLog = require('./sessions-log');
 const { writeFileAtomic } = require('./atomic-file');
 const guiSession = require('./gui-session');
 const lockStatus = require('./lock-status'); // pure lock-icon decision (agent-lock)
-const jobWatch = require('./job-watch'); // pure background-job monitor logic (docs/docs/job-events.md)
+const jobWatch = require('./job-watch'); // pure background-job monitor logic (docs/dev/job-events.md)
 const {
   ICON_OKLCH_L,
   ICON_OKLCH_C,
@@ -2320,7 +2320,7 @@ function createPty(cols, rows) {
       // for Terminal.app on every prompt.
       TERM_PROGRAM: 'AgentTerm',
       TERM_PROGRAM_VERSION: app.getVersion(),
-      // Session identity for the background-job contract (docs/docs/job-events.md) and
+      // Session identity for the background-job contract (docs/dev/job-events.md) and
       // for agent-lock's owner record: ordinary env inheritance scopes it to
       // this window's process tree.
       AGENT_SESSION_ID: agentSessionId,
@@ -3876,7 +3876,7 @@ function agentNoticeFor(m) {
 }
 
 // --- Background-job monitor (the job-done nudge) ---
-// Contract: docs/job-events.md; pure logic + tests: job-watch.js. Each poll
+// Contract: docs/dev/job-events.md; pure logic + tests: job-watch.js. Each poll
 // reads the spool: completion events plus start records, whose liveness the
 // same shell read resolves with kill -0. Notices are bracketed-paste
 // submissions. A completion event is delivered only to an agent that was
@@ -3889,7 +3889,7 @@ function agentNoticeFor(m) {
 // process drives the chrome bar's background-jobs indicator.
 const JOB_IDLE_MS = Number(process.env.AGENT_TERM_JOB_IDLE_MS) || 120_000;
 const JOB_POLL_MS = Number(process.env.AGENT_TERM_JOB_POLL_MS) || 60_000;
-// This window's session token (docs/job-events.md; agent-lock records it as
+// This window's session token (docs/dev/job-events.md; agent-lock records it as
 // session= in its owner file). Fresh per process, then replaced by the stored
 // one when this window resumes a recorded session, so the token means the
 // session, not the process (resumeFromSession).

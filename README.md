@@ -44,7 +44,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 **Run it.** Directly from source. Launch is fast, and you see the result of a source change right away.
 
 1. Clone: `git clone https://github.com/albertwujj/agent-term` (on Windows, into WSL's native filesystem).
-2. Install [Node.js](https://nodejs.org) if you don't have it (the [development guide](docs/development.md) covers the Windows setup).
+2. Install [Node.js](https://nodejs.org) if you don't have it (the [development guide](docs/dev/development.md) covers the Windows setup).
 3. From the clone: `npm ci` once, to install the dependencies, then `npm run start` (`npm run start:wsl` on WSL); or start from another directory (your workspace) with `--prefix` pointing at the clone ([sessions](docs/sessions.md)).
 
 The above covers the first set of features: sessions as windows with their taskbar buttons or Dock tiles, and the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
