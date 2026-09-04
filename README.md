@@ -1,4 +1,4 @@
-# Grow your own terminal for coding agents
+# Grow your own terminal for agents
 
 **Take this one as a head start.**
 
@@ -22,7 +22,7 @@ There is also a benefit over what the vendor CLIs can do alone. A CLI does not o
 
 ## Yours to grow
 
-It is yours. The agents, made better by running in this grown terminal, grow it further: when something falls short for you, the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix. That is also part of the larger point: with coding agents at your disposal, you can quickly grow your own tool to fit your own needs, which you know best. So start your own, use and build upon this repo.
+It is yours. The agents, made better by running in this grown terminal, grow it further: when something falls short for you, the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix. That is also part of the larger point: with agents at your disposal, you can quickly grow your own tool to fit your own needs, which you know best. So start your own, use and build upon this repo.
 
 ## What's added so far
 
