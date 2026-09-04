@@ -1,6 +1,6 @@
 # Open a viewer
 
-The viewer band sits above the prompt and shows what you are working on: the agent's markdown docs and its reviews, plus images, video, audio, PDFs, and local pages. It is part of the terminal, so it expands and hides on its own, and commenting works the same in every viewer ([comment](comment.md)).
+The viewer band sits above the prompt and shows what you are working on: the agent's markdown docs and its reviews ([edit](plan.md) and [comment](comment.md)), plus images, video, audio, PDFs, and local pages. It is part of the terminal, so it expands and hides on its own.
 
 Clicking what the agent prints is the usual way in ([what a click does](clicks.md)). `Ctrl/Cmd+Shift+U` opens one without a click: the list holds everything the session has shown, and typing filters it.
 
