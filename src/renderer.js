@@ -4138,7 +4138,7 @@ function showNavigationFeedback(filePath, line, result) {
   setTimeout(() => feedback.remove(), 3000);
 }
 
-// Design: See docs/maintainer/decisions.md for full rationale. Key points:
+// Design: See docs/dev/maintainer/decisions.md for full rationale. Key points:
 //
 // 1. APPEND-ONLY PROCESSING
 //    - Only process new (unprocessed) rows, never re-process

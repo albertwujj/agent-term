@@ -2,7 +2,7 @@
 
 > **Frozen historical documentation — no longer tested.** This records the Windows installer pipeline as it existed on 2026-08-24. AgentTerm now runs from the rolling `main` branch and has no application release workflow. The commands and implementation below remain as a reference, but they may gradually stop working as Electron, Node.js, native dependencies, NSIS, GitHub Releases, or Windows change.
 
-For the supported workflow, use [development.md](../dev/development.md). Do not restore the installer to a release merely because these notes still exist; doing so first requires owning and re-establishing its build and Windows validation coverage.
+For the supported workflow, use [development.md](../development.md). Do not restore the installer to a release merely because these notes still exist; doing so first requires owning and re-establishing its build and Windows validation coverage.
 
 ## Recovery starting point
 

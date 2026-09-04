@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Frozen Windows installer support. Before using or changing this path, read
-// docs/maintainer/windows-installer.md for the v0.1.15 recovery baseline and validation scope.
+// docs/dev/maintainer/windows-installer.md for the v0.1.15 recovery baseline and validation scope.
 
 const path = require('path');
 const { spawn } = require('child_process');

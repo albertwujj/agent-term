@@ -1,5 +1,5 @@
 // Strike-in-place mark engine + [Edit] envelope — the shared "edit is a
-// comment" core (docs/maintainer/md-editing-design.md). A delete strikes the text in place
+// comment" core (docs/dev/maintainer/md-editing-design.md). A delete strikes the text in place
 // (never removes it), a keystroke inserts it marked; the <del>/<ins> marks ARE
 // the edit — no diff, no reconstruction — and flatten into the [Edit] envelope
 // the agent reads (agent-threads/md/user-intent.md). Hosts: the md viewer's
@@ -16,7 +16,7 @@ function isPlainCommentKey(event) {
     && !event.isComposing;
 }
 
-// The first-key dispatch (docs/maintainer/md-editing-design.md): letters comment — a–z and
+// The first-key dispatch (docs/dev/maintainer/md-editing-design.md): letters comment — a–z and
 // A–Z alike, since an aside starts sentence-case as naturally as not. Every
 // other unmodified key edits at the caret: ⌫/Delete, Enter, arrows, digits,
 // punctuation, Space. ASCII letters only — an accented or CJK character is

@@ -2007,7 +2007,7 @@ function createMarkdownViewer({
   function hasBlockingMarkdownRefreshState() {
     // A pending edit batch freezes doc refreshes for the whole turn: the user
     // edits against the snapshot they started from, and reconciliation happens
-    // once, at handoff (docs/maintainer/md-editing-design.md, Conflicts).
+    // once, at handoff (docs/dev/maintainer/md-editing-design.md, Conflicts).
     return !!state.activeCard || state.queuedComments.length > 0 || !!state.threadReply
       || !!state.editing || state.blockOverlays.size > 0;
   }
@@ -4292,7 +4292,7 @@ function createMarkdownViewer({
     return true;
   }
 
-  // --- Editing core (docs/maintainer/md-editing-design.md): a user edit is a comment. Marks
+  // --- Editing core (docs/dev/maintainer/md-editing-design.md): a user edit is a comment. Marks
   // strike in place over the FROZEN rendered block; the file on disk is truth
   // and is never rewritten. The marked overlay (state.blockOverlays, keyed by
   // the block's stable anchorId) is the single source of truth for both the
@@ -4506,7 +4506,7 @@ function createMarkdownViewer({
     setCaretWithin(el, offset + text.length);
   }
 
-  // Direct editing on the rendered block (docs/maintainer/md-editing-design.md, edit on
+  // Direct editing on the rendered block (docs/dev/maintainer/md-editing-design.md, edit on
   // rendered): the typeset text itself is the editing surface. The entry
   // key acts at the click caret; from there the browser owns typing (IME
   // included). Only plain text may enter — paste is text-only, rich and
@@ -6379,7 +6379,7 @@ function createMarkdownViewer({
       }
     }
     // Hold the click position; it materializes as the editor caret on the
-    // first editing key (docs/maintainer/md-editing-design.md). Surface it as a blinking
+    // first editing key (docs/dev/maintainer/md-editing-design.md). Surface it as a blinking
     // caret so the edit start point is visible before you type.
     state.pendingClickCaret = null;
     try {
