@@ -1,0 +1,9 @@
+# Open a viewer
+
+The viewer band sits above the prompt and shows what you are working on: the agent's markdown docs and its reviews, plus images, video, audio, PDFs, and local pages. It is part of the terminal, so it expands and hides on its own, and commenting works the same in every viewer ([comment](comment.md)).
+
+Clicking what the agent prints is the usual way in ([what a click does](clicks.md)). `Ctrl/Cmd+Shift+U` opens one without a click: the list holds everything the session has shown, and typing filters it.
+
+Typing also reaches past the session. A long session scrolls its early work away, a resumed one comes back with only part of its transcript, and a file the agent never mentioned was never in the list at all. Type a name and nearby files are searched too, so anything the band renders is a few letters away.
+
+`Ctrl/Cmd+Shift+O` puts the band away and brings it back, `+I` switches the open band between its two heights, and `Esc` hides it.
