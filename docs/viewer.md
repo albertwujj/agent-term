@@ -6,4 +6,4 @@ Clicking what the agent prints is the usual way in ([what a click does](clicks.m
 
 Typing also reaches past the session. A long session scrolls its early work away, a resumed one comes back with only part of its transcript, and a file the agent never mentioned was never in the list at all. Type a name and nearby files are searched as well, so you can still open it.
 
-`Ctrl/Cmd+Shift+O` puts the band away and brings it back, `+I` switches the open band between its two heights, and `Esc` hides it.
+`Ctrl/Cmd+Shift+O` hides the band and shows it again, `+I` switches between its two sizes, and `Esc` also hides it.
