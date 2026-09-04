@@ -89,6 +89,9 @@ contextBridge.exposeInMainWorld('pty', {
   // a renderer hang/reload. Callers send only state/timing metadata, never
   // terminal contents or typed keys.
   reportDiagnostic: (message) => ipcRenderer.send('renderer-diagnostic', message),
+  // Asks main to force a repaint. Only the paint watchdog calls this, and only
+  // after frames have measurably stopped arriving for a visible window.
+  requestRepaint: () => ipcRenderer.send('renderer-request-repaint'),
   // Get real filesystem path from a dropped File object (Electron 33+ removed file.path)
   getPathForFile: (file) => webUtils.getPathForFile(file),
   // ---- Sessions picker ----

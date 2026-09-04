@@ -1035,6 +1035,32 @@ const RENDERER_LOOP_SAMPLE_MS = 250;
 const RENDERER_LOOP_DELAY_LOG_MS = 500;
 let rendererLoopExpectedAt = performance.now() + RENDERER_LOOP_SAMPLE_MS;
 let rendererVisibilityChangedAt = performance.now();
+// Two blind spots the loop check cannot see, both of which reach the user as a
+// frozen window while every timer above keeps running normally.
+//
+// Frames: a healthy loop says nothing about whether this window can still get
+// one on screen. The probe rides the same tick and keeps a single
+// requestAnimationFrame outstanding, so it costs at most four a second rather
+// than a permanent 60Hz loop; a probe that goes unserved while the document is
+// visible means the compositor stopped presenting this window.
+const PAINT_STALL_MS = 2000;
+// A stalled window is nudged rather than only reported: main forces a repaint,
+// which is what dragging the window to a new size does by hand. Attempts are
+// capped per streak so a stall nothing can fix does not retry or log forever.
+const PAINT_REPAINT_RETRY_MS = 2000;
+const PAINT_REPAINT_MAX_ATTEMPTS = 3;
+let paintProbeRequestedAt = null;
+let paintStallLogged = false;
+let paintRepaintAttempts = 0;
+let paintRepaintRequestedAt = 0;
+// Focus: a terminal whose keys land in a composer textarea or a viewer guest is
+// keyboard-dead and reads as frozen with nothing else out of place. Transitions
+// are logged once they settle, so the log can say where the keystrokes were
+// going at the moment the user says the window stopped responding.
+const FOCUS_DWELL_MS = 1000;
+let lastLoggedFocusLabel = 'none';
+let pendingFocusLabel = 'none';
+let pendingFocusSince = performance.now();
 setInterval(() => {
   const observedAt = performance.now();
   const delayMs = observedAt - rendererLoopExpectedAt;
@@ -1044,6 +1070,47 @@ setInterval(() => {
     reportRendererDiagnostic('event-loop delayed=' + Math.round(delayMs) +
       'ms outputFrozen=' + terminalOutputFrozen +
       ' focus=' + activeElementDiagnosticLabel());
+  }
+  if (paintProbeRequestedAt === null) {
+    const requestedAt = observedAt;
+    paintProbeRequestedAt = requestedAt;
+    requestAnimationFrame(() => {
+      paintProbeRequestedAt = null;
+      if (!paintStallLogged) return;
+      paintStallLogged = false;
+      reportRendererDiagnostic('paint resumed after=' +
+        Math.round(performance.now() - requestedAt) + 'ms' +
+        ' repaintsRequested=' + paintRepaintAttempts +
+        ' focus=' + activeElementDiagnosticLabel());
+      paintRepaintAttempts = 0;
+    });
+  } else if (observedAt - paintProbeRequestedAt >= PAINT_STALL_MS) {
+    if (!paintStallLogged) {
+      paintStallLogged = true;
+      reportRendererDiagnostic('paint stalled for=' +
+        Math.round(observedAt - paintProbeRequestedAt) +
+        'ms outputFrozen=' + terminalOutputFrozen +
+        ' focus=' + activeElementDiagnosticLabel());
+    }
+    if (paintRepaintAttempts < PAINT_REPAINT_MAX_ATTEMPTS &&
+        observedAt - paintRepaintRequestedAt >= PAINT_REPAINT_RETRY_MS) {
+      paintRepaintAttempts++;
+      paintRepaintRequestedAt = observedAt;
+      try {
+        if (window.pty && typeof window.pty.requestRepaint === 'function') {
+          window.pty.requestRepaint();
+        }
+      } catch {}
+    }
+  }
+  const focusLabel = activeElementDiagnosticLabel();
+  if (focusLabel !== pendingFocusLabel) {
+    pendingFocusLabel = focusLabel;
+    pendingFocusSince = observedAt;
+  } else if (focusLabel !== lastLoggedFocusLabel &&
+             observedAt - pendingFocusSince >= FOCUS_DWELL_MS) {
+    reportRendererDiagnostic('focus ' + lastLoggedFocusLabel + ' -> ' + focusLabel);
+    lastLoggedFocusLabel = focusLabel;
   }
 }, RENDERER_LOOP_SAMPLE_MS);
 // A hidden window is throttled by Chromium on purpose, so the delay carried
@@ -1057,6 +1124,12 @@ document.addEventListener('visibilitychange', () => {
     ' after=' + Math.round(now - rendererVisibilityChangedAt) + 'ms');
   rendererVisibilityChangedAt = now;
   rendererLoopExpectedAt = now + RENDERER_LOOP_SAMPLE_MS;
+  // requestAnimationFrame does not run for a hidden document, so a probe left
+  // outstanding across the transition would read as a paint stall on the way
+  // back. Drop it and let the next tick request a fresh one.
+  paintProbeRequestedAt = null;
+  paintStallLogged = false;
+  paintRepaintAttempts = 0;
 });
 
 function writeTerminalOutput(data) {

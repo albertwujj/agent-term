@@ -2458,8 +2458,38 @@ ipcMain.on('stream:buffer-flip', (event, payload) => {
 // Renderer-side timing/state evidence belongs in the persistent main-process
 // log. Accept it only from this window's trusted preload and cap it so neither
 // an accidental stack nor page content can turn diagnostics into log volume.
-ipcMain.on('renderer-diagnostic', (event, message) => {
+// The compositor can stop issuing frames to a window while the document still
+// reports itself visible: timers keep running, input is still processed, and
+// nothing is ever drawn, so the window reads as frozen and typing looks dead
+// while the shell underneath is fine. Resizing the window rebuilds the surface
+// and everything appears at once, which is the user-side workaround this
+// replaces. The renderer's paint watchdog measures the missing frames; main
+// forces the repaint, because invalidate() is not reachable from the renderer.
+ipcMain.on('renderer-request-repaint', (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  try {
+    mainWindow.webContents.invalidate();
+    log('[paint] forced a repaint after the renderer measured stalled frames');
+  } catch (err) {
+    log('[paint] forced repaint failed: ' + (err && err.message));
+  }
+});
+
+let droppedDiagnosticLogged = false;
+ipcMain.on('renderer-diagnostic', (event, message) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    // A diagnostic from a <webview> guest or a window being torn down is not
+    // this window's health, so it is still dropped. Dropping it silently made a
+    // window that could not report indistinguishable from one with nothing to
+    // report, and that is the state a window's whole log sits in when it goes
+    // mute: the drop now leaves one line behind.
+    if (!droppedDiagnosticLogged) {
+      droppedDiagnosticLogged = true;
+      diskLog('[renderer-diag] dropped a diagnostic from a non-main sender' +
+        (mainWindow ? '' : ' (no main window)'));
+    }
+    return;
+  }
   if (typeof message !== 'string') return;
   const clean = message.replace(/[\r\n\x00-\x1f\x7f]+/g, ' ').trim().slice(0, 1000);
   if (!clean) return;
