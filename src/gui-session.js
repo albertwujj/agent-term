@@ -26,6 +26,11 @@ const CACHE_MS = 5000;
 
 let cache = null;         // { value, at }
 let probeFailureLogged = false;
+// Why the last probe came back null. A blind probe is what keeps a ghost
+// alive — "unknown" never reaps — so the reason has to outlive the call:
+// console output goes to the launching terminal, which for a ghost died with
+// its compositor. main.js reads this into the disk log instead.
+let lastProbeError = null;
 
 // One process spawn each for the pid and its start time; both outputs are a
 // single short line. Called at most once per CACHE_MS via currentGuiSession.
@@ -35,16 +40,24 @@ function readGuiSession() {
     const pid = execFileSync('/usr/bin/pgrep', ['-x', 'WindowServer'], {
       encoding: 'utf8', timeout: 2000,
     }).split('\n')[0].trim();
-    if (!/^\d+$/.test(pid)) return null;
+    if (!/^\d+$/.test(pid)) {
+      lastProbeError = `pgrep gave no WindowServer pid (${JSON.stringify(pid)})`;
+      return null;
+    }
     const started = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', pid], {
       encoding: 'utf8', timeout: 2000,
     }).trim();
-    if (!started) return null;
+    if (!started) {
+      lastProbeError = `ps gave no start time for pid ${pid}`;
+      return null;
+    }
+    lastProbeError = null;
     return `ws:${pid}:${started}`;
   } catch (err) {
+    lastProbeError = (err && err.message) ? err.message : String(err);
     if (!probeFailureLogged) {
       probeFailureLogged = true;
-      console.warn('[gui-session] WindowServer probe failed, falling back to pid+boot liveness only:', err && err.message);
+      console.warn('[gui-session] WindowServer probe failed, falling back to pid+boot liveness only:', lastProbeError);
     }
     return null;
   }
@@ -69,5 +82,6 @@ module.exports = {
   readGuiSession,
   currentGuiSession,
   resetCache,
+  lastProbeError: () => lastProbeError,
   CACHE_MS,
 };

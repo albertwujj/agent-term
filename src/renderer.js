@@ -1034,6 +1034,7 @@ function activeElementDiagnosticLabel() {
 const RENDERER_LOOP_SAMPLE_MS = 250;
 const RENDERER_LOOP_DELAY_LOG_MS = 500;
 let rendererLoopExpectedAt = performance.now() + RENDERER_LOOP_SAMPLE_MS;
+let rendererVisibilityChangedAt = performance.now();
 setInterval(() => {
   const observedAt = performance.now();
   const delayMs = observedAt - rendererLoopExpectedAt;
@@ -1045,8 +1046,17 @@ setInterval(() => {
       ' focus=' + activeElementDiagnosticLabel());
   }
 }, RENDERER_LOOP_SAMPLE_MS);
+// A hidden window is throttled by Chromium on purpose, so the delay carried
+// across the transition says nothing about the loop's health and is dropped.
+// The transition itself is logged: hidden is the one state the watchdog above
+// stays deliberately silent through, so without this line a window the user
+// reports as frozen and a healthy backgrounded one leave the same empty trace.
 document.addEventListener('visibilitychange', () => {
-  rendererLoopExpectedAt = performance.now() + RENDERER_LOOP_SAMPLE_MS;
+  const now = performance.now();
+  reportRendererDiagnostic('visibility ' + document.visibilityState +
+    ' after=' + Math.round(now - rendererVisibilityChangedAt) + 'ms');
+  rendererVisibilityChangedAt = now;
+  rendererLoopExpectedAt = now + RENDERER_LOOP_SAMPLE_MS;
 });
 
 function writeTerminalOutput(data) {

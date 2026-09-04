@@ -1716,19 +1716,38 @@ function exitAsSuperseded(reason) {
 // An unknown probe never exits, since a live window must not die on a failed
 // pgrep; it is logged once per streak so a ghost probing blind still leaves a
 // trace in the disk log.
-let probeUnknownLogged = false;
+// A blind probe never reaps: "unknown" is not "changed". Both blind states are
+// re-logged on an interval rather than once, because a ghost's signature is a
+// probe that stays blind for hours, and a single line at the start of that
+// streak reads exactly like a one-off failure during a compositor restart.
+const PROBE_BLIND_RELOG_MS = 10 * 60 * 1000;
+let probeBlindLoggedAt = 0;
+function logProbeBlind(what) {
+  const now = Date.now();
+  if (now - probeBlindLoggedAt < PROBE_BLIND_RELOG_MS) return;
+  probeBlindLoggedAt = now;
+  const why = guiSession.lastProbeError();
+  log('[main] ' + what + (why ? ' (' + why + ')' : ''));
+}
+
 function checkGuiSessionAlive() {
   const own = getOwnGuiSession();
-  if (!own) return false;                        // unstamped platform — nothing to compare
-  const current = guiSession.currentGuiSession();
-  if (!current) {
-    if (!probeUnknownLogged) {
-      probeUnknownLogged = true;
-      log('[main] compositor probe returned nothing; own stamp ' + own);
+  if (!own) {
+    // Off macOS nothing is stamped and there is nothing to compare. On macOS it
+    // means the probe failed at window creation, so this window can never
+    // certify itself. The stamp is deliberately not re-read later: adopting the
+    // current compositor is exactly how a ghost would certify itself as live.
+    if (process.platform === 'darwin') {
+      logProbeBlind('no compositor stamp from startup; ghost detection is off for this window');
     }
     return false;
   }
-  probeUnknownLogged = false;
+  const current = guiSession.currentGuiSession();
+  if (!current) {
+    logProbeBlind('compositor probe returned nothing; own stamp ' + own);
+    return false;
+  }
+  probeBlindLoggedAt = 0;
   if (current === own) return false;
   exitAsGhost('compositor session changed (' + own + ' -> ' + current + ')');
   return true;
@@ -1948,6 +1967,14 @@ function createWindow() {
       // page viewer for plain-clicked URLs). The guest keeps its own isolated
       // context (contextIsolation on, nodeIntegration off) by default.
       webviewTag: true,
+      // Every window is a live terminal: an agent keeps streaming into it
+      // whether or not it is the front window, and the user watches several
+      // at once. Chromium's default throttles a backgrounded renderer's
+      // timers to ~1/minute and stops its frames, which stalls output and
+      // leaves the renderer's pages cold enough to be swapped out — on a
+      // memory-tight machine, clicking back into such a window then blocks
+      // on faulting tens of MB in from swap and reads as a freeze.
+      backgroundThrottling: false,
     },
   });
 
