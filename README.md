@@ -24,7 +24,7 @@ It is yours. The agents, made better by running in this grown terminal, grow it 
 
 ## What's added so far
 
-These are the main ones. Each row links to a page that shows it working, and those pages lead on to the rest.
+These are the main ones. Follow the links to see an overview of more features omitted here.
 
 | In a standard terminal | In this grown terminal |
 |---|---|
