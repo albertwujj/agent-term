@@ -10,7 +10,7 @@ People run coding agents in an IDE, in the terminal, or in the vendor's desktop 
 
 So why do people still run agents in the IDE, and why are the vendors adding their agents to desktop apps? Partly because the standard terminal interface (TUI), although great for text-centric iteration, cannot offer agents and users the essentials and the boosts a richer interface can. One answer is to move the agent out, into an app built around it. The other is to treat the terminal as the core and extend it. This repo is the second path: a full terminal wrapped in a modern extensible window (Electron), retaining everything you already have and raising the ceiling.
 
-Extending it on demand is what keeps it a terminal. What you are working on comes in when you need it and goes when you are done, so the window is a terminal again the moment you finish. An IDE cannot offer that, since its chrome is there before you type.
+Extending it on demand is what keeps it a terminal. What you are working on comes in when you need it and goes when you are done, so the window is a terminal again the moment you finish. An IDE does not do that, as irrelevant things are already there before you type.
 
 What about the vendor desktop apps, which also offer a richer interface? An app built around one vendor's agent trades away key benefits, including the other agents and the closeness to your shell environment. For coding it can also disorient, adding a workspace of its own between you and the code; many who try it drift back to the terminal, where the familiar, the continuity, the repo, the shell, and the tests already live. The grown terminal here keeps all of that and adds a lot more.
 
