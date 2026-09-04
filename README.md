@@ -24,6 +24,8 @@ It is yours. The agents, made better by running in this grown terminal, grow it 
 
 ## What's added so far
 
+Each row links to a page that shows it working.
+
 | In a standard terminal | In this grown terminal |
 |---|---|
 | Several agents running means identical tabs outside, walls of text inside. | Each session gets its own **[unique taskbar button or Dock tile](docs/sessions.md)** (with a preview on Windows), so you tell them apart at a glance, and the picker searches instantly, down to every prompt you typed and more. |
