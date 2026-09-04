@@ -1,8 +1,8 @@
 # Grow your own terminal for coding agents
 
-**Jump-start with this repo and its suite.**
+**Take this one as is, or grow it further.**
 
-![the walk in stills, one feature per row of the table below](docs/assets/hero-walk.gif)
+![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
 
 ## The terminal path
 
