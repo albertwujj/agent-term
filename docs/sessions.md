@@ -16,7 +16,9 @@ Every session is a whole OS window; there are no tabs.
 <br><sub>On a Mac: one Dock tile per session, among the other apps.</sub>
 </p>
 
-**The sessions you are juggling.** On Windows each sits in the taskbar as its own button, generated from the session's initial prompt: the label never changes, so you can memorize it, and its color is locked to the session, distinct and calm. The button carries a working indicator and a preview showing what the session is for and what it is doing, to help you recognize and pick it. On a Mac each session is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent is working. A tile like "I'd" looks thin at first, but color and letters together become familiar within a few uses, the way an app icon does. Cmd-Tab shows the same tiles, and if you run each session full screen, a Mission Control swipe shows every session, readable, its initial prompt pinned at the top.
+**The sessions you are juggling.** On Windows each sits in the taskbar as its own button, generated from the session's initial prompt: the label never changes, so you can memorize it, and its color is locked to the session, distinct and calm. The button carries a working indicator and a preview showing what the session is for and what it is doing, to help you recognize and pick it.
+
+On a Mac each session is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent is working. A tile like "I'd" looks thin at first, but color and letters together become familiar within a few uses, the way an app icon does. Cmd-Tab shows the same tiles, and if you run each session full screen, a Mission Control swipe shows every session, readable, its initial prompt pinned at the top.
 
 ![filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
