@@ -556,7 +556,7 @@ function extractPathsAndUrls(text) {
   });
   // A bare workflow reference followed by one URL is an invocation shape,
   // not a prose identity. Prefer the target's compact leaf so prompts such as
-  // "@ai/gerrit/pr-review.md https://.../10427036" become "10427036": the
+  // "@ai/tasks/fix-ticket.md https://.../10427036" become "10427036": the
   // icon can carry "104" and the adjacent title can carry "27036".
   const invocation = text.match(/^\s*@[^\s@\/`'"]+\/[^\s`'"]+\s+(https?:\/\/[^\s`'"]+)\s*$/i);
   if (invocation) {
