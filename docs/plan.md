@@ -10,9 +10,7 @@ Editing goes beyond word swaps: start new lines anywhere in the rendered page, a
 
 ![a long changed paragraph: a bar in the margin marks the block, and hovering shows the exact words that changed](assets/change-highlight.png)
 
-You can also see what the agent changed. A block it edits pulses when the change arrives, then settles into a thin bar in the margin. The bar stays small on purpose, so a doc with many changes is still easy to read. Hover the block and the exact words show: green where text was added, blue on the text beside a deletion, because deleted text cannot be shown in place. The two marks answer different questions. The bar tells you which block changed. Hovering tells you which part changed, which is what you need when the block is six lines long and only three words moved.
-
-The bars fade as you send, not as time passes. What changed since your last send is the strongest green, one send back is paler, two sends back is fainter still, and anything older is no longer marked. Every edit the agent makes between two of your sends stays at full strength, so a run of edits cannot hide its own first change before you have seen it.
+You can also see what the agent changed. A bar in the margin marks each block it edited. Hover one and the exact words show, green for added text and blue beside a deletion, which is what you want when the block is long and only a few words changed. The bars fade over your next few sends.
 
 When a draft is ready to go out, one button copies it, or just the section under a heading, as plain text for Teams or email, or as markdown for GitHub ([copy a doc into a message](copy.md)).
 
