@@ -12,6 +12,6 @@ The rule is shaped for commenting. Selecting output to comment on it is the most
 
 Inside the md viewer, a plain click on a link arms the block under it for a comment; `Ctrl/Cmd`-click follows the link.
 
-Nothing has to be clicked to be read: `Ctrl/Cmd+Shift+U` opens a viewer from a list, and finds files the session never printed ([open a viewer](viewer.md)).
+You don't have to scroll back for a link the agent printed: `Ctrl/Cmd+Shift+U` opens a viewer from a list, and typing finds files that never appeared in the terminal ([open a viewer](viewer.md)).
 
 **The one thing to remember:** if a plain click does not do what you want, `Ctrl/Cmd`-click it.
