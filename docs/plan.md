@@ -6,7 +6,7 @@ The viewer turns markdown into a place you write English. A doc opens rendered a
 
 And English is where the real planning happens: much of a design is settled in words before any code. A plan converges here the way code does: commented, revised in place, settled before anything is built. The same loop covers any writing project (essays, notes, research), with your materials organized as a repo the agent edits for you.
 
-It reads as a book: two pages side by side, serif type, short lines. Pages turn rather than scroll, so nothing slides under you mid-sentence, and facing pages overlap by a line so none is lost at the seam.
+It reads as a book: two pages side by side, short lines. Pages turn rather than scroll.
 
 Editing goes beyond word swaps: start new lines anywhere in the rendered page, and the agent decides what each becomes in the source (a heading, a list item, a paragraph). Your edits reach it as suggestions; it applies the intent.
 
