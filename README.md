@@ -1,6 +1,6 @@
 # Grow your own terminal for coding agents
 
-**Take this one as is, or grow it further.**
+**Take this one as a head start.**
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
 
