@@ -79,7 +79,7 @@ const {
   wslCommandArgs,
   wslShellArgs,
 } = require('./wsl-launch');
-const { WSL_COMMAND_HELPER, WslCommandRunner } = require('./wsl-command-runner');
+const { WslCommandRunner, helperBootstrap } = require('./wsl-command-runner');
 const { requireSourceStartCwd } = require('./source-start-cwd');
 
 // Anchor for the very first session ever (when there are no other live
@@ -3108,12 +3108,10 @@ let wslCommandRunner = null;
 
 function getWslCommandRunner() {
   if (!wslCommandRunner) {
-    const helperB64 = Buffer.from(WSL_COMMAND_HELPER, 'utf8').toString('base64');
-    const bootstrap = `echo ${helperB64} | base64 -d | bash`;
     wslCommandRunner = new WslCommandRunner({
       spawn,
       command: 'wsl',
-      args: wslCommandArgs(['bash', '-lc', bootstrap]),
+      args: wslCommandArgs(['bash', '-lc', helperBootstrap()]),
       spawnOptions: { windowsHide: true, env: process.env },
       onDiagnostic: (message) => log(`[wsl-helper] ${message}`),
     });

@@ -3,6 +3,13 @@
 const WSL_COMMAND_HELPER = String.raw`set +e
 umask 077
 
+# The bootstrap materializes this script in a temp file (see helperBootstrap):
+# bash must read the SCRIPT from a file so that stdin stays free for the REQUEST
+# stream below. Drop the file now that bash holds it open. $0 is the shell's own
+# name, not a path, when the script is passed inline instead, so only an
+# absolute path is removed.
+case "$0" in /*) rm -f -- "$0" ;; esac
+
 while IFS=$'\t' read -r request_id duration command_b64; do
   case "$request_id" in
     ''|*[!0-9]*) continue ;;
@@ -34,6 +41,20 @@ while IFS=$'\t' read -r request_id duration command_b64; do
   rm -rf -- "$request_dir"
 done
 `;
+
+// How the helper is launched. The helper reads its REQUESTS from stdin, so bash
+// must not read its SCRIPT from there too: `… | base64 -d | bash` hands bash the
+// decode pipe as stdin, the loop's first read hits EOF, and the helper exits 0
+// having served nothing. Writing the script to a file and exec-ing it keeps
+// stdin as the protocol channel, and `exec` keeps the helper as the runner's
+// direct child so child.kill() reaches it rather than a wrapper.
+//
+// The payload stays an opaque base64 token because wsl.exe re-splits a complex
+// `-lc <script>` by its own rules and mangles it silently (exit 0, no stderr).
+function helperBootstrap(script = WSL_COMMAND_HELPER) {
+  const b64 = Buffer.from(script, 'utf8').toString('base64');
+  return `f=$(mktemp) && echo ${b64} | base64 -d > "$f" && exec bash "$f"`;
+}
 
 function transportBackoffMs(failureCount) {
   return Math.min(60_000 * (2 ** Math.max(0, failureCount - 1)), 300_000);
@@ -248,5 +269,6 @@ class WslCommandRunner {
 module.exports = {
   WSL_COMMAND_HELPER,
   WslCommandRunner,
+  helperBootstrap,
   transportBackoffMs,
 };

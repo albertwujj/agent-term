@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const test = require('node:test');
 const {
-  WSL_COMMAND_HELPER,
   WslCommandRunner,
+  helperBootstrap,
   transportBackoffMs,
 } = require('../src/wsl-command-runner');
 
@@ -15,8 +15,11 @@ function localRunner(t, onStart = () => {}) {
       onStart();
       return spawn(command, args, options);
     },
+    // The bootstrap production uses, not the bare script: passing the script
+    // as an argument leaves stdin free, which is the one thing the real launch
+    // has to get right and once did not.
     command: 'bash',
-    args: ['-c', WSL_COMMAND_HELPER],
+    args: ['-lc', helperBootstrap()],
   });
   t.after(() => runner.close());
   return runner;
