@@ -61,6 +61,7 @@ const { rebuildRuntimeBundles } = require('./runtime-build');
 const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
 const { cleanAiTitle, aiTitleDedupeKey, isConversationTitle, aiCliLaunchCommand } = require('./ai-title');
+const { aiCliRendererEnv } = require('./cli-renderer-env');
 const { isReviewPackagePath } = require('./review-package-path');
 const { DISK_LIST_PY, DISK_TIER_CAP, diskTiers } = require('./viewer-disk-search');
 const { DISK_SEARCH_EXTENSIONS } = require('./band-viewable');
@@ -2336,6 +2337,9 @@ function shellStartCwd() {
 
 function createPty(cols, rows) {
   const shell = getShell();
+  // Ask an AI CLI for its classic renderer, unless the user has said
+  // otherwise — see cli-renderer-env.js for why, and for the off switch.
+  const rendererEnv = aiCliRendererEnv(process.env);
 
   ptyProcess = pty.spawn(shell, process.platform === 'win32' ? wslShellArgs() : [], {
     name: 'xterm-256color',
@@ -2355,12 +2359,14 @@ function createPty(cols, rows) {
       // for agent-lock's owner record: ordinary env inheritance scopes it to
       // this window's process tree.
       AGENT_SESSION_ID: agentSessionId,
+      ...rendererEnv,
       // Windows env does not cross into WSL by default; WSLENV lists the
-      // variables that do.
+      // variables that do. The renderer request is only listed when we made
+      // one, so a user's own setting is not shadowed by an empty entry.
       ...(process.platform === 'win32'
         ? {
-          WSLENV: [process.env.WSLENV, 'AGENT_SESSION_ID', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION']
-            .filter(Boolean).join(':'),
+          WSLENV: [process.env.WSLENV, 'AGENT_SESSION_ID', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION',
+            ...Object.keys(rendererEnv)].filter(Boolean).join(':'),
         }
         : {}),
     },
