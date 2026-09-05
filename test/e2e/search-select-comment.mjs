@@ -35,7 +35,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function main() {
   const app = await electron.launch({
     executablePath: ELECTRON_BIN,
-    args: ['--no-sandbox', APP_DIR],
+    // findRowRect below reads row text out of `.xterm-rows`, and only the DOM
+    // renderer puts text there. With WebGL up those rows are empty and the
+    // drag has no coordinates to run between. Denying the GPU makes
+    // WebglAddon fail to load and the renderer falls back to the DOM on its
+    // own — the documented path it already takes on context loss. What this
+    // file asserts is where a drag lands and what the selection does with it,
+    // never how a cell is painted, so either substrate serves.
+    args: ['--no-sandbox', '--disable-gpu', APP_DIR],
     timeout: 45_000,
   });
   const page = await app.firstWindow();

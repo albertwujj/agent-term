@@ -17,7 +17,8 @@
 //   6. a plain drag never freezes while the app owns the mouse — the gesture is
 //      the app's, and no local selection can come of it.
 //   7. Cmd/Ctrl+C with the live selection already cleared copies the armed
-//      snapshot (and disarms) instead of falling through to the shell.
+//      snapshot (and disarms) instead of falling through to the shell — on
+//      the platforms that bind a copy shortcut at all, so macOS and Windows.
 //
 // Run: npm run test:e2e   (builds the renderer first, then this)
 
@@ -122,15 +123,31 @@ async function main() {
     check('pill survives the mouse move', await pillShown());
     check('stand-in highlight marks the cleared selection', await standInShown());
 
+    // Which key copies is a per-platform question, because in a terminal
+    // Ctrl+C is already SIGINT. macOS has a spare modifier, so copy is Cmd+C
+    // and Ctrl+C is left alone. Windows has no such modifier and follows the
+    // console rule instead: Ctrl+C copies only while something is selected,
+    // otherwise it interrupts. Linux terminals settled the same clash the
+    // third way, moving copy to Ctrl+Shift+C, so the app binds nothing for
+    // bare Ctrl+C there — see the platform branches in terminal-keyboard.js.
+    // AgentTerm ships macOS and Windows; run from inside WSL this is a linux
+    // Electron, where there is no shortcut to exercise.
+    const copyKey = process.platform === 'darwin' ? 'Meta+KeyC'
+      : process.platform === 'win32' ? 'Control+KeyC'
+      : null;
     console.log('7 — Cmd/Ctrl+C copies the armed snapshot once the live selection is gone');
-    await focusTerm();
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+KeyC' : 'Control+KeyC');
-    await sleep(300);
-    const copied = await app.evaluate(({ clipboard }) => clipboard.readText());
-    check('clipboard holds the selected text', copied.trim().length > 3
-      && 'line N: the quick brown fox jumps over the lazy dog'.includes(copied.trim().replace(/\d+/g, 'N')));
-    await page.waitForFunction(() => !document.querySelector('.terminal-comment-selection-hint'), { timeout: 3_000 }).catch(() => {});
-    check('copying disarms the pill', !(await pillShown()));
+    if (!copyKey) {
+      console.log(`  — skipped: no copy shortcut is bound on ${process.platform}`);
+    } else {
+      await focusTerm();
+      await page.keyboard.press(copyKey);
+      await sleep(300);
+      const copied = await app.evaluate(({ clipboard }) => clipboard.readText());
+      check('clipboard holds the selected text', copied.trim().length > 3
+        && 'line N: the quick brown fox jumps over the lazy dog'.includes(copied.trim().replace(/\d+/g, 'N')));
+      await page.waitForFunction(() => !document.querySelector('.terminal-comment-selection-hint'), { timeout: 3_000 }).catch(() => {});
+      check('copying disarms the pill', !(await pillShown()));
+    }
 
     // Re-arm for the typing flow.
     await page.keyboard.down('Shift');

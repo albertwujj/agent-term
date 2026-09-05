@@ -37,7 +37,14 @@ function check(name, cond, detail) {
 async function main() {
   const app = await electron.launch({
     executablePath: ELECTRON_BIN,
-    args: ['--no-sandbox', APP_DIR],
+    // wordTarget below finds its click point by walking text nodes under
+    // `.xterm-rows`, and only the DOM renderer puts text there. With WebGL up
+    // those rows are empty and every target comes back null. Denying the GPU
+    // makes WebglAddon fail to load and the renderer falls back to the DOM on
+    // its own — the documented path it already takes on context loss. Nothing
+    // here asserts how a cell is painted, only where a click lands and what
+    // the app does with it, so the substrate is free to be either one.
+    args: ['--no-sandbox', '--disable-gpu', APP_DIR],
     timeout: 45_000,
   });
   const page = await app.firstWindow();
