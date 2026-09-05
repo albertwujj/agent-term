@@ -3723,6 +3723,23 @@ function wslUncToPosix(text) {
   return text.replace(WSL_UNC_PREFIX, '').replace(/\\/g, '/');
 }
 
+// The other Windows shape the same output prints: a drive path for a file on
+// the Windows side of the machine, C:\Temp\out\ or C:/Temp/out. The drive is
+// mounted in the WSL the terminal runs in, so the POSIX form is /mnt/c/Temp/out
+// — the same conversion drag-and-drop and the clipboard image already make —
+// and from there it is an ordinary path: a folder opens in Explorer, a file in
+// its default app.
+// A trailing separator goes, since a directory is named without one everywhere
+// downstream (`find` prints it bare, and the suffix search compares against
+// that). The mount prefix is what keeps that safe: the shortest result is the
+// drive root, /mnt/c, never the empty string.
+const WINDOWS_DRIVE_PREFIX = /^([A-Za-z]):[\\/]/;
+function windowsDrivePathToPosix(text) {
+  return text.replace(WINDOWS_DRIVE_PREFIX, (_, drive) => `/mnt/${drive.toLowerCase()}/`)
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '');
+}
+
 const HTML_EXTENSIONS = /\.(?:html?|xhtml)$/i;
 function isHtmlDocumentPath(text) {
   return HTML_EXTENSIONS.test(String(text || ''));
@@ -3760,6 +3777,32 @@ async function openFileInViewerBand(filePath) {
 // included because it already means "choose among all matches" before opening.
 function fileWantsOsHandoff(mod) {
   return !!(mod && (mod.ctrlKey || mod.metaKey || mod.altKey));
+}
+
+// Dispatch for the two Windows path shapes the terminal claims whole — a WSL
+// UNC path and a drive path. Both arrive spelled in backslashes and both are
+// reachable from the shell once converted, so they differ only in `toPosix`;
+// what happens after is the ordinary path dispatch, held here so the two
+// patterns cannot drift into two answers for the same click. A resource opens
+// the way a resource does anywhere (the band renders what it can, a modifier
+// hands it to the OS, alt chooses first); everything else — a folder, a source
+// file — goes to navigateToFileLine, which lands a folder in Explorer.
+async function openWindowsPathMatch(match, options, toPosix) {
+  const normalized = normalizeNavigablePath(match.text);
+  if (!normalized) return;
+  const posix = toPosix(normalized);
+  if (RESOURCE_EXTENSIONS.test(posix)) {
+    const mod = (options && options.modifiers) || {};
+    if (isBandFilePath(posix) && !fileWantsOsHandoff(mod)) {
+      if (await openFileInViewerBand(posix)) return;
+    }
+    const result = await openResourceChoosing(posix, { forceChoose: !!mod.altKey });
+    if (result && !result.success && !result.dismissed) {
+      showToast(result.error || 'Could not open file');
+    }
+    return;
+  }
+  await navigateToFileLine(posix, null, null, options);
 }
 
 // Check if text looks like a file path (known extension or structured path)
@@ -5092,23 +5135,19 @@ const patterns = [
     // dispatch in POSIX form. Component class excludes Windows-invalid name
     // chars — a UNC path can't contain them, and they'd swallow trailing prose.
     regex: /\\\\wsl(?:\.localhost|\$)\\[^\\\s<>:"|?*]+(?:\\[^\\\s<>:"|?*]+)+/gi,
-    action: async (match, options) => {
-      const normalized = normalizeNavigablePath(match.text);
-      if (!normalized) return;
-      const posix = wslUncToPosix(normalized);
-      if (RESOURCE_EXTENSIONS.test(posix)) {
-        const mod = (options && options.modifiers) || {};
-        if (isBandFilePath(posix) && !fileWantsOsHandoff(mod)) {
-          if (await openFileInViewerBand(posix)) return;
-        }
-        const result = await openResourceChoosing(posix, { forceChoose: !!mod.altKey });
-        if (result && !result.success && !result.dismissed) {
-          showToast(result.error || 'Could not open file');
-        }
-        return;
-      }
-      await navigateToFileLine(posix, null, null, options);
-    },
+    action: async (match, options) => openWindowsPathMatch(match, options, wslUncToPosix),
+  },
+  {
+    name: 'windows_drive_path',
+    // The Windows side of the same machine: C:\Temp\out\, C:/Temp/out. Same
+    // reason as the UNC pattern for claiming the whole span — the POSIX
+    // patterns tokenize on backslashes and would keep only the last segment —
+    // and `plain_file` misses the forward-slash form too, since its evidence
+    // test reads `C:` as an ordinary segment and a two-segment path as prose.
+    // A drive letter is one letter, so \b keeps this off `foo:/bar`; the first
+    // separator has to touch the colon, which keeps it off `note: /tmp/x`.
+    regex: /\b[A-Za-z]:[\\/][^\\/\s<>:"|?*]+(?:[\\/][^\\/\s<>:"|?*]+)*[\\/]?/g,
+    action: async (match, options) => openWindowsPathMatch(match, options, windowsDrivePathToPosix),
   },
   {
     name: 'resource_file',

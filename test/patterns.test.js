@@ -28,6 +28,13 @@ function wslUncToPosix(text) {
   return text.replace(WSL_UNC_PREFIX, '').replace(/\\/g, '/');
 }
 
+const WINDOWS_DRIVE_PREFIX = /^([A-Za-z]):[\\/]/;
+function windowsDrivePathToPosix(text) {
+  return text.replace(WINDOWS_DRIVE_PREFIX, (_, drive) => `/mnt/${drive.toLowerCase()}/`)
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '');
+}
+
 function isLikelyFilePath(text) {
   if (SOURCE_EXTENSIONS.test(text)) return true;
   if (!text.includes('/')) return false;
@@ -371,6 +378,11 @@ const patterns = [
     name: 'wsl_unc_path',
     // WSL files in Windows UNC form: \\wsl.localhost\<distro>\... (or legacy \\wsl$\...)
     regex: /\\\\wsl(?:\.localhost|\$)\\[^\\\s<>:"|?*]+(?:\\[^\\\s<>:"|?*]+)+/gi,
+  },
+  {
+    name: 'windows_drive_path',
+    // Windows-side files by drive letter: C:\Temp\out\, C:/Temp/out
+    regex: /\b[A-Za-z]:[\\/][^\\/\s<>:"|?*]+(?:[\\/][^\\/\s<>:"|?*]+)*[\\/]?/g,
   },
   {
     name: 'resource_file',
@@ -1732,7 +1744,7 @@ test('non-wsl UNC path keeps today\'s filename-only behavior', () => {
   assertEqual(matches[0].text, 'budget.xlsx');
 });
 
-test('drive-letter path keeps today\'s behavior', () => {
+test('drive-letter path is not claimed by the UNC pattern', () => {
   const matches = parseRow(String.raw`C:\Users\albert\photo.png`);
   const unc = matches.filter((m) => m.patternName === 'wsl_unc_path');
   assertEqual(unc, []);
@@ -1754,6 +1766,85 @@ test('wslUncToPosix handles legacy wsl$ prefix', () => {
   assertEqual(
     wslUncToPosix(String.raw`\\wsl$\Ubuntu-22.04\home\albert\report.pdf`),
     '/home/albert/report.pdf');
+});
+
+// =============================================================================
+// Tests: windows_drive_path pattern
+// =============================================================================
+
+console.log('\n--- windows_drive_path pattern ---\n');
+
+test('drive path is claimed as one span', () => {
+  const text = String.raw`C:\Temp\build_output_1\notes.txt`;
+  const matches = parseRow(text);
+  assertEqual(matches.map((m) => m.patternName), ['windows_drive_path']);
+  assertEqual(matches[0].text, text);
+});
+
+test('folder path keeps its trailing separator in the span', () => {
+  const text = 'C:\\Temp\\build_output_1\\';
+  const matches = parseRow(text);
+  assertEqual(matches.map((m) => m.patternName), ['windows_drive_path']);
+  assertEqual(matches[0].text, text);
+});
+
+test('folder path in prose stops at the space', () => {
+  const text = 'C:\\Temp\\build_output_1\\ has the current docx and the zip.';
+  const matches = parseRow(text);
+  const drive = matches.filter((m) => m.patternName === 'windows_drive_path');
+  assertEqual(drive.map((m) => m.text), ['C:\\Temp\\build_output_1\\']);
+});
+
+test('drive path to a resource outranks the filename-only match', () => {
+  const text = String.raw`C:\Users\albert\photo.png`;
+  const matches = parseRow(text);
+  assertEqual(matches.map((m) => m.patternName), ['windows_drive_path']);
+  assertEqual(matches[0].text, text);
+});
+
+test('forward-slash drive path is matched', () => {
+  const text = 'D:/data/exports/report.csv';
+  const matches = parseRow(text);
+  assertEqual(matches.map((m) => m.patternName), ['windows_drive_path']);
+  assertEqual(matches[0].text, text);
+});
+
+test('bare drive root without a component is not matched', () => {
+  const matches = parseRow('C:\\');
+  const drive = matches.filter((m) => m.patternName === 'windows_drive_path');
+  assertEqual(drive, []);
+});
+
+test('a multi-letter prefix before the colon is not a drive', () => {
+  const matches = parseRow('foo:/bar/baz');
+  const drive = matches.filter((m) => m.patternName === 'windows_drive_path');
+  assertEqual(drive, []);
+});
+
+test('a POSIX path after a labelled colon is not a drive', () => {
+  const matches = parseRow('note: /home/albert/report.txt');
+  const drive = matches.filter((m) => m.patternName === 'windows_drive_path');
+  assertEqual(drive, []);
+});
+
+test('a URL is not read as a drive path', () => {
+  const matches = parseRow('https://example.com/a/b');
+  const drive = matches.filter((m) => m.patternName === 'windows_drive_path');
+  assertEqual(drive, []);
+});
+
+test('windowsDrivePathToPosix mounts the drive and flips separators', () => {
+  assertEqual(
+    windowsDrivePathToPosix(String.raw`C:\Temp\build_output_1\notes.txt`),
+    '/mnt/c/Temp/build_output_1/notes.txt');
+});
+
+test('windowsDrivePathToPosix drops a folder\'s trailing separator', () => {
+  assertEqual(windowsDrivePathToPosix('C:\\Temp\\build_output_1\\'), '/mnt/c/Temp/build_output_1');
+});
+
+test('windowsDrivePathToPosix lowercases the drive and takes forward slashes', () => {
+  assertEqual(windowsDrivePathToPosix('D:/data/exports/report.csv'), '/mnt/d/data/exports/report.csv');
 });
 
 test('source file .py is not matched as resource', () => {

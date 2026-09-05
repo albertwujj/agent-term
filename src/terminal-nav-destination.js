@@ -44,6 +44,7 @@ const PLAIN_CLICK_PATTERN_NAMES = new Set(['url', 'image_attachment']);
 const PATH_IS_THE_TEXT = new Set([
   'plain_file',
   'wsl_unc_path',
+  'windows_drive_path',
   'resource_file',
   'file_line',
   'file_line_col',

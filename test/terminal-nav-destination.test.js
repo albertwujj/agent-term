@@ -79,6 +79,7 @@ check('a built-in viewer acts on a plain click', () => {
   assert.strictEqual(navigationNeedsModifier(m('plain_file', 'docs/launch-plan.md')), false);
   assert.strictEqual(navigationNeedsModifier(m('plain_file', 'site/index.html')), false);
   assert.strictEqual(navigationNeedsModifier(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\notes.md')), false);
+  assert.strictEqual(navigationNeedsModifier(m('windows_drive_path', 'C:\\Temp\\out\\notes.md')), false);
 });
 
 check('a reconstructed markdown segment uses its full viewer target', () => {
@@ -97,6 +98,7 @@ check('a handoff to the OS waits for a modifier', () => {
   assert.strictEqual(navigationNeedsModifier(m('resource_file', 'bundle.zip')), true);
   assert.strictEqual(navigationNeedsModifier(m('resource_file', 'clip.mov')), true);
   assert.strictEqual(navigationNeedsModifier(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\a')), true);
+  assert.strictEqual(navigationNeedsModifier(m('windows_drive_path', 'C:\\Temp\\out\\')), true);
 });
 
 // The band renders an image itself, so looking at one is a built-in viewer and
@@ -108,6 +110,7 @@ check('an image is a built-in viewer', () => {
   assert.strictEqual(navigationNeedsModifier(m('resource_file', 'photo.JPEG')), false);
   assert.strictEqual(navigationNeedsModifier(m('image_attachment', '/tmp/scree')), false);
   assert.strictEqual(navigationNeedsModifier(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\shot.png')), false);
+  assert.strictEqual(navigationNeedsModifier(m('windows_drive_path', 'C:\\Temp\\out\\shot.png')), false);
 });
 
 // Video, audio and pdf render in the band too (band-viewable.js), so they keep
