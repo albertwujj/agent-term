@@ -1,4 +1,5 @@
 // Which renderer an AI CLI starts in, expressed as environment.
+// Background and the measurements: docs/dev/cli-rendering.md.
 //
 // Claude Code's fullscreen renderer draws the conversation on the alternate
 // screen. That is a good trade in a terminal where redraw throughput is the

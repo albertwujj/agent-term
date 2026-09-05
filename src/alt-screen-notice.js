@@ -1,3 +1,5 @@
+// docs/dev/cli-rendering.md is the background for all of this.
+//
 // A fullscreen CLI has taken the conversation onto the alternate screen,
 // where this terminal's reach ends: selecting output to comment on it,
 // Ctrl/Cmd+F across the session, and the marks those comments leave on the
