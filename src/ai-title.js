@@ -1,9 +1,11 @@
-// Helpers for AI CLI OSC titles.
+// Helpers for AI CLI OSC titles. Rules and per-CLI output:
+// docs/dev/session-titles.md.
 //
 // Claude/Codex-style CLIs use terminal titles as status surfaces. The raw
 // strings can include spinners, CLI brand labels, and repeated dot-separated
 // task titles. These helpers convert them into stable display text and
-// semantic keys before taskbar/picker rendering.
+// semantic keys before taskbar/picker rendering, and decide which of them
+// name the conversation at all.
 
 const BRAND_LABELS = {
   claude: ['claude', 'claude code'],
@@ -82,7 +84,8 @@ function isConversationTitle(title, cli) {
 }
 
 function aiCliLaunchCommand(command) {
-  // A supported per-invocation override, scoped to Codex launches we own.
+  // A supported per-invocation override, scoped to Codex launches we own
+  // (docs/dev/session-titles.md, "Asking Codex for the name").
   // Keep app-name so even an unnamed new thread emits an OSC readiness title.
   // No shell wrappers, input rewriting, config writes, or metadata guessing.
   return String(command || '').replace(/^codex(?=\s|$)/i,
