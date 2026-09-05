@@ -126,6 +126,44 @@ test('listSessions: a resume that ran another conversation leaves the identity t
   assert.strictEqual(s.lastTitle, 'Resume hint UI visibility');
 });
 
+test('listSessions: old Cursor startup title is repaired without rewriting the log', (dir) => {
+  log.appendEvent(dir, { e: 'cli', id: 151, cli: 'agent' });
+  log.appendEvent(dir, { e: 'prompt', id: 151, prompt: 'check chat and log for the root cause' });
+  log.appendEvent(dir, { e: 'title', id: 151, title: 'Cursor Agent' });
+  log.appendEvent(dir, { e: 'title', id: 151, title: 'Root Cause Triage' });
+  log.appendEvent(dir, { e: 'title', id: 151, title: '⠙ Cursor Agent' });
+  const before = fs.readFileSync(path.join(dir, 'sessions.jsonl'), 'utf8');
+  const s = log.listSessions(dir)[0];
+  assert.strictEqual(s.title, 'Root Cause Triage');
+  assert.strictEqual(s.lastTitle, 'Root Cause Triage');
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'sessions.jsonl'), 'utf8'), before);
+});
+
+test('listSessions: Codex project and thread-ID labels stay out until a name arrives', (dir) => {
+  log.appendEvent(dir, { e: 'cli', id: 152, cli: 'codex' });
+  log.appendEvent(dir, { e: 'prompt', id: 152, prompt: 'should we change agent-term-debug now?' });
+  log.appendEvent(dir, { e: 'title', id: 152, title: 'agent-term-debug' });
+  log.appendEvent(dir, { e: 'title', id: 152, title: '⠙ agent-term-debug' });
+  log.appendEvent(dir, { e: 'title', id: 152, title: 'codex | 01a072c1-544f-7153-9da1-a39c29e6e9b9' });
+  assert.strictEqual(log.listSessions(dir)[0].title, null);
+  assert.strictEqual(log.listSessions(dir)[0].lastTitle, null);
+  log.appendEvent(dir, { e: 'title', id: 152, title: 'codex | Investigate WSL launch failures' });
+  log.appendEvent(dir, { e: 'title', id: 152, title: 'codex | A different resumed conversation' });
+  const s = log.listSessions(dir)[0];
+  assert.strictEqual(s.title, 'codex | Investigate WSL launch failures');
+  assert.strictEqual(s.lastTitle, 'codex | A different resumed conversation');
+});
+
+test('listSessions: Claude can use the same topic text that is generic for another CLI', (dir) => {
+  log.appendEvent(dir, { e: 'cli', id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt', id: 1, prompt: 'Investigate agent-term-debug' });
+  log.appendEvent(dir, { e: 'title', id: 1, title: 'agent-term-debug' });
+  log.appendEvent(dir, { e: 'title', id: 1, title: 'Cursor Agent' });
+  const s = log.listSessions(dir)[0];
+  assert.strictEqual(s.title, 'agent-term-debug');
+  assert.strictEqual(s.lastTitle, 'Cursor Agent');
+});
+
 test('readLog handles malformed lines without crashing', (dir) => {
   log.appendEvent(dir, { e: 'started', id: 1 });
   // Inject garbage manually

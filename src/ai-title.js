@@ -9,7 +9,7 @@ const BRAND_LABELS = {
   claude: ['claude', 'claude code'],
   codex: ['codex'],
   copilot: ['copilot', 'github copilot'],
-  agent: ['agent', 'cursor'],
+  agent: ['agent', 'cursor', 'cursor agent'],
 };
 
 const GLOBAL_IGNORED = new Set([
@@ -46,7 +46,12 @@ function cleanAiTitleSegments(title, cli) {
   const ignored = ignoredKeysForCli(cli);
   const seen = new Set();
   const out = [];
-  for (const rawPart of String(title || '').split(/\s+·\s+/u)) {
+  // Codex's supported ["app-name", "thread"] title is "codex | <name>".
+  // Only strip its leading app field: a conversation name may contain '|'.
+  const text = cli === 'codex'
+    ? String(title || '').replace(/^codex\s+\|\s*/i, '')
+    : String(title || '');
+  for (const rawPart of text.split(/\s+·\s+/u)) {
     const part = stripStatusPrefix(rawPart);
     if (!part) continue;
     const key = titleKey(part);
@@ -65,8 +70,29 @@ function aiTitleDedupeKey(title, cli) {
   return cleanAiTitleSegments(title, cli).map(titleKey).join(' · ');
 }
 
+function isConversationTitle(title, cli) {
+  if (cli === 'codex') {
+    // The default OSC title is only a project label. Accept the explicit
+    // app-name + thread output contract, including on read of old logs.
+    // Before Codex has a name its thread field is a UUID, not a subject.
+    const match = /^codex\s+\|\s*(.+)$/i.exec(String(title || ''));
+    if (!match || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(match[1].trim())) return false;
+  }
+  return !!cleanAiTitle(title, cli);
+}
+
+function aiCliLaunchCommand(command) {
+  // A supported per-invocation override, scoped to Codex launches we own.
+  // Keep app-name so even an unnamed new thread emits an OSC readiness title.
+  // No shell wrappers, input rewriting, config writes, or metadata guessing.
+  return String(command || '').replace(/^codex(?=\s|$)/i,
+    'codex -c \'tui.terminal_title=["app-name","thread"]\'');
+}
+
 module.exports = {
   cleanAiTitle,
   cleanAiTitleSegments,
   aiTitleDedupeKey,
+  isConversationTitle,
+  aiCliLaunchCommand,
 };

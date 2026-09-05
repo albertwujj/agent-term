@@ -95,6 +95,33 @@ await test('suppresses spinner-only app titles', () => {
   picker.destroy();
 });
 
+// Codex's supported title is "codex | <thread>" — the app field is how we
+// tell a real conversation name from its default project label, but it is
+// scaffolding, not part of the name the user reads or searches for.
+await test('drops the Codex app field from the title line and from search', () => {
+  const picker = createPicker({
+    sessions: [{
+      id: 3,
+      cli: 'codex',
+      title: 'codex | Investigate WSL launch failures',
+      prompt: 'why does the pty never come up under wsl',
+      lastEventAt: Date.now(),
+    }],
+    onPick: () => {},
+    onStartNew: () => {},
+    onClose: () => {},
+  });
+
+  const titleLines = [...document.querySelectorAll('.at-picker-title-line')];
+  assert.strictEqual(titleLines.length, 1);
+  assert.strictEqual(titleLines[0].textContent.trim(), 'Investigate WSL launch failures');
+
+  input(document.querySelector('.at-picker-input'), 'investigate wsl');
+  assert.strictEqual(document.querySelectorAll('.at-picker-title-line').length, 1);
+
+  picker.destroy();
+});
+
 await test('Delete hides the selected past session for this picker instance', () => {
   const picker = createPicker({
     sessions: [

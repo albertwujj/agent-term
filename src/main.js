@@ -60,7 +60,7 @@ const successorExecPath = namedLaunchPath(process.execPath, { fs });
 const { rebuildRuntimeBundles } = require('./runtime-build');
 const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
-const { cleanAiTitle, aiTitleDedupeKey } = require('./ai-title');
+const { cleanAiTitle, aiTitleDedupeKey, isConversationTitle, aiCliLaunchCommand } = require('./ai-title');
 const { isReviewPackagePath } = require('./review-package-path');
 const { DISK_LIST_PY, DISK_TIER_CAP, diskTiers } = require('./viewer-disk-search');
 const { DISK_SEARCH_EXTENSIONS } = require('./band-viewable');
@@ -722,6 +722,10 @@ function thumbnailPayload() {
   if (fpEchoKey) titleSeen.add(fpEchoKey);
   const filteredTitles = [];
   for (const t of allTitles) {
+    // The same read-time repair listSessions applies: a Codex project label
+    // or pre-name thread ID already in an older log was never a name for
+    // this conversation, so it isn't a beat in its narrative either.
+    if (!isConversationTitle(t.title || '', detectedCli)) continue;
     const cleanTitle = cleanAiTitle(t.title || '', detectedCli);
     const key = aiTitleDedupeKey(cleanTitle, detectedCli);
     if (!key || titleSeen.has(key)) continue;
@@ -1379,7 +1383,7 @@ function onPromptCaptured(promptText) {
     // fold takes it as the identity title, and released from the boot
     // vocabulary so its re-emissions and returns keep logging as drift.
     const onScreenKey = aiTitleDedupeKey(lockedTitle || '', detectedCli);
-    if (onScreenKey && sessionIndex !== null) {
+    if (onScreenKey && isConversationTitle(lockedTitle, detectedCli) && sessionIndex !== null) {
       bootTitleKeys.delete(onScreenKey);
       lastTitleEventKey = onScreenKey;
       sessionsLog.appendEvent(app.getPath('userData'), {
@@ -2653,7 +2657,7 @@ ipcMain.on('set-title', (event, title) => {
     // Log gating: spinner-frame churn ("✳ Fix bug" → "✻ Fix bug") changes
     // the raw title every tick — append only when the semantic key moves,
     // and never for keys the CLI already used before it saw a prompt.
-    const logworthy = titleEventKey
+    const logworthy = isConversationTitle(title, detectedCli) && titleEventKey
       && titleEventKey !== lastTitleEventKey
       && !bootTitleKeys.has(titleEventKey);
     if (sessionIndex !== null && activeFileWritten && logworthy) {
@@ -2899,7 +2903,8 @@ ipcMain.on('picker-pick', (event, id) => {
     // The shell was spawned with this process's fresh token; a stored one
     // reaches the resumed CLI (and every tool shell under it) through its
     // environment instead. `env` works in every shell the pty may run.
-    const launch = picked.token ? `env AGENT_SESSION_ID=${agentSessionId} ${picked.cli}` : picked.cli;
+    const cliCommand = aiCliLaunchCommand(picked.cli);
+    const launch = picked.token ? `env AGENT_SESSION_ID=${agentSessionId} ${cliCommand}` : cliCommand;
     // Relaunch from the directory the session was recorded in. The stored
     // path is in this shell's own terms (captured via getPrimaryCwd on the
     // same platform), so a plain cd replays it on macOS and WSL alike. &&
@@ -2936,7 +2941,7 @@ ipcMain.on('picker-start-new', (event, cli) => {
         : `${known} — waiting for prompt`);
     } catch {}
   }
-  try { ptyProcess.write(cli + '\r'); } catch {}
+  try { ptyProcess.write(aiCliLaunchCommand(cli) + '\r'); } catch {}
 });
 
 ipcMain.on('picker-close', () => {

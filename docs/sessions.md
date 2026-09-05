@@ -4,6 +4,8 @@ Every session is a whole OS window; there are no tabs.
 
 **Starting an agent.** Type the CLI's command (`claude`, `codex`, whichever you run) and press Return. From that point on, the AI CLI runs in a real shell, just like in any other terminal.
 
+**Codex conversation titles.** Starting or resuming Codex from the picker passes `-c 'tui.terminal_title=["app-name","thread"]'`, so Codex names the conversation in the terminal title. For a `codex` you type yourself, set `terminal_title = ["app-name", "thread"]` under `[tui]` in your Codex configuration. Its default project title and unnamed-thread IDs are not conversation names, so the session shows your first prompt until a name arrives. Claude Code and Cursor need no setting.
+
 **Picking up an existing session from before this terminal.** Start the CLI as above, as a new session, and resume the existing one normally in the CLI; the first prompt after the resume becomes the session's initial prompt, and the rest is the same.
 
 <p align="center">

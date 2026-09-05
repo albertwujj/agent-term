@@ -55,6 +55,7 @@ const {
 } = require('./search-terms');
 const { currentGuiSession } = require('./gui-session');
 const { writeFileAtomicSync } = require('./atomic-file');
+const { isConversationTitle } = require('./ai-title');
 
 const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks (display + compaction window)
 
@@ -194,6 +195,9 @@ function listSessions(userDataDir) {
       // CLI's own dialog. Identity surfaces (resume hint, picker title
       // line) use `title`; the picker's search and drift line use both.
       case 'title':
+        // Repair existing Cursor banners and Codex project/UUID labels on
+        // read. Claude's OSC identity and drift semantics stay unchanged.
+        if ((s.cli === 'agent' || s.cli === 'codex') && !isConversationTitle(ev.title, s.cli)) break;
         if (ev.title) {
           s.lastTitle = ev.title;
           if (!s.title && s.prompt) s.title = ev.title;
