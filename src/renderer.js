@@ -11,6 +11,10 @@ const { extractDroppedPaths, hasSupportedPathDropType } = require('./drag-drop-p
 const { handleTerminalKeydown } = require('./terminal-keyboard');
 const { beginDecorationPress, resolveDecorationPress, decorationPressOptions, DEFAULT_DRAG_THRESHOLD_PX } = require('./terminal-decoration-press');
 const { attachTerminalMouseShortcuts } = require('./terminal-mouse');
+const { NOTICE_DWELL_MS, shouldNoticeAltScreen, altScreenNotice } = require('./alt-screen-notice');
+
+// Which AI CLI this window is running, as main last reported it.
+let currentCli = null;
 const { navigationNeedsModifier, hasNavigationModifier, matchForPress, markedLength, CONTEXT_PATH_PATTERNS } = require('./terminal-nav-destination');
 const {
   DEFAULT_SELECTION_CONTEXT_LINES,
@@ -55,6 +59,7 @@ chromeBar.mount({
 streamIndicator.init();
 window.pty.onChromeState((payload) => {
   chromeBar.update(payload);
+  currentCli = (payload && payload.cli) || null;
   // Re-fit the terminal in case the chrome height was applied (mac fallback path).
   setTimeout(() => { try { fitAddon.fit(); } catch {} }, 0);
 });
@@ -2838,6 +2843,30 @@ screenElement.addEventListener('mousedown', (event) => {
   document.addEventListener('mouseup', onTerminalDragEnd, true);
 }, true);
 
+// Alt-screen notice (alt-screen-notice.js): when a fullscreen CLI takes the
+// conversation off the scrollback, where commenting and search cannot reach
+// it, say so once.
+// onBufferChange fires on every switch either way, so the dwell timer is reset
+// each time and only an alternate screen that stays lands the notice. The
+// question is asked when the timer fires rather than when the buffer changed:
+// a CLI reaches the alternate screen before main has told us which CLI it is,
+// and by the end of the dwell it has.
+let altScreenNoticed = false;
+let altScreenDwellTimer = null;
+terminal.buffer.onBufferChange(() => {
+  clearTimeout(altScreenDwellTimer);
+  if (terminal.buffer.active.type !== 'alternate') return;
+  altScreenDwellTimer = setTimeout(() => {
+    if (!shouldNoticeAltScreen({
+      cli: currentCli,
+      bufferType: terminal.buffer.active.type,
+      alreadyNoticed: altScreenNoticed,
+    })) return;
+    altScreenNoticed = true;
+    showToast(altScreenNotice(), { variant: 'warn', sticky: true });
+  }, NOTICE_DWELL_MS);
+});
+
 // Mouse shortcuts: middle-click scrolls to end everywhere.
 attachTerminalMouseShortcuts({
   screenElement,
@@ -4038,7 +4067,7 @@ function showLaunchPill(cwd) {
 // Show a simple toast message (blue, 2-second fade)
 // variant: 'info' (default, blue) | 'warn' (yellow) | 'error' (red), matching the
 // IDE navigation feedback palette in showNavigationFeedback.
-function showToast(message, { variant = 'info' } = {}) {
+function showToast(message, { variant = 'info', sticky = variant === 'error' } = {}) {
   const palette = {
     info: { bg: '#569cd6', fg: 'white' },
     warn: { bg: '#dcdcaa', fg: '#1e1e1e' },
@@ -4047,8 +4076,8 @@ function showToast(message, { variant = 'info' } = {}) {
   const { bg, fg } = palette[variant] || palette.info;
   // Errors often carry info worth reading/copying (e.g. a render traceback), so an
   // error toast STAYS until dismissed and its text is selectable, with Copy + ✕
-  // controls. info/warn stay transient (fade after 2s).
-  const sticky = variant === 'error';
+  // controls. info/warn stay transient (fade after 2s) unless the caller asks
+  // to stay — a toast carrying a command to run cannot be read in 2s.
   const el = document.createElement('div');
   // Centered at the top so it's actually seen — a content-sized chip in the corner
   // was easy to miss. Bigger type + padding + a shadow; progress lingers a beat.
