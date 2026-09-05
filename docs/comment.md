@@ -10,4 +10,4 @@ It works the same on the rendered markdown viewer.
 
 A click opens whatever the agent prints that renders (docs, reviews, images, video, PDFs) in a viewer inside the window; a web link opens in your browser. The full rule, with the IDE and OS handoffs: [what a click does](clicks.md). You can also open a viewer without a click ([open a viewer](viewer.md)).
 
-If your CLI captures the mouse (Claude Code's fullscreen rendering does), hold `Shift` while clicking and selecting; commenting works the same. To keep plain-drag selection (without holding `Shift`), launch Claude Code with `CLAUDE_CODE_DISABLE_MOUSE=1`, or `CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1` to keep its wheel scrolling.
+If your CLI captures the mouse (Claude Code's fullscreen rendering does), clicks still open what the agent prints, but selecting needs `Shift` held down; hold it and comment as usual. To select by plain drag again, launch Claude Code with `CLAUDE_CODE_DISABLE_MOUSE=1`: it stops reporting the mouse at all, so its own click targets and wheel scrolling go to the terminal instead.
