@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, nativeTheme, Menu, dialog, clipboard, shell, nativeImage, screen, globalShortcut, session } = require('electron');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -76,10 +76,10 @@ const {
   repoRunbookRoots,
 } = require('./runbook-resolution');
 const {
-  bashLauncher,
   wslCommandArgs,
   wslShellArgs,
 } = require('./wsl-launch');
+const { WSL_COMMAND_HELPER, WslCommandRunner } = require('./wsl-command-runner');
 const { requireSourceStartCwd } = require('./source-start-cwd');
 
 // Anchor for the very first session ever (when there are no other live
@@ -3099,7 +3099,41 @@ function openInSystemBrowser(rawUrl, source) {
 
 // --- Resource file helpers (WSL path resolution) ---
 
-function wslExecRaw(args, options = {}) {
+let wslCommandRunner = null;
+
+function getWslCommandRunner() {
+  if (!wslCommandRunner) {
+    const helperB64 = Buffer.from(WSL_COMMAND_HELPER, 'utf8').toString('base64');
+    const bootstrap = `echo ${helperB64} | base64 -d | bash`;
+    wslCommandRunner = new WslCommandRunner({
+      spawn,
+      command: 'wsl',
+      args: wslCommandArgs(['bash', '-lc', bootstrap]),
+      spawnOptions: { windowsHide: true, env: process.env },
+      onDiagnostic: (message) => log(`[wsl-helper] ${message}`),
+    });
+  }
+  return wslCommandRunner;
+}
+
+async function wslExecRaw(args, options = {}) {
+  if (process.platform === 'win32') {
+    const result = await getWslCommandRunner().run(
+      args.map((arg) => shellEscape(String(arg))).join(' '),
+      {
+        timeout: options.timeout || 3000,
+        maxBuffer: options.maxBuffer || 20 * 1024 * 1024,
+      },
+    );
+    if (result.code === 0) return result.stdout;
+
+    const error = new Error(result.stderr || `WSL command exited with code ${result.code}`);
+    error.code = result.code;
+    error.stdout = result.stdout;
+    error.stderr = result.stderr;
+    throw error;
+  }
+
   return new Promise((resolve, reject) => {
     execFile('wsl', wslCommandArgs(args), {
       timeout: options.timeout || 3000,
@@ -3123,9 +3157,12 @@ function shellEscape(s) {
 async function getWSLCwd() {
   if (!wslPidFile) return null;
   try {
-    const pid = await wslExec(['cat', wslPidFile]);
-    if (!pid) return null;
-    return await wslExec(['readlink', `/proc/${pid}/cwd`]);
+    const result = await posixSh(
+      `pid=$(cat -- ${shellEscape(wslPidFile)} 2>/dev/null) && ` +
+      'test -n "$pid" && readlink -- "/proc/$pid/cwd"',
+      { timeout: 3000 },
+    );
+    return result.code === 0 ? result.stdout.trim() : null;
   } catch {
     return null;
   }
@@ -3447,30 +3484,15 @@ function runProc(cmd, args, opts = {}) {
   });
 }
 
-// The ONE platform seam for every git/file probe below. WSL *is* Linux and macOS
-// is POSIX, so the command text (`git …`, `test -f`, `cat …`) is byte-identical on
-// both; the only difference is how you reach a bash shell — inside WSL on Windows
-// (`wsl bash`), directly elsewhere (`bash`). We decide that launcher once, here,
-// then append the common `-lc <command>`. So everything above this line is shared
-// code, and a macOS run exercises the same path WSL will. (Process-cwd resolution
-// is the one thing that stays branched — Linux /proc vs macOS lsof is a different
-// mechanism, not the same command behind a different shell.)
+// The ONE platform seam for every git/file probe below. On Windows, keep one
+// dedicated WSL helper alive and send it commands over stdin/stdout. Never send
+// probes through the interactive PTY: that stream belongs to the user and agent.
+// Reusing the helper also avoids creating a new WSL session for every lock poll.
 function posixSh(command, opts = {}) {
-  const [cmd, ...prefix] = bashLauncher();
   if (process.platform === 'win32') {
-    // wsl.exe mangles a complex `-lc <script>`: Node marshals the script as one
-    // Windows arg, wsl.exe re-splits it by its own rules, and multi-statement /
-    // `for…do…done` / `;` forms arrive at bash corrupted — silently (exit 0, no
-    // stderr). That is why job-watch's spool read (a `for` loop) never returned
-    // events on WSL while branch-watch's single `cd '…' && git …` chain survived.
-    // Carry the script as an opaque base64 token inside a simple pipeline, which
-    // does survive: the payload has no shell-special bytes left to mangle. The
-    // inner bash inherits the outer login shell's exported env (PATH etc.), and
-    // the pipeline's exit code is the script's.
-    const b64 = Buffer.from(command, 'utf8').toString('base64');
-    return runProc(cmd, [...prefix, '-lc', `echo ${b64} | base64 -d | bash`], opts);
+    return getWslCommandRunner().run(command, opts);
   }
-  return runProc(cmd, [...prefix, '-lc', command], opts);
+  return runProc('bash', ['-lc', command], opts);
 }
 
 // Run a git subcommand in `folder` via the POSIX seam (each arg shell-escaped).
@@ -5173,6 +5195,10 @@ app.on('before-quit', (event) => {
 
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll(); } catch {}
+  if (wslCommandRunner) {
+    wslCommandRunner.close();
+    wslCommandRunner = null;
+  }
   if (mainLoopDelayTimer) {
     clearInterval(mainLoopDelayTimer);
     mainLoopDelayTimer = null;
