@@ -79,6 +79,7 @@ const {
 const {
   wslCommandArgs,
   wslShellArgs,
+  wslenvForPty,
 } = require('./wsl-launch');
 const { WslCommandRunner, helperBootstrap } = require('./wsl-command-runner');
 const { requireSourceStartCwd } = require('./source-start-cwd');
@@ -2340,6 +2341,21 @@ function createPty(cols, rows) {
   // Ask an AI CLI for its classic renderer, unless the user has said
   // otherwise — see cli-renderer-env.js for why, and for the off switch.
   const rendererEnv = aiCliRendererEnv(process.env);
+  // What this pty adds on top of the inherited environment. Named as one
+  // object because WSLENV below is derived from its keys.
+  const ptyEnv = {
+    // Own terminal identity. Without it the shell inherits the launching
+    // terminal's TERM_PROGRAM (e.g. Apple_Terminal) and runs that
+    // terminal's shell hooks — Apple's zshrc emits OSC 7 cwd reports meant
+    // for Terminal.app on every prompt.
+    TERM_PROGRAM: 'AgentTerm',
+    TERM_PROGRAM_VERSION: app.getVersion(),
+    // Session identity for the background-job contract (docs/dev/job-events.md) and
+    // for agent-lock's owner record: ordinary env inheritance scopes it to
+    // this window's process tree.
+    AGENT_SESSION_ID: agentSessionId,
+    ...rendererEnv,
+  };
 
   ptyProcess = pty.spawn(shell, process.platform === 'win32' ? wslShellArgs() : [], {
     name: 'xterm-256color',
@@ -2349,26 +2365,11 @@ function createPty(cols, rows) {
     env: {
       ...process.env,
       TERM: 'xterm-256color',
-      // Own terminal identity. Without it the shell inherits the launching
-      // terminal's TERM_PROGRAM (e.g. Apple_Terminal) and runs that
-      // terminal's shell hooks — Apple's zshrc emits OSC 7 cwd reports meant
-      // for Terminal.app on every prompt.
-      TERM_PROGRAM: 'AgentTerm',
-      TERM_PROGRAM_VERSION: app.getVersion(),
-      // Session identity for the background-job contract (docs/dev/job-events.md) and
-      // for agent-lock's owner record: ordinary env inheritance scopes it to
-      // this window's process tree.
-      AGENT_SESSION_ID: agentSessionId,
-      ...rendererEnv,
+      ...ptyEnv,
       // Windows env does not cross into WSL by default; WSLENV lists the
-      // variables that do. The renderer request is only listed when we made
-      // one, so a user's own setting is not shadowed by an empty entry.
-      ...(process.platform === 'win32'
-        ? {
-          WSLENV: [process.env.WSLENV, 'AGENT_SESSION_ID', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION',
-            ...Object.keys(rendererEnv)].filter(Boolean).join(':'),
-        }
-        : {}),
+      // variables that do. Its names come from ptyEnv itself, so a variable
+      // added above crosses without a second list to remember.
+      ...wslenvForPty(process.platform, process.env, Object.keys(ptyEnv)),
     },
   });
 

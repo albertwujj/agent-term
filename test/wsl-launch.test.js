@@ -9,6 +9,7 @@ const {
   configuredWslDistro,
   wslCommandArgs,
   wslShellArgs,
+  wslenvForPty,
 } = require('../src/wsl-launch');
 
 let testsPassed = 0, testsFailed = 0;
@@ -142,6 +143,57 @@ test('Windows accepts the WSL path validated by its source launcher', () => {
     requireSourceStartCwd('win32', { AGENT_TERM_START_CWD: '/home/me/primary' }),
     '/home/me/primary',
   );
+});
+
+// The pty's WSLENV. Windows-only behaviour, asserted from any OS because the
+// platform is an argument rather than something read from the process — the
+// same reason bashLauncher('win32', …) above can be checked here.
+test('off Windows there is no boundary to cross, so no key is set', () => {
+  for (const platform of ['linux', 'darwin']) {
+    assert.deepStrictEqual(wslenvForPty(platform, { WSLENV: 'INHERITED' }, ['A']), {}, platform);
+  }
+});
+
+test('the names we set are appended to what we inherited', () => {
+  assert.deepStrictEqual(
+    wslenvForPty('win32', { WSLENV: 'AGENT_TERM_DISTRO' }, ['AGENT_SESSION_ID', 'TERM_PROGRAM']),
+    { WSLENV: 'AGENT_TERM_DISTRO:AGENT_SESSION_ID:TERM_PROGRAM' },
+  );
+});
+
+// A leading separator is an empty variable name, which is what an absent or
+// empty inherited value would produce if it were joined in blindly.
+test('an absent or empty inherited value never leaves a stray separator', () => {
+  assert.deepStrictEqual(wslenvForPty('win32', {}, ['A', 'B']), { WSLENV: 'A:B' });
+  assert.deepStrictEqual(wslenvForPty('win32', { WSLENV: '' }, ['A']), { WSLENV: 'A' });
+  assert.deepStrictEqual(wslenvForPty('win32', { WSLENV: ':A::' }, ['B']), { WSLENV: 'A:B' });
+});
+
+// A window opened from another window inherits a WSLENV that already lists
+// ours; appending again would grow the value on every nesting.
+test('a name already listed is not added twice', () => {
+  assert.deepStrictEqual(
+    wslenvForPty('win32', { WSLENV: 'AGENT_SESSION_ID:TERM_PROGRAM' },
+      ['AGENT_SESSION_ID', 'TERM_PROGRAM', 'CLAUDE_CODE_NO_FLICKER']),
+    { WSLENV: 'AGENT_SESSION_ID:TERM_PROGRAM:CLAUDE_CODE_NO_FLICKER' },
+  );
+});
+
+// An entry may carry path-translation flags after a slash; the name is the
+// part before it, and the inherited entry keeps its flags.
+test('an inherited entry keeps its flags and still counts as listed', () => {
+  assert.deepStrictEqual(
+    wslenvForPty('win32', { WSLENV: 'AGENT_TERM_SOURCE_WIN/p:AGENT_SESSION_ID' },
+      ['AGENT_SESSION_ID', 'TERM_PROGRAM']),
+    { WSLENV: 'AGENT_TERM_SOURCE_WIN/p:AGENT_SESSION_ID:TERM_PROGRAM' },
+  );
+});
+
+// Nothing set means nothing to share, which is what an opted-out renderer
+// request looks like: aiCliRendererEnv returned {}, so its key is absent.
+test('setting no variables of our own leaves the inherited value alone', () => {
+  assert.deepStrictEqual(wslenvForPty('win32', { WSLENV: 'A' }, []), { WSLENV: 'A' });
+  assert.deepStrictEqual(wslenvForPty('win32', {}, []), { WSLENV: '' });
 });
 
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
