@@ -14,6 +14,8 @@ Extending it on demand is what keeps it a terminal. What you are working on come
 
 What about the vendor desktop apps, which also offer a richer interface? An app built around one vendor's agent trades away key benefits, including the other agents and the closeness to your shell environment. For coding it can also disorient, adding a workspace of its own between you and the code; many who try it drift back to the terminal, where the familiar, the continuity, the repo, the shell, and the tests already live. The grown terminal here keeps all of that and adds a lot more.
 
+That move is now coming from the terminal side too: several terminals have grown an agent of their own, with orchestration and cloud runners around it. It is the same trade in a nearer wrapper, and it asks you to adopt their agent to get their environment. Here nothing about working with your agent changes. You type the CLI's name, it runs in a real shell, and what this adds sits around its output rather than between you and it.
+
 ## Why it holds
 
 This path can look hacky: the host parses text, and reacts to it. But established text patterns are a stable interface, and a helpful output style sticks around. An agent's intentions arrive in those patterns through every turn, so the parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles the agents use intuitively. Extending it is quick when something new shows up, and none of it is tied to a vendor SDK or API.
