@@ -10,6 +10,7 @@ const {
 } = require('./markdown-change-diff');
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
+const { findSentenceRange } = require('./sentence-selection');
 const { createViewerBand } = require('./viewer-band');
 const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isMac, isPasteCommentShortcut } = require('./comment-ui');
 const {
@@ -3435,6 +3436,41 @@ function createMarkdownViewer({
     }, 0);
   }
 
+  const SENTENCE_SCOPE = 'p,h1,h2,h3,h4,h5,h6,li,td,th';
+
+  function selectSentenceAtPoint(point) {
+    const article = point.pane === 'right' ? state.secondaryArticle : state.article;
+    const anchor = getArticleAnchorById(article, point.anchorId);
+    const position = getTextPositionWithin(anchor, point.offset);
+    if (!position || position.node.parentElement.closest('pre')) return false;
+    const scope = position.node.parentElement.closest(SENTENCE_SCOPE);
+    if (!scope || !article.contains(scope)) return false;
+    const { text, nodes } = getSearchableTextNodes(scope);
+    const index = nodes.findIndex((part) => part.node === position.node);
+    if (index < 0) return false;
+    // A tight list item can contain nested lists. Stay in the clicked prose
+    // run, never taking the nested item's text as the rest of this sentence.
+    const sameScope = (part) => part.node.parentElement.closest(SENTENCE_SCOPE + ',pre') === scope;
+    let first = index;
+    let last = index;
+    while (first > 0 && sameScope(nodes[first - 1])) first--;
+    while (last + 1 < nodes.length && sameScope(nodes[last + 1])) last++;
+    const start = nodes[first].start;
+    const end = nodes[last].end;
+    const protectedRanges = nodes.slice(first, last + 1)
+      .filter((part) => part.node.parentElement.closest('code'))
+      .map((part) => ({ start: part.start - start, end: part.end - start }));
+    const sentence = findSentenceRange(text.slice(start, end),
+      nodes[index].start + position.offset - start, protectedRanges);
+    if (!sentence) return false;
+    const range = createTextRangeWithin(scope, start + sentence.start, start + sentence.end);
+    const selection = window.getSelection && window.getSelection();
+    if (!range || !selection) return false;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
   // ---- Virtual drag selection. A native drag can only live inside one
   // article copy, so the viewer owns the drag: the two open pages read as one
   // sheet (the fold is just distance under the sweep), and pressing past a
@@ -3637,6 +3673,13 @@ function createMarkdownViewer({
       && event.target.closest('.md-comment-card, .md-queued-comment-card, .md-pending-strip, .md-thread-card, .md-thread-waiting-line, button, textarea, input')) return;
     const point = resolveArticlePoint(event.clientX, event.clientY);
     if (!point) return;
+    // Override only the third unmodified press in prose, before the browser
+    // expands it to a paragraph. The existing mouseup/click path arms that
+    // exact selection for comment/copy/edit. Moving still starts the same
+    // virtual drag from the actual press point, including cross-page drags.
+    if (event.detail === 3 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+      && !(event.target.closest && event.target.closest('del.md-pending-del, ins.md-pending-ins'))
+      && selectSentenceAtPoint(point)) event.preventDefault();
     state.vdrag = {
       x0: event.clientX,
       y0: event.clientY,
