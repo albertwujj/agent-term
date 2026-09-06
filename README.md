@@ -67,6 +67,6 @@ Add the curated review loop, following
 https://github.com/albertwujj/agent-term/blob/main/docs/setup.md
 ```
 
-**Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the current source, so the loop stays short: change the code, press `Ctrl/Cmd+Shift+N` for a window running it, and resume your session there. A failed build stops that launch rather than running stale bundles.
+**Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
 
 Built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT.

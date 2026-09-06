@@ -32,6 +32,6 @@ On a Mac each session is its own Dock tile, in the session's color with the firs
 | Another | right-click a taskbar button or Dock tile, or `Ctrl/Cmd+Shift+N` with an AgentTerm window in front | the directory the current session's agent was started in; before a first prompt, the window's own start directory |
 | After the last closes | spawned automatically | the same rule, from the window that closed |
 
-- Every new window picks up the latest source from your agent-term clone.
+- Every new window picks up the latest source from your agent-term clone; a build that fails stops that launch rather than running stale bundles.
 - The picker shows the directory. If it is not the one you want, `cd` there and type the AI CLI's name.
 - To quit for good instead of getting a fresh window, type `exit`. Like `cd` and the CLI's name, it is just a shell command.
