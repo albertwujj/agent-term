@@ -1,7 +1,5 @@
 # Set up AgentTerm
 
-This page is for you and for the agent doing the setup. It says what is going on; the commands live in the [platform instructions](dev/development.md).
-
 AgentTerm runs on macOS, and on Windows through WSL. There is no installer and no release to download: you keep a clone of this repo and run it from there, so the source you have is the terminal you get.
 
 ## The first start

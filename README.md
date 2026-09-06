@@ -60,7 +60,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 The first start gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
 
-The rest are optional loops, each a small repo of its own: plans and reviews, the checkout lock, long jobs, the phone view, the IDE jump. Ask your agent for the ones you want. [Setup](docs/setup.md) covers all of it, and is written for you and for the agent doing it.
+The rest are optional loops, each a small repo of its own: plans and reviews, the checkout lock, long jobs, the phone view, the IDE jump. Ask your agent for the ones you want. [Setup](docs/setup.md) covers all of it.
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the current source, so the loop stays short: change the code, press `Ctrl/Cmd+Shift+N` for a window running it, and resume your session there. A failed build stops that launch rather than running stale bundles.
 
