@@ -1729,6 +1729,25 @@ function createMarkdownViewer({
     }
   }
 
+  // The floor the seating pass works down from: the page top, or the top of an
+  // open composer's card when one is being fitted — the comment card, or the
+  // thread card hosting an open reply. Both articles lay out the same content,
+  // so either copy measures the same offset. With a card open on each, the
+  // lower one is the floor: a box between them still moves that one.
+  function keepSeatFloor(gridTop, replyCard) {
+    let top = gridTop;
+    const consider = (el) => {
+      if (!el) return;
+      const article = isInSecondaryPane(el) ? state.secondaryArticle : state.article;
+      if (!article) return;
+      const value = el.getBoundingClientRect().top - article.getBoundingClientRect().top;
+      if (value > top) top = value;
+    };
+    if (state.activeCard) consider(state.activeCard.card);
+    consider(replyCard);
+    return top;
+  }
+
   function seatKeepBoxesBelowTop() {
     if (!state.primaryPane || !state.article) return;
     const paneH = state.primaryPane.clientHeight || 0;
@@ -1743,6 +1762,15 @@ function createMarkdownViewer({
     // Content coordinates: the article's border edge is the scroller's origin,
     // and stays put while spacers change the article's height below.
     const articleTop = state.article.getBoundingClientRect().top;
+    // An open composer is held on its page by scroll, so the grid moves with
+    // what the user types — and a box ABOVE it seats off that same grid, so
+    // its spacer grows by exactly what the fit just scrolled and the card
+    // never gains a pixel. Fit and seat then chase each other forever: the
+    // card walks off the page as you type, or flips between two seatings on
+    // alternate keystrokes. Boxes above the fitted card are therefore frozen
+    // at their last seat, the same rule (and the same reason) as boxes above
+    // the page top; closing the composer re-seats everything.
+    const seatFloor = keepSeatFloor(gridTop, replyCard);
     const measure = (box) => {
       const rect = box.getBoundingClientRect();
       const marginTop = parseFloat(window.getComputedStyle(box).marginTop) || 0;
@@ -1752,7 +1780,7 @@ function createMarkdownViewer({
       const key = keepKeyOf(box);
       if (!key || key === replyKey) continue;
       let m = measure(box);
-      if (m.bottom <= gridTop + 0.5) continue; // above the page top: left as last seated
+      if (m.bottom <= seatFloor + 0.5) continue; // above the page top (or the fitted card): left as last seated
       const spacer = keepSpacerOf(box);
       const current = spacer ? (parseFloat(spacer.style.height) || 0) : 0;
       const counterpart = counterpartKeepBox(box);
