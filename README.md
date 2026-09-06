@@ -4,6 +4,16 @@
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
 
+## Quick start
+
+For macOS and Windows with WSL. Ask your coding agent:
+
+```text
+Set up and launch https://github.com/albertwujj/agent-term for my current project.
+```
+
+Once it opens, start your usual agent, select something in its output, and write a [comment](docs/comment.md).
+
 ## The terminal path
 
 People run coding agents in an IDE, in the terminal, or in the vendor's desktop app. The terminal keeps pulling them in: Claude Code and Codex shipped as terminal programs, and Cursor and Copilot, born in the IDE, added CLIs of their own. A form from decades ago turned out to be a good fit for what an agent needs: text in, text out, and your shell, git, and every other tool you own one command away.
@@ -45,19 +55,13 @@ These are the main ones. Follow the links to see an overview of more features om
 
 Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. An agent and its host grow into one whole, independent of the other wholes and cooperating with them through conventions such as the checkout lock. Subagents belong inside it, under the main agent.
 
-## How to start
+## Make it yours
 
-**Run it.** Directly from source. Launch is fast, and you see the result of a source change right away.
-
-1. Clone: `git clone https://github.com/albertwujj/agent-term` (on Windows, into WSL's native filesystem).
-2. Install [Node.js](https://nodejs.org) if you don't have it (the [development guide](docs/dev/development.md) covers the Windows setup).
-3. From the clone: `npm ci` once, to install the dependencies, then `npm run start` (`npm run start:wsl` on WSL); or start from another directory (your workspace) with `--prefix` pointing at the clone ([sessions](docs/sessions.md)).
+The basic setup gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too. For manual setup, see the [platform instructions](docs/dev/development.md).
 
 After the first start, you no longer need the command line; see [sessions](docs/sessions.md).
 
-The above covers the first set of features: sessions as windows with their taskbar buttons or Dock tiles, and the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
-
-**Add the loops you want.**
+**Add the loops you want.** These are optional; ask your agent to set up the ones you want.
 
 1. **Clone what you need**: each loop is a small repo. [agent-threads](https://github.com/albertwujj/agent-threads) for plans and reviews, [agent-lock](https://github.com/yunxin/agent-lock) for the checkout lock, [agent-jobs](https://github.com/yunxin/agent-jobs) for long runs.
 2. **Vendor what you command**: to command the agent with the supported verbs (md files named for the verb; use `@` to pick, say by typing `@produce-r` for producing a review), it's best to vendor agent-lock and agent-threads into your workspace repo. See [placement](docs/conventions.md).

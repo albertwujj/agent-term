@@ -1,17 +1,21 @@
 # What a click does
 
-Plain-click a marked target to follow it. Existing viewer and web links open immediately; IDE and OS targets wait briefly so a selection gesture can take priority. `Ctrl/Cmd`-click skips that wait.
+Click a reference in terminal output to open what the agent is talking about—in the window, your IDE, another application, or your browser.
 
-Commenting comes first. On a target with delayed navigation, a second press cancels the pending jump immediately: double-click selects a word, triple-click selects a line, and typing comments on that selection. Dragging or holding the first press also cancels the jump. Escape, typing, scrolling, another click, or leaving the window cancels a pending jump. The wait follows the system's double-click timing; selection and freezing respond as usual. Drag-selection works across immediate links too; their existing double-click behavior is unchanged.
+## In terminal output
 
-**Plain click, in the window.** Whatever the agent prints that renders opens in a viewer band above the prompt: a markdown path (`docs/plan.md`) in the md viewer, a `review://` link in the review viewer, an image, a video, an audio file or a PDF in the band, a local page (`file://`, `.html`) in the web band. A diff line on a doc, the common case when the agent edits one, jumps to that line in the md viewer, for you to comment on or edit.
+**In the window.** Markdown documents, reviews, images, audio, video, PDFs, and local pages open in a viewer above the prompt. A diff line on a document jumps to the corresponding passage for commenting or editing.
 
-**Plain click after a pause, to another application.** A symbol, a `file:line`, or a diff or source line over code goes to your IDE at that line ([ide](ide.md)). A bare path, a folder, an archive, an office document, or a media format the band cannot play (`.mov`, `.avi`) goes to the OS handler. These targets keep their quiet appearance until hovered; their underline responds to a plain click. `Ctrl/Cmd`-click follows them immediately.
+**Other applications.** Code references (`file:line`, symbols, or code-diff lines) jump to your [IDE](ide.md). Files the viewer cannot display and folders open through the OS. These handoffs wait briefly so you can select instead; `Ctrl/Cmd`-click skips the pause.
 
-**Web links.** A plain click on an `http(s)` URL opens your browser, where logins, SSO cookies, and device auth already live. `Ctrl/Cmd`-click pulls the page into the in-app web band instead.
+**Web links.** A plain click opens your browser; `Ctrl/Cmd`-click opens the page in the web viewer instead.
 
-Inside the md viewer, a plain click on a link arms the block under it for a comment; `Ctrl/Cmd`-click follows the link.
+You can also [comment on linked text](comment.md) by drag-selecting it. Selection takes priority over delayed jumps.
+
+## Inside viewers
+
+**Markdown and reviews.** `Ctrl/Cmd`-click follows web links in your browser; in markdown, it also follows file links. Ordinary markdown clicks prepare comments or edits. The review's own navigation links still take plain clicks. See [viewer details](viewer.md#links-and-unsent-work) for unsent-work protection.
+
+**Web pages.** Links browse within the viewer; links that request a new window open in your browser instead.
 
 You don't have to scroll back for a link the agent printed: `Ctrl/Cmd+Shift+U` lists your recent viewers, and typing finds files that never appeared in the terminal ([open a viewer](viewer.md)).
-
-**The one thing to remember:** click to follow, select to comment; `Ctrl/Cmd`-click skips the pause on IDE and OS targets.

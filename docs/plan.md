@@ -2,13 +2,13 @@
 
 ![the plan loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list](assets/doc-edit-loop.gif)
 
-The viewer turns markdown into a place you write English. A doc opens rendered and shows both your proposals and how the agent takes them forward: you comment on any passage or edit the rendered text directly, and the agent processes and polishes. You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
+The viewer turns markdown into a place you write English. A doc opens rendered and shows both your proposals and how the agent takes them forward: you [comment on any passage](comment.md) or edit the rendered text directly, and the agent processes and polishes. You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
 
 It reads as a book: two pages side by side, short lines. Pages turn rather than scroll.
 
 English is where the real planning happens: much of a design is settled in words before any code. A plan converges here the way code does: commented, revised in place, settled before anything is built. The same loop covers any writing project (essays, notes, research), with your materials organized as a repo the agent edits for you.
 
-Editing goes beyond word swaps: start new lines anywhere in the rendered page, and the agent decides what each becomes in the source (a heading, a list item, a paragraph). Your edits reach it as suggestions; it applies the intent.
+Editing goes beyond word swaps: start new lines anywhere in the rendered page, and the agent decides what each becomes in the source (a heading, a list item, a paragraph).
 
 <p align="center">
 <img src="assets/change-highlight.png" width="65%" alt="a long changed paragraph: a bar in the margin marks the block, and hovering shows the exact words that changed">
