@@ -7,13 +7,8 @@
 // triple click now belong to xterm's word and line select, which arm the
 // type-to-comment pill; commenting always goes through a selection.
 //
-// Splitting the gestures left one collision behind. The first press of a double
-// click is detail 1, so it still armed and navigated on its own release, and the
-// widest patterns on the surface — bare identifiers, file:line, source and diff
-// lines — all resolve through the IDE. Those now wait for ctrl/cmd. What keeps
-// the plain click is what opens without taking the terminal away: a URL or an
-// .html path in the viewer band, an .md path in the md viewer, a bare path with
-// the OS.
+// IDE/OS targets now accept a delayed plain click. Selection cancels that action
+// before it leaves the app; existing viewer clicks and Ctrl/Cmd stay immediate.
 
 import { _electron as electron } from 'playwright-core';
 import * as path from 'node:path';
@@ -56,6 +51,28 @@ async function main() {
     await sleep(200);
   }
 
+  const nativeInterval = await page.evaluate(() => window.pty.getDoubleClickInterval());
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    check('native double-click timing is available', Number.isFinite(nativeInterval) && nativeInterval > 0, nativeInterval);
+  }
+  // Observe actual requests without opening another app or depending on an IDE
+  // being installed. Use a slow interval to exercise late second presses.
+  await app.evaluate(({ ipcMain }) => {
+    globalThis.__clickActions = [];
+    globalThis.__clickTimingReads = 0;
+    ipcMain.removeHandler('get-double-click-interval');
+    ipcMain.handle('get-double-click-interval', () => { globalThis.__clickTimingReads++; return 700; });
+    for (const channel of ['navigate-to-file', 'navigate-to-symbol', 'open-resource', 'open-url']) {
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, (_event, target) => {
+        globalThis.__clickActions.push({ channel, target });
+        return { success: true, status: 'ok' };
+      });
+    }
+  });
+  const actions = () => app.evaluate(() => globalThis.__clickActions);
+  const timingReads = () => app.evaluate(() => globalThis.__clickTimingReads);
+
   const focusTerm = () => page.evaluate(() => {
     const ta = document.querySelector('.xterm-helper-textarea');
     if (ta) ta.focus();
@@ -91,17 +108,17 @@ async function main() {
     const all = [...screenText.matchAll(/\[selected](.*?)\[\/selected]/gs)];
     return all.length ? all[all.length - 1][1] : null;
   };
-  // An IDE navigation is invisible on a machine with no IDE listening, except
-  // that it always reports: the TCP attempt resolves without a status and the
-  // renderer flashes a nav-feedback toast. Presence of the toast is the proof
-  // that the call fired at all, which is what the gesture rule is about.
   const navFired = async () => {
-    await page.waitForSelector('.nav-feedback', { timeout: 2_500 }).catch(() => {});
-    return page.evaluate(() => !!document.querySelector('.nav-feedback'));
+    for (let i = 0; i < 20; i++) {
+      if ((await actions()).length) return true;
+      await sleep(50);
+    }
+    return (await actions()).length > 0;
   };
-  const clearNavFeedback = () => page.evaluate(() => {
-    document.querySelectorAll('.nav-feedback').forEach((n) => n.remove());
-  });
+  const clearNavFeedback = async () => {
+    await app.evaluate(() => { globalThis.__clickActions = []; });
+    await page.evaluate(() => document.querySelectorAll('.nav-feedback').forEach((n) => n.remove()));
+  };
   const MOD_KEY = process.platform === 'darwin' ? 'Meta' : 'Control';
   const modifiedClick = async (x, y) => {
     await page.keyboard.down(MOD_KEY);
@@ -180,27 +197,34 @@ async function main() {
     await page.waitForSelector('.vb-shell.vb-web.open', { timeout: 10_000 }).catch(() => {});
     let s = await state();
     check('a single click opens the viewer band', s.band, s);
+    check('existing viewer links do not request a click delay', await timingReads() === 0);
     check('and opens no composer', !s.bubble, s);
     await closeBand();
 
-    console.log('an IDE-bound match waits for ctrl/cmd');
+    console.log('an IDE-bound match takes a delayed plain click or immediate ctrl/cmd');
     await runCmd("printf '%s\\n' 'see src/sessions-log.js:213 and isSessionActive for it'");
     await sleep(1200);
     const ideLine = await wordTarget('and isSessionActive for it', 'src/sessions-log.js:213');
     check('the file:line is on screen', !!ideLine, ideLine);
     await clearNavFeedback();
     await page.mouse.click(ideLine.x, ideLine.y);
-    check('a plain click on file:line fires no navigation', !(await navFired()));
+    check('a plain click does not navigate immediately', (await actions()).length === 0);
+    check('a plain click on file:line navigates after the delay', await navFired());
+    check('it navigates once to the clicked file and line', (await actions()).length === 1
+      && (await actions())[0].target.filePath === 'src/sessions-log.js'
+      && (await actions())[0].target.line === 213);
     check('and opens no viewer band', !(await state()).band);
     await clearNavFeedback();
+    const beforeModified = await timingReads();
     await modifiedClick(ideLine.x, ideLine.y);
     check('ctrl/cmd click on file:line navigates', await navFired());
+    check('ctrl/cmd bypasses the timing lookup', await timingReads() === beforeModified);
 
     const symbol = await wordTarget('and isSessionActive for it', 'isSessionActive');
     check('the symbol is on screen', !!symbol, symbol);
     await clearNavFeedback();
     await page.mouse.click(symbol.x, symbol.y);
-    check('a plain click on a symbol fires no navigation', !(await navFired()));
+    check('a plain click on a symbol navigates after the delay', await navFired());
     await clearNavFeedback();
     await modifiedClick(symbol.x, symbol.y);
     check('ctrl/cmd click on a symbol navigates', await navFired());
@@ -224,29 +248,124 @@ async function main() {
     const ide = 'and isSessionActive for it';
     check('an IDE path is a target under the modifier', await cursorOver(ide, 'src/sessions-log.js', true) === 'pointer');
     check('and so is its line, the same one reference', await cursorOver(ide, '213', true) === 'pointer');
-    check('neither is a target without the modifier', await cursorOver(ide, 'src/sessions-log.js', false) === '');
+    check('the IDE path is also a target without the modifier', await cursorOver(ide, 'src/sessions-log.js', false) === 'pointer');
 
     // The md viewer opens the document, so the line is not part of what is named.
-    await runCmd("printf '%s\\n' 'open README.md:42 now'");
+    const doc = `open ${path.join(FIXTURES, 'e2e-md-links.md')}:42 now`;
+    await runCmd(`printf '%s\\n' '${doc}'`);
     await sleep(1200);
-    const doc = 'open README.md:42 now';
-    check('a doc is a target on a plain click', await cursorOver(doc, 'README.md', false) === 'pointer');
+    check('a doc is a target on a plain click', await cursorOver(doc, 'e2e-md-links.md', false) === 'pointer');
     check('and its line is ordinary text', await cursorOver(doc, '42', false) === '');
 
+    const mdTarget = await wordTarget(doc, 'e2e-md-links.md');
+    const mdDragEnd = await wordTarget(doc, 'open');
+    await page.mouse.move(mdTarget.x, mdTarget.y);
+    await page.mouse.down();
+    await page.mouse.move(mdDragEnd.x, mdDragEnd.y, { steps: 5 });
+    await page.mouse.up();
+    check('dragging across an immediate markdown link arms commenting', await awaitPill());
+    check('that drag does not open the markdown viewer', await page.locator('.vb-shell.vb-md.open').count() === 0);
+    await escape();
+    await sleep(700); // start a fresh click sequence after the drag
+    const beforeMarkdown = await timingReads();
+    await page.mouse.click(mdTarget.x, mdTarget.y);
+    await page.waitForSelector('.vb-shell.vb-md.open', { timeout: 10_000 });
+    check('markdown still opens without requesting a delay', await timingReads() === beforeMarkdown);
+    await page.locator('.vb-shell.vb-md .vb-close').click();
+    await sleep(500);
+
     console.log('a double click on an IDE-bound match navigates nowhere');
-    // The residual collision the modifier gate closes: the first press of a
-    // double click is detail 1, so before the gate it armed and navigated on its
-    // own release. With nothing armed there is no navigation and no interval to
-    // sit out before the word select lands.
+    // The first mouseup arms a timer; the second DOWN cancels it.
     await page.mouse.dblclick(symbol.x, symbol.y);
     check('the word select arms the pill', await awaitPill());
     check('and no navigation fired on the way', !(await navFired()));
     await escape();
     await sleep(200);
 
+    console.log('a slow second press cancels before its release, and a third selects the line');
+    const slowSymbol = await wordTarget('and isSessionActive for it', 'isSessionActive');
+    await page.mouse.click(slowSymbol.x, slowSymbol.y);
+    await sleep(600);
+    await page.mouse.down({ clickCount: 2 });
+    await sleep(300); // beyond the first click's deadline, still holding
+    check('no navigation while the second press is held', (await actions()).length === 0);
+    await page.mouse.up({ clickCount: 2 });
+    check('slow double-click still arms commenting', await awaitPill());
+    await page.mouse.down({ clickCount: 3 });
+    await page.mouse.up({ clickCount: 3 });
+    check('triple-click over a symbol offers the line comment', await awaitPill());
+    check('and no delayed navigation survives', !(await navFired()));
+    check('the comment receives the whole linked line', selectedIn(await commentAndSend('k'))
+      === 'see src/sessions-log.js:213 and isSessionActive for it');
+
+    console.log('selection and cancellation win over delayed navigation');
+    await runCmd("printf '%s\\n' 'drag isSessionActive toward this word'");
+    const dragSymbol = await wordTarget('drag isSessionActive toward', 'isSessionActive');
+    const dragEnd = await wordTarget('drag isSessionActive toward', 'word');
+    await clearNavFeedback();
+    await page.mouse.move(dragSymbol.x, dragSymbol.y);
+    await page.mouse.down();
+    await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 6 });
+    await page.mouse.up();
+    check('dragging from a symbol arms commenting', await awaitPill());
+    check('drag selection never navigates', !(await navFired()));
+    await escape();
+    await page.mouse.move(dragSymbol.x, dragSymbol.y);
+    await page.mouse.down();
+    await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 6 });
+    await page.mouse.move(dragSymbol.x, dragSymbol.y, { steps: 6 });
+    await page.mouse.up();
+    check('dragging out and back never navigates', !(await navFired()));
+    await escape();
+    for (const cancel of [
+      () => page.keyboard.press('Escape'),
+      () => page.keyboard.type('x'),
+      () => page.mouse.wheel(0, -40),
+      () => page.evaluate(() => window.dispatchEvent(new Event('blur'))),
+    ]) {
+      const target = await wordTarget('drag isSessionActive toward', 'isSessionActive');
+      await page.mouse.click(target.x, target.y);
+      await cancel();
+      check('a cancelled plain click never navigates', !(await navFired()));
+    }
+    await page.keyboard.press('Control+c');
+
+    console.log('native hyperlinks keep their immediate URL even with a symbol caption');
+    await runCmd('clear');
+    await runCmd("printf '\\033]8;;https://example.invalid/osc8\\007%s\\033]8;;\\007 after\\n' 'isSessionActive'");
+    const nativeLabel = await wordTarget('isSessionActive after', 'isSessionActive');
+    await clearNavFeedback();
+    const beforeNativeLink = await timingReads();
+    await page.mouse.move(nativeLabel.x, nativeLabel.y);
+    await sleep(200); // allow xterm's native link provider to resolve the hover
+    await page.mouse.click(nativeLabel.x, nativeLabel.y);
+    check('the native caption opens its URL', await navFired());
+    check('the URL opens exactly once, without an IDE jump', (await actions()).length === 1
+      && (await actions())[0].channel === 'open-url'
+      && (await actions())[0].target === 'https://example.invalid/osc8');
+    check('the native caption does not request a click delay', await timingReads() === beforeNativeLink);
+    await clearNavFeedback();
+    const nativeDragEnd = await wordTarget('isSessionActive after', 'after');
+    await page.mouse.move(nativeLabel.x, nativeLabel.y);
+    await page.mouse.down();
+    await page.mouse.move(nativeDragEnd.x, nativeDragEnd.y, { steps: 6 });
+    await page.mouse.up();
+    check('a drag from the native symbol caption arms commenting', await awaitPill());
+    check('a native caption drag opens neither URL nor IDE', !(await navFired()));
+    await escape();
+
+    console.log('a bare OS path also accepts a plain click');
+    await runCmd('echo ./docs/assets');
+    const folder = await wordTarget('./docs/assets', './docs/assets');
+    await page.mouse.click(folder.x, folder.y);
+    check('plain click opens the folder after the delay', await navFired());
+    check('the OS handler receives the folder exactly once', (await actions()).length === 1
+      && (await actions())[0].channel === 'open-resource'
+      && (await actions())[0].target === './docs/assets');
+    await clearNavFeedback();
+
     console.log('a double click on navigable output does not comment');
-    // A path that does not resolve: it decorates and navigation runs, but nothing
-    // opens over the terminal, so the word select is observable in place.
+    // A path-shaped word retains xterm's selection and comment payload.
     await runCmd('echo src/nope-does-not-exist.txt');
     await sleep(1500);
     const deadPath = await lastDecoration();
@@ -349,6 +468,47 @@ async function main() {
     check('line select arms the pill', await awaitPill());
     check('a line comment marks the whole line',
       selectedIn(await commentAndSend('k')) === 'the quick brown fox jumped over the lazy dog');
+
+    console.log('streaming output stays live on a click, freezes for a hold or drag');
+    const frozen = () => page.evaluate(() => !!document.querySelector('.terminal-output-frozen-pill'));
+    await runCmd('clear');
+    await runCmd("printf '%s\\n' 'streaming isSessionActive target'; while :; do printf '.\\r'; sleep 0.1; done");
+    const streamTarget = await wordTarget('streaming isSessionActive target', 'isSessionActive');
+    const streamEnd = await wordTarget('streaming isSessionActive target', 'target');
+    await clearNavFeedback();
+    await page.mouse.click(streamTarget.x, streamTarget.y);
+    // A CLI status query causes xterm to reply through onData. It is protocol,
+    // not typing, and must not silently cancel this pending navigation.
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('pty-output', '\u001b[5n');
+    });
+    await sleep(300);
+    check('a pending plain click does not freeze streaming output', !(await frozen()));
+    check('the delayed click still navigates while output streams', await navFired());
+    await clearNavFeedback();
+    await page.mouse.move(streamTarget.x, streamTarget.y);
+    await page.mouse.down();
+    await sleep(300);
+    check('holding a linked word freezes live output', await frozen());
+    await page.mouse.up();
+    check('the held press does not navigate on release', !(await navFired()));
+    check('its freeze survives the navigation deadline', await frozen());
+    await escape();
+    await sleep(200);
+    await page.mouse.move(streamTarget.x, streamTarget.y);
+    await page.mouse.down();
+    await page.mouse.move(streamEnd.x, streamEnd.y, { steps: 6 });
+    check('dragging from a linked word freezes live output', await frozen());
+    await page.mouse.up();
+    check('the streaming drag arms commenting', await awaitPill());
+    check('no navigation interrupts the frozen selection', !(await navFired()));
+    await focusTerm();
+    await page.keyboard.type('c');
+    await page.waitForSelector('.terminal-comment-bubble', { timeout: 3_000 });
+    check('typing on the frozen drag selection starts a comment', await bubbleShown());
+    await escape();
+    check('Esc leaves commenting and resumes streaming', !(await frozen()));
+    await page.keyboard.press('Control+c');
   } finally {
     await app.close();
   }

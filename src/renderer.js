@@ -9,13 +9,13 @@ const {
 } = require('./search-ui-state');
 const { extractDroppedPaths, hasSupportedPathDropType } = require('./drag-drop-paths');
 const { handleTerminalKeydown } = require('./terminal-keyboard');
-const { beginDecorationPress, resolveDecorationPress, decorationPressOptions, DEFAULT_DRAG_THRESHOLD_PX } = require('./terminal-decoration-press');
+const { createDecorationPressController, decorationPressOptions, DEFAULT_DRAG_THRESHOLD_PX } = require('./terminal-decoration-press');
 const { attachTerminalMouseShortcuts } = require('./terminal-mouse');
 const { NOTICE_DWELL_MS, shouldNoticeAltScreen, altScreenNotice } = require('./alt-screen-notice');
 
 // Which AI CLI this window is running, as main last reported it.
 let currentCli = null;
-const { navigationNeedsModifier, hasNavigationModifier, matchForPress, markedLength, CONTEXT_PATH_PATTERNS } = require('./terminal-nav-destination');
+const { navigationNeedsDelay, opensImmediately, matchForPress, markedLength, CONTEXT_PATH_PATTERNS } = require('./terminal-nav-destination');
 const {
   DEFAULT_SELECTION_CONTEXT_LINES,
   buildTerminalCommentBatchMessage,
@@ -2920,10 +2920,74 @@ document.addEventListener('keydown', (event) => {
 }, true);
 document.addEventListener('keydown', handleSelectionCommentHintKeydown, true);
 
-// Navigable text defers its action to mouseup so a press that becomes a drag is
-// a text selection (letting you select — and comment on — a symbol or source
-// line) while a press that stays put is a click that navigates.
-let pendingDecorationPress = null;
+// Viewer links and modified clicks keep immediate mouseup activation. Plain
+// clicks on IDE/OS targets wait for another press to declare selection intent.
+// Nothing here prevents xterm's native selection events or freezes output.
+function decorationNavigationContext(match) {
+  if (match.patternName === 'diff_block') return findCursorDiffHeader(match.bufferRow);
+  if (match.patternName === 'line_ref') return resolveLineRefFileContext(match.bufferRow, match.start, match.end);
+  if (CONTEXT_PATH_PATTERNS.has(match.patternName) || match.patternName.endsWith('_symbol')) {
+    return findFileContext(match.bufferRow, match.start);
+  }
+  return null;
+}
+
+function nativeHyperlinkAtMouseEvent(event) {
+  // xterm's public cell currently carries its extended OSC 8 attributes. Keep
+  // this guarded like our other xterm-internal adapters. Its built-in provider
+  // accepts only http(s) unless allowNonHttpProtocols is enabled (ours isn't).
+  try {
+    const position = getMouseBufferPosition(event);
+    const cell = position?.buffer.getLine(position.bufferRow)?.getCell(position.col);
+    const uri = terminal._core._oscLinkService.getLinkData(cell?.extended?.urlId)?.uri;
+    return uri && /^https?:$/.test(new URL(uri).protocol) ? uri : null;
+  } catch { return null; }
+}
+
+const decorationPress = createDecorationPressController({
+  getDoubleClickMs: () => window.pty.getDoubleClickInterval(),
+  holdMs: TERMINAL_FREEZE_HOLD_MS,
+  canNavigate: (match) => !terminal.hasSelection() && !activeTerminalComment
+    && !terminalCommentSelectionHint
+    && match.pressBuffer === terminal.buffer.active
+    && match.pressRowText === getRowText(match.bufferRow).text
+    && match.pressContextPath === decorationNavigationContext(match),
+  navigate: (match, options) => {
+    // xterm still needs the mouseup to end its drag state. Clear only once a
+    // navigation has actually won, never while a delayed click is pending.
+    try { terminal.clearSelection(); } catch {}
+    if (terminalOutputFrozen && !activeTerminalComment && !queuedTerminalComments.length) {
+      unfreezeTerminalOutput('decoration-navigation');
+    }
+    if (typeof match.action === 'function') match.action(match, options);
+  },
+});
+
+// Capture at the document/window before selection, focus, and Esc handlers can
+// stop propagation. A new press cancels on DOWN, including a second press that
+// is held beyond the navigation deadline before its mouseup arrives.
+document.addEventListener('mousedown', decorationPress.cancel, true);
+window.addEventListener('keydown', decorationPress.cancel, true);
+window.addEventListener('blur', decorationPress.cancel);
+window.addEventListener('pagehide', decorationPress.cancel);
+document.addEventListener('wheel', decorationPress.cancel, { capture: true, passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) decorationPress.cancel();
+});
+terminal.onData((data) => {
+  // Focus/mouse reports and terminal query replies share onData with typing.
+  // They must not cancel a click just because the CLI probes the terminal.
+  // Real navigation keys are already caught by the keydown listener above.
+  if (!(data.length > 1 && /^\u001b[\[\]OP_^]/.test(data))) decorationPress.cancel();
+});
+terminal.onResize(decorationPress.cancel);
+terminal.buffer.onBufferChange(decorationPress.cancel);
+terminal.onSelectionChange(() => {
+  if (terminal.hasSelection()) decorationPress.cancel();
+});
+document.addEventListener('mousemove', (event) => {
+  decorationPress.move({ x: event.clientX, y: event.clientY });
+}, true);
 
 screenElement.addEventListener('mousedown', (event) => {
   // Only a fresh sequence clears the OSC 8 guard. xterm activates a hyperlink on
@@ -2931,48 +2995,50 @@ screenElement.addEventListener('mousedown', (event) => {
   // and an OSC 8 link, the second release would re-open what the first press
   // already navigated to.
   if (event.detail <= 1) pressConsumedByDecoration = false;
-  // IDE-bound matches sit out a plain click and wait for ctrl/cmd, so nothing is
-  // armed here and a double-click that selects a word to comment on it navigates
-  // nowhere on its first press.
-  const match = (event.button === 0 && !event.shiftKey)
+  let match = (event.button === 0 && !event.shiftKey)
     ? matchForPress(getClickableMatchAtMouseEvent(event), event)
     : null;
-  pendingDecorationPress = beginDecorationPress({
+  let delayed = navigationNeedsDelay(match, event);
+  if (delayed) {
+    // A symbol/path caption may already be an OSC 8 hyperlink. Before plain
+    // decoration clicks were enabled, its URL opened immediately via xterm.
+    // Preserve that target and timing; Ctrl/Cmd keeps the decoration action.
+    const uri = nativeHyperlinkAtMouseEvent(event);
+    if (uri) {
+      match = { ...match, action: (_match, options) => openUrlFromTerminal(uri, 'osc8', urlClickWantsExternal(uri, options.modifiers)) };
+      delayed = false;
+    }
+  }
+  if (match) {
+    // Also suppress OSC 8 on a cancelled decoration drag/double click: its
+    // independent mouseup activation must not bypass selection protection.
+    pressConsumedByDecoration = true;
+    if (delayed) {
+      match.pressBuffer = terminal.buffer.active;
+      match.pressRowText = getRowText(match.bufferRow).text;
+      match.pressContextPath = decorationNavigationContext(match);
+    }
+  }
+  decorationPress.down({
     button: event.button,
     shiftKey: event.shiftKey,
     match,
     x: event.clientX,
     y: event.clientY,
     detail: event.detail,
+    delayed,
   });
 });
 
-// Capture phase so the OSC 8 guard is set before xterm's own mouseup link
-// activation runs; otherwise a URL that is both a match and an OSC 8 link could
-// open twice on a plain click.
+// Resolve before xterm's own mouseup link activation. Let the event continue so
+// xterm can end its selection drag; the guard set on mousedown prevents a URL
+// that is both a decoration and an OSC 8 link from opening twice.
 document.addEventListener('mouseup', (event) => {
-  const press = pendingDecorationPress;
-  pendingDecorationPress = null;
-  const outcome = resolveDecorationPress(press, {
+  decorationPress.up({
     button: event.button,
     x: event.clientX,
     y: event.clientY,
-  });
-  if (outcome !== 'navigate' || !press || !press.match) return;
-  pressConsumedByDecoration = true;
-  // It was a click, not a drag. Clear any sub-threshold selection xterm started
-  // on the (un-prevented) mousedown, and do NOT stopPropagation this mouseup —
-  // xterm needs it to end its own selection-drag state, or later mouse moves
-  // keep extending a selection. The OSC 8 double-open is guarded by the flag.
-  try { terminal.clearSelection(); } catch {}
-  // Navigating moves attention to the viewer — release a bare freeze this press
-  // may have caused (a slow click can outlast the hold threshold). A freeze
-  // anchoring comment work stays.
-  if (terminalOutputFrozen && !activeTerminalComment && !queuedTerminalComments.length) {
-    unfreezeTerminalOutput('decoration-navigation');
-  }
-  const m = press.match;
-  if (typeof m.action === 'function') m.action(m, decorationPressOptions(event));
+  }, decorationPressOptions(event));
 }, true);
 
 // Drag-and-drop file → paste escaped path into terminal
@@ -5453,15 +5519,8 @@ function updateRenderedMatchStyle(matchKey) {
 let hoveredMatchCursor = '';
 
 function setHoveredMatch(match, event) {
-  // The cursor answers "does clicking here do something", so it tracks the
-  // modifier as well as the match: an IDE-bound match reads as plain text until
-  // ctrl/cmd is held, and lights up the moment it is. Same reasoning as the md
-  // viewer's I-beam over link text — a pointer that promises a jump the bare
-  // click no longer makes is a lie. Kept above the same-match early return so
-  // holding the modifier updates it without moving to another match.
-  const nextCursor = (match && (!navigationNeedsModifier(match) || hasNavigationModifier(event)))
-    ? 'pointer'
-    : '';
+  // All navigable targets now respond to a plain click, including hover marks.
+  const nextCursor = matchForPress(match, event) ? 'pointer' : '';
   if (screenElement && nextCursor !== hoveredMatchCursor) {
     hoveredMatchCursor = nextCursor;
     screenElement.style.cursor = nextCursor;
@@ -5698,7 +5757,7 @@ function pastedWordNeedsLeadingSpace() {
 // header over a diff box, the enclosing file of a source row — so whether its
 // plain click opens in-app can't be read off the match text. Resolve the same
 // context the click action would use and stamp it on the match for the
-// press/hover logic (actsOnPlainClick). Memoized: this runs on every mousemove, and
+// press/hover logic (opensImmediately). Memoized: this runs on every mousemove, and
 // the resolution is a backward buffer scan. The match text is part of the key
 // so a scrollback trim that shifts absolute rows re-resolves instead of
 // serving another line's context.
@@ -5899,14 +5958,9 @@ function createDecoration(bufferLineIndex, match) {
     if (isAlternateBufferActive() && viewportLine >= 0 && viewportLine < terminal.rows) {
       element.style.display = 'block';
     }
-    // The resting underline means one thing: a plain click acts here. A match
-    // that waits for ctrl/cmd shows nothing until hovered, so README.md:42 (md
-    // viewer) and src/renderer.js:88 (IDE) stop being two identical-looking
-    // spans with different rules. Derived from the same predicate as the press,
-    // so the mark and the gesture cannot drift apart. It also takes the dotted
-    // underline off ordinary prose, where the bare-identifier symbol patterns
-    // were claiming most technical words.
-    const isHoverOnly = match.style === 'hover-only' || navigationNeedsModifier(match);
+    // Preserve the quiet resting appearance of IDE/OS targets. Their underline
+    // on hover now promises a delayed plain click; immediate links stay marked.
+    const isHoverOnly = match.style === 'hover-only' || !opensImmediately(match);
     decorationStyles.set(matchKey, { fgColor, isHoverOnly });
     rememberDecorationElement(matchKey, element);
     applyDecorationElementStyle(element, { fgColor, isHoverOnly }, hoveredMatchKey === matchKey);

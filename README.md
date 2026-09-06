@@ -39,7 +39,7 @@ These are the main ones. Follow the links to see an overview of more features om
 | The agent finishes a change and you get a wall of diff. | It hands you a **[curated package, rendered for your review](docs/review.md)**; you comment inline, it fixes and replies in place. |
 | A long CI run either blocks the session, or outlives the agent's turn and finishes unnoticed. | The agent starts the job and hands the terminal back; **[the job reports its own completion](docs/jobs.md)** through the terminal and the idle agent is prompted to pick it up, even across a session restart; a runner icon at the top right shows what is running. |
 | It sits blocked on a question until you're back at your desk. | **[Your phone shows the same terminal](docs/phone.md)**; unblock it by voice. |
-| The agent cites file:line and symbols; checking a claim means finding it by hand. | Ctrl/Cmd-click any reference and **[your IDE jumps to that exact line](docs/ide.md)** to verify the claim, with the editor read-only so a stray key changes nothing. |
+| The agent cites file:line and symbols; checking a claim means finding it by hand. | Click any reference and **[your IDE jumps to that exact line](docs/ide.md)** after a brief pause for selection; Ctrl/Cmd-click jumps immediately. The editor stays read-only so a stray key changes nothing. |
 
 ## Native to the OS
 

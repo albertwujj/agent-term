@@ -3,7 +3,10 @@ const {
   beginDecorationPress,
   resolveDecorationPress,
   decorationPressOptions,
+  createDecorationPressController,
+  DOUBLE_CLICK_MARGIN_MS,
 } = require('../src/terminal-decoration-press');
+const { createDoubleClickIntervalReader } = require('../src/double-click-interval');
 
 let passed = 0;
 let failed = 0;
@@ -145,6 +148,160 @@ test('decorationPressOptions forwards Alt alone for the chooser', () => {
 
 test('decorationPressOptions tolerates a missing event', () => {
   assertEqual(decorationPressOptions().modifiers.shiftKey, false);
+});
+
+// Deterministic gesture timing: test event ordering without real sleeps.
+function gestureHarness(overrides = {}) {
+  let time = 0;
+  let selectable = true;
+  const timers = new Set();
+  const navigations = [];
+  const controller = createDecorationPressController({
+    now: () => time,
+    canNavigate: () => selectable,
+    navigate: (match, options) => navigations.push({ match, options }),
+    getDoubleClickMs: () => 700,
+    setTimer: (fn, ms) => { const timer = { fn, at: time + ms }; timers.add(timer); return timer; },
+    clearTimer: (timer) => timers.delete(timer),
+    ...overrides,
+  });
+  const down = (opts = {}) => controller.down({ button: 0, match: MATCH, x: 10, y: 20, delayed: true, ...opts });
+  const up = () => controller.up({ button: 0, x: 10, y: 20 }, decorationPressOptions());
+  const tick = async (ms) => {
+    await Promise.resolve(); // let the native timing lookup settle
+    time += ms;
+    for (const timer of [...timers]) {
+      if (timer.at <= time) { timers.delete(timer); timer.fn(); }
+    }
+  };
+  return { controller, down, up, tick, navigations, setSelectable: (value) => { selectable = value; } };
+}
+
+test('a newly enabled plain click waits for system timing and navigates exactly once', async () => {
+  const h = gestureHarness();
+  h.down(); h.up();
+  await h.tick(699 + DOUBLE_CLICK_MARGIN_MS);
+  assertEqual(h.navigations.length, 0);
+  await h.tick(1);
+  assertEqual(h.navigations.length, 1);
+  await h.tick(2000);
+  assertEqual(h.navigations.length, 1);
+});
+
+test('existing immediate targets do not read timing or schedule navigation', async () => {
+  const h = gestureHarness({ getDoubleClickMs: () => { throw new Error('unexpected timing lookup'); } });
+  h.down({ delayed: false }); h.up();
+  assertEqual(h.navigations.length, 1);
+  await h.tick(2000);
+  assertEqual(h.navigations.length, 1);
+});
+
+test('the second DOWN cancels even when its release comes after the deadline', async () => {
+  const h = gestureHarness();
+  h.down(); h.up();
+  await h.tick(650);
+  h.down({ detail: 2 });
+  await h.tick(1000);
+  h.up();
+  h.down({ detail: 3 }); h.up();
+  await h.tick(1000);
+  assertEqual(h.navigations.length, 0);
+});
+
+test('a drag that returns to its origin never navigates', async () => {
+  for (const delayed of [true, false]) {
+    const h = gestureHarness();
+    h.down({ delayed });
+    h.controller.move({ x: 30, y: 20 });
+    h.controller.move({ x: 10, y: 20 });
+    h.up();
+    await h.tick(2000);
+    assertEqual(h.navigations.length, 0);
+  }
+});
+
+test('hold-to-freeze intent cancels the newly enabled click', async () => {
+  const h = gestureHarness();
+  h.down();
+  await h.tick(200);
+  h.up();
+  await h.tick(2000);
+  assertEqual(h.navigations.length, 0);
+});
+
+test('selection or comment state blocks navigation at release and at the deadline', async () => {
+  for (const beforeRelease of [true, false]) {
+    const h = gestureHarness();
+    h.down();
+    if (beforeRelease) h.setSelectable(false);
+    h.up();
+    h.setSelectable(false);
+    await h.tick(2000);
+    assertEqual(h.navigations.length, 0);
+  }
+});
+
+test('cancellation while pressed or waiting prevents a later action', async () => {
+  for (const beforeRelease of [true, false]) {
+    const h = gestureHarness();
+    h.down();
+    if (beforeRelease) h.controller.cancel();
+    h.up();
+    await h.tick(10);
+    h.controller.cancel(); // Escape, typing, scroll, blur, resize, or buffer change
+    await h.tick(2000);
+    assertEqual(h.navigations.length, 0);
+  }
+});
+
+test('a late timing reply cannot revive a cancelled click or replace a newer one', async () => {
+  let reply;
+  const h = gestureHarness({ getDoubleClickMs: () => new Promise((resolve) => { reply = resolve; }) });
+  h.down(); h.up();
+  h.controller.cancel();
+  h.down({ delayed: false }); h.up();
+  reply(700);
+  await h.tick(2000);
+  assertEqual(h.navigations.length, 1);
+});
+
+test('a rejected native lookup preserves selection and leaves modified clicks working', async () => {
+  const h = gestureHarness({ getDoubleClickMs: () => Promise.reject(new Error('unavailable')) });
+  h.down(); h.up();
+  await h.tick(6000);
+  assertEqual(h.navigations.length, 0);
+  h.down({ delayed: false }); h.up();
+  assertEqual(h.navigations.length, 1);
+});
+
+test('missing or invalid native timing never guesses a shorter double-click interval', async () => {
+  for (const interval of [null, undefined, 0, -1, NaN, Infinity]) {
+    const h = gestureHarness({ getDoubleClickMs: () => interval });
+    h.down(); h.up();
+    await h.tick(6000);
+    assertEqual(h.navigations.length, 0);
+  }
+});
+
+test('native timing is loaded lazily and mouse setting changes are read afresh', () => {
+  let loads = 0;
+  let interval = 500;
+  const read = createDoubleClickIntervalReader({
+    platform: 'win32',
+    loadKoffi: () => { loads++; return { load: () => ({ func: () => () => interval }) }; },
+  });
+  assertEqual(loads, 0);
+  assertEqual(read(), 500);
+  interval = 1500;
+  assertEqual(read(), 1500);
+  assertEqual(loads, 1);
+});
+
+test('native load failure or unsupported platforms leave timing unavailable', () => {
+  const loadKoffi = () => { throw new Error('native module unavailable'); };
+  assertEqual(createDoubleClickIntervalReader({ platform: 'win32', loadKoffi })(), null);
+  assertEqual(createDoubleClickIntervalReader({ platform: 'darwin', loadKoffi })(), null);
+  assertEqual(createDoubleClickIntervalReader({ platform: 'linux', loadKoffi })(), null);
 });
 
 // --- runner -----------------------------------------------------------------

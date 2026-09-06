@@ -1,7 +1,7 @@
-// Which navigable terminal matches act on a plain click, and which ask for a
-// modifier first.
+// Which terminal targets keep immediate activation. Other targets wait out the
+// double-click interval on a plain click; Ctrl/Cmd bypasses that wait.
 //
-// One rule: a plain click opens something in a built-in viewer. A file:// URL
+// Immediate targets open in a built-in viewer. A file:// URL
 // or an .html path in the web band, a review:// package in the diff viewer, an
 // .md path in the md viewer, an image, a video, an audio file or a pdf in the
 // band (band-viewable.js) — and a diff or source row whose enclosing file is
@@ -13,7 +13,7 @@
 // embedded band keeps running into them, so the browser is the destination that
 // works and the band is the one you ask for with ctrl/cmd (or alt).
 //
-// Everything else hands you to another application, and that takes ctrl/cmd:
+// Everything else hands you to another application after a cancellable delay:
 // the IDE for a symbol, a file:line, a source or diff line over code; the OS
 // for a bare path, a folder, an archive or a format the band can't render. An
 // application switch is the most
@@ -22,13 +22,11 @@
 // technical words in ordinary agent prose, so a double click meant to select a
 // word for commenting used to fire a jump on its first press.
 //
-// Stated as what earns the plain click rather than what does not, so a pattern
-// added later needs an explicit decision to earn it instead of taking it by
-// default.
+// New patterns get the selection-preserving delay by default.
 
 const { BAND_FILE_TARGET } = require('./band-viewable');
 
-// Patterns that act on a plain click whatever their text says. `url` covers
+// Patterns that act immediately on a plain click whatever their text says. `url` covers
 // http(s) (system browser; the web band under a modifier), file:// (web band;
 // the OS handler under a modifier) and review:// (always the diff viewer).
 // `image_attachment` is classified by name rather than by text: the renderer
@@ -59,7 +57,7 @@ const PATH_IS_THE_TEXT = new Set([
 // commenting on a doc's diff belongs in the viewer itself, where the thread
 // lives with the text, so the gesture the click spends is the one you wanted.
 // When the context is a source file — or didn't resolve — the row still waits
-// for ctrl/cmd, because that click is an application switch to the IDE and the
+// out the double-click interval, because that click switches to the IDE and the
 // select-to-comment gesture keeps the terminal row.
 const CONTEXT_PATH_PATTERNS = new Set([
   'diff_line',
@@ -82,9 +80,8 @@ const DOC_TARGET = /\.(?:markdown|mdown|xhtml|html|htm|md)(?=$|[\s:(#,;)\]}'"])/
 // formats Chromium can't play stay handoffs, because the band has nothing
 // better to do with them than the OS does.
 
-// True when a plain click on this match acts — opens a built-in viewer, or a
-// web URL's browser tab — rather than waiting for a modifier.
-function actsOnPlainClick(match) {
+// Existing plain-click destinations keep their immediate activation.
+function opensImmediately(match) {
   if (!match) return false;
   if (PLAIN_CLICK_PATTERN_NAMES.has(match.patternName)) return true;
   if (PATH_IS_THE_TEXT.has(match.patternName)) {
@@ -97,9 +94,8 @@ function actsOnPlainClick(match) {
   return false;
 }
 
-// True when this match should sit out a plain click and wait for ctrl/cmd.
-function navigationNeedsModifier(match) {
-  return !!match && !actsOnPlainClick(match);
+function navigationNeedsDelay(match, event) {
+  return !!match && !opensImmediately(match) && !hasNavigationModifier(event);
 }
 
 // Ctrl or Cmd. Alt is excluded: it already means "choose among all matches" on
@@ -108,13 +104,11 @@ function hasNavigationModifier(event) {
   return !!event && (!!event.ctrlKey || !!event.metaKey);
 }
 
-// The match a press should act on, or null when the press is a plain click on
-// something that now waits for a modifier. Returning null is what keeps the
-// gesture free: with nothing armed, the first press of a double-click navigates
-// nowhere and there is no double-click interval to sit out.
+// Shift belongs to selection. Preserve the existing Alt-only gate on external
+// targets; Ctrl/Cmd+Alt still reaches their debug-copy action.
 function matchForPress(match, event) {
-  if (!match) return null;
-  if (navigationNeedsModifier(match) && !hasNavigationModifier(event)) return null;
+  if (!match || event?.shiftKey) return null;
+  if (event?.altKey && navigationNeedsDelay(match, event)) return null;
   return match;
 }
 
@@ -164,8 +158,8 @@ module.exports = {
   PLAIN_CLICK_PATTERN_NAMES,
   CONTEXT_PATH_PATTERNS,
   DOC_TARGET,
-  actsOnPlainClick,
-  navigationNeedsModifier,
+  opensImmediately,
+  navigationNeedsDelay,
   hasNavigationModifier,
   matchForPress,
   markedLength,

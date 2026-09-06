@@ -5,6 +5,7 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 const { dependencyProblem, missingDependencies } = require('./dep-freshness');
+const { createDoubleClickIntervalReader } = require('./double-click-interval');
 const { showStartupError } = require('./startup-error');
 
 // Before anything native loads, because the requires below are the ones that
@@ -3135,6 +3136,8 @@ async function sendNavigationRequest(request, port = NAVIGATOR_PORT) {
     client.connect(port, NAVIGATOR_HOST);
   });
 }
+
+ipcMain.handle('get-double-click-interval', createDoubleClickIntervalReader());
 
 // Navigate to file:line in PyCharm via the navigator plugin
 ipcMain.handle('navigate-to-file', async (event, { filePath, line, column, matchText }) => {

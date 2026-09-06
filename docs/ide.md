@@ -2,7 +2,7 @@
 
 ![click a reference and your IDE jumps to that exact line](assets/click-to-ide.gif)
 
-Agents explain by quoting file:line and symbols. `Ctrl/Cmd`-click any reference the agent mentions and your IDE jumps to that exact line, so you can drill in. It works in reverse too: wherever you are in the IDE, `Ctrl/Cmd+K` quotes that file and line into the prompt.
+Agents explain by quoting file:line and symbols. Click any reference the agent mentions and your IDE jumps to that exact line after a brief pause for selection gestures; `Ctrl/Cmd`-click jumps immediately ([click behavior](clicks.md)). It works in reverse too: wherever you are in the IDE, `Ctrl/Cmd+K` quotes that file and line into the prompt.
 
 The IDE editor stays read-only by default, so a stray keystroke won't mess things up; flip a setting on the rare occasion you want to edit directly.
 

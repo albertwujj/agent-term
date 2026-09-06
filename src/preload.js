@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('pty', {
   platform: process.platform,
+  getDoubleClickInterval: () => ipcRenderer.invoke('get-double-click-interval'),
   start: (cols, rows) => ipcRenderer.send('pty-start', { cols, rows }),
   write: (data) => ipcRenderer.send('pty-input', data),
   // opts.toPrompt: paste the message into the CLI input and leave it there

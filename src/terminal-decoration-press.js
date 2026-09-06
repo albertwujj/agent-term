@@ -6,10 +6,11 @@
 // could never select (and therefore comment on) a symbol or source line. We now
 // defer the decision to mouseup: a press that stays put is a click (navigate); a
 // press that moves past a small threshold is a drag (leave the resulting text
-// selection alone). The decision is movement-based, not time-based, so a real
-// click still navigates instantly with no double-click delay.
+// selection alone). Existing viewer clicks stay immediate; newly enabled plain
+// clicks use the cancellable controller below to protect multi-click selection.
 
 const DEFAULT_DRAG_THRESHOLD_PX = 4;
+const DOUBLE_CLICK_MARGIN_MS = 50;
 
 // Decide whether a mousedown should start a deferred decoration press. Returns a
 // pending record (carrying the match and the press origin) or null when the
@@ -61,9 +62,76 @@ function decorationPressOptions(event = {}) {
   return debugChord ? { copyResponse: true, modifiers } : { modifiers };
 }
 
+// Own both the held press and the released click. Cancellation invalidates the
+// timing lookup as well as the timer, so a late IPC reply cannot re-arm a click.
+function createDecorationPressController({
+  navigate,
+  getDoubleClickMs = () => null,
+  canNavigate = () => true,
+  holdMs = 200,
+  now = () => performance.now(),
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+} = {}) {
+  let press = null;
+  let pendingClick = null;
+
+  function cancel() {
+    press = null;
+    if (pendingClick) clearTimer(pendingClick.timer);
+    pendingClick = null;
+  }
+
+  function down(input) {
+    cancel();
+    const next = beginDecorationPress(input);
+    if (next) press = { ...next, delayed: !!input.delayed, startedAt: now(), dragged: false };
+  }
+
+  function move({ x, y }) {
+    // Remember the entire drag, including one that returns to its origin.
+    if (press && resolveDecorationPress(press, { button: 0, x, y }) === 'select') {
+      press.dragged = true;
+    }
+  }
+
+  function up(input, options) {
+    const released = press;
+    press = null;
+    if (!released || released.dragged || resolveDecorationPress(released, input) !== 'navigate') return;
+    if (!released.delayed) {
+      navigate(released.match, options);
+      return;
+    }
+    // A hold is reading/freezing intent, even if released at the original cell.
+    if (now() - released.startedAt >= holdMs || !canNavigate(released.match)) return;
+    const click = { timer: null };
+    pendingClick = click;
+    async function arm() {
+      let interval;
+      try { interval = await getDoubleClickMs(); } catch {}
+      if (pendingClick !== click) return;
+      // Without system timing, retain the old Ctrl/Cmd-only behavior. Guessing
+      // a shorter interval could turn an accessibility-speed double click into
+      // an application switch. Selection is the primary interaction.
+      if (!Number.isFinite(interval) || interval <= 0) { pendingClick = null; return; }
+      click.timer = setTimer(() => {
+        if (pendingClick !== click) return;
+        pendingClick = null;
+        if (canNavigate(released.match)) navigate(released.match, options);
+      }, interval + DOUBLE_CLICK_MARGIN_MS);
+    }
+    void arm();
+  }
+
+  return { down, move, up, cancel };
+}
+
 module.exports = {
   DEFAULT_DRAG_THRESHOLD_PX,
+  DOUBLE_CLICK_MARGIN_MS,
   beginDecorationPress,
   resolveDecorationPress,
   decorationPressOptions,
+  createDecorationPressController,
 };
