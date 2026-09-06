@@ -20,7 +20,7 @@ From then on the command line is not how you open a window. Right-click the task
 
 ## Staying current
 
-Pull the clone and reinstall its dependencies ([platform instructions](dev/development.md#update-an-existing-checkout)). AgentTerm says so itself when the two fall out of step: in the terminal when the lockfile has merely drifted, and in a window of its own when a package is missing outright.
+Pull the clone and reinstall its dependencies ([platform instructions](dev/development.md#update-an-existing-checkout)). AgentTerm says so itself when the two fall out of step: in the terminal when the lockfile has merely drifted, and in a window of its own when a package is missing outright. A window opened from the app has no console behind it, so whatever Node prints there goes to a log file, and the terminal points at that file when there is anything in it.
 
 ## The optional loops
 
