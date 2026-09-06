@@ -30,7 +30,7 @@ On a Mac each session is its own Dock tile, in the session's color with the firs
 |---|---|---|
 | The first | `npm run start` (`start:wsl` on WSL; from any directory, with `--prefix` pointing to the agent-term source) | the directory you ran npm in |
 | Another | right-click a taskbar button or Dock tile, or `Ctrl/Cmd+Shift+N` with an AgentTerm window in front | the directory the current session's agent was started in; before a first prompt, the window's own start directory |
-| After the last closes | spawned automatically, so you only need to run npm once | the same rule, from the window that closed |
+| After the last closes | spawned automatically | the same rule, from the window that closed |
 
 - Every new window picks up the latest source from your agent-term clone.
 - The picker shows the directory. If it is not the one you want, `cd` there and type the AI CLI's name.
