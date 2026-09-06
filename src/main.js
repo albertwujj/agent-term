@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { dependencyProblem, missingDependencies } = require('./dep-freshness');
 const { createDoubleClickIntervalReader } = require('./double-click-interval');
 const { showStartupError } = require('./startup-error');
+const { MAX_LOG_BYTES, rotateIfLarge, trimToTail } = require('./log-cap');
 
 // Before anything native loads, because the requires below are the ones that
 // would crash. Top-level return is a CommonJS module's own exit.
@@ -176,6 +177,7 @@ const FRONTEND_PORT = 8766;
 const LOG_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 let diskLogPath;
 let diskLogFd;
+let diskLogBytes = 0;
 let lastSlowDiskWriteMs = 0;
 let lastSlowDiskWriteAt = 0;
 
@@ -214,6 +216,42 @@ function ownConsoleLogPath() {
   return typeof value === 'string' && value ? value : null;
 }
 
+// Nothing of ours counts the bytes in that file: they are written by the kernel
+// when Node or Electron print, with no code of ours in the path. So check its
+// size on a slow timer and trim it in place, keeping the most recent output
+// (log-cap.js explains why rotating it is not possible). A window filling four
+// megabytes is a symptom rather than housekeeping, so the first trim says so in
+// the terminal, once, where the user and the agent both see it.
+const CONSOLE_TRIM_INTERVAL_MS = 60 * 1000;
+let consoleTrimReported = false;
+function watchOwnConsoleLog() {
+  const file = ownConsoleLogPath();
+  if (!file) return; // started from a terminal: its console is the user's own
+  const timer = setInterval(() => {
+    let trimmed;
+    try {
+      trimmed = trimToTail({ fs, file });
+    } catch (err) {
+      // Stop rather than retry every minute on a file we cannot rewrite.
+      clearInterval(timer);
+      log('[main] console log trim failed: ' + (err && err.message));
+      return;
+    }
+    if (!trimmed) return;
+    log(`[main] console log trimmed: dropped ${trimmed.dropped} bytes, kept ${trimmed.kept}`);
+    if (consoleTrimReported) return;
+    consoleTrimReported = true;
+    try {
+      const mb = Math.round(MAX_LOG_BYTES / (1024 * 1024));
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('pty-output',
+          `\r\n[agent-term] Node output passed ${mb} MB in ${file}; older lines were dropped to cap it.\r\n`);
+      }
+    } catch {}
+  }, CONSOLE_TRIM_INTERVAL_MS);
+  timer.unref();
+}
+
 function diskLog(line) {
   if (diskLogPath === null) return;
   try {
@@ -226,15 +264,33 @@ function diskLog(line) {
     // every ordinary log line, this makes the diagnostic write immediately
     // before a synchronous native call as small as possible. A crash still
     // closes the handle in the OS; each process has its own PID-named file.
-    if (diskLogFd === undefined) diskLogFd = fs.openSync(diskLogPath, 'a');
+    if (diskLogFd === undefined) {
+      diskLogFd = fs.openSync(diskLogPath, 'a');
+      // A recycled pid lands on an existing file, so start from what is there.
+      try { diskLogBytes = fs.statSync(diskLogPath).size; } catch { diskLogBytes = 0; }
+    }
+    const text = new Date().toISOString() + ' ' + line + '\n';
     const writeStartedAt = process.hrtime.bigint();
-    fs.writeSync(diskLogFd, new Date().toISOString() + ' ' + line + '\n');
+    fs.writeSync(diskLogFd, text);
+    diskLogBytes += Buffer.byteLength(text);
     const writeMs = Number(process.hrtime.bigint() - writeStartedAt) / 1e6;
     if (writeMs >= 50) {
       // Do not recursively log a slow diagnostic write. The main-loop monitor
       // includes this measurement in its next bounded report instead.
       lastSlowDiskWriteMs = writeMs;
       lastSlowDiskWriteAt = Number(process.hrtime.bigint()) / 1e6;
+    }
+    // One rotation, one previous generation: the age sweep bounds how long
+    // logs live, this bounds how large one of them gets before then. Close
+    // first, because Windows will not rename a file with a live handle on it.
+    // A rename that fails falls to the catch below and disables the log, which
+    // is the honest outcome: growing without a cap is what this exists to stop.
+    if (diskLogBytes > MAX_LOG_BYTES) {
+      const bytes = diskLogBytes;
+      fs.closeSync(diskLogFd);
+      diskLogFd = undefined;
+      diskLogBytes = 0;
+      rotateIfLarge({ fs, file: diskLogPath, bytes });
     }
   } catch (err) {
     if (Number.isInteger(diskLogFd)) {
@@ -5243,6 +5299,7 @@ app.whenReady().then(async () => {
     sessionsLog.gcActiveFiles(userDataDir);
     sessionsLog.compactSessionsLog(userDataDir);
     pruneDiskLogs();
+    watchOwnConsoleLog();
   } catch (err) {
     log('[main] sessions-log startup init failed: ' + (err && err.message));
   }
