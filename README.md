@@ -9,8 +9,8 @@
 For macOS and Windows with WSL. Ask your coding agent:
 
 ```text
-Set up and launch AgentTerm for my current project, following
-https://github.com/albertwujj/agent-term/blob/main/docs/setup.md
+Set up and launch https://github.com/albertwujj/agent-term for my current
+project, following its docs/setup.md.
 ```
 
 Once it opens, start your usual agent, select something in its output, and write a [comment](docs/comment.md).
@@ -63,8 +63,8 @@ The first start gives you sessions as windows with their taskbar buttons or Dock
 The rest are optional loops, each a small repo of its own: plans and reviews, the checkout lock, long jobs, the phone view, the IDE jump. [Setup](docs/setup.md) lists them with what each one takes; ask your agent for the ones you want:
 
 ```text
-Add the curated review loop, following
-https://github.com/albertwujj/agent-term/blob/main/docs/setup.md
+Add the curated review loop from https://github.com/albertwujj/agent-term,
+following its docs/setup.md.
 ```
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
