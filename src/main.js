@@ -2082,15 +2082,14 @@ function createWindow() {
         if (typeof raw !== 'string') continue;
         const transcript = raw.replace(/[\r\n]+/g, ' ').trim();
         if (!transcript) continue;
-        const ok = writeAsBracketedPasteSubmission(
-          '[@voice-to-agent/interpret.md]\n' +
-          transcript
-        );
+        const ok = writeAsBracketedPasteSubmission(voiceRunbookRef + '\n' + transcript);
         if (ok) notifyResumeHintSubmit();
         if (!ok) log('[stream] PTY write failed for voice input');
       }
     },
   });
+  primeVoiceRunbookRef();
+
   streamState = new StreamState({
     client: streamClient,
     getCli: () => detectedCli || null,
@@ -4667,6 +4666,48 @@ function resolveMdRunbook(doc) {
 // chain climbs through .git/review/… to the repo and beyond).
 function resolveReviewRunbook(storePath) {
   return resolveRunbook(storePath, REVIEW_THREADS_RUNBOOK);
+}
+
+const VOICE_RUNBOOK = 'voice-to-agent/interpret.md';
+
+// The third surface, and the only one with no document to anchor on: a
+// transcript is not about a file. The session's cwd stands in, so the ladder
+// still walks the repo and its parents before $HOME. The anchor is a name
+// inside the cwd because the ladder walks a reference file's ancestors.
+async function resolveVoiceRunbook() {
+  const cwd = await getPrimaryCwd();
+  if (typeof cwd !== 'string' || !cwd.startsWith('/')) return null;
+  return resolveRunbook(path.posix.join(cwd, 'voice-input'), VOICE_RUNBOOK);
+}
+
+// The other two surfaces name the governing copy in the prompt they inject;
+// this one did not, and it is the one that arrives while the user is away.
+// The `@` form it sent imitates what a CLI's completion popup produces, but
+// nothing is behind an injected `@`, so it resolved for nobody: the agent was
+// left to search, unbounded, with no one watching, and a search that comes up
+// empty is silent, after which it reads raw speech-to-text as if it were
+// typed — the single failure the guide exists to prevent.
+//
+// Resolved once at stream setup rather than per transcript, because
+// onVoiceInputs is synchronous and the transcript that matters most is the
+// first one. Until it resolves, and whenever it cannot, the bare reference
+// goes out, which is the documented degradation. Both forms are a published
+// contract (voice-to-agent/.maintainer/guide-design.md) — change them there
+// first.
+let voiceRunbookRef = `[@${VOICE_RUNBOOK}]`;
+
+async function primeVoiceRunbookRef() {
+  try {
+    const resolved = await resolveVoiceRunbook();
+    if (!resolved) {
+      log('[stream] voice guide not found; sending the bare reference');
+      return;
+    }
+    voiceRunbookRef = `[${resolved}]`;
+    log('[stream] voice guide resolved: ' + resolved);
+  } catch (err) {
+    log('[stream] voice guide resolution failed: ' + (err && err.message));
+  }
 }
 
 function runbookMissingError(relPath, governed) {
