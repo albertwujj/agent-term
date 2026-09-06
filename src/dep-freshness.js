@@ -77,12 +77,9 @@ function dependencyProblem({ fs, crypto, root }) {
 }
 
 module.exports = {
-  STAMP_FILE,
   missingDependencies,
-  LOCK_FILE,
   stampPath,
   lockPath,
-  lockStamp,
   writeLockStamp,
   dependencyProblem,
 };

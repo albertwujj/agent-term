@@ -178,6 +178,41 @@ let diskLogFd;
 let lastSlowDiskWriteMs = 0;
 let lastSlowDiskWriteAt = 0;
 
+// A window opened from inside the app inherits no terminal, so the console a
+// user would have read from `npm run start` is written here instead. Separate
+// from the structured main-<pid>.log on purpose: this file is a verbatim
+// transcript, not our own log, and mixing the two would make neither readable.
+// pruneDiskLogs sweeps the whole directory by mtime, so both age out together.
+//
+// One file per spawn, never shared. The child's pid would be the natural name
+// but does not exist yet — the parent has to open the file to hand over the
+// descriptor — so the name carries the spawning pid and a counter, which
+// cannot collide within a process, alongside a clock stamp that sorts and
+// separates pid reuse across runs. A relaunch chain started from one of these
+// does inherit the descriptor, since app.relaunch takes no stdio option: that
+// keeps a window's output together across its own restarts, which is the same
+// lineage rather than a mix, and never interleaves because the predecessor has
+// exited before its successor writes.
+let consoleLogCounter = 0;
+function newConsoleLogPath() {
+  try {
+    const dir = path.join(app.getPath('userData'), 'logs');
+    fs.mkdirSync(dir, { recursive: true });
+    consoleLogCounter += 1;
+    return path.join(dir, `console-${Date.now()}-${process.pid}-${consoleLogCounter}.log`);
+  } catch {
+    return null;
+  }
+}
+
+// Set by the parent that opened the file, so a window knows where its own
+// stdout and stderr are going. Absent when started from a terminal, which is
+// the case that never needed this.
+function ownConsoleLogPath() {
+  const value = process.env.AGENT_TERM_CONSOLE_LOG;
+  return typeof value === 'string' && value ? value : null;
+}
+
 function diskLog(line) {
   if (diskLogPath === null) return;
   try {
@@ -1910,6 +1945,7 @@ function launchNewInstance() {
     child = spawnNewInstance(process.argv, target.execPath || successorExecPath, {
       cwd: target.execPath ? path.dirname(target.execPath) : undefined,
       env: cwd ? { ...process.env, AGENT_TERM_START_CWD: cwd } : undefined,
+      consoleLog: newConsoleLogPath(),
     });
   } catch (err) {
     fail('launch failed: ' + (err && err.message));
@@ -2117,6 +2153,17 @@ function createWindow() {
   // current snapshot here so the hollow-grey "disabled" dot is visible
   // for misconfigured machines instead of leaving them looking dead.
   mainWindow.webContents.once('did-finish-load', () => {
+    // Only when the file has something in it: a clean launch says nothing, and
+    // the line is a pointer rather than the content, so a noisy startup cannot
+    // flood the scrollback the agent reads. Output arriving later still lands
+    // in the file; the pointer shows up on the next launch.
+    try {
+      const consolePath = ownConsoleLogPath();
+      if (consolePath && fs.statSync(consolePath).size > 0) {
+        mainWindow.webContents.send('pty-output',
+          `\r\n[agent-term] This window has no console; its output is in ${consolePath}\r\n`);
+      }
+    } catch {}
     // Leading and trailing newlines so the line stands clear of whatever the
     // shell has already painted, the same way the exit notice does.
     if (staleDependencyWarning) {

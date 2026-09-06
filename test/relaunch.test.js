@@ -384,5 +384,53 @@ test('installer and app agree on the stable relaunch transaction contract', () =
   assert.ok(launcher.includes('.installing'));
 });
 
+test('a successor writes its console to the file it is given, not to nowhere', () => {
+  // A window opened from inside the app inherits no terminal. Redirecting the
+  // descriptors is what keeps Node's warnings and uncaught traces, which
+  // `stdio: 'ignore'` threw away.
+  const opened = [];
+  const closed = [];
+  let spawned = null;
+  const fakeFs = {
+    openSync(file, flags) { opened.push([file, flags]); return 7; },
+    closeSync(fd) { closed.push(fd); },
+  };
+  spawnNewInstance(['/e', '/app'], '/e', {
+    spawn: (cmd, args, options) => { spawned = options; return { unref() {} }; },
+    fs: fakeFs,
+    consoleLog: '/logs/console-1.log',
+    env: { EXISTING: '1' },
+  });
+
+  assert.deepStrictEqual(opened, [['/logs/console-1.log', 'a']]);
+  assert.deepStrictEqual(spawned.stdio, ['ignore', 7, 7], 'stdout and stderr go to the file');
+  assert.strictEqual(spawned.env.AGENT_TERM_CONSOLE_LOG, '/logs/console-1.log',
+    'the child is told where its own output went');
+  assert.strictEqual(spawned.env.EXISTING, '1', 'the caller\'s env survives');
+  assert.deepStrictEqual(closed, [7], 'the parent keeps no handle open');
+});
+
+test('a console file that cannot be opened costs no window', () => {
+  // Losing the output is what happened before this existed; losing the launch
+  // would be new damage.
+  let spawned = null;
+  spawnNewInstance(['/e', '/app'], '/e', {
+    spawn: (cmd, args, options) => { spawned = options; return { unref() {} }; },
+    fs: { openSync() { throw new Error('EACCES'); }, closeSync() {} },
+    consoleLog: '/logs/console-1.log',
+  });
+  assert.strictEqual(spawned.stdio, 'ignore', 'falls back to the old behaviour');
+  assert.ok(!spawned.env || !spawned.env.AGENT_TERM_CONSOLE_LOG,
+    'and never claims a file it does not have');
+});
+
+test('without a console file the successor behaves exactly as before', () => {
+  let spawned = null;
+  spawnNewInstance(['/e', '/app'], '/e', {
+    spawn: (cmd, args, options) => { spawned = options; return { unref() {} }; },
+  });
+  assert.strictEqual(spawned.stdio, 'ignore');
+});
+
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
 process.exit(testsFailed > 0 ? 1 : 0);

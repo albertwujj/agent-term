@@ -134,10 +134,37 @@ function spawnNewInstance(argv, execPath, dependencies = {}) {
   };
   if (dependencies.cwd) options.cwd = dependencies.cwd;
   if (dependencies.env) options.env = dependencies.env;
+  // Everything a console would have shown goes to a file instead of nowhere.
+  // `npm run start` inherits a terminal and the user reads warnings there; a
+  // window opened from inside the app had no such terminal and discarded them,
+  // Node's warnings and uncaught traces included. Redirecting the descriptors
+  // captures the bytes rather than classifying them, so nothing has to be kept
+  // in step with what Node or Electron decide to print. `app.relaunch` takes no
+  // stdio option, so relaunch chains inherit whatever is set here — which is
+  // why this is the only place that needs it.
+  //
+  // A failure to open the file must never cost the user a window: fall through
+  // to today's behaviour and lose the output, as before.
+  const consoleLog = dependencies.consoleLog;
+  let consoleFd = null;
+  if (consoleLog) {
+    try {
+      const fsApi = dependencies.fs || fs;
+      consoleFd = fsApi.openSync(consoleLog, 'a');
+      options.stdio = ['ignore', consoleFd, consoleFd];
+      options.env = { ...(options.env || process.env), AGENT_TERM_CONSOLE_LOG: consoleLog };
+    } catch {
+      consoleFd = null;
+    }
+  }
   const args = (Array.isArray(argv) ? argv : [])
     .slice(1)
     .filter((arg) => arg !== RELAUNCHED_ARG);
   const child = spawnImpl(execPath, args, options);
+  // The child owns the descriptors now; this process keeps no handle open.
+  if (consoleFd !== null) {
+    try { (dependencies.fs || fs).closeSync(consoleFd); } catch {}
+  }
   child.unref();
   return child;
 }

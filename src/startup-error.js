@@ -67,4 +67,4 @@ function showStartupError({ app, BrowserWindow }, { heading, detail, output, com
   });
 }
 
-module.exports = { startupErrorHtml, showStartupError, BACKGROUND };
+module.exports = { startupErrorHtml, showStartupError };
