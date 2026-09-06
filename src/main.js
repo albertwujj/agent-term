@@ -4,6 +4,26 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
+const { dependencyProblem } = require('./dep-freshness');
+const { showStartupError } = require('./startup-error');
+
+// Before anything native loads. A tree that no longer matches the lockfile
+// takes node-pty down on the require below, which reports a missing binding
+// and says nothing about the install. Top-level return is a CommonJS module's
+// own exit, and it has to happen here: the requires that follow are the ones
+// that would crash.
+if (!app.isPackaged) {
+  const problem = dependencyProblem({ fs, crypto, root: path.join(__dirname, '..') });
+  if (problem) {
+    showStartupError({ app, BrowserWindow }, {
+      heading: 'Dependencies are out of date',
+      detail: problem,
+      command: 'npm ci',
+    });
+    return;
+  }
+}
+
 const { commentHeader } = require('./comment-format');
 const { mdStorePosixPath, uncFromPosix } = require('./md-thread-store');
 const net = require('net');
@@ -5119,9 +5139,14 @@ app.whenReady().then(async () => {
       });
       log('[dev] rebuilt every runtime bundle on startup');
     } catch (err) {
-      log('[dev] runtime bundle rebuild FAILED:\n' + (err && err.message));
+      const message = err && err.message ? err.message : String(err);
+      log('[dev] runtime bundle rebuild FAILED:\n' + message);
       log('[dev] aborting startup; stale runtime bundles are never used.');
-      app.quit();
+      showStartupError({ app, BrowserWindow }, {
+        heading: 'The build failed, so AgentTerm did not start',
+        output: message,
+        command: 'npm run start',
+      });
       return;
     }
   }
