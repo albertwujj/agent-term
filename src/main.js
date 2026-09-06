@@ -4,7 +4,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
-const { dependencyProblem, missingDependencies } = require('./dep-freshness');
+const { dependencyProblem, missingRuntimeDependencies, toolingProblem } = require('./dep-freshness');
 const { createDoubleClickIntervalReader } = require('./double-click-interval');
 const { showStartupError } = require('./startup-error');
 const { MAX_LOG_BYTES, rotateIfLarge, trimToTail } = require('./log-cap');
@@ -12,16 +12,18 @@ const { MAX_LOG_BYTES, rotateIfLarge, trimToTail } = require('./log-cap');
 // Before anything native loads, because the requires below are the ones that
 // would crash. Top-level return is a CommonJS module's own exit.
 //
-// Two conditions, sorted by what they cost. A declared package with no folder
-// in node_modules takes node-pty down at require time, so nothing can run and
+// Three conditions, sorted by what they cost. A package the launch path loads
+// and cannot find takes node-pty down at require time, so nothing can run and
 // nothing exists to explain it afterwards: that one stops here, with a window.
 // A lockfile that merely drifted almost always runs, and npm itself does not
 // check this on `npm run`, so refusing to start would take a working terminal
-// away over a transitive bump. That one starts, and says so in the terminal.
-let staleDependencyWarning = null;
+// away over a transitive bump. Neither does a missing test or packaging
+// dependency cost this window anything. Those two start, and say so in the
+// terminal (dep-freshness.js draws the line between the sets).
+const startupWarnings = [];
 if (!app.isPackaged) {
   const root = path.join(__dirname, '..');
-  const missing = missingDependencies({ fs, root });
+  const missing = missingRuntimeDependencies({ fs, root });
   if (missing.length) {
     showStartupError({ app, BrowserWindow }, {
       heading: 'Dependencies are not installed',
@@ -33,7 +35,10 @@ if (!app.isPackaged) {
     });
     return;
   }
-  staleDependencyWarning = dependencyProblem({ fs, crypto, root });
+  const stale = dependencyProblem({ fs, crypto, root });
+  if (stale) startupWarnings.push({ code: 'EDEPSTALE', text: stale });
+  const tooling = toolingProblem({ fs, root });
+  if (tooling) startupWarnings.push({ code: 'EDEPTOOLS', text: tooling });
 }
 
 const { commentHeader } = require('./comment-format');
@@ -2221,12 +2226,14 @@ function createWindow() {
           `\r\n[agent-term] This window has no console; its output is in ${consolePath}\r\n`);
       }
     } catch {}
-    // Leading and trailing newlines so the line stands clear of whatever the
-    // shell has already painted, the same way the exit notice does.
-    if (staleDependencyWarning) {
+    // Leading and trailing newlines so the lines stand clear of whatever the
+    // shell has already painted, the same way the exit notice does. The
+    // `warn <CODE>` shape is npm's, because this is the console npm would have
+    // written to had the window been started from one.
+    for (const warning of startupWarnings) {
       try {
         mainWindow.webContents.send('pty-output',
-          `\r\n[agent-term warn EDEPSTALE] ${staleDependencyWarning}\r\n`);
+          `\r\n[agent-term warn ${warning.code}] ${warning.text}\r\n`);
       } catch {}
     }
     try {

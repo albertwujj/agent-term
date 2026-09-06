@@ -32,22 +32,72 @@ function writeLockStamp({ fs, crypto, root }) {
   return stamp;
 }
 
-// A declared package with no folder in node_modules will throw at require time,
-// before any window exists to explain it. That is a different failure from a
-// lockfile that merely drifted: one cannot start at all, the other almost
-// always runs. Sorting them here is what lets each get the surface it deserves.
-function missingDependencies({ fs, root }) {
+// Two kinds of missing package, and only one of them can stop a launch.
+//
+// The runtime set is what this process and its startup build actually load:
+// everything in `dependencies`, plus esbuild, which rebuilds the renderer
+// bundles on a from-source start. `electron` is deliberately not in it — by the
+// time this code runs, Electron is the process.
+//
+// The rest of what is declared (electron-builder, @electron/rebuild, jsdom,
+// playwright-core) belongs to packaging and the test suites. A window runs
+// perfectly without them, so their absence is worth a line and never a stop:
+// blocking there would refuse a working terminal over a test dependency.
+const LAUNCH_TOOLS = ['esbuild'];
+
+// `require` searches every node_modules up the tree, so a folder missing from
+// ours is not yet a missing package: a clone under a workspace root that hoists
+// its packages resolves upward and runs. Ask Node the question we actually
+// mean, which is whether the require would throw.
+function defaultResolve(name, root) {
+  try {
+    require.resolve(name, { paths: [root] });
+    return true;
+  } catch (err) {
+    // Anything but "not found" means Node located the package and objected to
+    // something else, an exports map without a main entry being the usual one.
+    // That package is installed.
+    return !err || err.code !== 'MODULE_NOT_FOUND';
+  }
+}
+
+function declaredPackages({ fs, root }) {
   let manifest;
   try {
     manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   } catch {
-    return [];
+    return { runtime: [], tooling: [] };
   }
-  const declared = Object.keys({
-    ...(manifest.dependencies || {}),
-    ...(manifest.devDependencies || {}),
-  });
-  return declared.filter((name) => !fs.existsSync(path.join(root, 'node_modules', name)));
+  const runtime = Object.keys(manifest.dependencies || {});
+  const tooling = [];
+  for (const name of Object.keys(manifest.devDependencies || {})) {
+    (LAUNCH_TOOLS.includes(name) ? runtime : tooling).push(name);
+  }
+  return { runtime, tooling };
+}
+
+function absentPackages({ fs, resolve = defaultResolve, root }, names) {
+  return names.filter((name) => !fs.existsSync(path.join(root, 'node_modules', name))
+    && !resolve(name, root));
+}
+
+// A package the launch path loads throws at require time, before any window
+// exists to explain it. That is a different failure from a lockfile that merely
+// drifted: one cannot start at all, the other almost always runs. Sorting them
+// here is what lets each get the surface it deserves.
+function missingRuntimeDependencies({ fs, resolve, root }) {
+  return absentPackages({ fs, resolve, root }, declaredPackages({ fs, root }).runtime);
+}
+
+// Declared, absent, and needed by nothing this window does. One advisory line,
+// so a failed `npm ci` on a test dependency is visible before the suite fails
+// on it rather than after.
+function toolingProblem({ fs, resolve, root }) {
+  const missing = absentPackages({ fs, resolve, root }, declaredPackages({ fs, root }).tooling);
+  if (!missing.length) return null;
+  const one = missing.length === 1;
+  return `${missing.join(', ')} ${one ? 'is' : 'are'} declared but not installed. `
+    + `This window does not need ${one ? 'it' : 'them'}; run \`npm ci\` before builds or tests.`;
 }
 
 // Returns null when the tree matches the lockfile, or a message naming the fix.
@@ -77,7 +127,9 @@ function dependencyProblem({ fs, crypto, root }) {
 }
 
 module.exports = {
-  missingDependencies,
+  LAUNCH_TOOLS,
+  missingRuntimeDependencies,
+  toolingProblem,
   stampPath,
   lockPath,
   writeLockStamp,

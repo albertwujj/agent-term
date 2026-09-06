@@ -12,7 +12,7 @@ You get sessions as windows with their taskbar buttons or Dock tiles, the picker
 
 ## Staying current
 
-Pull the clone and reinstall its dependencies ([platform instructions](dev/install.md#update-an-existing-checkout)). AgentTerm says so itself when the two fall out of step: a drifted lockfile prints a line in the terminal it opens, and a missing package stops the launch with a window naming what to run. A window opened from the app has no console behind it, so whatever Node prints there goes to a log file, and the terminal points at that file when there is anything in it.
+Pull the clone and reinstall its dependencies ([platform instructions](dev/install.md#update-an-existing-checkout)). AgentTerm says so itself when the two fall out of step: a drifted lockfile prints a line in the terminal it opens, and a package the app itself needs stops the launch with a window naming what to run. A window opened from the app has no console behind it, so whatever Node prints there goes to a log file, and the terminal points at that file when there is anything in it.
 
 ## Later, the loops
 
