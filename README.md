@@ -9,7 +9,8 @@
 For macOS and Windows with WSL. Ask your coding agent:
 
 ```text
-Set up and launch https://github.com/albertwujj/agent-term for my current project.
+Set up and launch AgentTerm for my current project, following
+https://github.com/albertwujj/agent-term/blob/main/docs/setup.md
 ```
 
 Once it opens, start your usual agent, select something in its output, and write a [comment](docs/comment.md).
@@ -57,16 +58,9 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 ## Make it yours
 
-The basic setup gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too. For manual setup, see the [platform instructions](docs/dev/development.md).
+The first start gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
 
-After the first start, you no longer need the command line; see [sessions](docs/sessions.md).
-
-**Add the loops you want.** These are optional; ask your agent to set up the ones you want.
-
-1. **Clone what you need**: each loop is a small repo. [agent-threads](https://github.com/albertwujj/agent-threads) for plans and reviews, [agent-lock](https://github.com/yunxin/agent-lock) for the checkout lock, [agent-jobs](https://github.com/yunxin/agent-jobs) for long runs.
-2. **Vendor what you command**: to command the agent with the supported verbs (md files named for the verb; use `@` to pick, say by typing `@produce-r` for producing a review), it's best to vendor agent-lock and agent-threads into your workspace repo. See [placement](docs/conventions.md).
-3. Phone: self-host [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) and add it to your home screen.
-4. IDE jump: install the [IntelliJ Navigator plugins](https://github.com/albertwujj/intellij-navigator/releases).
+The rest are optional loops, each a small repo of its own: plans and reviews, the checkout lock, long jobs, the phone view, the IDE jump. Ask your agent for the ones you want. [Setup](docs/setup.md) covers all of it, and is written for you and for the agent doing it.
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the current source, so the loop stays short: change the code, press `Ctrl/Cmd+Shift+N` for a window running it, and resume your session there. A failed build stops that launch rather than running stale bundles.
 
