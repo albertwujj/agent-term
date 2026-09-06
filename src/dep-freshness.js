@@ -32,6 +32,24 @@ function writeLockStamp({ fs, crypto, root }) {
   return stamp;
 }
 
+// A declared package with no folder in node_modules will throw at require time,
+// before any window exists to explain it. That is a different failure from a
+// lockfile that merely drifted: one cannot start at all, the other almost
+// always runs. Sorting them here is what lets each get the surface it deserves.
+function missingDependencies({ fs, root }) {
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  } catch {
+    return [];
+  }
+  const declared = Object.keys({
+    ...(manifest.dependencies || {}),
+    ...(manifest.devDependencies || {}),
+  });
+  return declared.filter((name) => !fs.existsSync(path.join(root, 'node_modules', name)));
+}
+
 // Returns null when the tree matches the lockfile, or a message naming the fix.
 // Both files missing means we cannot judge: a checkout with no lockfile, or a
 // tree installed before this check existed. Silence beats crying wolf, and the
@@ -50,13 +68,17 @@ function dependencyProblem({ fs, crypto, root }) {
     return null;
   }
   if (stamped === current) return null;
-  return 'package-lock.json has changed since the last install, so node_modules '
-    + 'no longer matches it. Native modules loaded from a mismatched tree fail in '
-    + 'ways that point nowhere near the cause, so AgentTerm stops here instead.';
+  // One line, because it is printed into a terminal beside everything else and
+  // is advisory: every package is installed, so this session will almost
+  // certainly be fine. It exists so that if something does fail later, the
+  // reason is already in the scrollback above it.
+  return 'package-lock.json has changed since node_modules was installed. '
+    + 'Run `npm ci` if anything misbehaves.';
 }
 
 module.exports = {
   STAMP_FILE,
+  missingDependencies,
   LOCK_FILE,
   stampPath,
   lockPath,

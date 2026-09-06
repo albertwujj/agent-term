@@ -4,24 +4,34 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
-const { dependencyProblem } = require('./dep-freshness');
+const { dependencyProblem, missingDependencies } = require('./dep-freshness');
 const { showStartupError } = require('./startup-error');
 
-// Before anything native loads. A tree that no longer matches the lockfile
-// takes node-pty down on the require below, which reports a missing binding
-// and says nothing about the install. Top-level return is a CommonJS module's
-// own exit, and it has to happen here: the requires that follow are the ones
-// that would crash.
+// Before anything native loads, because the requires below are the ones that
+// would crash. Top-level return is a CommonJS module's own exit.
+//
+// Two conditions, sorted by what they cost. A declared package with no folder
+// in node_modules takes node-pty down at require time, so nothing can run and
+// nothing exists to explain it afterwards: that one stops here, with a window.
+// A lockfile that merely drifted almost always runs, and npm itself does not
+// check this on `npm run`, so refusing to start would take a working terminal
+// away over a transitive bump. That one starts, and says so in the terminal.
+let staleDependencyWarning = null;
 if (!app.isPackaged) {
-  const problem = dependencyProblem({ fs, crypto, root: path.join(__dirname, '..') });
-  if (problem) {
+  const root = path.join(__dirname, '..');
+  const missing = missingDependencies({ fs, root });
+  if (missing.length) {
     showStartupError({ app, BrowserWindow }, {
-      heading: 'Dependencies are out of date',
-      detail: problem,
+      heading: 'Dependencies are not installed',
+      detail: `${missing.length === 1 ? 'A package' : 'Packages'} listed in package.json `
+        + `${missing.length === 1 ? 'is' : 'are'} missing from node_modules, so loading `
+        + 'them would fail before AgentTerm could tell you why.',
+      output: missing.join('\n'),
       command: 'npm ci',
     });
     return;
   }
+  staleDependencyWarning = dependencyProblem({ fs, crypto, root });
 }
 
 const { commentHeader } = require('./comment-format');
@@ -2107,6 +2117,14 @@ function createWindow() {
   // current snapshot here so the hollow-grey "disabled" dot is visible
   // for misconfigured machines instead of leaving them looking dead.
   mainWindow.webContents.once('did-finish-load', () => {
+    // Leading and trailing newlines so the line stands clear of whatever the
+    // shell has already painted, the same way the exit notice does.
+    if (staleDependencyWarning) {
+      try {
+        mainWindow.webContents.send('pty-output',
+          `\r\n[agent-term warn EDEPSTALE] ${staleDependencyWarning}\r\n`);
+      } catch {}
+    }
     try {
       if (streamClient && mainWindow && mainWindow.webContents) {
         mainWindow.webContents.send('stream:status', streamClient.getStatus());
