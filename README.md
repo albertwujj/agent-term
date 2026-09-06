@@ -53,7 +53,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 2. Install [Node.js](https://nodejs.org) if you don't have it (the [development guide](docs/dev/development.md) covers the Windows setup).
 3. From the clone: `npm ci` once, to install the dependencies, then `npm run start` (`npm run start:wsl` on WSL); or start from another directory (your workspace) with `--prefix` pointing at the clone ([sessions](docs/sessions.md)).
 
-Further sessions start from the app: with a window in front, `Ctrl/Cmd+Shift+N` opens another, and so does a right-click on its taskbar button or Dock tile. Closing the last window opens a replacement, so the command line is only ever the way in ([sessions](docs/sessions.md)).
+That command is only for getting started. After that, new sessions come from the app: press `Ctrl/Cmd+Shift+N` with a window in front, or right-click its taskbar button or Dock tile. Close the last window and a new one opens in its place ([sessions](docs/sessions.md)).
 
 The above covers the first set of features: sessions as windows with their taskbar buttons or Dock tiles, and the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
 
