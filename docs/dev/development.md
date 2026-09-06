@@ -1,88 +1,18 @@
-# Develop AgentTerm from source
+# Develop AgentTerm
 
-AgentTerm runs directly from the rolling `main` branch of its source checkout; it has no application release channel, installer, or package. The Electron UI must run on the host operating system. On Windows, the shell and the coding agents still run inside WSL.
+The app runs from a source checkout, and every window it opens takes the current state of that checkout. [Install](install.md) covers getting the first one running on each platform; this page is the loop after that.
 
-The former Windows installer pipeline is frozen and no longer tested. Its last-known design and build procedure are preserved only as historical reference in [maintainer/windows-installer.md](maintainer/windows-installer.md).
-
-## Platform differences
-
-| | macOS | Windows |
-|---|---|---|
-| Electron UI | Native macOS process | Native Windows process launched from WSL |
-| Terminal shell | Your native shell | The invoking WSL distro |
-| Recommended checkout | Native macOS filesystem | Native WSL filesystem, such as `~/src/agent-term` |
-| Dependencies | One macOS `node_modules` | Linux `node_modules` for builds/tests, plus an isolated Windows cache for the UI |
-| Start command | `npm run start` | `npm run start:wsl` |
-| UI end-to-end tests | Native desktop | WSLg |
-
-Windows gets taskbar buttons and live DWM previews for active sessions; before any CLI the button carries the picker's list, three session-colored rows, then the CLI's mark. macOS gets a Dock tile per session: the session color with the prompt's leading letters, the CLI's mark before the first prompt, and before any CLI three session-colored rows, the picker's list. The Dock label and Cmd-Tab name a process after the bundle folder it was launched through, so `npm run start` launches through an AgentTerm.app link that the build places next to the unpackaged Electron.app; the build also writes the name into the bundle's Info.plist, which titles the application menu. Each session there works best in its own full-screen space, where Mission Control shows the initial prompt pinned at the top of each window.
-
-## macOS
-
-Install the current Node.js LTS release, then:
-
-```bash
-git clone https://github.com/albertwujj/agent-term
-cd agent-term
-npm ci
-npm run start
-```
-
-That is the only command needed to launch from source. `Cmd+Shift+N` opens another AgentTerm window in the established agent session's directory; before the first prompt is captured it keeps the original launch directory. Closing the last window starts a fresh one under the same rule. Type `exit` in the shell to quit for good.
-
-## Windows with WSL
-
-### Prerequisites
-
-You need Node.js in two places for two different jobs:
-
-- **WSL Node.js** runs builds and tests. Install the current LTS release inside your distro using your preferred Linux Node version manager or package source.
-- **Windows Node.js** installs and hosts the native Windows Electron process. It never installs dependencies into the WSL checkout.
-
-If WSL itself is not installed, open Windows PowerShell and run `wsl --install` first. Then install Windows Node.js from the same PowerShell—not from a WSL prompt:
-
-```powershell
-winget install --id OpenJS.NodeJS.LTS --source winget
-node.exe --version
-npm.cmd --version
-```
-
-If WinGet is unavailable, use the LTS installer from [nodejs.org](https://nodejs.org/en/download).
-
-### Get the source and start
-
-Clone into WSL's native filesystem and run every project command from WSL:
-
-```bash
-git clone https://github.com/albertwujj/agent-term
-cd agent-term
-npm ci
-npm run start:wsl
-```
-
-`start:wsl` invokes Windows PowerShell for the host-side seam. On its first run it creates an isolated Windows dependency cache under `%LOCALAPPDATA%\AgentTermWslDev`, with a generation for each install-affecting dependency state, takes a per-process snapshot of the current source, and launches Windows Electron from that snapshot. Separate generations let an updated launch coexist with older AgentTerm processes whose Electron files remain locked by Windows. It neither reads nor modifies WSL's Linux `node_modules`. The terminal opens in the original checkout, and all later WSL probes stay pinned to the distro that launched it. The taskbar button's right-click menu then offers "Start or resume session", the same as Ctrl+Shift+N: a Jump List task starts with no environment, so the running app keeps the launcher's environment in `launch-env.json` in that cache and the task hands it to the bootstrap by argument.
-
-Do not use `npm run start` from WSL for the Windows app. That starts Linux Electron through WSLg, so AgentTerm sees Linux rather than Windows and cannot provide its Windows taskbar integration.
-
-## Update an existing checkout
-
-Stop AgentTerm, then update the rolling source installation from its checkout:
-
-```bash
-git switch main
-git pull --ff-only
-npm ci
-```
-
-Start it again with `npm run start` on macOS or `npm run start:wsl` on Windows. Running `npm ci` on every update keeps native dependencies and generated tooling aligned with the checked-in lockfile.
-
-## Daily development
+## The edit loop
 
 Edit in the source checkout, then press `Ctrl/Cmd+Shift+N` in AgentTerm. The new window takes a fresh source snapshot and rebuilds every generated bundle before it opens, so it runs your edit; close the old window once you have moved over. A build that fails stops that launch and says so, leaving the window you were working in untouched.
 
 If `package.json` or `package-lock.json` changes, no relaunch is enough: run `npm ci`, then the platform's start command again, so the dependency tree matches the lockfile. AgentTerm says so itself: a drifted lockfile prints an `[agent-term warn EDEPSTALE]` line into the terminal the window opens, and a package missing from `node_modules` stops the launch with a window of its own. `npm run start` builds first, so a package the build itself needs fails there, in the shell you typed it in, before any window exists.
 
-A window opened from inside the app (`Ctrl/Cmd+Shift+N`, or "Start or resume session" on its taskbar button or Dock tile) has no console attached, so Node's own stdout and stderr are redirected to `logs/console-<time>-<pid>-<n>.log` under the app's user-data directory (`~/Library/Application Support/agent-term` on macOS, `%APPDATA%\agent-term` on Windows), which every launch prunes of anything older than a week. Each file is also capped at 4 MB: `main-<pid>.log` rotates to `.old`, while the console file, whose descriptor belongs to the window's stdout and cannot be reopened, is trimmed in place to its most recent output, and the first trim says so in the terminal. The window prints a pointer to that file once it has anything in it. A window started from a shell keeps that shell's console instead, and the respawn after the last window closes inherits whichever the closing window had, so a window's output stays with its own lineage.
+## Logs
+
+A window opened from inside the app (`Ctrl/Cmd+Shift+N`, or "Start or resume session" on its taskbar button or Dock tile) has no console attached, so Node's own stdout and stderr are redirected to `logs/console-<time>-<pid>-<n>.log` under the app's user-data directory (`~/Library/Application Support/agent-term` on macOS, `%APPDATA%\agent-term` on Windows), which every launch prunes of anything older than a week. The window prints a pointer to that file once it has anything in it. Each file is also capped at 4 MB: `main-<pid>.log` rotates to `.old`, while the console file, whose descriptor belongs to the window's stdout and cannot be reopened, is trimmed in place to its most recent output, and the first trim says so in the terminal. A window started from a shell keeps that shell's console instead, and the respawn after the last window closes inherits whichever the closing window had, so a window's output stays with its own lineage.
+
+## Builds and tests
 
 Run builds and tests from the source checkout:
 
@@ -93,9 +23,3 @@ npm run test:e2e
 ```
 
 On Windows these commands use WSL Node.js. The end-to-end suite launches Linux Electron and therefore requires WSLg; the non-E2E suite does not.
-
-## Windows troubleshooting
-
-- **“Windows Node.js/npm is required”**: run `node.exe --version` and `npm.cmd --version` in Windows PowerShell. Reinstall the LTS package if either command is missing.
-- **“powershell.exe was not found from WSL”**: Windows interoperability is disabled or unavailable in that distro. Re-enable WSL interoperability before launching AgentTerm.
-- **The wrong distro opens**: always run `npm run start:wsl` from the distro you want AgentTerm to use. The launcher carries that distro name into the Windows process.
