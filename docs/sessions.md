@@ -24,7 +24,7 @@ On a Mac each session is its own Dock tile, in the session's color with the firs
 
 **The sessions you set aside.** Right-click the taskbar button or the Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N while an AgentTerm window is in front. Either opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your prompts and the agent's own titles; resume any of them, run what you typed as a shell command, or press Esc for a plain shell.
 
-**Type `npm run start` (`start:wsl` on WSL) from your agent-term clone once.** Three ways a window comes to be, and where each starts:
+**Type `npm run start` (`start:wsl` on WSL) once, from the directory you want the terminal to open in.** Three ways a window comes to be, and where each starts:
 
 | Window | How it opens | Starts in |
 |---|---|---|

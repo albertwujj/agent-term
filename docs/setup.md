@@ -4,19 +4,11 @@ AgentTerm runs on macOS, and on Windows through WSL. There is no installer and n
 
 ## The first start
 
-You need Node.js and a clone of `https://github.com/albertwujj/agent-term`, with its dependencies installed once. On Windows the clone lives inside WSL, where the shell and your agents run, while the window itself is a native Windows process, so Node.js is needed on both sides. The [platform instructions](dev/development.md) have the prerequisites and the exact commands for each platform.
+Three things: Node.js, a clone of `https://github.com/albertwujj/agent-term`, and `npm ci` in it once to install its dependencies. On Windows the clone lives inside WSL, where the shell and your agents run, while the window itself is a native Windows process, so Node.js is needed on both sides. The [platform instructions](dev/development.md) have the prerequisites and the exact commands.
 
-You then start it from the project you want to work in, pointing at the clone, because the window opens on the directory it was started from:
+Start it from the project you want to work in rather than from the clone, because a window opens on the directory it was started from. [Sessions](sessions.md) has that command and where each window opens; after the first one, windows come from the app itself.
 
-```bash
-npm --prefix /path/to/agent-term run start
-```
-
-(`run start:wsl` instead, on Windows.)
-
-That gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. In the window, start your usual CLI the way you always do; sessions from before this terminal resume normally. See [sessions](sessions.md).
-
-From then on the command line is not how you open a window. Right-click the taskbar button or Dock tile, or press `Ctrl/Cmd+Shift+N`, and the new window takes the current source from your clone.
+You get sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. In the window, start your usual CLI the way you always do; sessions from before this terminal resume normally.
 
 ## Staying current
 
