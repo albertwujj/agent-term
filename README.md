@@ -32,7 +32,7 @@ These are the main ones. Follow the links to see an overview of more features om
 
 | In a standard terminal | In this grown terminal |
 |---|---|
-| Several agents running means identical tabs outside, walls of text inside. | Each session gets its own **[unique taskbar button or Dock tile](docs/sessions.md)** (with a preview on Windows), so you tell them apart at a glance, and the picker searches instantly, down to every prompt you typed and more. |
+| Several agents running means identical tabs outside, walls of text inside. | Each session gets its own **[unique taskbar button or Dock tile](docs/sessions.md)** (with a preview on Windows, the session title on macOS), so you tell them apart at a glance, and the picker searches instantly, down to every prompt you typed and more. |
 | Everything the agent prints (a diff, a plan, a claim, a link) is dead text you can read but not act on. | **[Select any of it and comment](docs/comment.md)**; the agent makes the change. A click opens whatever renders (docs, reviews, images, video, PDFs) inside the window; web links open in your browser ([the click rule](docs/clicks.md)). |
 | Its plans and docs are raw markdown in an editor. | They render live; you **[write in the rendered page](docs/plan.md)** and the agent maintains the source. |
 | Agents sharing a checkout have no awareness of each other: branches move, files change, test ports collide. | Start the task with [one doc reference](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) and the agent **[takes the checkout lock](docs/lock.md)** and cuts a branch before its first edit; a padlock at the top right of each window shows who holds it. |
