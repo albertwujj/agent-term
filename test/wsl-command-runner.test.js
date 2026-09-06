@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const test = require('node:test');
 const {
   WslCommandRunner,
@@ -23,6 +23,22 @@ function localRunner(t, onStart = () => {}) {
   });
   t.after(() => runner.close());
   return runner;
+}
+
+// The helper enforces a timeout with GNU `timeout`, behind its own
+// `command -v timeout` guard, so where the binary is absent it runs the
+// command unbounded and only the JS-side backstop fires, two seconds late.
+// That is the real dependency, not the platform: a stock macOS has no
+// timeout(1) and a WSL distro always does. Mirror the guard the helper uses
+// rather than testing process.platform, so the test skips on exactly the
+// machines where the behaviour it asserts does not exist.
+function helperCanEnforceTimeouts() {
+  try {
+    execFileSync('bash', ['-lc', 'command -v timeout'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 test('reuses one helper and preserves command results', async (t) => {
@@ -50,7 +66,9 @@ test('matches concurrent requests with their responses', async (t) => {
   assert.equal(second.code, 0);
 });
 
-test('enforces command timeouts inside the helper', async (t) => {
+test('enforces command timeouts inside the helper', {
+  skip: helperCanEnforceTimeouts() ? false : 'no timeout(1) on PATH, so the helper cannot enforce one',
+}, async (t) => {
   const runner = localRunner(t);
   const started = Date.now();
   const result = await runner.run('sleep 1', { timeout: 50 });
