@@ -78,7 +78,9 @@ Start it again with `npm run start` on macOS or `npm run start:wsl` on Windows. 
 
 ## Daily development
 
-Edit in the source checkout, then press `Ctrl/Cmd+Shift+R` in AgentTerm to take a fresh source snapshot, rebuild, and relaunch. If `package.json` or `package-lock.json` changes, stop the app and run the platform's start command again so its dependency tree is refreshed.
+Edit in the source checkout, then press `Ctrl/Cmd+Shift+N` in AgentTerm. The new window takes a fresh source snapshot and rebuilds every generated bundle before it opens, so it runs your edit; close the old window once you have moved over. A build that fails stops that launch and says so, leaving the window you were working in untouched.
+
+If `package.json` or `package-lock.json` changes, no relaunch is enough: run `npm ci`, then the platform's start command again, so the dependency tree matches the lockfile. AgentTerm says so itself, in the terminal when the lockfile has merely drifted, and in a window of its own when a package is missing outright.
 
 Run builds and tests from the source checkout:
 

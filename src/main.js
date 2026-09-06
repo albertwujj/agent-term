@@ -2265,16 +2265,16 @@ function createWindow() {
       launchNewInstance();
       return;
     }
-    // Cmd/Ctrl+Shift+R (dev only): relaunch in place to pick up every edited
-    // runtime source without a manual close + `npm run start`. The successor
-    // rebuilds all generated bundles before it creates a window; a broken build
-    // aborts instead of running any artifact from the previous process.
-    const cmdShiftR = (input.control || input.meta) && input.shift && (k === 'R' || k === 'r');
-    if (cmdShiftR && !app.isPackaged) {
-      event.preventDefault();
-      log('[dev] manual relaunch (Cmd/Ctrl+Shift+R)');
-      relaunchLatestAndExit();
-    }
+    // Cmd/Ctrl+Shift+R was here, and is retired. It predated Shift+N and did
+    // the same job worse: both spawn a fresh process that rebuilds every bundle
+    // before it opens, so both pick up edited source, and either way you land
+    // on the picker and resume. What R added was exiting first, which buys a
+    // window you would have closed anyway and costs the one that was already
+    // working — a successor that aborts on a bad build leaves nothing behind,
+    // and a bad build is exactly what you have just after editing.
+    //
+    // relaunchLatestAndExit stays: window-all-closed still uses it to replace
+    // the last window, where exiting first is the whole point.
   });
 
   // Iconic-thumbnail focus suppression: while the window is focused we defer

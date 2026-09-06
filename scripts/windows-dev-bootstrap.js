@@ -40,8 +40,8 @@ function run() {
   );
 
   // Every Electron process gets its own source snapshot. Separate windows can
-  // therefore start/reload concurrently, and Ctrl+Shift+R reads fresh files
-  // without either process deleting files from underneath the other.
+  // therefore start concurrently, and a successor reads fresh files without
+  // either process deleting files from underneath the other.
   process.once('exit', () => {
     try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch {}
   });

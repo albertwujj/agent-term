@@ -94,6 +94,16 @@ function relaunchAndExit(app, argv, options = {}) {
   app.exit(0);
 }
 
+// UNSUPPORTED PATH. Reached only by a packaged portable Windows build, which no
+// current workflow produces: the installer pipeline is frozen (CLAUDE.md, and
+// docs/dev/maintainer/windows-installer.md), and `npm run dist:win` is neither
+// tested nor used. Kept because deleting it would also delete the record of how
+// the wrapper has to be restarted, not because anything runs it.
+//
+// It is deliberately left with `stdio: 'ignore'` while spawnNewInstance now
+// redirects to a console file. Wiring capture into a path nobody can reach
+// would be untestable code justified by a build that is not made.
+//
 // The stock portable wrapper waits for its inner app, then deletes the inner
 // extraction. Start a new OUTER wrapper directly and let the old wrapper clean
 // its own unique directory after app.exit(). This avoids an Electron relauncher
