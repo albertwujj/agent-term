@@ -13,6 +13,8 @@ Set up and launch https://github.com/albertwujj/agent-term for my current
 project, following its docs/setup.md.
 ```
 
+[docs/setup.md](docs/setup.md) is the page it follows, if you want to read it first.
+
 Once it opens, start your usual agent, select something in its output, and write a [comment](docs/comment.md).
 
 ## The terminal path
