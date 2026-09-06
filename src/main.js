@@ -26,6 +26,7 @@ if (!app.isPackaged) {
 
 const { commentHeader } = require('./comment-format');
 const { mdStorePosixPath, uncFromPosix } = require('./md-thread-store');
+const { VOICE_RUNBOOK, voicePromptPrefix } = require('./voice-prompt');
 const net = require('net');
 const pty = require('node-pty');
 const {
@@ -2082,7 +2083,7 @@ function createWindow() {
         if (typeof raw !== 'string') continue;
         const transcript = raw.replace(/[\r\n]+/g, ' ').trim();
         if (!transcript) continue;
-        const ok = writeAsBracketedPasteSubmission(voiceRunbookRef + '\n' + transcript);
+        const ok = writeAsBracketedPasteSubmission(voicePromptLead() + '\n' + transcript);
         if (ok) notifyResumeHintSubmit();
         if (!ok) log('[stream] PTY write failed for voice input');
       }
@@ -4668,8 +4669,6 @@ function resolveReviewRunbook(storePath) {
   return resolveRunbook(storePath, REVIEW_THREADS_RUNBOOK);
 }
 
-const VOICE_RUNBOOK = 'voice-to-agent/interpret.md';
-
 // The third surface, and the only one with no document to anchor on: a
 // transcript is not about a file. The session's cwd stands in, so the ladder
 // still walks the repo and its parents before $HOME. The anchor is a name
@@ -4688,26 +4687,41 @@ async function resolveVoiceRunbook() {
 // empty is silent, after which it reads raw speech-to-text as if it were
 // typed — the single failure the guide exists to prevent.
 //
-// Resolved once at stream setup rather than per transcript, because
-// onVoiceInputs is synchronous and the transcript that matters most is the
-// first one. Until it resolves, and whenever it cannot, the bare reference
-// goes out, which is the documented degradation. Both forms are a published
-// contract (voice-to-agent/.maintainer/guide-design.md) — change them there
-// first.
-let voiceRunbookRef = `[@${VOICE_RUNBOOK}]`;
+// Resolved at stream setup rather than per transcript, because onVoiceInputs
+// is synchronous and the transcript that matters most is the first one. Both
+// live only in this instance, so a resumed session warns again — the host
+// cannot know what a previous agent was told.
+let voiceGuidePath = null;
+let voiceGuideWarned = false;
 
 async function primeVoiceRunbookRef() {
   try {
     const resolved = await resolveVoiceRunbook();
     if (!resolved) {
-      log('[stream] voice guide not found; sending the bare reference');
+      log('[stream] voice guide not found; warning with the bare reference');
       return;
     }
-    voiceRunbookRef = `[${resolved}]`;
+    voiceGuidePath = resolved;
     log('[stream] voice guide resolved: ' + resolved);
   } catch (err) {
     log('[stream] voice guide resolution failed: ' + (err && err.message));
   }
+}
+
+// Called per transcript. When the guide is missing this also re-runs the
+// ladder, so a clone made after reading the warning takes effect on the next
+// utterance rather than at the next launch — two [ -f ] probes, off the
+// synchronous path, and it makes the warning cancel itself.
+function voicePromptLead() {
+  const { prefix, warned } = voicePromptPrefix({
+    resolvedPath: voiceGuidePath,
+    warned: voiceGuideWarned,
+  });
+  if (!voiceGuidePath) {
+    voiceGuideWarned = warned;
+    primeVoiceRunbookRef();
+  }
+  return prefix;
 }
 
 function runbookMissingError(relPath, governed) {
