@@ -10,4 +10,4 @@ The lock's own scripts refuse a colliding step, as an extra layer of safety. Its
 
 The terminal shows who holds the checkout as a padlock at the top right of each window: green with a check when this terminal window holds it.
 
-One padlock means one checkout, so a session that spans several repos has to pick. It follows the first repo its shell was in: a session started above your repos shows no padlock until it enters one, and if the agent later moves to a sibling repo the padlock keeps reporting the first. Anchoring beats following the live directory, which would swap the padlock on every `cd` into something you cannot read at a glance. Each repo still has its own lock, and the agent still takes the right one; only the indicator is singular.
+The padlock reports one repo, the first the session's shell was in, so a session working across several repos sees the state of only that one ([the lock indicator](dev/lock-indicator.md)).
