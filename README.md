@@ -66,11 +66,12 @@ The first start gives you sessions as windows with their taskbar buttons or Dock
 The rest are optional loops: plans and reviews (one repo covers both), the checkout lock, long jobs, the phone view, the IDE jump. Ask your agent for the ones you want:
 
 ```text
-Add the planning and review loops from https://github.com/albertwujj/agent-term,
-following its docs/loops.md. Clone the loop's repo into ai/ in this project.
+Clone https://github.com/albertwujj/agent-threads into ai/ in this project,
+and leave ai/ out of .gitignore. That is all it takes to add the planning
+and review loops.
 ```
 
-[docs/loops.md](docs/loops.md) is the page it follows, and says what each loop takes.
+[docs/loops.md](docs/loops.md) has the other loops, and how a loop is commanded from the prompt.
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
 
