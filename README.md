@@ -70,7 +70,7 @@ Clone https://github.com/albertwujj/agent-threads into ai/ in this project,
 and leave ai/ out of .gitignore.
 ```
 
-Click [agent-threads](https://github.com/albertwujj/agent-threads) if you want to see for yourself. The terminal prompts the agent for it when it is missing, with your confirmation.
+Click [agent-threads](https://github.com/albertwujj/agent-threads) if you want to see for yourself. The terminal sends the agent the above prompt when it is missing, with your confirmation.
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
 
