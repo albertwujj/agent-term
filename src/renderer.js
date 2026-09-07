@@ -782,6 +782,16 @@ if (typeof window.pty.onToPrompt === 'function') {
     try { terminal.focus(); } catch {}
   });
 }
+// The user asked the terminal to have the agent clone agent-threads: the
+// agent's turn is in the terminal now, so a full-size band drops to its open
+// size, where the terminal shows. Main holds the send and lets it go when the
+// clone lands, so there is no turn end to resume full size on; it stays.
+if (typeof window.pty.onRunbookCloneWaiting === 'function') {
+  window.pty.onRunbookCloneWaiting(() => {
+    const viewer = bandOwningViewer();
+    try { if (viewer && viewer.isFull && viewer.isFull()) viewer.toggleFullSize(); } catch {}
+  });
+}
 if (typeof window.pty.onViewerShortcut === 'function') {
   window.pty.onViewerShortcut((action) => { handleViewerShortcut(action); });
 }

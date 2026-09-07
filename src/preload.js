@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('pty', {
   // A comment batch was handed to the prompt unsubmitted (any surface): roll
   // the viewers up and focus the terminal, the user types there next.
   onToPrompt: (callback) => ipcRenderer.on('to-prompt', () => callback()),
+  // The send is held while the agent clones agent-threads (main's waiting
+  // box): a full-size band drops to its open size so the terminal shows.
+  onRunbookCloneWaiting: (callback) => ipcRenderer.on('runbook-clone-waiting', () => callback()),
   onExit: (callback) => ipcRenderer.on('pty-exit', (event, code) => callback(code)),
   onResize: (callback) => ipcRenderer.on('resize', (event, size) => callback(size)),
   // Navigate to file:line in PyCharm via the navigator plugin

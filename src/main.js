@@ -4695,13 +4695,18 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false
   // send is the same short sentence as the md send. Resolution failure asks
   // the user, exactly like the md preflight — nothing is written before a
   // Cancel.
-  const runbook = await resolveReviewRunbook(agentPath);
+  let runbook = await resolveReviewRunbook(agentPath);
   if (!runbook) {
     const choice = await askMissingRunbook(event.sender,
       `${runbookMissingError(REVIEW_THREADS_RUNBOOK, 'store')}\n\nSend anyway? The agent `
         + 'handles your comments from the store, without the shared contract.');
-    if (choice === 'clone') return requestRunbookClone();
-    if (choice !== 'send') return { canceled: true };
+    if (choice === 'cancel') return { canceled: true };
+    if (choice === 'clone') {
+      if (!requestRunbookClone()) return { success: false, error: 'No active terminal process' };
+      const waited = await awaitRunbookClone(event.sender, () => resolveReviewRunbook(agentPath));
+      if (waited.found) runbook = waited.found;
+      else if (waited.choice !== 'send') return { canceled: true };
+    }
   }
   const addressLine = threadsAddressLine(agentPath, runbook);
   const text = [commentHeader(`review://${pkg}`, n || 1), addressLine].join('\n');
@@ -4898,8 +4903,8 @@ async function askMissingRunbook(sender, detail) {
     defaultId: 0,
     cancelId: 2,
     message: 'agent-threads runbook not found',
-    detail: `${detail}\n\nOr ask the agent to clone agent-threads into ai/ in this project, `
-      + 'and send again when it is done.',
+    detail: `${detail}\n\nOr ask the agent to clone agent-threads into ai/ in this project; `
+      + 'the send waits and goes ahead when the clone lands.',
   };
   const { response } = win
     ? await dialog.showMessageBox(win, opts)
@@ -4907,14 +4912,54 @@ async function askMissingRunbook(sender, detail) {
   return ['clone', 'send', 'cancel'][response] || 'cancel';
 }
 
-// The 'clone' choice: the README's prompt, pasted and submitted. Returns the
-// result the caller hands back — nothing was sent on the user's behalf but
-// the clone request, so the send itself reads as canceled.
+// The 'clone' choice: the README's prompt, pasted and submitted.
 function requestRunbookClone() {
-  if (!pasteAgentPing(AGENT_THREADS_CLONE_PROMPT)) {
-    return { success: false, error: 'No active terminal process' };
-  }
-  return { canceled: true, cloneRequested: true };
+  return pasteAgentPing(AGENT_THREADS_CLONE_PROMPT);
+}
+
+// Then the send is held, not dropped: a message box stands in front of it
+// while the agent clones, polling the ladder, and closes itself the moment
+// the runbook lands so the send goes ahead with it. The box is also the
+// escape hatch for a clone that never lands — Send anyway and Cancel stay
+// available the whole time. The renderer is told at the start so a
+// full-size band drops to its open size and the terminal shows the clone.
+//
+// Closing the box from code needs a parent window (macOS runs parentless
+// boxes synchronously); the sender's window is the parent here.
+// Returns { found } with the runbook path, or { choice: 'send' | 'cancel' }.
+const RUNBOOK_CLONE_POLL_MS = 1000;
+async function awaitRunbookClone(sender, resolveAgain) {
+  const win = BrowserWindow.fromWebContents(sender) || BrowserWindow.getFocusedWindow();
+  try { sender.send('runbook-clone-waiting'); } catch {}
+  const abort = new AbortController();
+  let found = null;
+  let stopped = false;
+  (async () => {
+    while (!stopped) {
+      await new Promise((r) => setTimeout(r, RUNBOOK_CLONE_POLL_MS));
+      if (stopped) return;
+      try {
+        const p = await resolveAgain();
+        if (p && !stopped) { found = p; abort.abort(); return; }
+      } catch {}
+    }
+  })();
+  const opts = {
+    type: 'info',
+    buttons: ['Send anyway', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    signal: abort.signal,
+    message: 'Waiting for the agent to clone agent-threads',
+    detail: 'The prompt is in the agent\'s composer. This closes on its own when the clone '
+      + 'lands in ai/, and the send goes ahead. If it does not land, send anyway or cancel.',
+  };
+  const { response } = win
+    ? await dialog.showMessageBox(win, opts)
+    : await dialog.showMessageBox(opts);
+  stopped = true;
+  if (found) return { found };
+  return { choice: response === 0 ? 'send' : 'cancel' };
 }
 
 // Called before the send writes anything. Resolves the runbook; if it is not
@@ -4929,7 +4974,12 @@ ipcMain.handle('md-runbook-preflight', async (event, { docPath } = {}) => {
   const choice = await askMissingRunbook(event.sender,
     `${runbookMissingError(MD_THREADS_RUNBOOK, 'document')}\n\nSend anyway? The agent `
       + 'handles your edits and comments from the store, without the shared contract.');
-  if (choice === 'clone') return requestRunbookClone();
+  if (choice === 'clone') {
+    if (!requestRunbookClone()) return { success: false, error: 'No active terminal process' };
+    const waited = await awaitRunbookClone(event.sender, () => resolveMdRunbook(doc));
+    if (waited.found) return { runbook: waited.found };
+    return waited.choice === 'send' ? { runbook: null, acked: true } : { canceled: true };
+  }
   return choice === 'send' ? { runbook: null, acked: true } : { canceled: true };
 });
 

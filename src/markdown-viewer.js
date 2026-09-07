@@ -6944,6 +6944,7 @@ function createMarkdownViewer({
     openSearch,
     runSearch,
     toggle: () => band.toggle(),
+    isFull: () => band.isFull(),
     toggleFullSize: () => band.toggleFullSize(),
   };
 }

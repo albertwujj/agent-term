@@ -425,6 +425,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     hide: () => band.hide(),
     show: () => band.show(),
     toggle: () => band.toggle(),
+    isFull: () => band.isFull(),
     toggleFullSize: () => band.toggleFullSize(),
     // Open OR rolled-up (hidden) both mean this viewer owns the band — so mutual
     // exclusion (closeWebViewer / anyViewerOpen) still acts on a collapsed viewer
