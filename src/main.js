@@ -1571,10 +1571,8 @@ function resumeFromSession(picked) {
   const userDataDir = app.getPath('userData');
   // The token is part of the identity a resume inherits: agent-lock's owner
   // record and agent-jobs' events carry it, so the resumed window keeps
-  // answering to it. A session recorded before tokens were stored keeps this
-  // process's fresh token and records it now, for the next resume.
+  // answering to it.
   if (picked.token) agentSessionId = picked.token;
-  else sessionsLog.appendEvent(userDataDir, { e: 'token', id: picked.id, token: agentSessionId });
   try {
     sessionsLog.writeActiveFile(userDataDir, picked.id, {
       pid: process.pid,
