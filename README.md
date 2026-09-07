@@ -67,7 +67,7 @@ The rest are optional loops, each a small repo of its own: plans and reviews, th
 
 ```text
 Add the curated review loop from https://github.com/albertwujj/agent-term,
-following its docs/loops.md.
+following its docs/loops.md. Clone the loop's repo into ai/ in this project.
 ```
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).

@@ -10,6 +10,6 @@ Each loop is a small repo of its own, and each is optional: the terminal runs wi
 | [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) | [your phone](phone.md) as the same terminal | a relay you host, and the page added to your home screen |
 | [IntelliJ Navigator](https://github.com/albertwujj/intellij-navigator/releases) | [click a reference, the IDE jumps](ide.md) | a plugin installed in the IDE |
 
-Where a clone sits decides what resolves. You command these loops by naming an instruction file (`@produce-r` for producing a review), and both your `@` completion and the terminal take the nearest copy up the directory tree. A clone in the repo's `ai/` folder serves that project; one in your home directory serves every project. [Placement](conventions.md) has the rule and which to choose.
+Where a clone sits decides what resolves, and the default is the project's own `ai/` folder. You command these loops by naming an instruction file (`@produce-r` for producing a review), and both your `@` completion and the terminal take the nearest copy up the directory tree. That folder serves the project it sits in; a clone in your home directory serves every project on the machine instead. [Placement](conventions.md) has the rule and the trade-off.
 
 Voice on the phone reads from a kit of its own, [voice-to-agent](https://github.com/albertwujj/voice-to-agent), placed by that same rule. The terminal resolves it and tells the agent when it cannot find it.
