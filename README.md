@@ -67,11 +67,10 @@ The rest are optional loops: plans and reviews (one repo covers both), the check
 
 ```text
 Clone https://github.com/albertwujj/agent-threads into ai/ in this project,
-and leave ai/ out of .gitignore. That is all it takes to add the planning
-and review loops.
+and leave ai/ out of .gitignore.
 ```
 
-[docs/loops.md](docs/loops.md) has the other loops, and how a loop is commanded from the prompt.
+[agent-threads](https://github.com/albertwujj/agent-threads) says what the planning and review loops are; [docs/loops.md](docs/loops.md) has the other loops.
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
 
