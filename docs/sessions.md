@@ -22,7 +22,7 @@ On a Mac each session is its own Dock tile, in the session's color with the firs
 
 ![filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
-**The sessions you set aside.** Right-click the taskbar button or the Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N while an AgentTerm window is in front. Either opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your prompts and the agent's own titles; resume any of them, run what you typed as a shell command, or press Esc for a plain shell.
+**The sessions you set aside.** Right-click the taskbar button or the Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N while an AgentTerm window is in front. Either opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your prompts and the agent's own titles; resume any of them, run what you typed as a shell command, or press Esc for a plain shell. Resuming returns to the directory that session was working in and starts its CLI there, because a CLI's own resume list is usually the sessions from that directory.
 
 **Type `npm run start` (`start:wsl` on WSL) once, from the directory you want the terminal to open in.** Three ways a window comes to be, and where each starts:
 
