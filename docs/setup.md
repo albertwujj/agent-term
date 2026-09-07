@@ -18,4 +18,4 @@ In the window, start your usual CLI the way you always do; sessions from before 
 
 ## Later, the loops
 
-Each loop is a repo of its own, added when you want it: [add a loop](loops.md) covers them.
+Each loop is a repo of its own, added when you want it: [the loops](loops.md) lists them.
