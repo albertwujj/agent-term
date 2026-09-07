@@ -12,4 +12,4 @@ Each loop is a small repo of its own, and each is optional: the terminal runs wi
 
 A loop is commanded from the prompt by naming one of its instruction files, such as `@produce-r` for producing a review. Leave `ai/` out of `.gitignore`: an ignored folder is invisible to some `@` pickers. [Placement](conventions.md) covers where a clone can live and what each choice serves.
 
-Voice on the phone reads from a kit of its own, [voice-to-agent](https://github.com/albertwujj/voice-to-agent), placed like the others. The terminal resolves it and tells the agent when it cannot find it.
+Voice on the phone reads from a kit of its own, [voice-to-agent](https://github.com/albertwujj/voice-to-agent), placed like the others. The terminal resolves it.
