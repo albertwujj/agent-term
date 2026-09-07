@@ -4,7 +4,7 @@ Each loop is a small repo of its own, and each is optional: the terminal runs wi
 
 | Loop | What it adds | What setting it up means |
 |---|---|---|
-| [agent-threads](https://github.com/albertwujj/agent-threads) | writing on [plans](plan.md) and [curated reviews](review.md) | a clone |
+| [agent-threads](https://github.com/albertwujj/agent-threads) | writing on [plans and documents](plan.md), and on [curated reviews](review.md) | one clone, for both |
 | [agent-lock](https://github.com/yunxin/agent-lock) | the [checkout lock](lock.md) agents share | a clone |
 | [agent-jobs](https://github.com/yunxin/agent-jobs) | [long runs](jobs.md) that report their own completion | a clone |
 | [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) | [your phone](phone.md) as the same terminal | a relay you host, and the page added to your home screen |
