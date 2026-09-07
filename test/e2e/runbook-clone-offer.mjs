@@ -1,17 +1,16 @@
-// End-to-end: a send that finds no agent-threads runbook offers to have the
-// agent clone it; taking the offer sends the README's prompt, shrinks a
-// full-size band, and holds the send behind a waiting box that closes itself
-// when the clone lands, so the send goes ahead with the runbook it found.
+// End-to-end: a Send from a comment card that finds no agent-threads runbook
+// puts the choice in the card, with the composer's own buttons and no native
+// alert: have the agent clone it (the README's prompt goes to the composer,
+// the band drops from full size, the card waits and sends on its own when
+// the clone lands), send without the guide, or cancel and keep the draft.
 //
-// Drives the real preflight IPC (renderer -> main -> dialogs -> pty) with
-// three things arranged around it. The runbook ladder is starved: HOME, the
-// start cwd and the document all sit in a scratch tree with no agent-threads
-// anywhere above them. The native dialogs are OS windows Playwright cannot
-// press, so they are replaced in the main process by a recorder that answers
-// from a queue, keeps what it was shown, and honours the waiting box's abort
-// signal the way the real one does. And the pty's shell is a tiny script that
-// appends every submitted line to a file, so what the terminal typed on the
-// user's behalf is read back exactly, bracketed-paste markers included.
+// Drives the real UI: the document open in the band, a word double-clicked,
+// a comment typed, Send clicked, the strip's buttons clicked. The runbook
+// ladder is starved (HOME, the start cwd and the document all in a scratch
+// tree with no agent-threads above them). The pty's shell is a tiny script
+// that appends every submitted line to a file, so what the terminal typed
+// on the user's behalf is read back exactly. The native dialog is replaced
+// by a recorder only to prove it is never shown on this surface.
 
 import { _electron as electron } from 'playwright-core';
 import * as fs from 'node:fs';
@@ -54,14 +53,13 @@ async function main() {
   const proj = path.join(scratch, 'proj');
   fs.mkdirSync(home); fs.mkdirSync(proj);
   const doc = path.join(proj, 'plan.md');
-  fs.writeFileSync(doc, '# Plan\n\nThe opening paragraph.\n', 'utf8');
+  fs.writeFileSync(doc, '# Plan\n\nThe opening paragraph of the plan.\n\nThe second paragraph.\n', 'utf8');
+  const store = path.join(proj, '.agent-threads', 'plan-comments.json');
+  const threads = () => (fs.existsSync(store) ? JSON.parse(fs.readFileSync(store, 'utf8')).threads : []);
   const runbook = path.join(proj, 'ai', 'agent-threads', 'md', 'user-intent.md');
   const landClone = () => { fs.mkdirSync(path.dirname(runbook), { recursive: true }); fs.writeFileSync(runbook, '# runbook\n'); };
   const removeClone = () => fs.rmSync(path.join(proj, 'ai'), { recursive: true, force: true });
-  const same = (a, b) => a && b && fs.realpathSync(a) === fs.realpathSync(b);
 
-  // The stand-in shell: records each submitted line. The pty echoes what is
-  // typed on its own, which is what the screenshot shows.
   const typed = path.join(scratch, 'typed.txt');
   const shell = path.join(scratch, 'shell.sh');
   fs.writeFileSync(shell, '#!/bin/sh\nwhile IFS= read -r line; do printf \'%s\\n\' "$line" >> "$AT_E2E_TYPED"; done\n');
@@ -69,6 +67,7 @@ async function main() {
   const typedLines = () => (fs.existsSync(typed) ? fs.readFileSync(typed, 'utf8').split('\n').filter(Boolean) : []);
   const unbracket = (s) => s.replace(/\x1b\[200~/g, '').replace(/\x1b\[201~/g, '');
   const promptLines = () => typedLines().filter((l) => unbracket(l) === AGENT_THREADS_CLONE_PROMPT);
+  const pointerLines = () => typedLines().filter((l) => /My comments on markdown document/.test(l));
 
   const app = await electron.launch({
     executablePath: ELECTRON_BIN,
@@ -85,33 +84,59 @@ async function main() {
     await page.keyboard.press('Escape');
     await sleep(200);
   }
-
-  // The dialog recorder: answers from a queue, keeps every call's options, and
-  // when told to 'wait' resolves only on the abort signal, as the real box
-  // closes when the app aborts it.
   await app.evaluate(({ dialog }) => {
-    globalThis.__dialogs = [];
-    globalThis.__answers = [];
-    dialog.showMessageBox = (...args) => {
-      const opts = args[args.length - 1] || {};
-      globalThis.__dialogs.push({
-        buttons: opts.buttons, defaultId: opts.defaultId, cancelId: opts.cancelId,
-        message: opts.message, detail: opts.detail, hasSignal: !!opts.signal,
-      });
-      const a = globalThis.__answers.shift();
-      if (a === 'wait') {
-        return new Promise((resolve) => {
-          if (!opts.signal) { resolve({ response: opts.cancelId, checkboxChecked: false }); return; }
-          opts.signal.addEventListener('abort', () => resolve({ response: opts.cancelId, checkboxChecked: false }));
-        });
-      }
-      return Promise.resolve({ response: a, checkboxChecked: false });
+    globalThis.__dialogs = 0;
+    dialog.showMessageBox = () => { globalThis.__dialogs++; return Promise.resolve({ response: 1, checkboxChecked: false }); };
+  });
+  const nativeDialogs = () => app.evaluate(() => globalThis.__dialogs);
+
+  const bandFull = () => page.evaluate(() => !!document.querySelector('.vb-shell.vb-md.open.vb-full'));
+  const notice = () => page.evaluate(() => {
+    const n = document.querySelector('.md-comment-card .md-runbook-notice');
+    if (!n) return null;
+    return {
+      text: n.querySelector('.md-runbook-text').textContent,
+      link: n.querySelector('a') ? n.querySelector('a').getAttribute('href') : null,
+      buttons: Array.from(n.querySelectorAll('.cu-btn')).map((b) => b.textContent),
+      primaryTitle: n.querySelector('.cu-primary') ? n.querySelector('.cu-primary').title : null,
+      composerActionsHidden: !!n.previousElementSibling && getComputedStyle(n.previousElementSibling.querySelector('.cu-actions')).display === 'none',
     };
   });
-  const dialogs = () => app.evaluate(() => globalThis.__dialogs);
-  const answers = (list) => app.evaluate((_electron, v) => { globalThis.__answers = v; }, list);
-  const preflight = () => page.evaluate((docPath) => window.pty.mdRunbookPreflight({ docPath }), doc);
-  const bandFull = () => page.evaluate(() => !!document.querySelector('.vb-shell.vb-md.open.vb-full'));
+  const clickNotice = (label) => page.evaluate((label) => {
+    const b = Array.from(document.querySelectorAll('.md-runbook-notice .cu-btn')).find((x) => x.textContent === label);
+    if (!b) return false;
+    b.click();
+    return true;
+  }, label);
+  const point = (needle) => page.evaluate((needle) => {
+    const root = document.querySelector('.md-spread-pane.primary .md-viewer-body') || document.querySelector('.vb-shell.vb-md .md-viewer-body');
+    for (const el of root.querySelectorAll('p')) {
+      let offset = el.textContent.indexOf(needle);
+      if (offset < 0) continue;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (offset >= node.length) { offset -= node.length; continue; }
+        const r = document.createRange(); r.setStart(node, offset); r.setEnd(node, offset + 1);
+        const b = r.getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+      }
+    }
+    return null;
+  }, needle);
+  // Select a word, type: the first letter opens the card with the text.
+  async function composeComment(word, text) {
+    const p = await point(word);
+    if (!p) return false;
+    await page.mouse.dblclick(p.x, p.y);
+    await sleep(200);
+    await page.keyboard.type(text);
+    const card = await waitFor(() => page.evaluate(() => {
+      const ta = document.querySelector('.md-comment-card textarea');
+      return ta ? ta.value : null;
+    }));
+    return card === text;
+  }
+  const clickSend = () => page.click('.md-comment-card .cu-btn.cu-primary');
 
   try {
     console.log('the document open in the band, at full size');
@@ -128,62 +153,68 @@ async function main() {
     }
     check('at full size', await bandFull());
 
-    console.log('the offer, taken, and the clone lands');
-    await answers([0, 'wait']);
-    const pending = preflight();
+    console.log('a comment sent with no runbook: the choice appears in the card');
+    check('a comment card opens on the selected word with the typed text', await composeComment('opening', 'Tighten this.'));
+    await clickSend();
+    const shown = await waitFor(notice);
+    check('the strip appears below the composer, in place of its actions', !!shown && shown.composerActionsHidden, shown);
+    check('it says what is missing and links the README', !!shown && shown.text.startsWith('agent-threads is not installed.')
+      && /README\.md#make-it-yours$/.test(shown.link || ''), shown);
+    check('with the clone first, then send anyway, then cancel', !!shown
+      && JSON.stringify(shown.buttons) === JSON.stringify(['Ask the agent to clone it into ai/', 'Send anyway', 'Cancel']), shown && shown.buttons);
+    check("and the clone button's tooltip is the README's prompt", !!shown && shown.primaryTitle === AGENT_THREADS_CLONE_PROMPT, shown && shown.primaryTitle);
+    check('no store was written yet', !fs.existsSync(store));
+    fs.mkdirSync(SHOT_DIR, { recursive: true });
+    await page.screenshot({ path: path.join(SHOT_DIR, 'runbook-choice.png') });
+
+    console.log('the clone, taken, and landing');
+    check('the clone button is there to click', await clickNotice('Ask the agent to clone it into ai/'));
     const line = await waitFor(() => promptLines()[0] || null);
     check("the terminal submitted the README's prompt, word for word, as one bracketed paste",
-      !!line && typedLines().filter((l) => /agent-threads/.test(l)).length === 1
-        && line.startsWith('\x1b[200~') && line.endsWith('\x1b[201~') && unbracket(line) === AGENT_THREADS_CLONE_PROMPT, line);
-    const shrunk = await waitFor(async () => !(await bandFull()));
-    check('the band dropped from full size while the send waits', !!shrunk);
+      !!line && line.startsWith('\x1b[200~') && line.endsWith('\x1b[201~'), line);
+    const waiting = await waitFor(async () => { const n = await notice(); return n && /^Waiting for the agent to clone it\./.test(n.text) ? n : null; });
+    check('the strip now waits, with send anyway and cancel', !!waiting && JSON.stringify(waiting.buttons) === JSON.stringify(['Send anyway', 'Cancel']), waiting);
+    check('the band dropped from full size', !!(await waitFor(async () => !(await bandFull()))));
     check('and stays open on the document', await page.evaluate(() => !!document.querySelector('.vb-shell.vb-md.open')));
-    const shown = await dialogs();
-    check('the offer came first: clone, send anyway, cancel, clone as default, cancel as the escape',
-      shown.length === 2 && JSON.stringify(shown[0].buttons) === JSON.stringify(['Ask the agent to clone it into ai/', 'Send anyway', 'Cancel'])
-        && shown[0].defaultId === 0 && shown[0].cancelId === 2 && shown[0].message === 'agent-threads runbook not found', shown[0]);
-    check('then the waiting box, with an abort signal, send anyway and cancel',
-      shown.length === 2 && shown[1].hasSignal && JSON.stringify(shown[1].buttons) === JSON.stringify(['Send anyway', 'Cancel'])
-        && shown[1].message === 'Waiting for the agent to clone agent-threads', shown[1]);
-    await sleep(600);
-    fs.mkdirSync(SHOT_DIR, { recursive: true });
-    const shot = path.join(SHOT_DIR, 'runbook-clone-offer.png');
-    await page.screenshot({ path: shot });
-    console.log(`  screenshot: ${shot}`);
-    check('the send is still held', await Promise.race([pending.then(() => false), sleep(300).then(() => true)]));
+    await sleep(500);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'runbook-waiting.png') });
+    check('the send is still held', !fs.existsSync(store) && (await notice()) !== null);
     landClone();
-    const res = await pending;
-    check('when the clone lands the box closes itself and the send goes ahead with the runbook',
-      !!(res && same(res.runbook, runbook)), res);
+    const sent = await waitFor(() => (threads().length === 1 ? threads() : null));
+    check('when the clone lands the send goes ahead on its own: the store holds the comment', !!sent && sent[0].messages[0].body === 'Tighten this.', sent);
+    const pointer = await waitFor(() => (typedLines().some((l) => /user-intent\.md/.test(l)) ? true : null));
+    check('and the pointer to the agent names the runbook it found', !!pointer, typedLines().slice(-4));
+    check('the strip and the card are gone', (await notice()) === null && !(await page.evaluate(() => !!document.querySelector('.md-comment-card'))));
 
-    console.log('a clone that never lands: send anyway');
+    console.log('send anyway, with no clone');
     removeClone();
-    await answers([0, 0]);
-    const sendAnyway = await preflight();
-    check('returns the acknowledged, runbook-less send', !!(sendAnyway && sendAnyway.acked && sendAnyway.runbook === null && !sendAnyway.canceled), sendAnyway);
-    check('after sending the prompt again', !!(await waitFor(() => promptLines().length === 2)), promptLines().length);
+    check('a second comment', await composeComment('second', 'And this.'));
+    await clickSend();
+    check('the strip is back', !!(await waitFor(notice)));
+    check('send anyway is there to click', await clickNotice('Send anyway'));
+    const two = await waitFor(() => (threads().length === 2 ? threads() : null));
+    check('the store holds both comments', !!two && two[1].messages[0].body === 'And this.', two && two.length);
+    check('with no second clone prompt typed', promptLines().length === 1, promptLines().length);
 
-    console.log('a clone that never lands: cancel');
-    await answers([0, 1]);
-    const cancel = await preflight();
-    check('returns canceled', !!(cancel && cancel.canceled), cancel);
-    check('after sending the prompt again', !!(await waitFor(() => promptLines().length === 3)), promptLines().length);
-
-    console.log('the first box on its own');
-    await answers([1]);
-    const first = await preflight();
-    await sleep(1800); // longer than the writer's fallback, so a paste would have landed
-    check('send anyway returns the acknowledged send and types nothing', !!(first && first.acked) && promptLines().length === 3, [first, promptLines().length]);
-    await answers([2]);
-    const firstCancel = await preflight();
-    await sleep(1800);
-    check('cancel returns canceled and types nothing', !!(firstCancel && firstCancel.canceled) && promptLines().length === 3, [firstCancel, promptLines().length]);
-    check('eight boxes were shown in all', (await dialogs()).length === 8, (await dialogs()).length);
+    console.log('cancel keeps the draft');
+    check('a third comment', await composeComment('plan', 'Third.'));
+    await clickSend();
+    check('the strip is back', !!(await waitFor(notice)));
+    check('cancel is there to click', await clickNotice('Cancel'));
+    await sleep(300);
+    const draft = await page.evaluate(() => { const ta = document.querySelector('.md-comment-card textarea'); return ta ? ta.value : null; });
+    check('the strip is gone and the card stays open with the draft', (await notice()) === null && draft === 'Third.', draft);
+    check('nothing more was sent', threads().length === 2);
+    await page.keyboard.press('Escape');
+    await sleep(300);
 
     console.log('with the clone in ai/');
     landClone();
-    const found = await preflight();
-    check('the preflight resolves it with no box', !!(found && same(found.runbook, runbook)) && (await dialogs()).length === 8, found);
+    check('a fourth comment', await composeComment('opening', 'Fourth.'));
+    await clickSend();
+    const three = await waitFor(() => (threads().length === 3 ? threads() : null));
+    check('the send goes straight through, no strip', !!three && (await notice()) === null, three && three.length);
+    check('no native dialog was shown at any point', (await nativeDialogs()) === 0, await nativeDialogs());
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(scratch, { recursive: true, force: true });

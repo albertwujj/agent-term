@@ -13,6 +13,7 @@ const { classifyMarkdownLink } = require('./md-link-target');
 const { findSentenceRange } = require('./sentence-selection');
 const { createViewerBand } = require('./viewer-band');
 const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isMac, isPasteCommentShortcut } = require('./comment-ui');
+const { AGENT_THREADS_CLONE_PROMPT } = require('./loop-install');
 const {
   isPlainCommentKey,
   isCommentEntryKey,
@@ -576,6 +577,19 @@ function ensureStyles() {
       padding: 0 6px;
     }
     .md-bar-hint.on { display: inline-block; }
+    /* The runbook choice, in the card that sent: a strip below the composer,
+       with the composer's own buttons, while the composer's actions hide. */
+    .md-runbook-notice {
+      margin: 6px 0 2px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(250, 204, 21, 0.12);
+      border: 1px solid rgba(250, 204, 21, 0.45);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .md-runbook-notice .md-runbook-text { margin-bottom: 6px; }
+    .md-runbook-notice .cu-actions { margin: 0; }
     .md-comment-card {
       margin: 8px 0 12px;
       padding: 9px 10px;
@@ -1116,6 +1130,7 @@ function createMarkdownViewer({
   statMarkdownFile,
   submitMarkdownThreads,
   preflightMarkdownRunbook,
+  requestRunbookClone,
   readMarkdownThreads,
   addMarkdownThreadMessage,
   showToast,
@@ -4855,8 +4870,8 @@ function createMarkdownViewer({
       onInput: () => { autoGrowTextarea(composer.textarea); session.note = composer.textarea.value; },
       actions: [
         { label: 'Revert', onClick: () => revertBlockEditor() },
-        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: shiftModEnterLabel(), primary: true, title: 'Enter', onClick: () => { commitBlockEditor(); sendEditBatch(); } },
-        toPromptAction(() => { commitBlockEditor(); sendEditBatch({ toPrompt: true }); }),
+        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: shiftModEnterLabel(), primary: true, title: 'Enter', onClick: () => { commitBlockEditor(); sendEditBatch({ host: composer.root }); } },
+        toPromptAction(() => { commitBlockEditor(); sendEditBatch({ toPrompt: true, host: composer.root }); }),
       ],
     });
     // Buttons must not steal focus from the editor (that blur would commit
@@ -5187,8 +5202,8 @@ function createMarkdownViewer({
       },
       actions: [
         { label: 'Revert', onClick: () => undoOverlay(anchorId) },
-        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: shiftModEnterLabel(), primary: true, title: 'Enter', onClick: () => sendEditBatch() },
-        toPromptAction(() => sendEditBatch({ toPrompt: true })),
+        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: shiftModEnterLabel(), primary: true, title: 'Enter', onClick: () => sendEditBatch({ host: composer.root }) },
+        toPromptAction(() => sendEditBatch({ toPrompt: true, host: composer.root })),
       ],
     });
     holder.appendChild(composer.root);
@@ -5298,7 +5313,108 @@ function createMarkdownViewer({
   // as a comment thread carrying its exact marks, keyed to the frozen block;
   // queued comments ride along. Preflight the runbook first (found: send with it;
   // missing: send-anyway ack or cancel), then hand off as one turn.
-  async function sendEditBatch({ toPrompt = false } = {}) {
+  // The runbook the pointer names is missing: the choice is made where the
+  // send was clicked, in the card, with the composer's own buttons, not in
+  // an alert. Have the agent clone agent-threads into ai/ (the README's own
+  // prompt goes to the composer and the card waits, polling once a second,
+  // until the clone lands and the send goes ahead on its own), send without
+  // the guide, or cancel and keep the draft. A full-size band drops to its
+  // open size while it waits, so the terminal shows the clone; nothing
+  // resumes it. Resolves to { runbook }, 'send', or 'cancel'.
+  function askRunbookDecision(host, doc) {
+    return new Promise((resolve) => {
+      // Sent from a keyboard path with no composer in hand: the viewer's last
+      // composer is the one the user is in, and with none on screen (a
+      // page-wide send straight from the editor), the strip sits under the
+      // last edit awaiting the send.
+      const composers = state.shell ? state.shell.querySelectorAll('.cu-composer') : [];
+      const pendingBlocks = state.shell ? state.shell.querySelectorAll('.md-pending-block') : [];
+      const anchor = host && host.isConnected
+        ? host
+        : (composers[composers.length - 1] || pendingBlocks[pendingBlocks.length - 1]);
+      if (!anchor) {
+        if (typeof showToast === 'function') showToast('agent-threads is not installed; the agent has no guide for this send', { variant: 'error' });
+        resolve('cancel');
+        return;
+      }
+      const notice = document.createElement('div');
+      notice.className = 'md-runbook-notice';
+      const text = document.createElement('div');
+      text.className = 'md-runbook-text';
+      const actions = document.createElement('div');
+      actions.className = 'cu-actions';
+      notice.append(text, actions);
+      anchor.insertAdjacentElement('afterend', notice);
+      // The composer's row gives way to the strip's (an inline display beats
+      // the row's own flex, where the hidden attribute would not).
+      const composerActions = anchor.querySelector('.cu-actions');
+      const rowDisplay = composerActions ? composerActions.style.display : '';
+      if (composerActions) composerActions.style.display = 'none';
+      let polling = null;
+      let done = false;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        if (polling) clearInterval(polling);
+        notice.remove();
+        if (composerActions) composerActions.style.display = rowDisplay;
+        resolve(value);
+      };
+      const render = (message, buttons, { link = null } = {}) => {
+        text.textContent = message + (link ? ' ' : '');
+        if (link) {
+          // The README section that carries the same prompt and the loops.
+          const a = document.createElement('a');
+          a.href = link.url;
+          a.textContent = link.label;
+          a.addEventListener('click', (event) => {
+            event.preventDefault();
+            if (typeof openURL === 'function') openURL(link.url);
+          });
+          text.appendChild(a);
+        }
+        actions.replaceChildren();
+        for (const [label, primary, onClick, title] of buttons) {
+          const b = document.createElement('button');
+          b.className = 'cu-btn' + (primary ? ' cu-primary' : '');
+          b.textContent = label;
+          if (title) b.title = title;
+          // Like the composer's buttons: the click must not blur the editor.
+          b.addEventListener('mousedown', (event) => { event.preventDefault(); event.stopPropagation(); });
+          b.onclick = onClick;
+          actions.appendChild(b);
+        }
+      };
+      const waitForClone = () => {
+        render('Waiting for the agent to clone it. The send goes ahead when it lands.', [
+          ['Send anyway', false, () => finish('send')],
+          ['Cancel', false, () => finish('cancel')],
+        ]);
+        if (band.isFull()) band.toggleFullSize();
+        polling = setInterval(async () => {
+          try {
+            const pf = await preflightMarkdownRunbook({ docPath: doc });
+            if (pf && pf.runbook) finish({ runbook: pf.runbook });
+          } catch {}
+        }, 1000);
+      };
+      // The button carries the prompt it sends as its tooltip, the README's own.
+      render('agent-threads is not installed.', [
+        ['Ask the agent to clone it into ai/', true, async () => {
+          const r = typeof requestRunbookClone === 'function' ? await requestRunbookClone() : null;
+          if (!r || !r.ok) {
+            if (typeof showToast === 'function') showToast((r && r.error) || 'No active terminal process', { variant: 'error' });
+            return;
+          }
+          waitForClone();
+        }, AGENT_THREADS_CLONE_PROMPT],
+        ['Send anyway', false, () => finish('send')],
+        ['Cancel', false, () => finish('cancel')],
+      ], { link: { label: 'README', url: 'https://github.com/albertwujj/agent-term/blob/main/README.md#make-it-yours' } });
+    });
+  }
+
+  async function sendEditBatch({ toPrompt = false, host = null } = {}) {
     const doc = state.resolvedPath || state.filePath;
     if (!doc || typeof submitMarkdownThreads !== 'function') return false;
     const commentRecords = getPendingMarkdownCommentRecords();
@@ -5307,8 +5423,12 @@ function createMarkdownViewer({
     let allowMissingRunbook = false;
     if (typeof preflightMarkdownRunbook === 'function') {
       const pf = await preflightMarkdownRunbook({ docPath: doc });
-      if (pf && pf.canceled) return false; // nothing sent
-      allowMissingRunbook = !!(pf && pf.acked);
+      if (!pf || pf.canceled) return false; // nothing sent
+      if (!pf.runbook) {
+        const choice = await askRunbookDecision(host, doc);
+        if (choice === 'cancel') return false; // nothing sent, draft kept
+        allowMissingRunbook = choice === 'send';
+      }
     }
     try {
       // The frozen source is the anchor/heading truth; nothing is read back from
@@ -6725,8 +6845,8 @@ function createMarkdownViewer({
     if (sendButton.disabled) return;
     if (!textarea.value.trim() && !state.queuedComments.length && state.blockOverlays.size === 0) return;
     sendButton.disabled = true; // also guards against a double Enter
-    const sent = await sendEditBatch({ toPrompt });
-    if (!sent && state.activeCard) sendButton.disabled = false; // failed; still open
+    const sent = await sendEditBatch({ toPrompt, host: textarea.closest('.cu-composer') });
+    if (!sent && state.activeCard) sendButton.disabled = false; // failed or declined; still open
   }
 
   function handleDocumentKeydown(event) {
@@ -6944,7 +7064,6 @@ function createMarkdownViewer({
     openSearch,
     runSearch,
     toggle: () => band.toggle(),
-    isFull: () => band.isFull(),
     toggleFullSize: () => band.toggleFullSize(),
   };
 }

@@ -59,6 +59,8 @@ const FIXTURE = [
   '',
   'A spare paragraph kept clean for the enter-send check.',
   '',
+  'A last paragraph kept clean for the send-anyway check.',
+  '',
   '<p>',
   '  <img src="assets/a.jpg" width="120" alt="shot a">',
   '  &nbsp;',
@@ -90,6 +92,7 @@ let focusTerminalCalls = 0;
 // Preflight mock: default "runbook found"; tests flip it to acked/canceled.
 let preflightResult = { runbook: '/fake/agent-threads/md/user-intent.md' };
 let lastAllowMissingRunbook = null;
+let cloneRequests = 0;
 const writes = [];
 let threadSeq = 0;
 // Mutable disk: the test simulates agent writes by mutating these directly.
@@ -120,6 +123,7 @@ const viewer = createMarkdownViewer({
     return { success: true, data: store };
   },
   preflightMarkdownRunbook: async () => preflightResult,
+  requestRunbookClone: async () => { cloneRequests++; return { ok: true }; },
   readMarkdownThreads: async () => ({ success: true, data: store }),
   addMarkdownThreadMessage: async () => ({ success: true, data: store }),
   writeMarkdownFile: async ({ content }) => {
@@ -727,10 +731,15 @@ async function run() {
       !!rowFor() && !primary().querySelector('.md-thread-card.waiting'));
   }
 
-  // --- runbook preflight: cancel sends nothing; ack sends with the flag ---
+  // --- runbook preflight: a bad path cancels; a missing runbook puts the
+  //     choice in the card (cancel keeps the edit, the clone path waits for
+  //     the runbook, send anyway sends with the flag) ---
   {
     const writesBefore = writes.length;
     const sentBefore = sentBatches.length;
+    const strip = () => dom.window.document.querySelector('.md-runbook-notice');
+    const stripButton = (label) => Array.from(strip() ? strip().querySelectorAll('.cu-btn') : [])
+      .find((b) => b.textContent === label);
     // Cancel: the edit stays pending, nothing sent (and never written). Use a
     // clean block — the earlier batch sealed "Second paragraph" (a sent edit is
     // no longer editable in place).
@@ -742,13 +751,56 @@ async function run() {
       writes.length === writesBefore && sentBatches.length === sentBefore);
     check('preflight cancel leaves the edit pending', !!primary().querySelector('p.md-pending-block'));
 
-    // Ack: the same pending edit now sends, flagged allow-missing-runbook.
-    preflightResult = { runbook: null, acked: true };
+    // Missing: the strip appears with the three choices, under the edit that
+    // was sent from the keyboard with no composer on screen; nothing is sent.
+    preflightResult = { runbook: null };
     key({ key: 'Enter', metaKey: true });
     await sleep(30);
-    check('preflight ack sends the batch', sentBatches.length === sentBefore + 1);
-    check('preflight ack passes allowMissingRunbook', lastAllowMissingRunbook === true, lastAllowMissingRunbook);
-    check('preflight ack still writes nothing', writes.length === writesBefore);
+    check('a missing runbook puts the choice in the page',
+      !!stripButton('Ask the agent to clone it into ai/') && !!stripButton('Send anyway') && !!stripButton('Cancel'));
+    check('under the pending edit', !!strip() && !!strip().previousElementSibling
+      && strip().previousElementSibling.classList.contains('md-pending-block'));
+    check('the strip names what is missing and links the README',
+      !!strip() && strip().textContent.startsWith('agent-threads is not installed.')
+        && /README\.md#make-it-yours$/.test((strip().querySelector('a') && strip().querySelector('a').getAttribute('href')) || ''));
+    check("the clone button's tooltip is the README's prompt",
+      !!stripButton('Ask the agent to clone it into ai/') && /agent-threads into ai\//.test(stripButton('Ask the agent to clone it into ai/').title));
+    check('and nothing is sent yet', sentBatches.length === sentBefore);
+    // Cancel on the strip: it goes and the edit stays pending.
+    stripButton('Cancel').click();
+    await sleep(10);
+    check('cancel on the strip keeps the edit pending and sends nothing',
+      !strip() && !!primary().querySelector('p.md-pending-block') && sentBatches.length === sentBefore);
+
+    // The clone path: the prompt goes out once, the strip waits, and the send
+    // goes ahead on its own when the poll finds the runbook.
+    const clonesBefore = cloneRequests;
+    key({ key: 'Enter', metaKey: true });
+    await sleep(30);
+    stripButton('Ask the agent to clone it into ai/').click();
+    await sleep(20);
+    check('the clone button asks the terminal for the clone once', cloneRequests === clonesBefore + 1, cloneRequests - clonesBefore);
+    check('and the strip waits, with send anyway and cancel',
+      !!strip() && /^Waiting for the agent to clone it\./.test(strip().textContent)
+        && !!stripButton('Send anyway') && !!stripButton('Cancel') && !stripButton('Ask the agent to clone it into ai/'));
+    check('with nothing sent while it waits', sentBatches.length === sentBefore);
+    preflightResult = { runbook: '/fake/agent-threads/md/user-intent.md' };
+    await sleep(1300); // past the strip's one-second poll
+    check('when the runbook appears the send goes ahead on its own', sentBatches.length === sentBefore + 1, sentBatches.length - sentBefore);
+    check('without the allow-missing flag', lastAllowMissingRunbook === false, lastAllowMissingRunbook);
+    check('the strip is gone', !strip());
+    check('and nothing was written', writes.length === writesBefore);
+
+    // Send anyway: a fresh pending edit sends, flagged allow-missing-runbook.
+    preflightResult = { runbook: null };
+    await renderedEdit('A last paragraph', 'A last paragraph, revised for send anyway.');
+    key({ key: 'Enter', metaKey: true });
+    await sleep(30);
+    stripButton('Send anyway').click();
+    await sleep(30);
+    check('send anyway sends the batch', sentBatches.length === sentBefore + 2, sentBatches.length - sentBefore);
+    check('flagged allow-missing-runbook', lastAllowMissingRunbook === true, lastAllowMissingRunbook);
+    check('and still writes nothing', writes.length === writesBefore);
   }
 
   // --- Line breaks in prose: a first-key Enter starts the edit with a break

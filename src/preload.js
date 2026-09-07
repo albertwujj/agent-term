@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('pty', {
   mdAddThreads: (payload) => ipcRenderer.invoke('md-add-threads', payload),
   // Preflight the send: resolve the runbook, or ask to send anyway if missing.
   mdRunbookPreflight: (payload) => ipcRenderer.invoke('md-runbook-preflight', payload),
+  // The card's clone choice: the README's prompt goes to the agent's composer.
+  mdRunbookClone: () => ipcRenderer.invoke('md-runbook-clone'),
   // Thread layer: read the sidecar store; follow-up reply (reopens + points).
   // No resolve on this surface — collapse is derived from the turn clock.
   mdReadThreads: (payload) => ipcRenderer.invoke('md-read-threads', payload),
@@ -24,9 +26,6 @@ contextBridge.exposeInMainWorld('pty', {
   // A comment batch was handed to the prompt unsubmitted (any surface): roll
   // the viewers up and focus the terminal, the user types there next.
   onToPrompt: (callback) => ipcRenderer.on('to-prompt', () => callback()),
-  // The send is held while the agent clones agent-threads (main's waiting
-  // box): a full-size band drops to its open size so the terminal shows.
-  onRunbookCloneWaiting: (callback) => ipcRenderer.on('runbook-clone-waiting', () => callback()),
   onExit: (callback) => ipcRenderer.on('pty-exit', (event, code) => callback(code)),
   onResize: (callback) => ipcRenderer.on('resize', (event, size) => callback(size)),
   // Navigate to file:line in PyCharm via the navigator plugin

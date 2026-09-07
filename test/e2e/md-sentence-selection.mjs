@@ -38,7 +38,7 @@ try {
       ['read-markdown-file', () => ({ success: true, path: doc, content: source, mtimeMs: 1, size: source.length })],
       ['stat-markdown-file', () => ({ success: true, path: doc, mtimeMs: 1, size: source.length })],
       ['md-read-threads', () => ({ success: true, data: { threads: [] } })],
-      ['md-runbook-preflight', () => ({ acked: true })],
+      ['md-runbook-preflight', () => ({ runbook: '/stub/agent-threads/md/user-intent.md' })],
       ['md-add-threads', (_e, payload) => { globalThis.__sentenceSends.push(payload); return { success: true, data: { threads: [] } }; }],
       ['open-url', (_e, target) => { globalThis.__sentenceLinks.push(target); return { success: true }; }],
     ]) {
