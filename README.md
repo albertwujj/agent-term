@@ -14,7 +14,7 @@ up and launch it for my current project, following the basic setup in its
 docs/setup.md.
 ```
 
-[docs/setup.md](docs/setup.md) is the page it follows, if you want to read it first.
+Click [docs/setup.md](docs/setup.md) if you want to read it.
 
 Once it opens, start your usual agent, select something in its output, and write a [comment](docs/comment.md).
 
@@ -70,7 +70,7 @@ Clone https://github.com/albertwujj/agent-threads into ai/ in this project,
 and leave ai/ out of .gitignore.
 ```
 
-[agent-threads](https://github.com/albertwujj/agent-threads) says what the planning and review loops are; [docs/loops.md](docs/loops.md) has the other loops.
+Click [agent-threads](https://github.com/albertwujj/agent-threads) if you want to see for yourself; [docs/loops.md](docs/loops.md) has the other loops.
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
 
