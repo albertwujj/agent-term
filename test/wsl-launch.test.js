@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { requireSourceStartCwd } = require('../src/source-start-cwd');
+const { requireSourceStartCwd, sourceLaunchEnv } = require('../src/source-start-cwd');
 const {
   bashLauncher,
   configuredWslDistro,
@@ -136,6 +136,47 @@ test('source launch rejects a native path that is not a directory', () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('a source launch hands the child npm\'s directory', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-launch-env-'));
+  try {
+    const env = sourceLaunchEnv({ PATH: '/usr/bin', INIT_CWD: root }, 'darwin');
+    assert.strictEqual(env.AGENT_TERM_START_CWD, root);
+    assert.strictEqual(env.PATH, '/usr/bin', 'the rest of the environment rides along');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('npm\'s directory beats one inherited from the window it was typed in', () => {
+  // The case: an agent inside an AgentTerm session runs `npm --prefix … run
+  // start` from the project it is setting up. Every shell in a window carries
+  // that window's AGENT_TERM_START_CWD, and preferring it would open the new
+  // window on the parent session's directory instead.
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-project-'));
+  try {
+    const env = sourceLaunchEnv(
+      { INIT_CWD: project, AGENT_TERM_START_CWD: '/somewhere/the/parent/session/started' },
+      'darwin',
+    );
+    assert.strictEqual(env.AGENT_TERM_START_CWD, project);
+  } finally {
+    fs.rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test('without npm nothing is overridden, so a hand-run script behaves as before', () => {
+  const inherited = { AGENT_TERM_START_CWD: '/home/me/session-repo' };
+  assert.strictEqual(sourceLaunchEnv(inherited, 'darwin'), inherited);
+});
+
+test('a source launch refuses an INIT_CWD it cannot use', () => {
+  assert.throws(() => sourceLaunchEnv({ INIT_CWD: 'relative' }, 'darwin'), /not absolute/);
+  assert.throws(
+    () => sourceLaunchEnv({ INIT_CWD: '/definitely/missing/agent-term-cwd' }, 'darwin'),
+    /does not exist/,
+  );
 });
 
 test('Windows accepts the WSL path validated by its source launcher', () => {
