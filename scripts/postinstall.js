@@ -2,16 +2,27 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
-const { writeLockStamp } = require('../src/dep-freshness');
 
 const repoRoot = path.join(__dirname, '..');
+
+// The WSL development launcher installs its Windows dependency tree from a
+// runner directory holding this script and fix-pty-perms.js, and nothing else:
+// src/ arrives later, in the per-process snapshot the app stages at launch,
+// and no start ever reads a stamp written in the runner tree. So the stamp
+// writer is asked for where it exists rather than at load time, where a
+// require for a file that tree has no use for would fail the whole install.
+function stampInstalledTree(options) {
+  const source = path.join(repoRoot, 'src', 'dep-freshness.js');
+  if (!fs.existsSync(source)) return null;
+  return require(source).writeLockStamp(options);
+}
 
 function runPostinstall({
   spawn = spawnSync,
   nodePath = process.execPath,
   resolve = require.resolve,
   load = require,
-  stamp = writeLockStamp,
+  stamp = stampInstalledTree,
   fsApi = fs,
   cryptoApi = crypto,
   root = repoRoot,

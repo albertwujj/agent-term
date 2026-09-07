@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -196,6 +197,36 @@ test('Windows source launch passes npm invocation cwd instead of pinning the che
   assert.match(bashLauncher, /AGENT_TERM_START_CWD/);
   assert.doesNotMatch(bashLauncher, /AGENT_TERM_SOURCE_WSL/);
   assert.doesNotMatch(powershellLauncher, /AGENT_TERM_WSL_CWD|WslSourceRoot/);
+});
+
+test('the install lifecycle runs in the tree the Windows launcher stages', () => {
+  // That tree is scripts/postinstall.js and scripts/fix-pty-perms.js beside a
+  // package.json and its lockfile, so anything postinstall reaches for outside
+  // those two files breaks `npm ci` on every WSL development launch — before a
+  // window, with a MODULE_NOT_FOUND stack as the only explanation.
+  const runner = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-runner-'));
+  const runnerScripts = path.join(runner, 'scripts');
+  fs.mkdirSync(runnerScripts);
+  for (const staged of ['postinstall.js', 'fix-pty-perms.js']) {
+    fs.copyFileSync(
+      path.join(__dirname, '..', 'scripts', staged),
+      path.join(runnerScripts, staged),
+    );
+  }
+
+  const entry = JSON.stringify(path.join(runnerScripts, 'postinstall.js'));
+  const install = spawnSync(process.execPath, ['-e', `
+    const { runPostinstall } = require(${entry});
+    runPostinstall({
+      spawn: () => ({ status: 0 }),
+      resolve: () => 'electron-install-test.js',
+      load: () => {},
+    });
+  `], { encoding: 'utf8' });
+
+  assert.strictEqual(install.status, 0, install.stderr);
+  assert.doesNotMatch(install.stderr, /MODULE_NOT_FOUND/);
+  assert.doesNotMatch(install.stderr, /dependency stamp skipped/);
 });
 
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
