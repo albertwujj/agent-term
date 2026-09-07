@@ -43,6 +43,7 @@ if (!app.isPackaged) {
 const { commentHeader } = require('./comment-format');
 const { mdStorePosixPath, uncFromPosix } = require('./md-thread-store');
 const { VOICE_RUNBOOK, voicePromptPrefix } = require('./voice-prompt');
+const { AGENT_THREADS_CLONE_PROMPT } = require('./loop-install');
 const net = require('net');
 const pty = require('node-pty');
 const {
@@ -4695,10 +4696,12 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false
   // the user, exactly like the md preflight — nothing is written before a
   // Cancel.
   const runbook = await resolveReviewRunbook(agentPath);
-  if (!runbook && !(await askSendWithoutRunbook(event.sender,
-    `${runbookMissingError(REVIEW_THREADS_RUNBOOK, 'store')}\n\nSend anyway? The agent `
-      + 'handles your comments from the store, without the shared contract.'))) {
-    return { canceled: true };
+  if (!runbook) {
+    const choice = await askMissingRunbook(event.sender,
+      `${runbookMissingError(REVIEW_THREADS_RUNBOOK, 'store')}\n\nSend anyway? The agent `
+        + 'handles your comments from the store, without the shared contract.');
+    if (choice === 'clone') return requestRunbookClone();
+    if (choice !== 'send') return { canceled: true };
   }
   const addressLine = threadsAddressLine(agentPath, runbook);
   const text = [commentHeader(`review://${pkg}`, n || 1), addressLine].join('\n');
@@ -4877,23 +4880,41 @@ function runbookMissingError(relPath, governed) {
     + `session repo root up the tree, above the ${governed}, or under HOME`;
 }
 
-// The runbook was not found anywhere on the ladder: ask whether to send
-// anyway. Shared by the md preflight and the review send — both run ahead of
-// any write, so Cancel leaves nothing changed.
-async function askSendWithoutRunbook(sender, detail) {
+// The runbook was not found anywhere on the ladder: offer the fix, or the
+// send without it. Shared by the md preflight and the review send — both run
+// ahead of any write, so Cancel leaves nothing changed. Returns 'clone',
+// 'send' or 'cancel'.
+//
+// 'clone' pastes the README's own prompt into the agent's composer and
+// submits it: the click is the user's acknowledgement, and a Send already
+// pastes and submits, so a second Enter would confirm the same thing twice.
+// The comments stay pending, as after a Cancel; the user sends again once
+// the clone is in, and the ladder finds it then.
+async function askMissingRunbook(sender, detail) {
   const win = BrowserWindow.fromWebContents(sender) || BrowserWindow.getFocusedWindow();
   const opts = {
     type: 'warning',
-    buttons: ['Send anyway', 'Cancel'],
-    defaultId: 1,
-    cancelId: 1,
+    buttons: ['Ask the agent to clone it into ai/', 'Send anyway', 'Cancel'],
+    defaultId: 0,
+    cancelId: 2,
     message: 'agent-threads runbook not found',
-    detail,
+    detail: `${detail}\n\nOr ask the agent to clone agent-threads into ai/ in this project, `
+      + 'and send again when it is done.',
   };
   const { response } = win
     ? await dialog.showMessageBox(win, opts)
     : await dialog.showMessageBox(opts);
-  return response === 0;
+  return ['clone', 'send', 'cancel'][response] || 'cancel';
+}
+
+// The 'clone' choice: the README's prompt, pasted and submitted. Returns the
+// result the caller hands back — nothing was sent on the user's behalf but
+// the clone request, so the send itself reads as canceled.
+function requestRunbookClone() {
+  if (!pasteAgentPing(AGENT_THREADS_CLONE_PROMPT)) {
+    return { success: false, error: 'No active terminal process' };
+  }
+  return { canceled: true, cloneRequested: true };
 }
 
 // Called before the send writes anything. Resolves the runbook; if it is not
@@ -4905,10 +4926,11 @@ ipcMain.handle('md-runbook-preflight', async (event, { docPath } = {}) => {
   if (!doc.startsWith('/') || !isMarkdownFilePath(doc)) return { canceled: true };
   const runbook = await resolveMdRunbook(doc);
   if (runbook) return { runbook };
-  const ok = await askSendWithoutRunbook(event.sender,
+  const choice = await askMissingRunbook(event.sender,
     `${runbookMissingError(MD_THREADS_RUNBOOK, 'document')}\n\nSend anyway? The agent `
       + 'handles your edits and comments from the store, without the shared contract.');
-  return ok ? { runbook: null, acked: true } : { canceled: true };
+  if (choice === 'clone') return requestRunbookClone();
+  return choice === 'send' ? { runbook: null, acked: true } : { canceled: true };
 });
 
 // The three-fact pointer: doc path, store path, resolved runbook. Content
