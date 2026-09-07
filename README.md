@@ -63,7 +63,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 The first start gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
 
-The rest are [optional loops](docs/loops.md): plans and reviews (one repo covers both), the checkout lock, long jobs, the phone view, the IDE jump. Ask your agent for the ones you want. For example, this adds plans and reviews:
+The rest are [optional loops](docs/loops.md): plans and reviews (one repo covers both), the checkout lock, long jobs, the phone view, the IDE integration. Ask your agent for the ones you want. For example, this adds plans and reviews:
 
 ```text
 Clone https://github.com/albertwujj/agent-threads into ai/ in this project,
