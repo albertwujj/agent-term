@@ -63,32 +63,23 @@ function defaultResolve(name, root) {
   }
 }
 
-// Everything the launch path can load: `dependencies`, plus the dev packages
-// the start itself runs through.
-function launchPackages({ fs, root }) {
+// A package the launch path loads throws at require time, before any window
+// exists to explain it. That is a different failure from a lockfile that merely
+// drifted: one cannot start at all, the other almost always runs. Sorting them
+// here is what lets each get the surface it deserves.
+function missingRuntimeDependencies({ fs, resolve = defaultResolve, root }) {
   let manifest;
   try {
     manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   } catch {
     return [];
   }
-  return [
+  const launch = [
     ...Object.keys(manifest.dependencies || {}),
     ...Object.keys(manifest.devDependencies || {}).filter((name) => LAUNCH_TOOLS.includes(name)),
   ];
-}
-
-function absentPackages({ fs, resolve = defaultResolve, root }, names) {
-  return names.filter((name) => !fs.existsSync(path.join(root, 'node_modules', name))
+  return launch.filter((name) => !fs.existsSync(path.join(root, 'node_modules', name))
     && !resolve(name, root));
-}
-
-// A package the launch path loads throws at require time, before any window
-// exists to explain it. That is a different failure from a lockfile that merely
-// drifted: one cannot start at all, the other almost always runs. Sorting them
-// here is what lets each get the surface it deserves.
-function missingRuntimeDependencies({ fs, resolve, root }) {
-  return absentPackages({ fs, resolve, root }, launchPackages({ fs, root }));
 }
 
 // Returns null when the tree matches the lockfile, or a message naming the fix.
