@@ -2,7 +2,7 @@
 
 AgentTerm runs on macOS, and on Windows through WSL. There is no installer and no release to download: you keep a clone of this repo and run it from there, so the source you have is the terminal you get, and staying current is a pull and an install ([platform instructions](dev/install.md#update-an-existing-checkout)).
 
-## The first start
+## The basic setup
 
 Three things: Node.js, a clone of `https://github.com/albertwujj/agent-term`, and `npm ci` in it once to install its dependencies. On Windows the clone lives inside WSL, where the shell and your agents run, while the window itself is a native Windows process, so Node.js is needed on both sides. The [platform instructions](dev/install.md) have the prerequisites and the exact commands.
 
