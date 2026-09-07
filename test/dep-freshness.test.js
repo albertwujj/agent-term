@@ -7,7 +7,6 @@ const {
   writeLockStamp,
   dependencyProblem,
   missingRuntimeDependencies,
-  toolingProblem,
 } = require('../src/dep-freshness');
 
 let testsPassed = 0, testsFailed = 0;
@@ -100,7 +99,8 @@ test('esbuild counts as runtime, because a from-source start rebuilds with it', 
 
 test('a missing test or packaging dependency never stops the start', () => {
   // The false positive this split exists for: playwright fails to install and
-  // a terminal that would have run perfectly refuses to open.
+  // a terminal that would have run perfectly refuses to open. The suites report
+  // their own missing packages, so nothing is said here at all.
   const files = {
     [path.join(ROOT, 'package.json')]: JSON.stringify({
       dependencies: { present: '1.0.0' },
@@ -110,14 +110,9 @@ test('a missing test or packaging dependency never stops the start', () => {
   const fs = fakeFs(files);
   fs.existsSync = (f) => f.endsWith(path.join('node_modules', 'present'));
   assert.deepStrictEqual(missingRuntimeDependencies({ fs, resolve: () => false, root: ROOT }), []);
-  const problem = toolingProblem({ fs, resolve: () => false, root: ROOT });
-  assert.ok(problem.includes('playwright-core'), 'names what is missing');
-  assert.ok(problem.includes('electron-builder'));
-  assert.ok(problem.includes('npm ci'), 'names the fix');
-  assert.ok(!/\n/.test(problem), 'one line: it is printed into the terminal');
 });
 
-test('a fully installed tree reports nothing, runtime or tooling', () => {
+test('a fully installed tree reports nothing missing', () => {
   const files = {
     [path.join(ROOT, 'package.json')]: JSON.stringify({
       dependencies: { a: '1', b: '2' },
@@ -127,7 +122,6 @@ test('a fully installed tree reports nothing, runtime or tooling', () => {
   const fs = fakeFs(files);
   fs.existsSync = () => true;
   assert.deepStrictEqual(missingRuntimeDependencies({ fs, resolve: () => false, root: ROOT }), []);
-  assert.strictEqual(toolingProblem({ fs, resolve: () => false, root: ROOT }), null);
 });
 
 test('a package Node can still resolve elsewhere is not missing', () => {
@@ -157,7 +151,6 @@ test('an unreadable package.json blocks nothing', () => {
   const fs = fakeFs({});
   fs.existsSync = () => false;
   assert.deepStrictEqual(missingRuntimeDependencies({ fs, resolve: () => false, root: ROOT }), []);
-  assert.strictEqual(toolingProblem({ fs, resolve: () => false, root: ROOT }), null);
 });
 
 test('a tree that was never stamped stays quiet', () => {

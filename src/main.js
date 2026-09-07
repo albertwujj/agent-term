@@ -4,7 +4,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
-const { dependencyProblem, missingRuntimeDependencies, toolingProblem } = require('./dep-freshness');
+const { dependencyProblem, missingRuntimeDependencies } = require('./dep-freshness');
 const { createDoubleClickIntervalReader } = require('./double-click-interval');
 const { showStartupError } = require('./startup-error');
 const { MAX_LOG_BYTES, rotateIfLarge, trimToTail } = require('./log-cap');
@@ -12,14 +12,15 @@ const { MAX_LOG_BYTES, rotateIfLarge, trimToTail } = require('./log-cap');
 // Before anything native loads, because the requires below are the ones that
 // would crash. Top-level return is a CommonJS module's own exit.
 //
-// Three conditions, sorted by what they cost. A package the launch path loads
+// Two conditions, sorted by what they cost. A package the launch path loads
 // and cannot find takes node-pty down at require time, so nothing can run and
 // nothing exists to explain it afterwards: that one stops here, with a window.
-// A lockfile that merely drifted almost always runs, and npm itself does not
-// check this on `npm run`, so refusing to start would take a working terminal
-// away over a transitive bump. Neither does a missing test or packaging
-// dependency cost this window anything. Those two start, and say so in the
-// terminal (dep-freshness.js draws the line between the sets).
+// It earns the check by being invisible — a window opened from the Dock has no
+// console, so without this the process simply dies. A lockfile that merely
+// drifted almost always runs, and npm itself does not check this on `npm run`,
+// so refusing to start would take a working terminal away over a transitive
+// bump. That one starts, and says so in the terminal. What only builds and
+// tests need is checked by neither (dep-freshness.js draws that line).
 const startupWarnings = [];
 if (!app.isPackaged) {
   const root = path.join(__dirname, '..');
@@ -37,8 +38,6 @@ if (!app.isPackaged) {
   }
   const stale = dependencyProblem({ fs, crypto, root });
   if (stale) startupWarnings.push({ code: 'EDEPSTALE', text: stale });
-  const tooling = toolingProblem({ fs, root });
-  if (tooling) startupWarnings.push({ code: 'EDEPTOOLS', text: tooling });
 }
 
 const { commentHeader } = require('./comment-format');

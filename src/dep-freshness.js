@@ -40,9 +40,11 @@ function writeLockStamp({ fs, crypto, root }) {
 // time this code runs, Electron is the process.
 //
 // The rest of what is declared (electron-builder, @electron/rebuild, jsdom,
-// playwright-core) belongs to packaging and the test suites. A window runs
-// perfectly without them, so their absence is worth a line and never a stop:
-// blocking there would refuse a working terminal over a test dependency.
+// playwright-core) belongs to packaging and the test suites, which report
+// their own missing packages the moment you run them. A window runs perfectly
+// without them, so nothing here says anything about them: blocking would
+// refuse a working terminal over a test dependency, and warning would repeat
+// at every launch what the suite says once, when it matters.
 const LAUNCH_TOOLS = ['esbuild'];
 
 // `require` searches every node_modules up the tree, so a folder missing from
@@ -61,19 +63,19 @@ function defaultResolve(name, root) {
   }
 }
 
-function declaredPackages({ fs, root }) {
+// Everything the launch path can load: `dependencies`, plus the dev packages
+// the start itself runs through.
+function launchPackages({ fs, root }) {
   let manifest;
   try {
     manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   } catch {
-    return { runtime: [], tooling: [] };
+    return [];
   }
-  const runtime = Object.keys(manifest.dependencies || {});
-  const tooling = [];
-  for (const name of Object.keys(manifest.devDependencies || {})) {
-    (LAUNCH_TOOLS.includes(name) ? runtime : tooling).push(name);
-  }
-  return { runtime, tooling };
+  return [
+    ...Object.keys(manifest.dependencies || {}),
+    ...Object.keys(manifest.devDependencies || {}).filter((name) => LAUNCH_TOOLS.includes(name)),
+  ];
 }
 
 function absentPackages({ fs, resolve = defaultResolve, root }, names) {
@@ -86,18 +88,7 @@ function absentPackages({ fs, resolve = defaultResolve, root }, names) {
 // drifted: one cannot start at all, the other almost always runs. Sorting them
 // here is what lets each get the surface it deserves.
 function missingRuntimeDependencies({ fs, resolve, root }) {
-  return absentPackages({ fs, resolve, root }, declaredPackages({ fs, root }).runtime);
-}
-
-// Declared, absent, and needed by nothing this window does. One advisory line,
-// so a failed `npm ci` on a test dependency is visible before the suite fails
-// on it rather than after.
-function toolingProblem({ fs, resolve, root }) {
-  const missing = absentPackages({ fs, resolve, root }, declaredPackages({ fs, root }).tooling);
-  if (!missing.length) return null;
-  const one = missing.length === 1;
-  return `${missing.join(', ')} ${one ? 'is' : 'are'} declared but not installed. `
-    + `This window does not need ${one ? 'it' : 'them'}; run \`npm ci\` before builds or tests.`;
+  return absentPackages({ fs, resolve, root }, launchPackages({ fs, root }));
 }
 
 // Returns null when the tree matches the lockfile, or a message naming the fix.
@@ -129,7 +120,6 @@ function dependencyProblem({ fs, crypto, root }) {
 module.exports = {
   LAUNCH_TOOLS,
   missingRuntimeDependencies,
-  toolingProblem,
   stampPath,
   lockPath,
   writeLockStamp,
