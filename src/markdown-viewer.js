@@ -567,16 +567,41 @@ function ensureStyles() {
     }
     /* While the viewer owns a drag, the native selection must not compete. */
     .md-spread-layout.md-vdrag { user-select: none; cursor: text; }
+    /* The armed-state key guide. While it is up it is the bar's news and the
+       filename is already known, so the guide takes the title's brightness and
+       the title yields (below). It arrives lit and settles over one pass: the
+       whole strip lifts a shade and the text eases down from white, without
+       hue and without repeating, so the onset registers from the periphery
+       (which picks up a full-width luminance change long before it resolves
+       12px text) while the resting state stays quiet. Re-arming with the guide
+       already up changes no computed style across a frame, so the settle plays
+       only when the guide newly appears. */
     .md-bar-hint {
       display: none;
-      color: #aab1ba;
+      color: #dadee3;
       font-size: 12px;
       line-height: 1;
       white-space: nowrap;
       user-select: none;
       padding: 0 6px;
     }
-    .md-bar-hint.on { display: inline-block; }
+    .md-bar-hint.on {
+      display: inline-block;
+      animation: md-bar-hint-settle 900ms ease-out 1;
+    }
+    .vb-shell:has(.md-bar-hint.on) .vb-bar { animation: md-bar-arm-settle 900ms ease-out 1; }
+    .vb-shell:has(.md-bar-hint.on) .vb-title { color: #9aa1a9; }
+    @keyframes md-bar-hint-settle {
+      0% { color: #ffffff; }
+      100% { color: #dadee3; }
+    }
+    @keyframes md-bar-arm-settle {
+      0% { background: #5c5f66; }
+      100% { background: var(--vb-bar); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .md-bar-hint.on, .vb-shell:has(.md-bar-hint.on) .vb-bar { animation: none; }
+    }
     /* The runbook choice, in the card that sent: a strip below the composer,
        with the composer's own buttons, while the composer's actions hide. */
     .md-runbook-notice {
