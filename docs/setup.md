@@ -8,8 +8,8 @@ Three things: Node.js, a clone of `https://github.com/albertwujj/agent-term`, an
 
 Start it from the project you want to work in rather than from the clone, because a window opens on the directory it was started from. [Sessions](sessions.md) has that command and where each window opens; after the first one, windows come from the app itself.
 
-You get sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. In the window, start your usual CLI the way you always do; sessions from before this terminal resume normally.
+In the window, start your usual CLI the way you always do; sessions from before this terminal resume normally.
 
 ## Later, the loops
 
-Plans and reviews, the checkout lock, long jobs, the phone view, the IDE jump: each is a repo of its own, and the terminal is complete without them. [Add a loop](loops.md) when you want one.
+Each loop is a repo of its own, added when you want it: [add a loop](loops.md) covers them.
