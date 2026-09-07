@@ -9,3 +9,5 @@ Several agents sharing one checkout step on each other's HEAD and working tree, 
 The lock's own scripts refuse a colliding step, as an extra layer of safety. Its clean-tree guards tolerate untracked files under `ai/` by default (`SCRATCH_DIR`; set it empty for a strict check). A second verb doc, [borrow-lock.md](https://github.com/yunxin/agent-lock/blob/main/borrow-lock.md), covers a higher-priority session taking over the checkout from another holder.
 
 The terminal shows who holds the checkout as a padlock at the top right of each window: green with a check when this terminal window holds it.
+
+One padlock means one checkout, so a session that spans several repos has to pick. It follows the first repo its shell was in: a session started above your repos shows no padlock until it enters one, and if the agent later moves to a sibling repo the padlock keeps reporting the first. Anchoring beats following the live directory, which would swap the padlock on every `cd` into something you cannot read at a glance. Each repo still has its own lock, and the agent still takes the right one; only the indicator is singular.
