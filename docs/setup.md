@@ -1,6 +1,6 @@
 # Set up AgentTerm
 
-AgentTerm runs on macOS, and on Windows through WSL. There is no installer and no release to download: you keep a clone of this repo and run it from there, so the source you have is the terminal you get.
+AgentTerm runs on macOS, and on Windows through WSL. There is no installer and no release to download: you keep a clone of this repo and run it from there, so the source you have is the terminal you get, and staying current is a pull and an install ([platform instructions](dev/install.md#update-an-existing-checkout)).
 
 ## The first start
 
@@ -10,10 +10,6 @@ Start it from the project you want to work in rather than from the clone, becaus
 
 You get sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. In the window, start your usual CLI the way you always do; sessions from before this terminal resume normally.
 
-## Staying current
-
-Pull the clone and reinstall its dependencies ([platform instructions](dev/install.md#update-an-existing-checkout)). AgentTerm says so itself when the two fall out of step: a drifted lockfile prints a line in the terminal it opens, and a package the app itself needs stops the launch with a window naming what to run. A window opened from the app has no console behind it, so whatever Node prints there goes to a log file, and the terminal points at that file when there is anything in it.
-
 ## Later, the loops
 
-The terminal is complete without them; [add a loop](loops.md) covers them when you want one.
+Plans and reviews, the checkout lock, long jobs, the phone view, the IDE jump: each is a repo of its own, and the terminal is complete without them. [Add a loop](loops.md) when you want one.
