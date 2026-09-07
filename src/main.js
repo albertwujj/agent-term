@@ -170,7 +170,7 @@ const THUMB_H = 112;
 // exactly removes the only ambiguous variable in the MSDN constraint
 // ("bitmap must not exceed source window").
 
-// PyCharm Navigator Plugin connection settings
+// IntelliJ Navigator plugin connection settings (the IDE jump)
 const NAVIGATOR_HOST = '127.0.0.1';
 const NAVIGATOR_PORT = 8765;
 const FRONTEND_PORT = 8766;
@@ -3163,11 +3163,13 @@ ipcMain.handle('save-clipboard-image', () => {
   return filePath;
 });
 
-// Generic helper to send navigation requests to PyCharm plugin via TCP
+// Generic helper to send navigation requests to the IDE navigator plugin via TCP.
+// An IDE that is not listening (refused, or silent past the timeout) is marked
+// `unreachable` with the port, which the renderer turns into the setup notice.
 async function sendNavigationRequest(request, port = NAVIGATOR_PORT) {
   const pluginLabel = port === FRONTEND_PORT
-    ? 'PyCharm navigator frontend plugin (port 8766)'
-    : 'PyCharm navigator plugin (port 8765)';
+    ? 'the IDE navigator frontend plugin (port 8766)'
+    : 'the IDE navigator plugin (port 8765)';
   return new Promise((resolve) => {
     const client = new net.Socket();
     let responseData = '';
@@ -3201,14 +3203,14 @@ async function sendNavigationRequest(request, port = NAVIGATOR_PORT) {
     client.on('timeout', () => {
       log('[navigate] Connection timeout');
       client.destroy();
-      resolve({ success: false, error: `Connection timeout - is ${pluginLabel} running?` });
+      resolve({ success: false, error: `Connection timeout - is ${pluginLabel} running?`, unreachable: true, port });
     });
 
     client.on('error', (err) => {
       log('[navigate] Connection error:', err.code, err.message);
       client.destroy();
       if (err.code === 'ECONNREFUSED') {
-        resolve({ success: false, error: `Cannot connect to ${pluginLabel}` });
+        resolve({ success: false, error: `Cannot connect to ${pluginLabel}`, unreachable: true, port });
       } else {
         resolve({ success: false, error: `Connection error: ${err.message}` });
       }
@@ -3220,7 +3222,7 @@ async function sendNavigationRequest(request, port = NAVIGATOR_PORT) {
 
 ipcMain.handle('get-double-click-interval', createDoubleClickIntervalReader());
 
-// Navigate to file:line in PyCharm via the navigator plugin
+// Navigate to file:line in the IDE via the navigator plugin
 ipcMain.handle('navigate-to-file', async (event, { filePath, line, column, matchText }) => {
   log('[navigate] Received file request:', filePath, line, column);
   return navigateToFile({
@@ -3233,7 +3235,7 @@ ipcMain.handle('navigate-to-file', async (event, { filePath, line, column, match
   });
 });
 
-// Navigate to symbol in PyCharm via the navigator plugin
+// Navigate to symbol in the IDE via the navigator plugin
 ipcMain.handle('navigate-to-symbol', async (event, { symbolName, fileHint }) => {
   log('[navigate] Received symbol request:', symbolName, fileHint ? `(hint: ${fileHint})` : '');
   return navigateToSymbol({

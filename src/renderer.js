@@ -29,6 +29,7 @@ const resumeHint = require('./resume-hint');
 const streamWatch = require('./stream/renderer-watch');
 const streamIndicator = require('./stream/stream-indicator');
 const { createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
+const { ideUnreachableNotice } = require('./ide-notice');
 const { createWebViewer } = require('./web-viewer');
 const { createMarkdownViewer } = require('./markdown-viewer');
 const { createComposer, toPromptAction, isPasteCommentShortcut } = require('./comment-ui');
@@ -3639,7 +3640,7 @@ function scheduleAltScreenSearchRefresh(delay = 50) {
 // DEBUG MODE: Set to true to see processing logs in console
 const DEBUG = false;
 
-// Source code extensions - used for IDE/PyCharm file context navigation
+// Source code extensions - used for IDE file context navigation
 const SOURCE_EXTENSIONS = /\.(js|ts|jsx|tsx|mjs|cjs|py|pyc|pyi|rb|rs|go|java|c|h|cpp|hpp|cc|cs|swift|kt|scala|php|pl|sh|bash|zsh|css|scss|sass|less|sql|html|htm|xml|json|yaml|yml|toml|ini|cfg|md|txt|rst)$/i;
 
 // Resource file extensions - opened with OS default handler (not IDE)
@@ -4295,8 +4296,56 @@ async function openMarkdownDocLink(filePath) {
   if (!osOpen || (!osOpen.success && !osOpen.dismissed)) showToast(`Couldn't open ${filePath}`);
 }
 
-// Show navigation result feedback
-function showNavigationFeedback(filePath, line, result) {
+// No IDE listening: said once per window on a plain click, every time on a
+// Ctrl/Cmd-click (src/ide-notice.js). The notice stays until dismissed, so
+// the link can be followed, and it is not red: for someone without an IDE it
+// is not an error, it is the one place the feature introduces itself.
+const ideNoticeState = { shown: false };
+function showIdeSetupNotice(notice) {
+  document.querySelectorAll('.nav-feedback-ide').forEach((n) => n.remove());
+  const el = document.createElement('div');
+  el.className = 'nav-feedback nav-feedback-ide';
+  el.style.cssText = `
+    position: fixed; top: 10px; right: 10px; z-index: 9999;
+    display: flex; align-items: center; gap: 8px;
+    background: #569cd6; color: white;
+    padding: 8px 12px 8px 16px; border-radius: 4px;
+    font-family: sans-serif; font-size: 14px;`;
+  const text = document.createElement('span');
+  text.textContent = notice.text + ' ';
+  const link = document.createElement('a');
+  link.href = notice.url;
+  link.textContent = notice.linkLabel;
+  link.style.cssText = 'color: inherit; text-decoration: underline; cursor: pointer;';
+  link.addEventListener('click', (event) => {
+    event.preventDefault();
+    try { window.pty.openURL(notice.url); } catch {}
+  });
+  text.appendChild(link);
+  const close = document.createElement('button');
+  close.textContent = '✕';
+  close.title = 'Dismiss';
+  close.style.cssText = 'font: 600 12px sans-serif; cursor: pointer; color: inherit;'
+    + 'background: rgba(255,255,255,.22); border: 0; border-radius: 4px; padding: 2px 7px;';
+  close.onclick = () => el.remove();
+  el.append(text, close);
+  document.body.appendChild(el);
+}
+
+// An unreachable IDE takes the notice path; anything else renders as before.
+function maybeIdeSetupNotice(result, explicit) {
+  if (!(result && !result.status && result.unreachable)) return false;
+  const notice = ideUnreachableNotice(result, { explicit, state: ideNoticeState });
+  if (notice) showIdeSetupNotice(notice);
+  return true;
+}
+
+const explicitJump = (modifiers) => !!(modifiers && (modifiers.metaKey || modifiers.ctrlKey));
+
+// Show navigation result feedback. `explicit` is a Ctrl/Cmd-click: a
+// deliberate jump rather than a click that may have been a selection.
+function showNavigationFeedback(filePath, line, result, { explicit = false } = {}) {
+  if (maybeIdeSetupNotice(result, explicit)) return;
   const feedback = document.createElement('div');
   // Named so a test can see that an IDE navigation was attempted at all — the
   // gesture rule is about whether the call fires, which is otherwise invisible
@@ -4317,7 +4366,7 @@ function showNavigationFeedback(filePath, line, result) {
     message = 'Line moved';
     bgColor = '#dcdcaa'; // yellow
   } else if (result.status === 'multiple') {
-    return; // PyCharm shows picker dialog
+    return; // the IDE shows its own picker
   } else if (result.status === 'not_found') {
     message = `Not found: ${result.message || filePath}`;
     bgColor = '#f44747'; // red
@@ -4647,17 +4696,18 @@ async function navigateToFileLine(filePath, line, column, { copyResponse = false
     navigator.clipboard.writeText(text);
     showToast('Response copied to clipboard');
   } else {
+    const explicit = explicitJump(modifiers);
     if (result.scrollResponse && (!result.scrollResponse.success || result.scrollResponse.status !== 'ok')) {
       const msg = result.scrollResponse.error || result.scrollResponse.message || 'scroll failed';
-      showNavigationFeedback(navigablePath, line, { status: 'unknown_error', message: msg });
+      showNavigationFeedback(navigablePath, line, { status: 'unknown_error', message: msg }, { explicit });
     } else {
-      showNavigationFeedback(navigablePath, line, result);
+      showNavigationFeedback(navigablePath, line, result, { explicit });
     }
   }
 }
 
 // Helper function to navigate to a symbol
-async function navigateToSymbol(symbolName, fileHint = null, { copyResponse = false } = {}) {
+async function navigateToSymbol(symbolName, fileHint = null, { copyResponse = false, modifiers } = {}) {
   debug(`Navigating to symbol: ${symbolName}${fileHint ? ` (hint: ${fileHint})` : ''}`);
   const result = await window.pty.navigateToSymbol(symbolName, fileHint);
   debug('Symbol result:', result);
@@ -4671,15 +4721,16 @@ async function navigateToSymbol(symbolName, fileHint = null, { copyResponse = fa
   } else {
     if (result.scrollResponse && (!result.scrollResponse.success || result.scrollResponse.status !== 'ok')) {
       const msg = result.scrollResponse.error || result.scrollResponse.message || 'scroll failed';
-      showSymbolFeedback(symbolName, { status: 'unknown_error', message: msg });
+      showSymbolFeedback(symbolName, { status: 'unknown_error', message: msg }, { explicit: explicitJump(modifiers) });
     } else {
-      showSymbolFeedback(symbolName, result);
+      showSymbolFeedback(symbolName, result, { explicit: explicitJump(modifiers) });
     }
   }
 }
 
 // Show symbol navigation feedback
-function showSymbolFeedback(symbolName, result) {
+function showSymbolFeedback(symbolName, result, { explicit = false } = {}) {
+  if (maybeIdeSetupNotice(result, explicit)) return;
   const feedback = document.createElement('div');
   feedback.className = 'nav-feedback';
 
@@ -4694,7 +4745,7 @@ function showSymbolFeedback(symbolName, result) {
     message = `Navigated to ${symbolName}`;
     bgColor = '#6a9955'; // green
   } else if (result.status === 'multiple') {
-    return; // PyCharm shows picker dialog
+    return; // the IDE shows its own picker
   } else if (result.status === 'not_found') {
     message = `Not found: ${result.message || symbolName}`;
     bgColor = '#f44747'; // red

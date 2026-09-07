@@ -28,9 +28,9 @@ contextBridge.exposeInMainWorld('pty', {
   onToPrompt: (callback) => ipcRenderer.on('to-prompt', () => callback()),
   onExit: (callback) => ipcRenderer.on('pty-exit', (event, code) => callback(code)),
   onResize: (callback) => ipcRenderer.on('resize', (event, size) => callback(size)),
-  // Navigate to file:line in PyCharm via the navigator plugin
+  // Navigate to file:line in the IDE via the navigator plugin
   navigateToFile: (filePath, line, column, matchText) => ipcRenderer.invoke('navigate-to-file', { filePath, line, column, matchText }),
-  // Navigate to symbol in PyCharm via the navigator plugin
+  // Navigate to symbol in the IDE via the navigator plugin
   navigateToSymbol: (symbolName, fileHint) => ipcRenderer.invoke('navigate-to-symbol', { symbolName, fileHint }),
   // Save clipboard image to temp file, return path (null if no image)
   saveClipboardImage: () => ipcRenderer.invoke('save-clipboard-image'),
