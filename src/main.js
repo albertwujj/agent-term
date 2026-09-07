@@ -99,6 +99,7 @@ const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
 const { cleanAiTitle, aiTitleDedupeKey, isConversationTitle, aiCliLaunchCommand } = require('./ai-title');
 const { aiCliRendererEnv } = require('./cli-renderer-env');
+const { inheritableEnv } = require('./inheritable-env');
 const { isReviewPackagePath } = require('./review-package-path');
 const { DISK_LIST_PY, DISK_TIER_CAP, diskTiers } = require('./viewer-disk-search');
 const { DISK_SEARCH_EXTENSIONS } = require('./band-viewable');
@@ -2071,6 +2072,18 @@ function getShell() {
   return process.env.SHELL || '/bin/zsh';
 }
 
+// A macOS terminal window runs a login shell, as Terminal.app and iTerm2 do:
+// /etc/zprofile's path_helper is where the system PATH is built and
+// ~/.zprofile is where exports live on this platform. It is also what brings
+// back a user's own PAGER or LC_ALL after inheritable-env.js drops a
+// launcher's. Linux terminals run interactive shells (GNOME Terminal, Konsole);
+// a login bash there reads .bash_profile in place of .bashrc.
+function shellArgs() {
+  if (process.platform === 'win32') return wslShellArgs();
+  if (process.platform === 'darwin') return ['-l'];
+  return [];
+}
+
 function createWindow() {
   // Custom title-bar: we draw our own session bar (cli + prompt + working
   // dot) into the titleBarOverlay region on Windows. height: 42px fits
@@ -2487,6 +2500,9 @@ function createPty(cols, rows) {
   // Ask an AI CLI for its classic renderer, unless the user has said
   // otherwise — see cli-renderer-env.js for why, and for the off switch.
   const rendererEnv = aiCliRendererEnv(process.env);
+  // The launcher's environment, less what its own tool shell set for itself:
+  // colors off, pagers replaced, session markers (inheritable-env.js).
+  const inherited = inheritableEnv(process.env);
   // What this pty adds on top of the inherited environment. Named as one
   // object because WSLENV below is derived from its keys.
   const ptyEnv = {
@@ -2496,6 +2512,10 @@ function createPty(cols, rows) {
     // for Terminal.app on every prompt.
     TERM_PROGRAM: 'AgentTerm',
     TERM_PROGRAM_VERSION: app.getVersion(),
+    // xterm.js draws 24-bit color, and this is how a CLI learns it may use
+    // it. An inherited value is the launching terminal's answer (Apple's has
+    // none, a Codex tool shell empties it), so ours is set over it.
+    COLORTERM: 'truecolor',
     // Session identity for the background-job contract (docs/dev/job-events.md) and
     // for agent-lock's owner record: ordinary env inheritance scopes it to
     // this window's process tree.
@@ -2503,19 +2523,19 @@ function createPty(cols, rows) {
     ...rendererEnv,
   };
 
-  ptyProcess = pty.spawn(shell, process.platform === 'win32' ? wslShellArgs() : [], {
+  ptyProcess = pty.spawn(shell, shellArgs(), {
     name: 'xterm-256color',
     cols: cols || 80,
     rows: rows || 24,
     cwd: ptyStartingCwd(),
     env: {
-      ...process.env,
+      ...inherited,
       TERM: 'xterm-256color',
       ...ptyEnv,
       // Windows env does not cross into WSL by default; WSLENV lists the
       // variables that do. Its names come from ptyEnv itself, so a variable
       // added above crosses without a second list to remember.
-      ...wslenvForPty(process.platform, process.env, Object.keys(ptyEnv)),
+      ...wslenvForPty(process.platform, inherited, Object.keys(ptyEnv)),
     },
   });
 

@@ -46,11 +46,17 @@ function requireSourceStartCwd(platform = process.platform, env = process.env, f
 // it wins. The WSL launcher already resolves it this way in
 // scripts/source-start-cwd.sh, so this is parity rather than a new rule.
 //
+// AGENT_TERM_CONSOLE_LOG is ambient the same way: it names the console file of
+// the window whose shell ran npm, and main trims the file it finds there as its
+// own (watchOwnConsoleLog). This launch's console is npm's terminal, so the
+// name is dropped rather than carried.
+//
 // With no INIT_CWD nothing is overridden: `node scripts/start.js` run by hand
 // keeps whatever it inherited, and main falls back as it always has.
 function sourceLaunchEnv(env = process.env, platform = process.platform, fsApi = fs) {
   if (typeof env.INIT_CWD !== 'string' || !env.INIT_CWD) return env;
-  return { ...env, AGENT_TERM_START_CWD: requireSourceStartCwd(platform, { INIT_CWD: env.INIT_CWD }, fsApi) };
+  const { AGENT_TERM_CONSOLE_LOG: _outerWindows, ...inherited } = env;
+  return { ...inherited, AGENT_TERM_START_CWD: requireSourceStartCwd(platform, { INIT_CWD: env.INIT_CWD }, fsApi) };
 }
 
 module.exports = { requireSourceStartCwd, sourceLaunchEnv };

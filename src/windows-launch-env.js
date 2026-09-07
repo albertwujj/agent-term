@@ -15,10 +15,13 @@ function launchEnvFile(appPath) {
   return path.join(appPath, LAUNCH_ENV_FILE);
 }
 
-// The variables a from-source Windows launch is made of.
+// The variables a from-source Windows launch is made of. AGENT_TERM_CONSOLE_LOG
+// is this window's own console file, opened by whoever spawned this window;
+// the task's window gets none, and main would trim this one as its own.
 function launchEnvSnapshot(env) {
   const out = {};
   for (const key of Object.keys(env)) {
+    if (key === 'AGENT_TERM_CONSOLE_LOG') continue;
     if (key.startsWith('AGENT_TERM_') || key === 'WSL_DISTRO_NAME') out[key] = env[key];
   }
   return out;

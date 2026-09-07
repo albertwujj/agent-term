@@ -43,6 +43,13 @@ test('snapshots the launch variables and nothing else', () => {
   });
 });
 
+test("this window's console file is not part of the launch", () => {
+  assert.deepStrictEqual(launchEnvSnapshot({
+    AGENT_TERM_START_CWD: '/home/me/project',
+    AGENT_TERM_CONSOLE_LOG: 'C:\\Users\\me\\AppData\\Roaming\\agent-term\\logs\\console-1-2-3.log',
+  }), { AGENT_TERM_START_CWD: '/home/me/project' });
+});
+
 test('writes the snapshot as JSON to the file next to the bootstrap', () => {
   const writes = [];
   const fakeFs = { writeFileSync: (file, data) => writes.push([file, data]) };
