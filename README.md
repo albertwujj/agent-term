@@ -9,8 +9,9 @@
 For macOS and Windows with WSL. Ask your coding agent:
 
 ```text
-Set up and launch https://github.com/albertwujj/agent-term for my current
-project, following the basic setup in its docs/setup.md.
+Clone https://github.com/albertwujj/agent-term to ~/agent-term, then set it
+up and launch it for my current project, following the basic setup in its
+docs/setup.md.
 ```
 
 [docs/setup.md](docs/setup.md) is the page it follows, if you want to read it first.

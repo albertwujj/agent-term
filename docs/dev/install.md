@@ -10,7 +10,7 @@ The former Windows installer pipeline is frozen and no longer tested. Its last-k
 |---|---|---|
 | Electron UI | Native macOS process | Native Windows process launched from WSL |
 | Terminal shell | Your native shell | The invoking WSL distro |
-| Recommended checkout | Native macOS filesystem | Native WSL filesystem, such as `~/src/agent-term` |
+| Checkout | `~/agent-term` | `~/agent-term` inside the WSL distro |
 | Dependencies | One macOS `node_modules` | Linux `node_modules` for builds/tests, plus an isolated Windows cache for the UI |
 | Start command | `npm run start` | `npm run start:wsl` |
 | UI end-to-end tests | Native desktop | WSLg |
@@ -22,13 +22,17 @@ Windows gets taskbar buttons and live DWM previews for active sessions; before a
 Install the current Node.js LTS release, then:
 
 ```bash
-git clone https://github.com/albertwujj/agent-term
-cd agent-term
-npm ci
-npm run start
+git clone https://github.com/albertwujj/agent-term ~/agent-term
+cd ~/agent-term && npm ci
 ```
 
-That is the only command needed to launch from source. `Cmd+Shift+N` opens another AgentTerm window in the established agent session's directory; before the first prompt is captured it keeps the original launch directory. Closing the last window starts a fresh one under the same rule. Type `exit` in the shell to quit for good.
+Then launch from the directory you want the terminal to open in, which is your project rather than the clone:
+
+```bash
+npm --prefix ~/agent-term run start
+```
+
+That is the only command needed to launch from source, and the directory npm runs in is the one the window opens on. `Cmd+Shift+N` opens another AgentTerm window in the established agent session's directory; before the first prompt is captured it keeps the original launch directory. Closing the last window starts a fresh one under the same rule. Type `exit` in the shell to quit for good.
 
 ## Windows with WSL
 
@@ -54,10 +58,14 @@ If WinGet is unavailable, use the LTS installer from [nodejs.org](https://nodejs
 Clone into WSL's native filesystem and run every project command from WSL:
 
 ```bash
-git clone https://github.com/albertwujj/agent-term
-cd agent-term
-npm ci
-npm run start:wsl
+git clone https://github.com/albertwujj/agent-term ~/agent-term
+cd ~/agent-term && npm ci
+```
+
+Then launch from the directory you want the terminal to open in:
+
+```bash
+npm --prefix ~/agent-term run start:wsl
 ```
 
 `start:wsl` invokes Windows PowerShell for the host-side seam. On its first run it creates an isolated Windows dependency cache under `%LOCALAPPDATA%\AgentTermWslDev`, with a generation for each install-affecting dependency state, takes a per-process snapshot of the current source, and launches Windows Electron from that snapshot. Separate generations let an updated launch coexist with older AgentTerm processes whose Electron files remain locked by Windows. It neither reads nor modifies WSL's Linux `node_modules`. The terminal opens in the original checkout, and all later WSL probes stay pinned to the distro that launched it. The taskbar button's right-click menu then offers "Start or resume session", the same as Ctrl+Shift+N: a Jump List task starts with no environment, so the running app keeps the launcher's environment in `launch-env.json` in that cache and the task hands it to the bootstrap by argument.
