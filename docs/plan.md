@@ -4,7 +4,11 @@
 
 The viewer turns markdown into a place you write English. A doc opens rendered and shows both your proposals and how the agent takes them forward: you [comment on any passage](comment.md) or edit the rendered text directly, and the agent processes and polishes. You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
 
-Click a block, and the bottom bar tells you which keys comment, which keys edit, and how to follow a link the block holds.
+Click anywhere, and the bottom bar tells you which keys comment, which keys edit, and, on a link, how to follow it.
+
+<p align="center">
+<img src="assets/md-bar-guide.png" width="487" alt="the viewer's bottom bar after a click on a link: letters and digits comment · other keys edit · ⌘click follows, and the copy button reading ⧉ paragraph">
+</p>
 
 It reads as a book: two pages side by side, short lines. Pages turn rather than scroll.
 
