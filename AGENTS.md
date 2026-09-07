@@ -1,10 +1,1 @@
-# Codex Instructions
-
-Before making repo-specific changes, read [CLAUDE.md](./CLAUDE.md).
-
-`CLAUDE.md` is the source of truth for:
-- release workflow
-- build/test commands
-- repo-specific operational conventions
-
-Do not invent alternate release or publishing steps when `CLAUDE.md` defines them.
+Read [CLAUDE.md](./CLAUDE.md) first: it is this repo's instructions for any agent, and points to the docs that carry the build, test and launch commands.
