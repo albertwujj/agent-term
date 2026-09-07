@@ -6682,7 +6682,7 @@ function createMarkdownViewer({
   function showHint(target, { selection = null, link = null } = {}) {
     hideHint();
     if (!state.barHint) return;
-    state.barHint.textContent = 'letters comment · other keys edit' + (link ? FOLLOW_HINT : '');
+    state.barHint.textContent = 'letters and digits comment · other keys edit' + (link ? FOLLOW_HINT : '');
     state.barHint.classList.add('on');
     state.hint = state.barHint;
   }

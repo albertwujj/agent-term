@@ -16,14 +16,15 @@ function isPlainCommentKey(event) {
     && !event.isComposing;
 }
 
-// The first-key dispatch (docs/dev/maintainer/md-editing-design.md): letters comment — a–z and
-// A–Z alike, since an aside starts sentence-case as naturally as not. Every
-// other unmodified key edits at the caret: ⌫/Delete, Enter, arrows, digits,
-// punctuation, Space. ASCII letters only — an accented or CJK character is
-// text being typed into the document, not the start of an aside. IME
-// composition never dispatches; modifier chords pass through.
+// The first-key dispatch (docs/dev/maintainer/md-editing-design.md): letters
+// and digits comment — a–z, A–Z and 0–9 alike, since an aside starts
+// sentence-case as naturally as not, and with a count ("3 issues:") as
+// naturally as with a word. Every other unmodified key edits at the caret:
+// ⌫/Delete, Enter, arrows, punctuation, Space. ASCII only — an accented or
+// CJK character is text being typed into the document, not the start of an
+// aside. IME composition never dispatches; modifier chords pass through.
 function isCommentEntryKey(event) {
-  return isPlainCommentKey(event) && /[a-zA-Z]/.test(event.key);
+  return isPlainCommentKey(event) && /[a-zA-Z0-9]/.test(event.key);
 }
 
 function isEditEntryKey(event) {
@@ -31,7 +32,7 @@ function isEditEntryKey(event) {
   const k = event.key;
   if (k === 'Backspace' || k === 'Delete' || k === 'Enter'
     || k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') return true;
-  return typeof k === 'string' && [...k].length === 1 && !/[a-zA-Z]/.test(k);
+  return typeof k === 'string' && [...k].length === 1 && !/[a-zA-Z0-9]/.test(k);
 }
 
 // Entry keys split by whether they mutate: ⌫/Delete, every printable char —

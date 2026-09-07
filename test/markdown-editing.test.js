@@ -216,7 +216,7 @@ async function run() {
       notPrevented && !ev.defaultPrevented && document.body.innerHTML.length === before);
   }
 
-  // --- first-key dispatch: letters comment (either case), space edits ---
+  // --- first-key dispatch: letters and digits comment, space edits ---
   clickBlock('Second paragraph');
   await sleep(5);
   key({ key: 'K' }); // an aside starts sentence-case as naturally as not
@@ -226,6 +226,18 @@ async function run() {
     check('an uppercase letter opens the comment composer seeded with it',
       !!caps && caps.value === 'K', caps && caps.value);
     if (caps) caps.value = '';
+  }
+  key({ key: 'Escape' });
+  await sleep(10);
+  clickBlock('Second paragraph');
+  await sleep(5);
+  key({ key: '3' }); // ...and with a count ("3 issues:") as naturally as with a word
+  await sleep(10);
+  {
+    const digit = document.querySelector('.md-comment-card textarea, textarea.cu-ta');
+    check('a digit opens the comment composer seeded with it',
+      !!digit && digit.value === '3' && !editing(), digit && digit.value);
+    if (digit) digit.value = '';
   }
   key({ key: 'Escape' });
   await sleep(10);

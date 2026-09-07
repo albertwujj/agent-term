@@ -8,10 +8,10 @@
 //
 // First-key dispatch, scoped to the commit blocks (.commit-subject and the
 // .commit-body paragraphs): a click arms the block and holds a blinking caret;
-// letters keep the comment path (io.openBlockComment); every other unmodified
-// key opens the block editor at the caret with the keystroke applied. A
-// selection inside one commit block routes edit keys the same way (⌫ strikes
-// the selection; a non-letter printable types over it). While editing: Esc
+// letters and digits keep the comment path (io.openBlockComment); every other
+// unmodified key opens the block editor at the caret with the keystroke
+// applied. A selection inside one commit block routes edit keys the same way
+// (⌫ strikes the selection; punctuation or Space types over it). While editing: Esc
 // reverts, Enter commits + sends, Shift+Enter breaks the line, ⌘Z steps back,
 // clicking away commits without sending (the review surface's composer rule).
 //
@@ -167,8 +167,8 @@ function createCommitEditController(io) {
     const tag = t && t.tagName ? t.tagName.toUpperCase() : '';
     if (tag === 'TEXTAREA' || tag === 'INPUT' || (t && t.isContentEditable)) return;
 
-    // Selection inside ONE commit block: ⌫ strikes it as an edit; a non-letter
-    // printable types over it. Letters keep the quote-comment path untouched.
+    // Selection inside ONE commit block: ⌫ strikes it as an edit; punctuation
+    // or Space types over it. Letters and digits keep the quote-comment path.
     const sel = window.getSelection && window.getSelection();
     if (sel && !sel.isCollapsed && String(sel) && isEditEntryKey(event)) {
       const k = event.key;

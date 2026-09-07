@@ -107,18 +107,22 @@ async function run() {
 
   // — Esc reverts, nothing written —
   click(p1);
-  key(p1, { key: '3' });
-  check('a digit entry opens the session with the char marked',
+  key(p1, { key: '.' });
+  check('a punctuation entry opens the session with the char marked',
     ctl.isEditing() && !!p1.querySelector('ins.md-pending-ins'));
   key(p1, { key: 'Escape' });
   check('esc reverts the block verbatim', !ctl.isEditing() && p1.innerHTML === P1, p1.innerHTML);
   check('esc adds no thread', addCalls.length === 1);
 
-  // — a letter routes to the comment path —
+  // — a letter or digit routes to the comment path —
   click(p2);
   key(p2, { key: 'a' });
   check('a letter on an armed block opens the block comment instead',
     !ctl.isEditing() && blockComments.length === 1 && blockComments[0].block === p2 && blockComments[0].seed === 'a');
+  click(p2);
+  key(p2, { key: '3' });
+  check('a digit on an armed block opens the block comment too',
+    !ctl.isEditing() && blockComments.length === 2 && blockComments[1].block === p2 && blockComments[1].seed === '3');
 
   // — selection + ⌫ strikes the selection; click-away commits without send —
   const sel = window.getSelection();
@@ -197,7 +201,7 @@ async function run() {
   };
   ctl.decorateEditThreads([e1v2]);
   click(p1);
-  key(p1, { key: '5' });
+  key(p1, { key: '.' });
   const noteTa = document.querySelector('.rv-edit-compose textarea');
   check('revisit seeds the note from the stored second message',
     ctl.isEditing() && noteTa && noteTa.value === 'trim it', noteTa && noteTa.value);

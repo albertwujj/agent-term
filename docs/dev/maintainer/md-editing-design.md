@@ -55,21 +55,23 @@ behavioral asymmetry of agent-assisted writing: comments begin with words;
 edits begin with removing something. Today's comment flow survives verbatim —
 zero regression.
 
-The rule is one sentence: letters comment; every other key edits at the
-caret; the caret is where the mouse clicked; Esc cancels.
+The rule is one sentence: letters and digits comment; every other key edits
+at the caret; the caret is where the mouse clicked; Esc cancels.
 
-- A letter → comment composer, seeded with it (today's path). Paste shortcut →
-  comment seeded from the clipboard (unchanged). A comment that must open with
-  a digit ("3 issues:") starts with a letter or gets typed after the composer
-  is open — accepted cost.
+- A letter or digit → comment composer, seeded with it (today's path). Paste
+  shortcut → comment seeded from the clipboard (unchanged). Digits joined the
+  comment class on 2026-09-07: an aside opens with a count ("3 issues:") as
+  naturally as with a word, and typing a digit into the document — the rarest
+  edit, since edits begin by removing something — stays one arrow key away
+  (arrows enter the editor without inserting).
 - Any other key → the block editor opens with the caret at the click position,
   and the key applies its normal editing effect: Backspace/Delete deletes (a
-  live selection deletes as in any editor), digits/punctuation/space insert,
-  arrows move the caret without mutating, Enter is a newline.
+  live selection deletes as in any editor), punctuation/space insert, arrows
+  move the caret without mutating, Enter is a newline.
 - Space/arrows/Page keys flip only while nothing is targeted; a click hands
   them to the editor.
-- Entry keys split by whether they mutate: Backspace/Delete and
-  digits/punctuation apply their edit immediately (high-intent keys); Enter,
+- Entry keys split by whether they mutate: Backspace/Delete and punctuation
+  apply their edit immediately (high-intent keys); Enter,
   Space, and arrows enter the editor without inserting (a stray Enter must not
   split a paragraph; a stray Space must not sprinkle whitespace). Inside the
   editor every key is normal.
@@ -78,7 +80,8 @@ caret; the caret is where the mouse clicked; Esc cancels.
   visibly swaps to source), Esc reverts the open editor session, Cmd+Z works
   inside, and every surviving hunk stays a visible amber bar + discardable
   card until Cmd+Enter — a stray never touches disk or the agent.
-- Typing a letter over a selection comments on it (today's flow, preserved).
+- Typing a letter or digit over a selection comments on it (today's flow,
+  preserved).
   Replace-by-typing is therefore deliberately two-step: ⌫ deletes the
   selection as an edit, then type. Double-click keeps its native meaning —
   select a word — which composes: double-click + ⌫ deletes that word as an
@@ -86,11 +89,13 @@ caret; the caret is where the mouse clicked; Esc cancels.
   recovery: ⌘E in the composer converts the card to an edit (see "Edit
   instead", 2026-08-30).
 - Only unmodified keys dispatch; Cmd/Ctrl chords pass through (copy, search,
-  send). "Letter" = any Unicode letter (\p{L}); IME composition never
-  dispatches mid-composition.
+  send). "Letter or digit" = ASCII a–z, A–Z, 0–9: an accented or CJK
+  character is text being typed into the document, so it edits; IME
+  composition never dispatches mid-composition.
 - Esc keeps its ladder: cancel the editor/composer, then clear the target,
   then roll the band up.
-- The hint teaches the split: "Type to comment · other keys edit". Until the
+- The hint teaches the split: "letters and digits comment · other keys edit".
+  Until the
   editor opens there is no visible caret; the click position is held
   invisibly and materializes as the caret on the first editing key.
 
