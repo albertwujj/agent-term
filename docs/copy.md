@@ -7,7 +7,7 @@ A plan or a draft written in the viewer often ends up as a message: a Teams post
 **Copy takes what you have clicked.** With nothing clicked, the button reads `⧉ text` and copies the whole doc. Click a heading first and it reads `⧉ section`: the copy is the body under that heading, up to the next heading of the same level, sub-sections included. Click a paragraph, a list, or a code block and the button names it and copies just that block. The button's label, in the viewer's bottom bar, is the preview: read it, then click.
 
 <p align="center">
-<img src="assets/copy-states.png" width="36%" alt="the copy button's four states: ⧉ text with nothing clicked, ⧉ section with a heading clicked, ⧉ paragraph with a paragraph clicked, and ✓ md after a markdown copy">
+<img src="assets/copy-states.png" width="136" alt="the copy button's four states: ⧉ text with nothing clicked, ⧉ section with a heading clicked, ⧉ paragraph with a paragraph clicked, and ✓ md after a markdown copy">
 </p>
 
 Besides copying, the click also arms the block for a comment or an edit ([plan](plan.md)): type a letter or a digit after copying and you are commenting on the same block. `Esc` or a click elsewhere clears it. `Ctrl/Cmd+C` with a block clicked copies the same thing, as normal, so with a heading clicked it copies the section under it, exactly as the button does.
