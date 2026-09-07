@@ -10,6 +10,6 @@ Each loop is a small repo of its own, and each is optional: the terminal runs wi
 | [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) | [your phone](phone.md) as the same terminal | a relay you host, and the page added to your home screen |
 | [IntelliJ Navigator](https://github.com/albertwujj/intellij-navigator/releases) | [click a reference, the IDE jumps](ide.md) | a plugin installed in the IDE |
 
-A loop is commanded from the prompt by naming one of its instruction files, such as `@produce-r` for producing a review. Leave `ai/` out of `.gitignore`: an ignored folder is invisible to some `@` pickers, and the nested clones stay out of the outer repo on their own. [Placement](conventions.md) covers where a clone can live and what each choice serves.
+A loop is commanded from the prompt by naming one of its instruction files, such as `@produce-r` for producing a review. Leave `ai/` out of `.gitignore`: an ignored folder is invisible to some `@` pickers. [Placement](conventions.md) covers where a clone can live and what each choice serves.
 
 Voice on the phone reads from a kit of its own, [voice-to-agent](https://github.com/albertwujj/voice-to-agent), placed like the others. The terminal resolves it and tells the agent when it cannot find it.
