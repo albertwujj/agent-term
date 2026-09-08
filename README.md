@@ -63,14 +63,14 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 The first start gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
 
-The rest are [optional loops](docs/loops.md): [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds plans and reviews:
+The rest are [optional loops](docs/loops.md): [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
 
 ```text
-Clone https://github.com/albertwujj/agent-threads into ai/ in this project,
+Clone https://github.com/yunxin/agent-lock into ai/ in this project,
 and leave ai/ out of .gitignore.
 ```
 
-Click [agent-threads](https://github.com/albertwujj/agent-threads) if you want to see what will be cloned for yourself. The terminal sends the agent the above prompt when it is missing, with your confirmation.
+Click [agent-lock](https://github.com/yunxin/agent-lock) if you want to see what will be cloned for yourself. Plans and reviews need no prompt: the first send that needs [agent-threads](https://github.com/albertwujj/agent-threads) offers to have the agent clone it, with your confirmation.
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
 

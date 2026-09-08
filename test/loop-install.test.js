@@ -1,9 +1,11 @@
-// The clone prompt the dialog sends is the README's prompt, word for word.
+// The clone prompt the terminal sends has the shape of the README's example.
 //
-// The README is what a reader follows and the dialog is what the terminal
-// sends on their behalf; if the two drift, the terminal asks the agent for
-// something the docs never described. The README wraps the prompt over
-// lines inside a code block, so the comparison is whitespace-insensitive.
+// The README shows the reader how a loop is added (its example is another
+// loop, since the terminal offers agent-threads on its own); the terminal
+// sends the same words with agent-threads' URL. If the two drift, the
+// terminal asks the agent for something the docs never described. The
+// README wraps the prompt over lines inside a code block, so the
+// comparison is whitespace-insensitive.
 
 const assert = require('assert');
 const fs = require('fs');
@@ -28,10 +30,17 @@ const norm = (s) => s.replace(/\s+/g, ' ').trim();
 
 console.log('loop-install');
 
-test('the README carries the same prompt the dialog sends', () => {
+test("the README's example prompt has the same shape, after the URL", () => {
   const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
-  assert.ok(norm(readme).includes(norm(AGENT_THREADS_CLONE_PROMPT)),
-    'README.md no longer contains the agent-threads clone prompt verbatim');
+  const shape = AGENT_THREADS_CLONE_PROMPT.replace(/^Clone \S+ /, '');
+  assert.ok(shape.startsWith('into ai/'), shape);
+  assert.ok(norm(readme).includes(norm(shape)),
+    "README.md's example prompt no longer ends the way the terminal's does");
+});
+
+test('the README says the terminal offers agent-threads itself', () => {
+  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+  assert.ok(/offers to have the agent clone it/.test(readme));
 });
 
 test('the prompt names the repo, the folder, and the .gitignore rule', () => {
