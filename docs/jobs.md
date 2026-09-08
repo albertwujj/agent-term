@@ -25,4 +25,4 @@ The agent starts CI under `agent-job`, tells you it is running, and ends its tur
 
 The agent can be told to take the [checkout lock](lock.md), or back off while another holds it, when it reworks the code or runs tests that use a shared global resource such as a port.
 
-You can put all of this in one place, a skill or a [verb doc](conventions.md) of your own that combines `agent-job`, the lock and your CI's own requirements, so a prompt names it instead of repeating the above.
+You can put all of this in one place, a skill or a [verb doc](conventions.md) of your own that combines `agent-job`, the lock and your CI's own requirements, and just reference it in a prompt instead of repeating the above.
