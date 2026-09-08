@@ -24,3 +24,5 @@ while waiting for the result.
 The agent starts CI under `agent-job`, tells you it is running, and ends its turn. When the run finishes, the agent evaluates the result and fixes what it finds, retrying on a transient infrastructure flake, and runs CI again the same way, until CI is green.
 
 The agent can be told to take the [checkout lock](lock.md), or back off while another holds it, when it reworks the code or runs tests that use a shared global resource such as a port.
+
+You can put all of this in one place, a skill or a [verb doc](conventions.md) of your own that combines `agent-job`, the lock and your CI's own requirements, so a prompt names it instead of repeating the above.
