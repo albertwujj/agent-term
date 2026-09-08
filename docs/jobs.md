@@ -16,4 +16,4 @@ A runner icon at the top right of the window shows the running jobs; click it fo
 
 CI is the example here; any long run goes the same way. Clone agent-jobs into `ai/`. Then make a folder of your own beside it, `ai/ci/` say, and ask the agent to write a [verb doc](conventions.md), `run-ci.md`, and the scripts there, following [agent-jobs' guide](https://github.com/yunxin/agent-jobs/blob/main/long-jobs.md).
 
-After that, `@run-ci` in the prompt runs CI: the agent starts the script under `agent-job`, tells you CI is running, and ends its turn. When the run finishes, the report reaches the idle agent with the log's path; on a failure the agent reads the log, fixes what it finds, and runs CI again the same way, until the report says pass.
+After that, `@run-ci` in the prompt runs CI: the agent starts the script under `agent-job`, tells you CI is running, and ends its turn. When the run finishes, the report reaches the idle agent with the log's path; on a failure the agent reads the log, fixes what it finds, and runs CI again the same way, until CI is green.
