@@ -2,7 +2,7 @@
 
 ![select a claim in the agent's brainstorm and ask, right on the output](assets/comment-brainstorm.png)
 
-Point at what you mean, then write your note. Commenting works across **terminal output, markdown documents, and curated reviews**: your note goes to the agent tied to the passage or code line you are responding to, without copying it into the prompt yourself.
+Point at what you mean, then write your note: precise feedback, with the exact text quoted. Commenting works across **terminal output, markdown documents, and curated reviews**: your note goes to the agent tied to the passage or code line you are responding to, without copying it into the prompt yourself.
 
 A comment explains what you want changed; [an edit proposes the wording](plan.md). You can optionally attach a note to an edit to explain why. Both convey your intent to the agent, which updates the source.
 
