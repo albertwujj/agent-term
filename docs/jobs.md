@@ -10,7 +10,7 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 ![a long run wrapped in agent-job: the runner icon at the top right, its popover listing the job](assets/jobs-runner.png)
 
-A runner icon at the top right of the window shows the running jobs; click it for the list. The terminal reads the job records once a minute, so the icon can take that long to appear and to clear, and the report follows two minutes of the agent's idleness after the finish. The records survive a session restart or resume, so a job outlives the session that started it. The quickest first try is `agent-job sleep 180` in any window.
+A runner icon at the top right of the window shows the running jobs; click it for the list. The records survive a session restart or resume, so a job outlives the session that started it. The quickest first try is `agent-job sleep 180` in any window; how soon the icon and the report follow is in [job-events.md](dev/job-events.md).
 
 ## Using it for CI
 
