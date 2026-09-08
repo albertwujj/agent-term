@@ -12,7 +12,7 @@ Click anywhere, and the bottom bar tells you which keys comment, which keys edit
 
 It reads as a book: two pages side by side, short lines. Pages turn rather than scroll.
 
-English is where the real planning happens: much of a design is settled in words before any code. A plan converges here the way code does: commented, revised in place, settled before anything is built.
+English is where the real planning happens: much of a design is settled in words before any code. A plan converges here the way code does: commented, revised in place, settled before anything is final.
 
 The same loop is a writing aid in its own right. Anything you write in a repo works the same way, an essay, notes, research, a post: you write on the rendered page and comment on any passage, the agent edits the source and answers in place, and the copy button takes the draft out when it is ready.
 
