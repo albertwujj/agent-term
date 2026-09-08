@@ -10,7 +10,7 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 ![a long run wrapped in agent-job: the runner icon at the top right, its popover listing the job](assets/jobs-runner.png)
 
-A runner icon at the top right of the window shows the running jobs; click it for the list. The records survive a session restart or resume, so a job outlives the session that started it. The quickest first try is `agent-job sleep 180` in any window; how soon the icon and the report follow is in [job-events.md](dev/job-events.md).
+A runner icon at the top right of the window shows the running jobs; click it for the list. How soon the icon and the report follow is in [job-events.md](dev/job-events.md). A restart or a resume does not lose a job: one started before either still reports to the session that comes back.
 
 ## Using it for CI
 
