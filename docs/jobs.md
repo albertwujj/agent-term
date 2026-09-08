@@ -6,7 +6,7 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 ## What agent-jobs is
 
-[agent-jobs](https://github.com/yunxin/agent-jobs) is a small convention that adds the option that was missing. The agent starts the job under its `agent-job` wrapper, ends its turn without stopping the work, and hands the terminal back to you. The job reports its own completion, per agent-term's [job-events.md](dev/job-events.md) contract, and when it finishes and the agent has been idle since, the terminal prompts the agent to pick the result up:
+[agent-jobs](https://github.com/yunxin/agent-jobs) is a small convention that adds the option that was missing. The agent starts the job under its `agent-job` wrapper, ends its turn without stopping the work, and hands the terminal back to you. The job reports its own completion, per agent-term's [job-events.md](dev/job-events.md) contract, and when it finishes, the terminal prompts the agent to pick the result up:
 
 ![the report the terminal hands the idle agent when the job finishes](assets/jobs-nudge.png)
 
