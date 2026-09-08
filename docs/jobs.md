@@ -18,4 +18,4 @@ CI is the example here; any long run goes the same way. Clone agent-jobs into `a
 
 After that, `@run-ci` in the prompt runs CI: the agent starts the script under `agent-job`, tells you CI is running, and ends its turn. When the run finishes, the agent evaluates the result and fixes what it finds, retrying on a transient infrastructure flake, and runs CI again the same way, until CI is green.
 
-The agent can be told to take the [checkout lock](lock.md) while it reworks the code, or runs tests that use a shared global resource such as a port.
+The agent can be told to take the [checkout lock](lock.md), or back off while another holds it, when it reworks the code or runs tests that use a shared global resource such as a port.
