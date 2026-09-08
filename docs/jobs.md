@@ -12,8 +12,8 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 A runner icon at the top right of the window shows the running jobs; click it for the list. How soon the icon and the report follow is in [job-events.md](dev/job-events.md). A restart or a resume does not lose a job: one started before either still reports to the session that comes back.
 
-## Using it for CI
+## An example: CI
 
-Clone agent-jobs into `ai/`. Then make a folder of your own beside it, `ai/ci/` say, and ask the agent to write two things there: a verb doc, `run-ci.md`, and a script for the usual run, `run-ci.sh`, following agent-jobs' guide for agents. Neither comes with agent-jobs: they are written for your project, by your agent, and the doc is yours to settle. Read it, change what you want, and from then on the agent follows it without editing it. The scripts beside it are the usual runs; the agent may add one for a run they do not cover.
+CI is the example here; any long run goes the same way. Clone agent-jobs into `ai/`. Then make a folder of your own beside it, `ai/ci/` say, and ask the agent to write two things there: a verb doc, `run-ci.md`, and a script for the usual run, `run-ci.sh`, following agent-jobs' guide for agents. Neither comes with agent-jobs: they are written for your project, by your agent, and the doc is yours to settle. Read it, change what you want, and from then on the agent follows it without editing it. The scripts beside it are the usual runs; the agent may add one for a run they do not cover.
 
 After that, `@run-ci` in the prompt runs CI: the agent starts the script under `agent-job`, tells you CI is running, and ends its turn. When the run finishes, the report reaches the idle agent with the log's path; on a failure the agent reads the log, fixes what it finds, and runs CI again the same way, until the report says pass.
