@@ -6,7 +6,7 @@ Several agents sharing one checkout step on each other's HEAD and working tree, 
 
 [agent-lock](https://github.com/yunxin/agent-lock) is the convention that serializes this. Start a task by naming [proceed-by-lock-and-branch.md](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) in the prompt, where `@proceed-b` completes to it: the agent takes the lock, cuts a fresh `work/<slug>` branch off the latest remote tip, and only then edits, releasing the lock when its resource-using phase is done.
 
-A [long job](jobs.md) the agent starts, such as CI, takes the lock the same way when it reworks the code or binds a shared resource. The lock's own scripts refuse a colliding step. Its clean-tree guards tolerate untracked files under `ai/` by default (`SCRATCH_DIR`; set it empty for a strict check). A second verb doc, [borrow-lock.md](https://github.com/yunxin/agent-lock/blob/main/borrow-lock.md), covers a higher-priority session taking over the checkout from another holder.
+A [long job](jobs.md) the agent starts, such as CI, takes the lock the same way when it reworks the code or binds a shared resource. The lock's own scripts refuse a colliding step. They also have clean-tree guards, which tolerate untracked files under `ai/` by default (`SCRATCH_DIR`; set it empty for a strict check). A second verb doc, [borrow-lock.md](https://github.com/yunxin/agent-lock/blob/main/borrow-lock.md), covers a higher-priority session taking over the checkout from another holder.
 
 The terminal shows who holds the checkout as a padlock at the top right of each window: green with a check when this terminal window holds it.
 
