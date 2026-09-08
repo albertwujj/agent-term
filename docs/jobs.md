@@ -10,7 +10,7 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 ![a long run wrapped in agent-job: the runner icon at the top right, its popover listing the job](assets/jobs-runner.png)
 
-A runner icon at the top right of the window shows the running jobs; click it for the list. How soon the icon and the report follow is in [job-events.md](dev/job-events.md). A restart or a resume does not lose a job: one started before either still reports to the session that comes back.
+A runner icon at the top right of the window shows the running jobs; click it for the list. How soon the icon and the report follow is in [job-events.md](dev/job-events.md). Closing a session and resuming it does not lose a job: one started before still reports to the session that comes back.
 
 ## An example: CI
 
