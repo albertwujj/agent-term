@@ -1,6 +1,6 @@
 # The loops
 
-Each loop is a small repo of its own, and each is optional: the terminal runs without any of them. The [README's prompt](../README.md#make-it-yours) adds one; the rest go in the same way.
+Each loop is a small repo of its own, and each is optional. See the [README's prompt](../README.md#make-it-yours) for an example of how to add one.
 
 | Loop | What it adds | Setting up |
 |---|---|---|
