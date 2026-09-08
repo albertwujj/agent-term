@@ -38,11 +38,6 @@ test("the README's example prompt has the same shape, after the URL", () => {
     "README.md's example prompt no longer ends the way the terminal's does");
 });
 
-test('the README says the terminal offers agent-threads itself', () => {
-  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
-  assert.ok(/offers to have the agent clone it/.test(readme));
-});
-
 test('the prompt names the repo, the folder, and the .gitignore rule', () => {
   assert.ok(AGENT_THREADS_CLONE_PROMPT.includes('https://github.com/albertwujj/agent-threads'));
   assert.ok(AGENT_THREADS_CLONE_PROMPT.includes('into ai/'));

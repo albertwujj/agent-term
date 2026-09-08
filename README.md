@@ -70,7 +70,7 @@ Clone https://github.com/yunxin/agent-lock into ai/ in this project,
 and leave ai/ out of .gitignore.
 ```
 
-Click [agent-lock](https://github.com/yunxin/agent-lock) if you want to see what will be cloned for yourself. Plans and reviews need no prompt: the first send that needs [agent-threads](https://github.com/albertwujj/agent-threads) offers to have the agent clone it, with your confirmation.
+Click [agent-lock](https://github.com/yunxin/agent-lock) if you want to see what will be cloned for yourself.
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
 
