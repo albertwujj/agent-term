@@ -8,8 +8,8 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 ![the report the terminal hands the idle agent when the job finishes](assets/jobs-nudge.png)
 
-To make it automatic, bake the convention into the project's guide file, a [verb doc](conventions.md) of your own, or a skill that wraps `agent-job`, such as a CI skill, so no prompt has to mention it. agent-jobs ships one worked verb doc, [run-ci](https://github.com/yunxin/agent-jobs/blob/main/examples/run-ci.md): `@run-ci` in a prompt runs the project's CI this way.
+To make it automatic, bake the convention into the project's guide file, a [verb doc](conventions.md) of your own, or a skill that wraps `agent-job`, such as a CI skill, so no prompt has to mention it.
 
 The records survive a session restart or resume, so a job outlives the session that started it.
 
-A runner icon at the top right of the window shows the running jobs; click it for the list. The terminal reads the job records once a minute, so the icon can take that long to appear and to clear, and the report follows two minutes of the agent's idleness after the finish. The quickest first try is `@run-ci` with no command: the example's stand-in CI is a two-minute sleep.
+A runner icon at the top right of the window shows the running jobs; click it for the list. The terminal reads the job records once a minute, so the icon can take that long to appear and to clear, and the report follows two minutes of the agent's idleness after the finish. The quickest first try is `agent-job sleep 180` in any window.
