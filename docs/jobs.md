@@ -12,4 +12,4 @@ To make it automatic, bake the convention into the project's guide file, a [verb
 
 The records survive a session restart or resume, so a job outlives the session that started it.
 
-A runner icon at the top right of the window shows the running jobs; click it for the list.
+A runner icon at the top right of the window shows the running jobs; click it for the list. The terminal reads the job records once a minute, so the icon can take that long to appear and to clear, and the report follows two minutes of the agent's idleness after the finish. The quickest first try is `@run-ci` with no command: the example's stand-in CI is a two-minute sleep.
