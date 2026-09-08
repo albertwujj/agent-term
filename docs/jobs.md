@@ -4,7 +4,7 @@
 
 A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard session with two bad options: the agent either sits watching it, blocking the terminal, or ends its turn and nobody is there when the job finishes, so the result sits until you notice.
 
-[agent-jobs](https://github.com/yunxin/agent-jobs) is the convention that fixes this. Clone it into `ai/`, make a folder of your own beside it, and ask the agent to write the verb doc and the script for your CI there, following agent-jobs' guide for agents. From then on `@run-ci` runs it: the agent starts the job under `agent-job`, ends its turn without stopping the work, and hands the terminal back to you. The job reports its own completion, per agent-term's [job-events.md](dev/job-events.md) contract, and when it finishes and the agent has been idle since, the terminal prompts the agent to pick the result up:
+[agent-jobs](https://github.com/yunxin/agent-jobs) is the convention that fixes this. Clone it into `ai/`, make a folder of your own beside it, and ask the agent to write the verb doc and the script for your CI there, following agent-jobs' guide for agents. Neither comes with agent-jobs: they are written for your project, by your agent, and the doc is yours to settle. From then on a mention of that doc, `@run-ci` if you named it so, runs it: the agent starts the job under `agent-job`, ends its turn without stopping the work, and hands the terminal back to you. The job reports its own completion, per agent-term's [job-events.md](dev/job-events.md) contract, and when it finishes and the agent has been idle since, the terminal prompts the agent to pick the result up:
 
 ![the report the terminal hands the idle agent when the job finishes](assets/jobs-nudge.png)
 
