@@ -63,6 +63,12 @@ function ensureComposerStyle() {
     '.cu-ta{width:100%;box-sizing:border-box;border:1px solid #d1d9e0;border-radius:6px;background:#fff;padding:6px 8px;',
     'font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#1f2328;resize:vertical}',
     '.cu-ta:focus{outline:none;border-color:#0969da;box-shadow:0 0 0 3px rgba(9,105,218,.18)}',
+    // Spellcheck stays on (a typo can mislead the agent), but the text is a
+    // proposal the agent reads and it fixes spelling on its own, so the
+    // platform's red marker overstates the case: a quiet dotted line in the
+    // text's own grey. Chromium ignores a colour-only override on this pseudo;
+    // the full shorthand is required.
+    '.cu-ta::spelling-error{text-decoration:underline dotted rgba(31,35,40,.45)}',
     '.cu-actions{display:flex;gap:8px;margin-top:6px}',
     '.cu-btn{border:1px solid #d1d9e0;border-radius:6px;background:#f6f8fa;color:#1f2328;padding:3px 12px;',
     'font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:pointer}',
@@ -77,6 +83,7 @@ function ensureComposerStyle() {
     '.cu-dark{color:#e8eaed}',
     '.cu-dark .cu-ta{background:#151619;color:#f1f3f4;border-color:rgba(255,255,255,.16)}',
     '.cu-dark .cu-ta:focus{border-color:rgba(138,180,248,.72);box-shadow:0 0 0 2px rgba(138,180,248,.16)}',
+    '.cu-dark .cu-ta::spelling-error{text-decoration:underline dotted rgba(241,243,244,.45)}',
     '.cu-dark .cu-btn{background:transparent;color:#e8eaed;border-color:rgba(255,255,255,.14)}',
     '.cu-dark .cu-btn:hover{background:rgba(255,255,255,.08)}',
     '.cu-dark .cu-btn.cu-primary{background:#8ab4f8;border-color:#8ab4f8;color:#0c0c0c}',
