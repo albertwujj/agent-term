@@ -70,7 +70,7 @@ Clone https://github.com/yunxin/agent-lock into ai/ in this project,
 and leave ai/ out of .gitignore.
 ```
 
-Click [agent-lock](https://github.com/yunxin/agent-lock) if you want to see what will be cloned for yourself. Then start a task with `@proceed-b`, which completes to the lock's guide doc, and the agent takes the [checkout lock](docs/lock.md) before it works.
+Then start a task with `@proceed-b`, which completes to the lock's [guide doc](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) in the [agent-lock](https://github.com/yunxin/agent-lock) clone, and the agent takes the [checkout lock](docs/lock.md) before it works.
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
 
