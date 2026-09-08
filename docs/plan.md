@@ -14,7 +14,7 @@ It reads as a book: two pages side by side, short lines. Pages turn rather than 
 
 English is where the real planning happens: much of a design is settled in words before any code. A plan converges here the way code does: commented, revised in place, settled before anything is built.
 
-The same loop is a writing aid in its own right. Anything you write as markdown in a repo works the same way, an essay, notes, research, a post: you write on the rendered page and comment on any passage, the agent edits the source and answers in place, and the copy button takes the draft out when it is ready.
+The same loop is a writing aid in its own right. Anything you write in a repo works the same way, an essay, notes, research, a post: you write on the rendered page and comment on any passage, the agent edits the source and answers in place, and the copy button takes the draft out when it is ready.
 
 Editing goes beyond word swaps: start new lines anywhere in the rendered page, and the agent decides what each becomes in the source (a heading, a list item, a paragraph).
 
