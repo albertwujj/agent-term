@@ -2,7 +2,7 @@
 
 ![the plan loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list](assets/doc-edit-loop.gif)
 
-The viewer turns markdown into a place you write English. A doc opens rendered and shows both your proposals and how the agent takes them forward: you [comment on any passage](comment.md) or edit the rendered text directly, and the agent processes and polishes. You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
+The viewer turns markdown into a place you write English. A doc opens rendered and shows both your proposals and how the agent applies them: you [comment on any passage](comment.md) or edit the rendered text directly, and the agent processes and polishes. You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
 
 Click anywhere, and the bottom bar tells you which keys comment, which keys edit, and, on a link, how to follow it.
 
