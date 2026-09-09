@@ -10,8 +10,8 @@
 //      AGENT_TERM_WSL_HOME; launch-env.json carries them to a Jump List
 //      start). One location on both platforms, the one docs/phone.md names.
 //      Schema:
-//        { "hubUrl": "https://...", "hubSecret": "..." }
-//      Either key is optional; missing keys fall through.
+//        { "hubUrl": "https://..." }
+//      A missing key falls through.
 //   3. Hardcoded fallback — last resort. Updated when we cut a release
 //      that knows the current tunnel URL.
 //
@@ -61,9 +61,10 @@ const STREAM_HUB_URL = (
   HARDCODED_URL
 ).replace(/\/+$/, '');
 
-// Shared secret sent as X-Hub-Secret on every request. Hub gates
-// tunneled /runs* requests on it; if unset here, requests omit the
-// header (works only if the hub also runs without STREAM_HUB_SECRET set).
+// The hub's shared secret gates viewer reads; the phone asks for it once.
+// Source POSTs are auth-open, so the terminal needs none. STREAM_HUB_SECRET
+// (env, or hubSecret in the config file) is a debugging hook: when set it is
+// sent as X-Hub-Secret, which lets a source-side session hit gated paths.
 const STREAM_HUB_SECRET = (
   process.env.STREAM_HUB_SECRET ||
   (typeof userConfig.hubSecret === 'string' && userConfig.hubSecret) ||
