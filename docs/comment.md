@@ -27,6 +27,8 @@ Drafts stay attached to what you commented on; documents and reviews keep the ag
 
 ## Useful details
 
+In the terminal, a selection puts up a pill reading `Type to comment`; the next letter or digit you type opens the note. `Esc` dismisses the pill and clears the selection, so typing reaches the shell again. The same pill names the smart copy chord ([copy a doc into a message](copy.md)).
+
 To comment on a terminal link that opens immediately, drag-select its text ([what a click does](clicks.md)).
 
 If a CLI's full-screen display prevents selection, hold `Shift` while selecting ([how a CLI draws](dev/cli-rendering.md)).
