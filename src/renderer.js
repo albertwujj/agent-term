@@ -2032,7 +2032,7 @@ function showTerminalSelectionCommentHint() {
     // other thing a selection is for: the Shift copy chord takes it as message
     // text, gutter and wraps gone (src/smart-copy.js), where plain copy keeps
     // the terminal layout.
-    hint.textContent = `Type to comment · ${shiftModKeyLabel('c')} copies for a message · esc dismisses`;
+    hint.textContent = `Type to comment · ${shiftModKeyLabel('c')} smart copy · esc dismisses`;
     document.body.appendChild(hint);
     terminalCommentSelectionHint = hint;
   }
