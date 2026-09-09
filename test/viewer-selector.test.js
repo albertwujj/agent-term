@@ -301,6 +301,8 @@ await test('overlay carries the modal marker document-level Esc handlers yield t
 // ---- on-disk section ----
 
 const DISK_CTX = { cwd: '/Users/u/repo', home: '/Users/u' };
+// The walk's payload: one { path, modified } per hit, already newest first.
+const F = (...paths) => paths.map((path) => ({ path, modified: 0 }));
 
 function diskSpy() {
   const calls = [];
@@ -361,7 +363,7 @@ await test('disk rows land under the known rows, labelled by tier and filtered b
 
   progress(selector, spy, {
     done: false, tier: 'cwd',
-    files: ['/Users/u/repo/docs/reddit-post.md', '/Users/u/repo/README.md'],
+    files: F('/Users/u/repo/docs/reddit-post.md', '/Users/u/repo/README.md'),
   });
   let rows = [...document.querySelectorAll('.at-vsel-row')];
   assert.deepStrictEqual(rows.map((r) => r.querySelector('.at-vsel-key').textContent), ['docs/reddit-post.md']);
@@ -372,7 +374,7 @@ await test('disk rows land under the known rows, labelled by tier and filtered b
 
   progress(selector, spy, {
     done: false, tier: 'siblings',
-    files: ['/Users/u/launch/reddit-notes.md', '/Users/u/other/nothing.md'],
+    files: F('/Users/u/launch/reddit-notes.md', '/Users/u/other/nothing.md'),
   });
   progress(selector, spy, { done: true, tier: null, files: [] });
   rows = [...document.querySelectorAll('.at-vsel-row')];
@@ -403,11 +405,11 @@ await test('known rows come first and a known row hides its disk copy', () => {
   input(el, 'reddit');
   progress(selector, spy, {
     done: true, tier: 'cwd',
-    files: [
+    files: F(
       '/Users/u/repo/docs/reddit-post.md',
       '/Users/u/repo/notes/reddit-faq.md',
       '/Users/u/repo/reddit-draft.md',
-    ],
+    ),
   });
 
   const keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
@@ -417,12 +419,37 @@ await test('known rows come first and a known row hides its disk copy', () => {
   selector.destroy();
 });
 
+await test('disk rows keep the walk\'s order and show their age', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({ entries: [], onPick: () => {}, ...spy });
+  input(document.querySelector('.at-vsel-input'), 'reddit');
+  const now = Math.floor(Date.now() / 1000);
+  progress(selector, spy, {
+    done: false, tier: 'cwd',
+    files: [
+      { path: '/Users/u/repo/notes/reddit-today.md', modified: now - 3 * 3600 },
+      { path: '/Users/u/repo/docs/reddit-old.md', modified: now - 40 * 86400 },
+    ],
+  });
+  progress(selector, spy, {
+    done: true, tier: 'siblings',
+    files: [{ path: '/Users/u/launch/reddit-fresh.md', modified: now - 120 }],
+  });
+  const rows = [...document.querySelectorAll('.at-vsel-row')];
+  assert.deepStrictEqual(
+    rows.map((r) => r.querySelector('.at-vsel-key').textContent),
+    ['notes/reddit-today.md', 'docs/reddit-old.md', '~/launch/reddit-fresh.md']
+  );
+  assert.deepStrictEqual(rows.map((r) => r.querySelector('.at-vsel-age').textContent), ['3h', '1mo', '2m']);
+  selector.destroy();
+});
+
 await test('the disk list caps at twelve rows and asks for more letters', () => {
   const spy = diskSpy();
   const selector = createViewerSelector({ entries: [], onPick: () => {}, ...spy });
   const el = document.querySelector('.at-vsel-input');
   input(el, 'note');
-  const files = Array.from({ length: 15 }, (_, i) => `/Users/u/repo/note-${String(i).padStart(2, '0')}.md`);
+  const files = F(...Array.from({ length: 15 }, (_, i) => `/Users/u/repo/note-${String(i).padStart(2, '0')}.md`));
   progress(selector, spy, { done: true, tier: 'cwd', files });
 
   assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 12);
@@ -443,7 +470,7 @@ await test('a finished walk with no match says so; a stale request id is ignored
   input(el, 'zzz');
 
   selector.handleDiskSearchProgress({
-    requestId: 'disk-stale', ...DISK_CTX, done: false, tier: 'cwd', files: ['/Users/u/repo/zzz.md'],
+    requestId: 'disk-stale', ...DISK_CTX, done: false, tier: 'cwd', files: F('/Users/u/repo/zzz.md'),
   });
   assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 0);
 
@@ -460,7 +487,7 @@ await test('a tier the budget cut short is called a partial walk', () => {
   const el = document.querySelector('.at-vsel-input');
   input(el, 'reddit');
   progress(selector, spy, { done: false, tier: 'cwd', files: [], partial: false });
-  progress(selector, spy, { done: false, tier: 'siblings', files: ['/Users/u/x/reddit.md'], partial: true });
+  progress(selector, spy, { done: false, tier: 'siblings', files: F('/Users/u/x/reddit.md'), partial: true });
   assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 1 matching reddit · searching…');
   progress(selector, spy, { done: true, tier: null, files: [] });
   assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 1 matching reddit · partial walk');
@@ -474,7 +501,7 @@ await test('the disk section hides below three letters and returns without a new
   const selector = createViewerSelector({ entries: [], onPick: () => {}, ...spy });
   const el = document.querySelector('.at-vsel-input');
   input(el, 'reddit');
-  progress(selector, spy, { done: true, tier: 'cwd', files: ['/Users/u/repo/reddit.md'] });
+  progress(selector, spy, { done: true, tier: 'cwd', files: F('/Users/u/repo/reddit.md') });
   assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 1);
 
   input(el, 're');
@@ -494,7 +521,7 @@ await test('Delete on a disk row forgets nothing', () => {
   const selector = createViewerSelector({ entries: [], onPick: () => {}, onRemove: (e) => { removed = e; }, ...spy });
   const el = document.querySelector('.at-vsel-input');
   input(el, 'reddit');
-  progress(selector, spy, { done: true, tier: 'cwd', files: ['/Users/u/repo/reddit.md'] });
+  progress(selector, spy, { done: true, tier: 'cwd', files: F('/Users/u/repo/reddit.md') });
 
   key(el, 'Delete');
   assert.strictEqual(removed, null);
@@ -511,10 +538,10 @@ await test('a disk row for what the band renders is a file row, tagged by kind, 
   input(el, 'hero');
   progress(selector, spy, {
     done: true, tier: 'siblings',
-    files: [
+    files: F(
       '/Users/u/launch/hero.mp4', '/Users/u/launch/hero.png', '/Users/u/launch/hero.pdf',
       '/Users/u/launch/hero.md', '/Users/u/launch/hero.html', '/Users/u/launch/hero.flac',
-    ],
+    ),
   });
   const rows = [...document.querySelectorAll('.at-vsel-row')];
   assert.deepStrictEqual(
@@ -541,7 +568,7 @@ await test('a file:// row the terminal printed hides its disk copy', () => {
   input(el, 'hero');
   progress(selector, spy, {
     done: true, tier: 'siblings',
-    files: ['/Users/u/launch/hero shot.png', '/Users/u/launch/hero.mp4'],
+    files: F('/Users/u/launch/hero shot.png', '/Users/u/launch/hero.mp4'),
   });
   const keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
   assert.deepStrictEqual(keys, ['file:///Users/u/launch/hero%20shot.png', '~/launch/hero.mp4']);
@@ -559,7 +586,7 @@ await test('the open viewer still hides its own disk copy', () => {
   const doc = { kind: 'md', key: '/Users/u/repo/docs/open.md', viewed: true };
   const selector = createViewerSelector({ entries: [doc], current: doc, onPick: () => {}, ...spy });
   input(document.querySelector('.at-vsel-input'), 'open');
-  progress(selector, spy, { done: true, tier: 'cwd', files: ['/Users/u/repo/docs/open.md', '/Users/u/repo/docs/open-2.md'] });
+  progress(selector, spy, { done: true, tier: 'cwd', files: F('/Users/u/repo/docs/open.md', '/Users/u/repo/docs/open-2.md') });
   const keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
   assert.deepStrictEqual(keys, ['docs/open-2.md']);
   selector.destroy();

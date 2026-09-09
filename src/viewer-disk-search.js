@@ -6,7 +6,10 @@
 // never was. Once the filter has a few characters the selector also walks the
 // disk and lists every file the band renders (band-viewable.js: markdown,
 // html, images, video, audio, pdf) whose path matches, in a second section
-// under the known rows.
+// under the known rows: the repo's files, then its neighbours', then home's,
+// most recently modified first within each, with the file's age on the row.
+// The section is capped, so its order is also its selection, and the one
+// signal on disk for what the user is after is how recently a file changed.
 //
 // The walk runs once per selector open and the renderer filters the result in
 // memory per keystroke, so a query costs one walk (about a third of a second
@@ -32,9 +35,12 @@
 //
 // Breadth-first, directories in sorted order: a tier that runs out of budget
 // has listed the shallow files of every folder in it (each sibling repo's
-// README and docs/) before any one folder's deep tree, and its output is
-// stable. A walk stopped by the deadline or the cap ends with a `#partial`
-// line; paths are absolute, so no path line starts with #.
+// README and docs/) before any one folder's deep tree, and what it covers is
+// stable. The hits print most recently modified first, one `mtime<TAB>path`
+// line each (mtime in whole seconds; ties keep walk order): the walk decides
+// what a partial tier covers, the modification time the order shown. A walk
+// stopped by the deadline or the cap ends with a `#partial` line; paths are
+// absolute, so no hit line starts with #.
 const DISK_LIST_PY = `
 import os, sys, time
 from collections import deque
@@ -70,14 +76,20 @@ while queue:
             elif e.name not in prune:
                 queue.append(e.path)
         elif only is None and e.name.lower().endswith(exts):
-            hits.append(e.path)
+            try:
+                mtime = int(e.stat(follow_symlinks=False).st_mtime)
+            except OSError:
+                mtime = 0
+            hits.append((mtime, e.path))
             if len(hits) >= cap:
                 partial = True
                 queue.clear()
                 break
+hits.sort(key=lambda h: -h[0])
+lines = ["%d\\t%s" % h for h in hits]
 if partial:
-    hits.append("#partial")
-sys.stdout.write("\\n".join(hits))
+    lines.append("#partial")
+sys.stdout.write("\\n".join(lines))
 `;
 
 const DISK_TIER_CAP = 50000;
@@ -113,12 +125,27 @@ function diskLabel(filePath, { cwd, home } = {}) {
   return p;
 }
 
+// Compact age for a disk row from the file's mtime in seconds: the order
+// within a tier is by this, so the row says why it sits where it does, and
+// two same-named files are told apart by it.
+function diskAge(modified, now = Date.now()) {
+  if (!modified) return '';
+  const seconds = Math.max(0, Math.floor(now / 1000) - Number(modified));
+  if (seconds < 60) return 'now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  if (seconds < 30 * 86400) return `${Math.floor(seconds / 86400)}d`;
+  if (seconds < 365 * 86400) return `${Math.floor(seconds / (30 * 86400))}mo`;
+  return `${Math.floor(seconds / (365 * 86400))}y`;
+}
+
 module.exports = {
   DISK_LIST_PY,
   DISK_TIER_CAP,
   DISK_CWD_BUDGET_S,
   DISK_SIBLING_BUDGET_S,
   DISK_HOME_BUDGET_S,
+  diskAge,
   diskTiers,
   diskLabel,
 };

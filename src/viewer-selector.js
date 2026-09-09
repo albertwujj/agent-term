@@ -16,7 +16,9 @@
 // html, images, video, audio, pdf: band-viewable.js): one walk per open
 // (repo, siblings, home, see viewer-disk-search.js), filtered in memory per
 // keystroke, listed as a second section under the known rows with a running
-// count in its heading.
+// count in its heading. Each tier arrives sorted most recently modified
+// first and appends below the one before, so the section reads repo, then
+// neighbours, then home, newest first within each, with an age on every row.
 // The walk starts on the first qualifying keystroke, the way the sessions
 // picker's hidden-prompt search does, so the section appears by itself.
 // Opening a disk row records it, so the second time it is a known row.
@@ -39,7 +41,8 @@
 //   });
 //   handle.handleDiskSearchProgress(payload);  // { requestId, done, tier,
 //                       cwd, home, files, partial } from the walk, one per
-//                       tier + done; partial = that tier ran out of budget
+//                       tier + done; files = [{ path, modified }] newest
+//                       first; partial = that tier ran out of budget
 //   handle.destroy();   // tear down (called by caller after onPick / onClose)
 //
 // Filtering matches the session picker and search: case-insensitive
@@ -60,7 +63,7 @@ const {
   textMatchesSearchTerms,
   findAllTermRanges,
 } = require('./search-terms');
-const { diskLabel } = require('./viewer-disk-search');
+const { diskAge, diskLabel } = require('./viewer-disk-search');
 const { bandViewableKind } = require('./band-viewable');
 const { viewerFileUrlToPath } = require('./viewer-history');
 
@@ -207,15 +210,18 @@ function createViewerSelector({
     if (payload.cwd) disk.cwd = payload.cwd;
     if (payload.home) disk.home = payload.home;
     if (payload.partial) disk.partial = true;
+    // Tiers land in relevance order, each already sorted newest first, so
+    // appending keeps the section's order.
     const files = Array.isArray(payload.files) ? payload.files : [];
     for (const file of files) {
-      const key = String(file || '');
+      const key = String((file && file.path) || '');
       if (!key || disk.seen.has(key)) continue;
       disk.seen.add(key);
       disk.files.push({
         kind: bandViewableKind(key) === 'md' ? 'md' : 'file',
         key,
         label: diskLabel(key, { cwd: disk.cwd, home: disk.home }),
+        modified: Number(file.modified) || 0,
         tier: payload.tier || null,
         source: 'disk',
       });
@@ -246,9 +252,14 @@ function createViewerSelector({
     const row = document.createElement('div');
     row.className = 'at-vsel-row';
     const tag = entryTag(entry);
+    // A disk row shows its age: the section is ordered by it.
+    const age = entry.source === 'disk'
+      ? `<span class="at-vsel-age">${escapeHtml(diskAge(entry.modified))}</span>`
+      : '';
     row.innerHTML = `
       <span class="at-vsel-stripe" style="background:oklch(60% 0.14 ${TAG_HUES[tag]})"></span>
       <span class="at-vsel-key">${highlightTerms(entry.label || entry.key, terms)}</span>
+      ${age}
       <span class="at-vsel-tag">${tag}</span>
     `;
     row.addEventListener('click', () => activate(i));
@@ -516,6 +527,13 @@ function injectStyles() {
   flex: 1 1 auto; min-width: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   color: #eceff3;
+}
+.at-vsel-age {
+  flex: 0 0 auto;
+  min-width: 2.5em;
+  text-align: right;
+  font-size: 11px;
+  color: #8a9098;
 }
 .at-vsel-tag {
   flex: 0 0 auto;

@@ -2996,11 +2996,17 @@ async function listDiskTier({ top, skip, budget }) {
   const r = await posixSh(
     `python3 -c ${shellEscape(DISK_LIST_PY)} ${shellEscape(top)} ${shellEscape(skip || '')} ${budget} ${DISK_TIER_CAP} ${shellEscape(DISK_SEARCH_EXTENSIONS.join(','))}`,
     { timeout: (budget + 4) * 1000 });
+  // One `mtime<TAB>path` line per hit, most recently modified first (the
+  // script sorts), then the marker if the walk was cut short.
   const lines = r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
-  return {
-    files: lines.filter((l) => !l.startsWith('#')),
-    partial: lines.includes('#partial'),
-  };
+  const files = [];
+  for (const line of lines) {
+    if (line.startsWith('#')) continue;
+    const tab = line.indexOf('\t');
+    if (tab < 0) continue;
+    files.push({ path: line.slice(tab + 1), modified: Number(line.slice(0, tab)) || 0 });
+  }
+  return { files, partial: lines.includes('#partial') };
 }
 
 async function runViewerDiskSearch(sender, requestId, search) {
