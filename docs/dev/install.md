@@ -89,5 +89,5 @@ Start it again with `npm run start` on macOS or `npm run start:wsl` on Windows. 
 
 - **“Windows Node.js/npm is required”**: run `node.exe --version` and `npm.cmd --version` in Windows PowerShell. Reinstall the LTS package if either command is missing.
 - **“powershell.exe was not found from WSL”**: Windows interoperability is disabled or unavailable in that distro. Re-enable WSL interoperability before launching AgentTerm.
-- **The phone view's indicator says streaming is disabled**: the config is read from `~/.agent-term/config.json` inside the WSL distro, not from the Windows profile; a file under `%USERPROFILE%` is not read.
+- **The phone view's indicator says streaming is disabled**: `hubUrl` and `hubSecret` go in `~/.agent-term/config.json` inside the WSL distro.
 - **The wrong distro opens**: always run `npm run start:wsl` from the distro you want AgentTerm to use. The launcher carries that distro name into the Windows process.
