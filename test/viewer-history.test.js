@@ -8,6 +8,7 @@ const {
   collectBufferViewerMatchRows,
   extractViewerCandidateMatches,
   extractViewerCandidates,
+  sameViewer,
   stripTerminalSequences,
   viewerFileUrlToPath,
 } = require('../src/viewer-history');
@@ -332,7 +333,7 @@ test('renderer-wrapped analysis maps a resize-soft-wrapped head to physical rows
   );
 });
 
-test('history keeps every individual entry rather than one per kind', () => {
+test('history lists opened viewers first, most recent first, then printed candidates', () => {
   const history = new ViewerHistory();
   history.merge([
     { kind: 'url', key: 'A' },
@@ -340,52 +341,61 @@ test('history keeps every individual entry rather than one per kind', () => {
     { kind: 'md', key: 'C.md' },
   ]);
   assert.deepStrictEqual(keys(history.entries()), ['url:A', 'url:B', 'md:C.md']);
+  assert.deepStrictEqual(history.entries().map((entry) => entry.viewed), [false, false, false]);
+
+  history.record({ kind: 'md', key: 'C.md' });
+  history.record({ kind: 'url', key: 'B' });
+  assert.deepStrictEqual(keys(history.entries()), ['url:B', 'md:C.md', 'url:A']);
+  assert.deepStrictEqual(history.entries().map((entry) => entry.viewed), [true, true, false]);
+  assert.deepStrictEqual(history.current, { kind: 'url', key: 'B' });
 });
 
-test('back walks A B C one by one and wraps without reordering', () => {
+test('the viewed tier is the path back: with the open viewer left out, row one is one hop, row two is two', () => {
   const history = new ViewerHistory();
-  history.merge([
-    { kind: 'url', key: 'A' },
-    { kind: 'url', key: 'B' },
-    { kind: 'url', key: 'C' },
-  ]);
-  const visited = [];
-  for (let index = 0; index < 4; index++) {
-    const next = history.traverse('back')[0];
-    visited.push(next.key);
-    history.select(next);
-  }
-  assert.deepStrictEqual(visited, ['A', 'B', 'C', 'A']);
-  assert.deepStrictEqual(keys(history.entries()), ['url:A', 'url:B', 'url:C']);
+  for (const key of ['A.md', 'B.md', 'C.md']) history.record({ kind: 'md', key });
+  const back = history.entries().filter((entry) => !sameViewer(entry, history.current));
+  assert.deepStrictEqual(keys(back), ['md:B.md', 'md:A.md']);
 });
 
-test('forward exactly reverses back traversal', () => {
+test('a doc opened through a link, never printed, stays in the viewed tier across a merge', () => {
   const history = new ViewerHistory();
-  history.merge([
-    { kind: 'url', key: 'A' },
-    { kind: 'url', key: 'B' },
-    { kind: 'url', key: 'C' },
-  ]);
-  history.select({ kind: 'url', key: 'A' });
-  const visited = ['A'];
-  for (let index = 0; index < 3; index++) {
-    const next = history.traverse('forward')[0];
-    visited.push(next.key);
-    history.select(next);
-  }
-  assert.deepStrictEqual(visited, ['A', 'C', 'B', 'A']);
+  history.record({ kind: 'md', key: 'linked.md' });
+  history.merge([{ kind: 'url', key: 'A' }, { kind: 'url', key: 'B' }]);
+  assert.deepStrictEqual(keys(history.entries()), ['md:linked.md', 'url:A', 'url:B']);
+  assert.deepStrictEqual(history.current, { kind: 'md', key: 'linked.md' });
 });
 
-test('removing an invalid traversal candidate leaves the cursor anchored', () => {
+test('merge replaces the printed tier whole', () => {
   const history = new ViewerHistory();
-  history.merge([
-    { kind: 'md', key: 'missing.md' },
-    { kind: 'url', key: 'valid' },
-  ]);
-  const invalid = history.traverse('back')[0];
-  history.remove(invalid);
-  const valid = history.traverse('back')[0];
-  assert.deepStrictEqual(valid, { kind: 'url', key: 'valid' });
+  history.merge([{ kind: 'url', key: 'A' }, { kind: 'url', key: 'B' }]);
+  history.merge([{ kind: 'url', key: 'B' }, { kind: 'url', key: 'C' }]);
+  assert.deepStrictEqual(keys(history.entries()), ['url:B', 'url:C']);
+});
+
+test('dismissing the open viewer drops it from the viewed tier but not from the printed one', () => {
+  const history = new ViewerHistory();
+  history.merge([{ kind: 'md', key: 'A.md' }, { kind: 'md', key: 'B.md' }]);
+  history.record({ kind: 'md', key: 'A.md' });
+  history.record({ kind: 'md', key: 'B.md' });
+  history.dismissCurrent();
+  assert.strictEqual(history.current, null);
+  assert.deepStrictEqual(keys(history.entries()), ['md:A.md', 'md:B.md']);
+  assert.deepStrictEqual(history.entries().map((entry) => entry.viewed), [true, false]);
+});
+
+test('remove drops an entry from both tiers and clears the cursor when it was open', () => {
+  const history = new ViewerHistory();
+  history.merge([{ kind: 'md', key: 'missing.md' }, { kind: 'url', key: 'valid' }]);
+  history.record({ kind: 'md', key: 'missing.md' });
+  history.remove({ kind: 'md', key: 'missing.md' });
+  assert.strictEqual(history.current, null);
+  assert.deepStrictEqual(keys(history.entries()), ['url:valid']);
+});
+
+test('the viewed tier is capped at the limit, oldest dropped', () => {
+  const history = new ViewerHistory({ limit: 2 });
+  for (const key of ['A', 'B', 'C']) history.record({ kind: 'url', key });
+  assert.deepStrictEqual(keys(history.entries()), ['url:C', 'url:B']);
 });
 
 test('negative validation stays rejected until a fresh stream sighting', () => {
@@ -399,16 +409,6 @@ test('negative validation stays rejected until a fresh stream sighting', () => {
 
   memory.observe(missing);
   assert.strictEqual(memory.isRejected(missing), false);
-});
-
-test('explicit opens become newest while source merge preserves current identity', () => {
-  const history = new ViewerHistory();
-  history.merge([{ kind: 'url', key: 'A' }, { kind: 'url', key: 'B' }]);
-  history.select({ kind: 'url', key: 'B' });
-  history.record({ kind: 'md', key: 'C.md' });
-  history.merge([{ kind: 'url', key: 'A' }, { kind: 'url', key: 'B' }]);
-  assert.deepStrictEqual(history.current, { kind: 'md', key: 'C.md' });
-  assert.deepStrictEqual(keys(history.entries()), ['url:A', 'url:B', 'md:C.md']);
 });
 
 test('match rows list every copy of a link with the row it starts on', () => {

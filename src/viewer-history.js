@@ -452,72 +452,60 @@ function uniqueEntries(entries) {
   return result;
 }
 
+// The selector's list in two tiers: viewers the user opened, most recent first,
+// then candidates the terminal printed that were never opened, most recently
+// printed first. The viewed tier is the user's own path through the docs, so
+// with the open viewer left out its top row is one hop back and the row under
+// it two. record() extends the path; merge() supplies the printed tier, which
+// is replaced whole each time since the stream and scrollback are re-read
+// before every selector open. The path persists for the session.
 class ViewerHistory {
   constructor(options = {}) {
     this.limit = parseLimit(options);
-    this._entries = [];
+    this._viewed = [];
+    this._printed = [];
     this._currentIdentity = '';
   }
 
   get current() {
-    const entry = this._entries.find((candidate) => viewerIdentity(candidate) === this._currentIdentity);
+    const entry = this._viewed.find((candidate) => viewerIdentity(candidate) === this._currentIdentity);
     return entry ? { ...entry } : null;
   }
 
+  // Both tiers in list order, each entry flagged with the tier it sits in.
   entries() {
-    return this._entries.map((entry) => ({ ...entry }));
+    const viewed = this._viewed.map((entry) => ({ ...entry, viewed: true }));
+    const printed = this._printed
+      .filter((entry) => !this._viewed.some((candidate) => sameViewer(candidate, entry)))
+      .map((entry) => ({ ...entry, viewed: false }));
+    return [...viewed, ...printed];
   }
 
   merge(discovered) {
-    const currentIdentity = this._currentIdentity;
-    this._entries = uniqueEntries([...(discovered || []), ...this._entries]).slice(0, this.limit);
-    this._currentIdentity = this._entries.some((entry) => viewerIdentity(entry) === currentIdentity)
-      ? currentIdentity
-      : '';
+    this._printed = uniqueEntries(discovered);
   }
 
   record(entry) {
     const normalized = uniqueEntries([entry])[0];
     if (!normalized) return;
-    this._entries = [normalized, ...this._entries.filter((candidate) => !sameViewer(candidate, normalized))]
+    this._viewed = [normalized, ...this._viewed.filter((candidate) => !sameViewer(candidate, normalized))]
       .slice(0, this.limit);
     this._currentIdentity = viewerIdentity(normalized);
   }
 
-  traverse(direction) {
-    if (this._entries.length === 0) return [];
-    const currentIndex = this._entries.findIndex(
-      (entry) => viewerIdentity(entry) === this._currentIdentity
-    );
-    if (currentIndex === -1) {
-      const entries = direction === 'forward' ? [...this._entries].reverse() : this._entries;
-      return entries.map((entry) => ({ ...entry }));
-    }
-    if (this._entries.length === 1) return [];
-
-    const ordered = direction === 'forward'
-      ? [...this._entries.slice(0, currentIndex).reverse(), ...this._entries.slice(currentIndex + 1).reverse()]
-      : [...this._entries.slice(currentIndex + 1), ...this._entries.slice(0, currentIndex)];
-    return ordered.map((entry) => ({ ...entry }));
-  }
-
-  select(entry) {
-    const found = this._entries.find((candidate) => sameViewer(candidate, entry));
-    if (!found) return false;
-    this._currentIdentity = viewerIdentity(found);
-    return true;
+  // ✕ on the band: the user is done with the open viewer, so it leaves the
+  // path and the row before it becomes the top. It stays a printed candidate
+  // if the terminal showed it.
+  dismissCurrent() {
+    const identity = this._currentIdentity;
+    this._viewed = this._viewed.filter((entry) => viewerIdentity(entry) !== identity);
+    this._currentIdentity = '';
   }
 
   remove(entry) {
-    const removingCurrent = viewerIdentity(entry) === this._currentIdentity;
-    const index = this._entries.findIndex((candidate) => sameViewer(candidate, entry));
-    if (index !== -1) this._entries.splice(index, 1);
-    if (removingCurrent) this._currentIdentity = '';
-  }
-
-  clear() {
-    this._entries.length = 0;
-    this._currentIdentity = '';
+    if (viewerIdentity(entry) === this._currentIdentity) this._currentIdentity = '';
+    this._viewed = this._viewed.filter((candidate) => !sameViewer(candidate, entry));
+    this._printed = this._printed.filter((candidate) => !sameViewer(candidate, entry));
   }
 }
 

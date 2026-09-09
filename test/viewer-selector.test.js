@@ -151,29 +151,67 @@ await test('click picks the clicked entry', () => {
   selector.destroy();
 });
 
-await test('selection starts on the second row when the first is already open', () => {
+await test('the open viewer is left out, so the first row is one hop back', () => {
+  let picked = null;
   const selector = createViewerSelector({
-    entries: ENTRIES,
+    entries: ENTRIES.map((e, i) => ({ ...e, viewed: i < 3 })),
     current: ENTRIES[0],
-    onPick: () => {},
+    onPick: (entry) => { picked = entry; },
   });
 
-  assert.strictEqual(selector._state().selectedIndex, 1);
-  const badges = [...document.querySelectorAll('.at-vsel-open-badge')];
-  assert.strictEqual(badges.length, 1);
+  const rows = [...document.querySelectorAll('.at-vsel-row')];
+  assert.strictEqual(rows.length, 3);
+  assert.ok(!rows.some((r) => r.textContent.includes('/home/user/notes/design.md')));
+  assert.strictEqual(selector._state().selectedIndex, 0);
+  key(document.querySelector('.at-vsel-input'), 'Enter');
+  assert.deepStrictEqual(picked, { kind: 'url', key: 'https://code.example.com/c/repo/+/42' });
 
   selector.destroy();
 });
 
-await test('selection starts on the first row when the current viewer is elsewhere', () => {
+await test('opened viewers sit above printed candidates under their own headings, counted when filtering', () => {
   const selector = createViewerSelector({
-    entries: ENTRIES,
-    current: ENTRIES[2],
+    entries: [
+      { kind: 'md', key: '/home/user/notes/b.md', viewed: true },
+      { kind: 'md', key: '/home/user/notes/a.md', viewed: true },
+      { kind: 'url', key: 'https://example.com/printed' },
+      { kind: 'md', key: '/home/user/notes/printed.md' },
+    ],
     onPick: () => {},
   });
+  const el = document.querySelector('.at-vsel-input');
+  const dividers = () => [...document.querySelectorAll('.at-vsel-divider')].map((d) => d.textContent);
 
+  assert.deepStrictEqual(dividers(), ['Recent viewers', 'Printed in the terminal']);
+  assert.deepStrictEqual(
+    selector._state().visibleRows.map((e) => e.key),
+    ['/home/user/notes/b.md', '/home/user/notes/a.md', 'https://example.com/printed', '/home/user/notes/printed.md']
+  );
+
+  input(el, '.md');
+  assert.deepStrictEqual(dividers(), ['Recent viewers — 2 matching .md', 'Printed in the terminal — 1 matching .md']);
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 3);
+
+  input(el, 'example');
+  assert.deepStrictEqual(dividers(), ['Printed in the terminal — 1 matching example']);
+  key(el, 'ArrowDown');
   assert.strictEqual(selector._state().selectedIndex, 0);
 
+  selector.destroy();
+});
+
+await test('with only the open viewer known, the list says there is no other viewer', () => {
+  const selector = createViewerSelector({
+    entries: [{ ...ENTRIES[0], viewed: true }],
+    current: ENTRIES[0],
+    onPick: () => {},
+    startDiskSearch: () => {},
+  });
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 0);
+  assert.strictEqual(
+    document.querySelector('.at-vsel-divider').textContent,
+    'No other viewers · type a name to find one on disk'
+  );
   selector.destroy();
 });
 
@@ -513,6 +551,17 @@ await test('a file:// row the terminal printed hides its disk copy', () => {
   );
   assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 1 matching hero');
 
+  selector.destroy();
+});
+
+await test('the open viewer still hides its own disk copy', () => {
+  const spy = diskSpy();
+  const doc = { kind: 'md', key: '/Users/u/repo/docs/open.md', viewed: true };
+  const selector = createViewerSelector({ entries: [doc], current: doc, onPick: () => {}, ...spy });
+  input(document.querySelector('.at-vsel-input'), 'open');
+  progress(selector, spy, { done: true, tier: 'cwd', files: ['/Users/u/repo/docs/open.md', '/Users/u/repo/docs/open-2.md'] });
+  const keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
+  assert.deepStrictEqual(keys, ['docs/open-2.md']);
   selector.destroy();
 });
 

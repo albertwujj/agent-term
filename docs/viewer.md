@@ -4,7 +4,7 @@ The viewer band sits above the prompt and shows what you are working on: the age
 
 ## Open something
 
-Clicking what the agent prints is the usual way in ([what a click does](clicks.md)). `Ctrl/Cmd+Shift+U` opens one without a click: the list holds everything the session has shown, and typing filters it.
+Clicking what the agent prints is the usual way in ([what a click does](clicks.md)). `Ctrl/Cmd+Shift+U` opens one without a click. The list starts with what you opened, most recent first, so the top row is where you came from and the rows under it are the steps before that. Everything else the session has shown follows, and typing filters the list.
 
 Typing also reaches past the session. A long session scrolls its early work away, a resumed one comes back with only part of its transcript, and a file the agent never mentioned was never in the list at all. Type a name and nearby files are searched as well, so you can still open it.
 

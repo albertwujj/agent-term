@@ -174,7 +174,7 @@ function getWebViewer() {
       onShortcut: (action) => { handleViewerShortcut(action); },
       // Closing the viewer (GC) → tell main to stop the review auto-refresh.
       onClose: () => {
-        if (!suppressViewerEvict) clearViewerCache(); // user ✕ → forget the cache
+        if (!suppressViewerEvict) dismissCurrentViewer(); // user ✕ → done with this viewer
         openReviewUrl = null;
         try { window.pty.reviewViewerClosed && window.pty.reviewViewerClosed(); } catch {}
       },
@@ -195,21 +195,24 @@ function getWebViewer() {
 }
 
 // One ordered history across every individual URL, review, and markdown doc —
-// the list the selector (Cmd/Ctrl+Shift+U) offers. The history owns a stable
-// cursor: explicit opens become newest, while a pick selects without
-// re-recording. Entries dedupe by exact viewer identity, not kind.
+// the list the selector (Cmd/Ctrl+Shift+U) offers, in two tiers: what you
+// opened, most recent first, then what the terminal printed and you never
+// opened. Every open records, so the viewed tier is your own path through the
+// docs and its top row (the open viewer left out) is one hop back. Entries
+// dedupe by exact viewer identity, not kind.
 const viewerHistory = new ViewerHistory({ limit: 100 });
 const viewerValidationMemory = new ViewerValidationMemory();
 function recordViewer(kind, key) {
   viewerHistory.record({ kind, key });
 }
 
-// ✕ on a band = "done": close it and forget the whole recents cache (re-seedable from
-// the stream on the next selector open). Guarded so the PROGRAMMATIC switch-closes below
-// don't trip it — a switch must keep the cache so you can still go back. onClose runs
-// synchronously inside close(), so the flag is set only for the duration of the close.
+// ✕ on a band = "done" with that viewer: close it and drop it from the viewed tier,
+// so the selector's top row is the one before it. Guarded so the PROGRAMMATIC
+// switch-closes below don't trip it — a switch must keep the path so you can still
+// go back. onClose runs synchronously inside close(), so the flag is set only for
+// the duration of the close.
 let suppressViewerEvict = false;
-function clearViewerCache() { viewerHistory.clear(); }
+function dismissCurrentViewer() { viewerHistory.dismissCurrent(); }
 function dropViewer(key) {
   for (const entry of viewerHistory.entries()) {
     if (entry.key === key) viewerHistory.remove(entry);
@@ -527,8 +530,8 @@ async function collectDiscoveredViewerCandidates() {
 // Local candidates must exist. Return the concrete open key for relative md
 // paths; remote http(s) URLs are syntactically openable without a cheap probe.
 // An ambiguous md name resolves to the same top choice the click chooser lists
-// first (repo copy before siblings) — cycling is rapid-fire, so it never
-// interrupts with a chooser; the selector and click paths do.
+// first (repo copy before siblings); the selector and click paths surface the
+// chooser instead.
 async function resolveViewerEntry(entry) {
   if (!entry) return null;
   if (entry.kind === 'md') {
@@ -605,11 +608,10 @@ function purgeViewerEntry(entry) {
   if (typeof streamViewerCandidates.remove === 'function') streamViewerCandidates.remove(entry);
 }
 
-// Re-open without recording again. Shortcut traversal must move only the
-// cursor; explicit terminal clicks still call recordViewer through the normal
-// open paths and become the newest entry. An entry history does not hold (a
-// selector row found on disk) is recorded instead: opened once, it is a known
-// row from then on, and the selector is the way back to it without the disk.
+// Re-open from the list. Every open records, so the picked viewer moves to the
+// top of the viewed tier, the way a terminal click does through the normal open
+// paths. A row found on disk is recorded the same way: opened once, it is a
+// known row from then on, and the selector is the way back to it without the disk.
 async function openViewerFromHistory(entry, openKey) {
   if (!entry) return false;
   if (entry.kind === 'md') {
@@ -625,21 +627,18 @@ async function openViewerFromHistory(entry, openKey) {
     );
     if (!opened) return false;
   }
-  if (!viewerHistory.select(entry)) viewerHistory.record({ kind: entry.kind, key: entry.key });
+  viewerHistory.record({ kind: entry.kind, key: entry.key });
   return true;
 }
 
-// Open the newest viewer candidate that still resolves, stepping to an older one
-// whenever an entry turns out to be gone. Reached only through the open-recent
-// channel now — the selector is how a person picks a viewer.
+// Open the most recently printed candidate that still resolves, stepping to an
+// older one whenever an entry turns out to be gone. Reached only through the
+// open-recent channel: no chord sends it, the e2e harness does to put the link
+// it just echoed on screen.
 async function openRecentViewer() {
-  viewerHistory.merge(await collectDiscoveredViewerCandidates());
-  const candidates = viewerHistory.traverse('back');
-  if (!candidates.length) {
-    showToast(viewerHistory.entries().length ? 'No older viewer' : 'No viewer to open');
-    return;
-  }
-
+  const current = viewerHistory.current;
+  const candidates = (await collectDiscoveredViewerCandidates())
+    .filter((candidate) => !sameViewer(candidate, current));
   for (const candidate of candidates) {
     const resolved = await resolveViewerEntry(candidate);
     if (!resolved) { purgeViewerEntry(candidate); continue; }
@@ -647,12 +646,9 @@ async function openRecentViewer() {
       purgeViewerEntry(candidate);
       continue;
     }
-    const entries = viewerHistory.entries();
-    const index = entries.findIndex((entry) => sameViewer(entry, candidate));
-    if (entries.length > 1 && index >= 0) showToast(`${index + 1}/${entries.length}`);
     return;
   }
-  showToast(viewerHistory.current ? 'No older viewer' : 'No viewer to open');
+  showToast(current ? 'No older viewer' : 'No viewer to open');
 }
 
 // Serialize repeated opens so a slow filesystem check cannot make two of them
@@ -4255,10 +4251,9 @@ function getMarkdownViewer() {
         if (searchState.scope === 'markdown') closeSearchBar();
       },
       getSearchState: () => searchState,
-      // Closing the md band clears it as the current viewer (launch/replace
-      // bookkeeping for the recents list).
+      // Closing the md band with ✕ drops it from the viewed tier of the recents list.
       onClose: () => {
-        if (!suppressViewerEvict) clearViewerCache(); // user ✕ → forget the cache
+        if (!suppressViewerEvict) dismissCurrentViewer(); // user ✕ → done with this viewer
       },
       platform: window.pty.platform,
       getTerminalMetrics: () => {

@@ -3,6 +3,12 @@
 // viewer buried deep in the recents list is one typed fragment away. Vanilla DOM,
 // no framework — patterned on sessions-picker.
 //
+// The rows come in two tiers (viewer-history.js): viewers you opened, most
+// recent first, then what the terminal printed and you never opened. The open
+// viewer is left out, since the list is where to go and the band's bar says
+// where you are, so the top row is one hop back along your path, the row under
+// it two, and Enter on the initial selection is "back".
+//
 // The known list is what this session has shown. A resumed session reprints a
 // slice of its transcript, so a doc from before that slice is not in it, and a
 // doc never mentioned never was. Once the filter has three characters the
@@ -17,8 +23,10 @@
 //
 // Public API:
 //   const handle = createViewerSelector({
-//     entries: [{ kind: 'md'|'url'|'review', key }, ...],  // newest first
-//     current: { kind, key } | null,   // the viewer open right now, if any
+//     entries: [{ kind: 'md'|'url'|'review', key, viewed }, ...],
+//                       // tiered: viewed first, most recent first, then printed
+//     current: { kind, key } | null,   // the viewer open right now, if any:
+//                       // left out of the rows
 //     onPick(entry):    user chose an entry to open; a disk row carries
 //                       source: 'disk' and an absolute path as its key, kind
 //                       'md' for a doc and 'file' for anything else the band
@@ -111,7 +119,15 @@ function createViewerSelector({
   startDiskSearch,
   cancelDiskSearch,
 } = {}) {
-  let all = entries.map((e) => ({ kind: e.kind, key: e.key }));
+  // The open viewer is left out of the rows: the top row is one hop back, and
+  // Enter on the initial selection is "back".
+  let all = entries
+    .filter((e) => !sameEntry(e, current))
+    .map((e) => ({ kind: e.kind, key: e.key }));
+  const viewedIds = new Set(entries.filter((e) => e.viewed).map((e) => `${e.kind}\0${e.key}`));
+  const isViewed = (entry) => viewedIds.has(`${entry.kind}\0${entry.key}`);
+  // Known rows plus the open viewer: left out of the rows, still a known file.
+  const knownEntries = () => (current ? [...all, current] : all);
   let filterText = '';
   let visibleRows = [];
   // The one disk walk of this open: null until the filter first qualifies.
@@ -119,9 +135,7 @@ function createViewerSelector({
   // shape the labels.
   let disk = null;
   const diskSearchAvailable = typeof startDiskSearch === 'function';
-  // Land the initial selection on the most recent viewer that is NOT the one
-  // already open (cmd-tab semantics): plain chord + Enter switches away.
-  let selectedIndex = current && all.length > 1 && sameEntry(all[0], current) ? 1 : 0;
+  let selectedIndex = 0;
 
   // ---- DOM ----
   const overlay = document.createElement('div');
@@ -214,7 +228,7 @@ function createViewerSelector({
     if (!disk || terms.length === 0) return [];
     return disk.files.filter((entry) =>
       textMatchesSearchTerms(entry.label, terms)
-      && !all.some((known) => knownCoversDiskEntry(known, entry)));
+      && !knownEntries().some((known) => knownCoversDiskEntry(known, entry)));
   }
 
   // A tier the budget cut short is said in the heading: "none matching" from
@@ -232,12 +246,9 @@ function createViewerSelector({
     const row = document.createElement('div');
     row.className = 'at-vsel-row';
     const tag = entryTag(entry);
-    const isCurrent = sameEntry(entry, current);
-    const badge = isCurrent ? '<span class="at-vsel-open-badge">open</span>' : '';
     row.innerHTML = `
       <span class="at-vsel-stripe" style="background:oklch(60% 0.14 ${TAG_HUES[tag]})"></span>
       <span class="at-vsel-key">${highlightTerms(entry.label || entry.key, terms)}</span>
-      ${badge}
       <span class="at-vsel-tag">${tag}</span>
     `;
     row.addEventListener('click', () => activate(i));
@@ -246,24 +257,37 @@ function createViewerSelector({
 
   // ---- render ----
 
+  function divider(html, className = 'at-vsel-divider') {
+    const el = document.createElement('div');
+    el.className = className;
+    el.innerHTML = html;
+    listEl.appendChild(el);
+  }
+
   function render() {
     const { list, terms } = filterEntries(filterText);
     listEl.innerHTML = '';
-
-    const heading = document.createElement('div');
-    heading.className = 'at-vsel-divider';
     const filterDisplay = filterText.trim();
-    if (!filterDisplay) {
-      heading.textContent = all.length > 0
-        ? 'Recent viewers'
-        : (diskSearchAvailable ? 'No viewers yet · type a name to find one on disk' : 'No viewers yet');
-    } else if (list.length > 0) {
-      heading.innerHTML = `Viewers — ${list.length} of ${all.length} matching <code>${escapeHtml(filterDisplay)}</code>`;
-    } else {
-      heading.innerHTML = `No viewers match <code>${escapeHtml(filterDisplay)}</code>`;
+    const term = `<code>${escapeHtml(filterDisplay)}</code>`;
+
+    // The two tiers under their own headings; an empty tier shows no heading.
+    const viewed = list.filter(isViewed);
+    const printed = list.filter((entry) => !isViewed(entry));
+    if (list.length === 0) {
+      if (filterDisplay) {
+        divider(`No viewers match ${term}`);
+      } else {
+        const none = current ? 'No other viewers' : 'No viewers yet';
+        divider(escapeHtml(diskSearchAvailable ? `${none} · type a name to find one on disk` : none));
+      }
     }
-    listEl.appendChild(heading);
-    list.forEach((entry, i) => appendRow(entry, i, terms));
+    const tier = (label, rows, offset) => {
+      if (rows.length === 0) return;
+      divider(filterDisplay ? `${label} — ${rows.length} matching ${term}` : label);
+      rows.forEach((entry, i) => appendRow(entry, offset + i, terms));
+    };
+    tier('Recent viewers', viewed, 0);
+    tier('Printed in the terminal', printed, viewed.length);
 
     // Disk section: present once the walk has started (three typed
     // characters), under the known rows, capped so a broad term asks for
@@ -272,10 +296,7 @@ function createViewerSelector({
     if (disk && diskTermLength(filterText) >= DISK_SEARCH_MIN_CHARS) {
       const matches = filterDiskEntries(terms);
       shown = matches.slice(0, DISK_ROWS_MAX);
-      const diskDivider = document.createElement('div');
-      diskDivider.className = 'at-vsel-divider at-vsel-disk-divider';
-      diskDivider.innerHTML = diskHeading(matches.length, filterDisplay);
-      listEl.appendChild(diskDivider);
+      divider(diskHeading(matches.length, filterDisplay), 'at-vsel-divider at-vsel-disk-divider');
       shown.forEach((entry, i) => appendRow(entry, list.length + i, terms));
       if (matches.length > shown.length) {
         const more = document.createElement('div');
@@ -284,7 +305,7 @@ function createViewerSelector({
         listEl.appendChild(more);
       }
     }
-    visibleRows = [...list, ...shown];
+    visibleRows = [...viewed, ...printed, ...shown];
 
     if (selectedIndex > visibleRows.length - 1) selectedIndex = visibleRows.length - 1;
     if (selectedIndex < 0) selectedIndex = 0;
@@ -495,14 +516,6 @@ function injectStyles() {
   flex: 1 1 auto; min-width: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   color: #eceff3;
-}
-.at-vsel-open-badge {
-  background: #1d3a1d;
-  color: #b6d6b6;
-  border-radius: 3px;
-  padding: 0 6px;
-  font-size: 11px;
-  flex: 0 0 auto;
 }
 .at-vsel-tag {
   flex: 0 0 auto;
