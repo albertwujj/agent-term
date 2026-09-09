@@ -12,7 +12,7 @@ Add the phone view ([agent-stream-hub](https://github.com/albertwujj/agent-strea
 
 Unblock it by voice: speak, and your words reach the agent as text with a reference to [instructions](https://github.com/albertwujj/voice-to-agent/blob/main/interpret.md), so it repairs the false transcriptions using the session context before acting. That's the part phone dictation can't do: with no view of your code it hears "pie test" and leaves it there; the agent turns it into `pytest`. Type instead when voice isn't right.
 
-The phone view is self-hosted and opt-in: you run the relay on a machine you own, and everything travels over plain outbound HTTPS, requiring no inbound ports or VPN. Once the relay runs, point this terminal at it: its URL, and its secret if it has one, go in `~/.agent-term/config.json` as `hubUrl` and `hubSecret`, and the next window streams. Ask your agent:
+The phone view is self-hosted and opt-in: you run the relay on a machine you own, and everything travels over plain outbound HTTPS, requiring no inbound ports or VPN. Once the relay runs, point this terminal at it: its URL and its secret go in `~/.agent-term/config.json` as `hubUrl` and `hubSecret`, and the next window streams. Ask your agent:
 
 ```text
 Point this terminal at my hub at <url> for remote use, following
