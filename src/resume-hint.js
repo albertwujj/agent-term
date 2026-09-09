@@ -5,12 +5,12 @@
 // before the shortcut fires, the title chip after), with segments split
 // by a middle dot.
 //
-//   pre-Enter      "Wait for the input box · [Enter] sends /resume"
+//   pre-Enter      "Wait for the input line · [Enter] sends /resume"
 //                  Main's pty-input handler is armed (pendingResumeIntercept)
 //                  and replaces the user's first plain Enter with a timed
 //                  /resume submission. The user supplies the timing: CLI boot
 //                  length is unknowable from outside, and an upgrade or trust
-//                  dialog may sit in front of the input box, so the human is
+//                  dialog may sit in front of the input line, so the human is
 //                  the only reliable "ready now" signal. The wording says
 //                  when, because timing is the user's job.
 //   post-Enter     "Filter for [<title>]"
@@ -20,7 +20,7 @@
 //                  the prompt above" (the chrome line directly above) is the
 //                  strict fallback when the title is missing or is just the
 //                  prompt itself.
-//   intercept-off  "Type /resume once the input box is up · then filter for
+//   intercept-off  "Type /resume once the input line is up · then filter for
 //                  [<title>]"
 //                  Main cancels the intercept on any non-Enter input (the
 //                  user answered a startup dialog with arrows or y, or is
@@ -318,7 +318,7 @@ function renderHintMarkup(input) {
     : `<span class="at-resume-hint-tail at-resume-hint-lead">${parts.promptRef ? 'the prompt above' : 'this session'}</span>`;
   const sep = '<span class="sep">·</span>';
   return `
-    <span class="at-resume-hint-text"><span class="at-resume-hint-pre">Wait for the input box${sep}<kbd>Enter</kbd> sends /resume</span><span class="at-resume-hint-manual">Type /resume once the input box is up${sep}then filter for</span><span class="at-resume-hint-label">Filter for</span>${tail}</span>
+    <span class="at-resume-hint-text"><span class="at-resume-hint-pre">Wait for the input line${sep}<kbd>Enter</kbd> sends /resume</span><span class="at-resume-hint-manual">Type /resume once the input line is up${sep}then filter for</span><span class="at-resume-hint-label">Filter for</span>${tail}</span>
     <button class="at-resume-hint-close" aria-label="Dismiss" title="Dismiss">✕</button>
   `;
 

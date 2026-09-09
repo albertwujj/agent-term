@@ -102,11 +102,11 @@ test('no title and no prompt names the session itself', () => {
 test('pre-Enter wording says when to press and leaves the filter to later states', () => {
   const doc = fragment(renderHintMarkup({ prompt: 'Fix auth retry handling', title: 'Auth retry work' }));
   const pre = doc.querySelector('.at-resume-hint-pre').textContent;
-  assert.ok(pre.startsWith('Wait for the input box'), pre);
+  assert.ok(pre.startsWith('Wait for the input line'), pre);
   assert.ok(/Enter sends \/resume$/.test(pre), pre);
   assert.ok(!/filter/i.test(pre), 'pre-Enter copy should not mention the filter');
   assert.ok(doc.querySelector('.at-resume-hint-tail'), 'filter tail is present for later states');
-  assert.ok(/^Type \/resume once the input box is up·then filter for$/.test(
+  assert.ok(/^Type \/resume once the input line is up·then filter for$/.test(
     doc.querySelector('.at-resume-hint-manual').textContent));
   assert.strictEqual(doc.querySelector('.at-resume-hint-label').textContent, 'Filter for');
 });
