@@ -1823,20 +1823,28 @@ function createMarkdownViewer({
       let m = measure(box);
       if (m.bottom <= seatFloor + 0.5) continue; // above the page top (or the fitted card): left as last seated
       const spacer = keepSpacerOf(box);
-      const current = spacer ? (parseFloat(spacer.style.height) || 0) : 0;
+      if (spacer) {
+        // A spacer separates margins that otherwise collapse together. Merely
+        // subtracting its height leaves that extra gap in the "natural" top,
+        // so a row near the seam alternately gains/loses its spacer on each
+        // edit. Measure with the empty spacer collapsed through, then restore
+        // its final height in this same pass (without replacing the node).
+        spacer.style.height = '0px';
+        m = measure(box);
+      }
       const counterpart = counterpartKeepBox(box);
       let want = 0;
       if (m.height > 0 && m.height <= maxKeep) {
         // Where the box sits without its spacer, and the first page top below
         // that natural top. Straddling it means the box moves onto that page.
-        const naturalTop = m.top - current;
-        const naturalBottom = m.bottom - current;
+        const naturalTop = m.top;
+        const naturalBottom = m.bottom;
         const pageTop = gridTop + (Math.floor((naturalTop - gridTop) / advance) + 1) * advance;
         if (pageTop > naturalTop + 0.5 && pageTop < naturalBottom - 0.5) {
           want = pageTop - (naturalTop - m.marginTop);
         }
       }
-      if (Math.abs(want - current) >= 0.5) {
+      if (spacer || want > 0.5) {
         setKeepSpacer(box, want);
         if (want > 0.5) {
           // The spacer un-collapses the margins around the box; correct once
