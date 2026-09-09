@@ -2831,10 +2831,21 @@ screenElement.addEventListener('contextmenu', (event) => {
 // is a no-op, so a drag that never reports its mouseup (focus lost mid-drag)
 // leaves one dormant pair behind rather than one per press.
 const onTerminalDragMove = () => scheduleLiveTerminalMarkSync();
-const onTerminalDragEnd = () => {
+const onTerminalDragEnd = (event) => {
   document.removeEventListener('mousemove', onTerminalDragMove, true);
   document.removeEventListener('mouseup', onTerminalDragEnd, true);
   scheduleLiveTerminalMarkSync();
+  // The pill cannot rely on onSelectionChange alone. xterm's mouse path fires
+  // it only when the released selection differs from the last one it FIRED,
+  // and clearSelection() fires without updating that memory (5.5.0,
+  // SelectionService._fireEventIfSelectionChanged vs clearSelection). So after
+  // Esc or a copy clears a selection, the identical drag paints a selection
+  // and fires nothing, and the pill never came back. (A plain click in between
+  // resets that memory, which is why clicking away first always worked, and
+  // why a double-click is unaffected: its first press is that click.) The
+  // release itself is the moment the event stood for; the model is final by
+  // the time it bubbles here, and a duplicate schedule only resets the debounce.
+  if (event && event.button === 0 && terminal.hasSelection()) scheduleTerminalSelectionCommentHint();
 };
 
 screenElement.addEventListener('mousedown', (event) => {
