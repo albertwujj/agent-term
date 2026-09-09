@@ -34,7 +34,7 @@ That move is now coming from the terminal side too: several terminals have grown
 
 This path can look hacky: the host parses text, and reacts to it. But established text patterns are a stable interface, and a helpful output style sticks around. An agent's intentions arrive in those patterns through every turn, so the parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles the agents use intuitively. Extending it is quick when something new shows up, and none of it is tied to a vendor SDK or API.
 
-There is also a benefit over what the vendor CLIs can do alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. With a host that reacts, the printed line alone is enough: the viewer opens right in the window, with placement and sizing optimized for the situation.
+The host also lets a capable agent do more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. With a host that reacts, the printed line alone is enough: the viewer opens right in the window, with placement and sizing optimized for the situation. The loops work the same way: the agent puts a plan in front of you, hands you a review, starts a job that reports back to it, takes the checkout lock, and reaches you on your phone.
 
 ## Yours to grow
 
