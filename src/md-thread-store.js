@@ -13,6 +13,8 @@
 //
 // The agent-facing contract is ~/agent-threads/contract.md + md/user-intent.md.
 
+const { uncFromPosix } = require('./wsl-unc');
+
 const MD_STORE_DIR = '.agent-threads';
 
 // /path/NAME.md → /path/.agent-threads/NAME-comments.json
@@ -29,14 +31,6 @@ function mdStorePosixPath(docPath) {
   return `${dir}${MD_STORE_DIR}/${stem}-comments.json`;
 }
 
-// A WSL POSIX path in the UNC form Windows can open. On Windows the app runs on
-// the host while the shell, the documents and their stores all live inside WSL,
-// so every fs call from main has to cross that boundary. Separators flip and the
-// \\wsl.localhost\<distro> prefix goes on the front; nested directories need no
-// special handling, which is what makes the store folder work here unchanged.
-function uncFromPosix(posixPath, distro) {
-  return `\\\\wsl.localhost\\${distro}${String(posixPath || '').replace(/\//g, '\\')}`;
-}
 
 module.exports = {
   MD_STORE_DIR,

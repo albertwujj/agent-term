@@ -3,8 +3,13 @@
 // Three sources, highest precedence wins:
 //   1. Env var (AGENT_STREAM_HUB_URL / STREAM_HUB_SECRET) — ad-hoc override,
 //      survives only the current process.
-//   2. User config file at ~/.agent-term/config.json — persistent across
-//      binary upgrades (lives in $HOME, not in the app bundle). Schema:
+//   2. User config file at ~/.agent-term/config.json — the user's home on
+//      macOS, and on Windows the WSL home, reached as
+//      \\wsl.localhost\<distro>\<home>\.agent-term\config.json with the
+//      distro and home the WSL launcher exports (AGENT_TERM_DISTRO,
+//      AGENT_TERM_WSL_HOME; launch-env.json carries them to a Jump List
+//      start). One location on both platforms, the one docs/phone.md names.
+//      Schema:
 //        { "hubUrl": "https://...", "hubSecret": "..." }
 //      Either key is optional; missing keys fall through.
 //   3. Hardcoded fallback — last resort. Updated when we cut a release
@@ -15,14 +20,27 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { uncFromPosix } = require('../wsl-unc');
 
 // Default = empty (= streaming disabled). To enable, set hubUrl in
-// ~/.agent-term/config.json or the AGENT_STREAM_HUB_URL env var. The
-// PowerShell one-liner in the README writes the config file on Windows.
+// ~/.agent-term/config.json or the AGENT_STREAM_HUB_URL env var.
 const HARDCODED_URL = '';
-const USER_CONFIG_PATH = path.join(os.homedir(), '.agent-term', 'config.json');
+
+// Where the user's config file is. On Windows that is inside WSL, and only
+// the WSL launcher knows which distro and home; without them (a start this
+// launcher did not make) there is no file to read, and streaming stays
+// disabled, which the indicator says.
+function userConfigPath({ platform = process.platform, env = process.env, homedir = os.homedir() } = {}) {
+  if (platform !== 'win32') return path.join(homedir, '.agent-term', 'config.json');
+  const distro = env.AGENT_TERM_DISTRO || env.WSL_DISTRO_NAME || '';
+  const home = env.AGENT_TERM_WSL_HOME || '';
+  if (!distro || !home) return null;
+  return uncFromPosix(`${home.replace(/\/+$/, '')}/.agent-term/config.json`, distro);
+}
+const USER_CONFIG_PATH = userConfigPath();
 
 function readUserConfig() {
+  if (!USER_CONFIG_PATH) return {};
   try {
     let raw = fs.readFileSync(USER_CONFIG_PATH, 'utf8');
     // Strip UTF-8 BOM — Notepad on Windows saves JSON with one by
@@ -72,6 +90,7 @@ const RETRY_BACKOFF_MAX_MS = 30 * 1000;
 const BUFFER_POLL_MS = 500;            // renderer-side buffer-state poll interval
 
 module.exports = {
+  userConfigPath,
   STREAM_HUB_URL,
   STREAM_HUB_SECRET,
   HEARTBEAT_MS,

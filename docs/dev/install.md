@@ -13,6 +13,7 @@ The former Windows installer pipeline is frozen and no longer tested. Its last-k
 | Checkout | `~/agent-term` | `~/agent-term` inside the WSL distro |
 | Dependencies | One macOS `node_modules` | Linux `node_modules` for builds/tests, plus an isolated Windows cache for the UI |
 | Start command | `npm run start` | `npm run start:wsl` |
+| Phone view config | `~/.agent-term/config.json` | `~/.agent-term/config.json` inside the WSL distro |
 | UI end-to-end tests | Native desktop | WSLg |
 
 Windows gets taskbar buttons and live DWM previews for active sessions; before any CLI the button carries the picker's list, three session-colored rows, then the CLI's mark. macOS gets a Dock tile per session: the session color with the prompt's leading letters, the CLI's mark before the first prompt, and before any CLI three session-colored rows, the picker's list. The Dock label and Cmd-Tab name a process after the bundle folder it was launched through, so `npm run start` launches through an AgentTerm.app link that the build places next to the unpackaged Electron.app; the build also writes the name into the bundle's Info.plist, which titles the application menu. Each session there works best in its own full-screen space, where Mission Control shows the initial prompt pinned at the top of each window.
