@@ -114,6 +114,8 @@ function isShiftModEnter(e) {
 // instead). Platform-strict like the Enter chords: on a Mac, Ctrl+letter keeps
 // its native text-field meaning (Ctrl+E is end-of-line there).
 function modKeyLabel(letter) { return (isMac() ? '⌘' : 'Ctrl+') + String(letter).toUpperCase(); }
+// The Shift variant, spelled like shiftModEnterLabel (⇧⌘C / Ctrl⇧C).
+function shiftModKeyLabel(letter) { return (isMac() ? '⇧⌘' : 'Ctrl⇧') + String(letter).toUpperCase(); }
 function isModKey(e, letter) {
   if (!e || typeof e.key !== 'string' || e.key.toLowerCase() !== String(letter).toLowerCase()) return false;
   if (e.shiftKey || e.altKey) return false;
@@ -272,7 +274,7 @@ function isPasteCommentShortcut(event) {
 
 module.exports = {
   normWS, nearestHeading, toast, createComposer, toPromptAction, modEnterLabel, isModEnter, shiftModEnterLabel,
-  modKeyLabel, isModKey,
+  modKeyLabel, shiftModKeyLabel, isModKey,
   highlightRange, clearHighlight, highlightRanges, rangeOfText,
   isPasteCommentShortcut,
   isMac,

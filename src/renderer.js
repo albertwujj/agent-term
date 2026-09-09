@@ -32,7 +32,7 @@ const { createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
 const { ideUnreachableNotice } = require('./ide-notice');
 const { createWebViewer } = require('./web-viewer');
 const { createMarkdownViewer } = require('./markdown-viewer');
-const { createComposer, toPromptAction, isPasteCommentShortcut } = require('./comment-ui');
+const { createComposer, toPromptAction, isPasteCommentShortcut, shiftModKeyLabel } = require('./comment-ui');
 const {
   VIEWER_URL_SOURCE,
   ViewerHistory,
@@ -1408,10 +1408,10 @@ terminal.attachCustomKeyEventHandler((event) => {
     closeSearchBar,
     pasteFromClipboard,
     writeClipboardText: (text) => navigator.clipboard.writeText(text),
-    copyArmedSelection: () => {
+    copyArmedSelection: (transform) => {
       const text = armedTerminalSelectionContext ? armedTerminalSelectionContext.selectedText : '';
       if (!text) return false;
-      navigator.clipboard.writeText(text);
+      navigator.clipboard.writeText(transform ? transform(text) : text);
       hideTerminalSelectionCommentHint();
       return true;
     },
@@ -2028,8 +2028,11 @@ function showTerminalSelectionCommentHint() {
     // the freeze that put it up (the idle thaw leaves the selection alone), so a
     // pill can be sitting armed over settled output while you turn back to the
     // shell to type a command. "Type to comment" announces the capture; without
-    // the second clause nothing announces the release.
-    hint.textContent = 'Type to comment · esc dismisses';
+    // the last clause nothing announces the release. The middle clause is the
+    // other thing a selection is for: the Shift copy chord takes it as message
+    // text, gutter and wraps gone (src/smart-copy.js), where plain copy keeps
+    // the terminal layout.
+    hint.textContent = `Type to comment · ${shiftModKeyLabel('c')} copies for a message · esc dismisses`;
     document.body.appendChild(hint);
     terminalCommentSelectionHint = hint;
   }

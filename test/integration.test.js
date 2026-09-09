@@ -301,6 +301,119 @@ test('Ctrl+C copies selection on Windows', () => {
   assertEqual(scrollLine, 9, 'Ctrl+C should restore the viewport on Windows');
 });
 
+test('Cmd+Shift+C copies the selection as message text on macOS', () => {
+  let copiedText = null;
+  let clearCalls = 0;
+  const event = createKeyEvent({ key: 'C', metaKey: true, shiftKey: true });
+  const terminal = {
+    hasSelection: () => true,
+    getSelection: () => '⏺ wrapped at the\n  column width',
+    buffer: { active: { viewportY: 3 } },
+    clearSelection: () => { clearCalls++; },
+    scrollToLine: () => {},
+  };
+
+  const allowed = handleTerminalKeydown({
+    event,
+    terminal,
+    platform: 'darwin',
+    searchState: { isOpen: false },
+    openSearchBar: () => {},
+    closeSearchBar: () => {},
+    pasteFromClipboard: () => {},
+    writeClipboardText: (text) => { copiedText = text; },
+  });
+
+  assertEqual(allowed, false, 'Cmd+Shift+C should be intercepted');
+  assertEqual(copiedText, 'wrapped at the column width', 'Cmd+Shift+C should copy flattened text');
+  assertEqual(clearCalls, 1, 'Cmd+Shift+C should clear the selection like Cmd+C');
+  assertTrue(event.isDefaultPrevented(), 'Cmd+Shift+C should prevent the browser default');
+});
+
+test('Ctrl+Shift+C copies the selection as message text on Windows', () => {
+  let copiedText = null;
+  const event = createKeyEvent({ key: 'C', ctrlKey: true, shiftKey: true });
+  const terminal = {
+    hasSelection: () => true,
+    getSelection: () => '│ boxed │\n│ prose │',
+    buffer: { active: { viewportY: 0 } },
+    clearSelection: () => {},
+    scrollToLine: () => {},
+  };
+
+  const allowed = handleTerminalKeydown({
+    event,
+    terminal,
+    platform: 'win32',
+    searchState: { isOpen: false },
+    openSearchBar: () => {},
+    closeSearchBar: () => {},
+    pasteFromClipboard: () => {},
+    writeClipboardText: (text) => { copiedText = text; },
+  });
+
+  assertEqual(allowed, false, 'Ctrl+Shift+C should be intercepted on Windows');
+  assertEqual(copiedText, 'boxed prose', 'Ctrl+Shift+C should copy flattened text on Windows');
+});
+
+test('Cmd+Shift+C takes the armed snapshot when the live selection is gone', () => {
+  let armedTransform = undefined;
+  const event = createKeyEvent({ key: 'C', metaKey: true, shiftKey: true });
+
+  const allowed = handleTerminalKeydown({
+    event,
+    terminal: { hasSelection: () => false },
+    platform: 'darwin',
+    searchState: { isOpen: false },
+    openSearchBar: () => {},
+    closeSearchBar: () => {},
+    pasteFromClipboard: () => {},
+    writeClipboardText: () => {},
+    copyArmedSelection: (transform) => { armedTransform = transform; return true; },
+  });
+
+  assertEqual(allowed, false, 'Cmd+Shift+C should be intercepted off the snapshot');
+  assertEqual(typeof armedTransform, 'function', 'The snapshot copy should receive the message transform');
+  assertEqual(armedTransform('⏺ a\n  b'), 'a b', 'The transform should be the smart copy');
+});
+
+test('Ctrl+Shift+C with nothing to copy never reaches the shell on Windows', () => {
+  const event = createKeyEvent({ key: 'C', ctrlKey: true, shiftKey: true });
+
+  const allowed = handleTerminalKeydown({
+    event,
+    terminal: { hasSelection: () => false },
+    platform: 'win32',
+    searchState: { isOpen: false },
+    openSearchBar: () => {},
+    closeSearchBar: () => {},
+    pasteFromClipboard: () => {},
+    writeClipboardText: () => {},
+    copyArmedSelection: () => false,
+  });
+
+  assertEqual(allowed, false, 'An empty Ctrl+Shift+C must not fall through as an interrupt');
+});
+
+test('Cmd+C ignores the armed snapshot transform', () => {
+  let armedTransform = 'unset';
+  const event = createKeyEvent({ key: 'c', metaKey: true });
+
+  handleTerminalKeydown({
+    event,
+    terminal: { hasSelection: () => false },
+    platform: 'darwin',
+    searchState: { isOpen: false },
+    openSearchBar: () => {},
+    closeSearchBar: () => {},
+    pasteFromClipboard: () => {},
+    writeClipboardText: () => {},
+    copyArmedSelection: (transform) => { armedTransform = transform; return true; },
+  });
+
+  assertEqual(armedTransform, undefined, 'Plain copy passes no transform');
+});
+
 test('Ctrl+C is left alone on macOS', () => {
   let copiedText = null;
   const event = createKeyEvent({ key: 'c', ctrlKey: true });
