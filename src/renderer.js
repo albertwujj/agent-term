@@ -2024,15 +2024,15 @@ function showTerminalSelectionCommentHint() {
   if (!terminalCommentSelectionHint) {
     const hint = document.createElement('div');
     hint.className = 'terminal-comment-selection-hint';
-    // Names its own exit. The pill owns the next printable key, and it outlives
-    // the freeze that put it up (the idle thaw leaves the selection alone), so a
-    // pill can be sitting armed over settled output while you turn back to the
-    // shell to type a command. "Type to comment" announces the capture; without
-    // the last clause nothing announces the release. The middle clause is the
+    // "Type to comment" announces the capture: the pill owns the next printable
+    // key, and it outlives the freeze that put it up (the idle thaw leaves the
+    // selection alone), so a pill can be sitting armed over settled output while
+    // you turn back to the shell to type a command. The second clause is the
     // other thing a selection is for: the Shift copy chord takes it as message
     // text, gutter and wraps gone (src/smart-copy.js), where plain copy keeps
-    // the terminal layout.
-    hint.textContent = `Type to comment · ${shiftModKeyLabel('c')} smart copy · esc dismisses`;
+    // the terminal layout. Esc releasing the pill goes unsaid; a pill once said
+    // "esc dismisses", and Esc is what everyone tries first anyway.
+    hint.textContent = `Type to comment · ${shiftModKeyLabel('c')} smart copy`;
     document.body.appendChild(hint);
     terminalCommentSelectionHint = hint;
   }
