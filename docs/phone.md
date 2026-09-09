@@ -15,6 +15,6 @@ Unblock it by voice: speak, and your words reach the agent as text with a refere
 The phone view is self-hosted and opt-in: you run the relay on a machine you own, and everything travels over plain outbound HTTPS, requiring no inbound ports or VPN. Once the relay runs, point this terminal at it: its URL, and its secret if it has one, go in `~/.agent-term/config.json` as `hubUrl` and `hubSecret`, and the next window streams. Ask your agent:
 
 ```text
-Point this terminal at my hub at <url> for use from my phone, following
+Point this terminal at my hub at <url> for remote use, following
 docs/phone.md in ~/agent-term.
 ```
