@@ -10,7 +10,7 @@
 //   3. Hardcoded fallback — last resort. Updated when we cut a release
 //      that knows the current tunnel URL.
 //
-// The cloudflared tunnel and hub setup live in ../agent-stream-hub/SETUP.md.
+// The cloudflared tunnel and hub setup live in ../agent-stream-hub/README.md.
 
 const fs = require('fs');
 const os = require('os');
