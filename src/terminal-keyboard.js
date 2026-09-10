@@ -1,12 +1,15 @@
 const { isFindShortcut } = require('./search-shortcut');
 const { smartCopyText } = require('./smart-copy');
 
-// `transform` rewrites the selection before it reaches the clipboard: the copy
-// chord passes smartCopyText, the Shift chord passes nothing and keeps the
-// terminal layout.
+// `transform(text, { startColumn })` rewrites the selection before it reaches
+// the clipboard: the copy chord passes the smart copy, the Shift chord passes
+// nothing and keeps the terminal layout. The start column lets the smart copy
+// measure the first line from where its row began (src/smart-copy.js).
 function copySelectionToClipboard({ terminal, writeClipboardText, transform }) {
   const text = terminal.getSelection();
-  writeClipboardText(transform ? transform(text) : text);
+  const position = typeof terminal.getSelectionPosition === 'function' ? terminal.getSelectionPosition() : null;
+  const startColumn = position && position.start && Number.isFinite(position.start.x) ? position.start.x : 0;
+  writeClipboardText(transform ? transform(text, { startColumn }) : text);
   const scrollY = terminal.buffer.active.viewportY;
   terminal.clearSelection();
   terminal.scrollToLine(scrollY);
@@ -54,6 +57,7 @@ function handleTerminalKeydown({
   // The Shift chord is swallowed even with nothing to copy: it only ever means
   // copy, and on Windows a fall-through would reach the pty as Ctrl+C and
   // interrupt the agent.
+  const smart = (text, info) => smartCopyText(text, { cols: terminal.cols, ...info });
   const copy = (transform) => {
     if (terminal.hasSelection()) {
       copySelectionToClipboard({ terminal, writeClipboardText, transform });
@@ -69,7 +73,7 @@ function handleTerminalKeydown({
 
   if (platform === 'win32') {
     // The console's copy gesture, so the same copy as Ctrl+C.
-    if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey && copy(smartCopyText)) {
+    if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey && copy(smart)) {
       // Returning false only stops xterm's keydown handler. Cancel the browser
       // default too, or a follow-up keypress sends Enter after copying clears
       // the selection.
@@ -83,7 +87,7 @@ function handleTerminalKeydown({
         copy();
         return false;
       }
-      if (copy(smartCopyText)) return false;
+      if (copy(smart)) return false;
     }
 
     if (key === 'v' && event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
@@ -100,7 +104,7 @@ function handleTerminalKeydown({
         copy();
         return false;
       }
-      if (copy(smartCopyText)) return false;
+      if (copy(smart)) return false;
     }
 
     if (key === 'v' && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {

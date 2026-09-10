@@ -52,12 +52,16 @@ try {
     if (index) await page.reload();
     await page.waitForSelector('.xterm-helper-textarea', { state: 'attached' });
     const size = await app.evaluate(() => globalThis.size);
-    await app.evaluate(({ BrowserWindow, clipboard }, captured) => {
+    // The first row runs to the terminal's right edge, so smart copy reads its
+    // break as a wrap; "• next item" starts a line of its own.
+    let first = '⏺ selected prose';
+    while (first.length + 5 <= size.cols - 2) first += ' more';
+    await app.evaluate(({ BrowserWindow, clipboard }, { captured, first }) => {
       clipboard.writeText('');
       BrowserWindow.getAllWindows()[0].webContents.send('pty-output',
         (captured ? '\x1b[?1049h\x1b[?1003h\x1b[?1006h' : '')
-        + '⏺ selected prose\r\n  wraps here\r\n• next item');
-    }, !!captured);
+        + `${first}\r\n  wraps here\r\n• next item`);
+    }, { captured: !!captured, first });
     // Wait for xterm to parse and paint before selecting on its cell grid.
     await page.waitForTimeout(200);
     const rect = await page.locator('.xterm-screen').boundingBox();
@@ -92,7 +96,7 @@ try {
     assert.equal(await page.locator('.terminal-comment-selection-hint, .terminal-comment-mark').count(), 0,
       'copy must clear the selection highlight and hint permanently');
     assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()),
-      raw ? '⏺ selected prose\n  wraps here\n• next item' : 'selected prose wraps here\nnext item');
+      raw ? `${first}\n  wraps here\n• next item` : `${first.slice(2)} wraps here\nnext item`);
     assert.deepEqual(await app.evaluate(() => globalThis.typed), [], 'copy must send no input to the PTY');
 
     await page.keyboard.type('x');

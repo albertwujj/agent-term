@@ -1,4 +1,4 @@
-const { smartCopyText, stripLine } = require('../src/smart-copy');
+const { smartCopyText, stripLine, displayWidth } = require('../src/smart-copy');
 
 let passed = 0;
 let failed = 0;
@@ -128,6 +128,78 @@ test('stripLine reports a new line for marks and list items, not borders', () =>
   assertEqual(stripLine('  - item').startsLine, true);
   assertEqual(stripLine('  - item').text, '- item');
   assertEqual(stripLine('2024 was busy').startsLine, false);
+});
+
+// With the terminal width known, a break is a wrap only when the line reached
+// the wrap column and the next word would not have fit.
+const FULL = '⏺ selected prose that runs all the way out to the right edge of the row'; // 71 columns
+
+test('short lines keep their breaks when nothing reached the right edge', () => {
+  assertEqual(
+    smartCopyText('  const x = 1;\n  const longerName = compute(x);\n  return x;', { cols: 80 }),
+    'const x = 1;\nconst longerName = compute(x);\nreturn x;',
+  );
+  assertEqual(smartCopyText('Done.\nNext: run tests.', { cols: 80 }), 'Done.\nNext: run tests.');
+});
+
+test('a full line joins its continuation; a line ending short of the edge keeps its break', () => {
+  assertEqual(FULL.length, 71);
+  assertEqual(
+    smartCopyText(`${FULL}\n  wraps here.\n  Another line.`, { cols: 80 }),
+    'selected prose that runs all the way out to the right edge of the row wraps here.\nAnother line.',
+  );
+});
+
+test('a continuation whose first word would have fit is a real line', () => {
+  // 71 + 1 + 2 = 74 ≤ 76: "it" would have fit on a line wrapping at 76.
+  const wider = FULL + ' plus.'; // 77
+  assertEqual(smartCopyText(`${wider}\n  x\n${FULL}\n  it is.`, { cols: 80 }).split('\n').length, 3);
+});
+
+test('the first line is measured from the selection start column', () => {
+  const tail = 'edge of the row';
+  assertEqual(smartCopyText(`${tail}\n  wraps here.`, { cols: 80, startColumn: 56 }), 'edge of the row wraps here.');
+  assertEqual(smartCopyText(`${tail}\n  wraps here.`, { cols: 80 }), 'edge of the row\nwraps here.');
+});
+
+test('a row longer than the terminal caps the wrap column at the width', () => {
+  const long = 'x'.repeat(120);
+  const full = '⏺ ' + 'word '.repeat(14) + 'wordy'; // 77
+  assertEqual(
+    smartCopyText(`${long}\n${full}\n  tail.`, { cols: 80 }),
+    `${long}\n${'word '.repeat(14)}wordy tail.`,
+  );
+});
+
+test('wide characters count two columns', () => {
+  assertEqual(displayWidth('ab字'), 4);
+  const cjk = '⏺ ' + '字'.repeat(37); // 2 + 74
+  assertEqual(smartCopyText(`${cjk}\n  继续。`, { cols: 80 }), '字'.repeat(37) + ' 继续。');
+});
+
+test('a full-width box wraps inside its borders', () => {
+  const top = '╭' + '─'.repeat(38) + '╮';
+  const a = '│ > fix the flaky test in ci and then'.padEnd(39) + '│';
+  const b = '│   explain why'.padEnd(39) + '│';
+  const bottom = '╰' + '─'.repeat(38) + '╯';
+  assertEqual(smartCopyText([top, a, b, bottom].join('\n'), { cols: 40 }), 'fix the flaky test in ci and then explain why');
+});
+
+test('each blank-separated block has its own wrap column', () => {
+  // The box's text edge sits two columns past the paragraph's; the paragraph
+  // must still read as wrapped by its own edge, not the box's.
+  const para = `${FULL}\n  and it ends.`; // edge 71
+  const top = '╭' + '─'.repeat(77) + '╮';
+  const a = '│ > ' + 'prompt text that reaches the edge of the box at seventy three wide'.padEnd(74) + '│'; // edge 73
+  const b = '│   with a tail'.padEnd(78) + '│';
+  const bottom = '╰' + '─'.repeat(77) + '╯';
+  const got = smartCopyText([para, '', top, a, b, bottom].join('\n'), { cols: 80 });
+  assertEqual(got.split('\n')[0], 'selected prose that runs all the way out to the right edge of the row and it ends.');
+  assertEqual(got.split('\n').pop(), 'prompt text that reaches the edge of the box at seventy three wide with a tail');
+});
+
+test('without a width every break is judged against the longest line', () => {
+  assertEqual(smartCopyText('one two\nthree four\nfive'), 'one two three four five');
 });
 
 (async () => {
