@@ -36,9 +36,9 @@ This path can look hacky: the host parses text, and reacts to it. But establishe
 
 The host also lets a capable agent do more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. With a host that reacts, the printed line alone is enough: the viewer opens right in the window, with placement and sizing optimized for the situation. The loops work the same way: the agent puts a plan in front of you, hands you a review, starts a job that reports back to it, takes the checkout lock, and reaches you on your phone.
 
-## Yours to grow
+## Fit it to your work
 
-It is yours. The agents, made better by running in this grown terminal, grow it further: when something falls short for you, the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix. That is also part of the larger point: with agents at your disposal, you can grow your own tool to fit your needs, which you know best. Needs follow situations, and a situation is rarely yours alone, so what you grow for yours serves the others in it. So start your own, use and build upon this repo.
+It is yours, and the agents, made better by running in this grown terminal, grow it further. Growing runs as a continuum. At one end, something falls short in your situation: the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix. At the other, a feature that fits your work better, or one you are the first to need. Either way you know your needs best, and a situation is rarely yours alone, so what you grow for yours serves others like you. So start your own, use and build upon this repo.
 
 ## What's added so far
 
@@ -59,11 +59,11 @@ These are the main ones. Follow the links to see an overview of more features om
 
 Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. An agent and its host grow into one whole, independent of the other wholes and cooperating with them through conventions such as the checkout lock. Subagents belong inside it, under the main agent.
 
-## Fit it to your work
+## Make it yours
 
 The first start gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
 
-The rest are [loops](docs/loops.md), each one piece grown for one situation, in its own repo for anyone in the same one: [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
+The rest are [optional loops](docs/loops.md): [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
 
 ```text
 Clone https://github.com/yunxin/agent-lock into ai/ in this project,
@@ -72,6 +72,6 @@ and leave ai/ out of .gitignore.
 
 Then start a task with `@proceed-b`, which completes to the lock's [guide doc](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) in the [agent-lock](https://github.com/yunxin/agent-lock) clone, and the agent takes the [checkout lock](docs/lock.md) before it works.
 
-**Grow it.** Every new window starts from the latest source, so a fix you make with your agents is in the next window you open ([how a window opens](docs/sessions.md)).
+**Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
 
 Built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT.
