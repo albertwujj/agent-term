@@ -99,8 +99,9 @@ test('a trailing markdown table pipe stays; a leading ASCII pipe is a border', (
   assertEqual(smartCopyText('| a | b |'), 'a | b |');
 });
 
-test('interior whitespace runs and tabs collapse to one space', () => {
-  assertEqual(smartCopyText('name:\t\tvalue    here'), 'name: value here');
+test('whitespace inside a line is untouched', () => {
+  assertEqual(smartCopyText('name:\t\tvalue    here'), 'name:\t\tvalue    here');
+  assertEqual(smartCopyText('│ a  │ b │'), 'a  │ b');
 });
 
 test('plain lines without gutter join as one paragraph', () => {
@@ -159,7 +160,9 @@ test('a continuation whose first word would have fit is a real line', () => {
 test('the first line is measured from the selection start column', () => {
   const tail = 'edge of the row';
   assertEqual(smartCopyText(`${tail}\n  wraps here.`, { cols: 80, startColumn: 56 }), 'edge of the row wraps here.');
-  assertEqual(smartCopyText(`${tail}\n  wraps here.`, { cols: 80 }), 'edge of the row\nwraps here.');
+  // Without the start column the first row reads as flush, and the second
+  // row's two columns are indentation relative to it.
+  assertEqual(smartCopyText(`${tail}\n  wraps here.`, { cols: 80 }), 'edge of the row\n  wraps here.');
 });
 
 test('a row longer than the terminal caps the wrap column at the width', () => {
@@ -196,6 +199,57 @@ test('each blank-separated block has its own wrap column', () => {
   const got = smartCopyText([para, '', top, a, b, bottom].join('\n'), { cols: 80 });
   assertEqual(got.split('\n')[0], 'selected prose that runs all the way out to the right edge of the row and it ends.');
   assertEqual(got.split('\n').pop(), 'prompt text that reaches the edge of the box at seventy three wide with a tail');
+});
+
+test('code keeps its indentation relative to the block; a mark above it starts flush', () => {
+  const raw = [
+    '⏺ Here is the fix:',
+    '    if (ready) {',
+    '      start();',
+    '    }',
+  ].join('\n');
+  assertEqual(smartCopyText(raw, { cols: 80 }), 'Here is the fix:\nif (ready) {\n  start();\n}');
+});
+
+test('nested lists keep their nesting', () => {
+  const raw = [
+    '  - keep the cache',
+    '    - and add a watcher',
+    '  - drop the cache',
+  ].join('\n');
+  assertEqual(smartCopyText(raw, { cols: 80 }), '- keep the cache\n  - and add a watcher\n- drop the cache');
+});
+
+test('the selection\'s first line is flush wherever it began', () => {
+  assertEqual(smartCopyText('      deep first line\n  shallow second', { cols: 80 }), 'deep first line\nshallow second');
+});
+
+test('symbols in the text stay; only gutter marks go', () => {
+  assertEqual(smartCopyText('⏺ ✅ Tests pass\n  → next: deploy\n  ⚠ one warning', { cols: 80 }), '✅ Tests pass\n→ next: deploy\n⚠ one warning');
+  assertEqual(smartCopyText('✓ done', { cols: 80 }), '✓ done');
+});
+
+test('table rules vanish and the rows stay together, cells divided as drawn', () => {
+  const raw = [
+    '┌──────┬──────┐',
+    '│ name │ size │',
+    '├──────┼──────┤',
+    '│ a.js │ 12k  │',
+    '│ b.js │ 3k   │',
+    '└──────┴──────┘',
+  ].join('\n');
+  assertEqual(smartCopyText(raw, { cols: 80 }), 'name │ size\na.js │ 12k\nb.js │ 3k');
+  assertEqual(smartCopyText('| a | b |\n|---|---|\n| 1 | 2 |', { cols: 80 }), 'a | b |\n1 | 2 |');
+});
+
+test('a line filled to the last column that ends mid-path rejoins without a space', () => {
+  const prefix = '⏺ see https://example.com/docs/';
+  const fill = 'x'.repeat(80 - prefix.length); // filled to column 80
+  assertEqual(smartCopyText(`${prefix}${fill}\n  yz/page.html for the rest`, { cols: 80 }),
+    `see https://example.com/docs/${fill}yz/page.html for the rest`);
+  // A full line that ends in a word, not a path, takes its space.
+  const prose = '⏺ ' + 'word '.repeat(15) + 'ends'; // 81 → capped; ends in a word
+  assertEqual(smartCopyText(`${prose}\n  next`, { cols: 80 }).endsWith('ends next'), true);
 });
 
 test('without a width every break is judged against the longest line', () => {
