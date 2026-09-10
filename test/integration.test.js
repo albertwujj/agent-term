@@ -309,7 +309,9 @@ for (const alternate of [false, true]) {
     let disarmed = 0;
     try {
       if (alternate) await writeAndWait(terminal, '\x1b[?1049h');
-      await writeAndWait(terminal, '⏺ selected prose\r\n  wraps here\r\n• next item');
+      // The first row reaches the terminal's right edge (71 of 80 columns), so
+      // its break reads as a wrap; "• next item" starts a line of its own.
+      await writeAndWait(terminal, '⏺ selected prose that runs all the way out to the right edge of the row\r\n  wraps here\r\n• next item');
       terminal.select(0, 0, terminal.cols * 2 + '• next item'.length);
       const viewportY = terminal.buffer.active.viewportY;
       terminal.onData((data) => input.push(data));
@@ -337,7 +339,7 @@ for (const alternate of [false, true]) {
       };
 
       pressEnter();
-      assertEqual(copied, ['selected prose wraps here\nnext item'], 'Enter should use smart copy');
+      assertEqual(copied, ['selected prose that runs all the way out to the right edge of the row wraps here\nnext item'], 'Enter should use smart copy');
       assertEqual(input, [], 'The copy must not send Enter through xterm.onData to the PTY');
       assertEqual(disarmed, 1, 'Copy must dismiss the saved selection and its hint');
       assertTrue(!terminal.hasSelection(), 'Copy should clear the selection');

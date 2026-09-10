@@ -774,7 +774,7 @@ async function run() {
       && strip().previousElementSibling.classList.contains('md-pending-block'));
     check('the strip names what is missing and links the README',
       !!strip() && strip().textContent.startsWith('agent-threads is not installed.')
-        && /README\.md#make-it-yours$/.test((strip().querySelector('a') && strip().querySelector('a').getAttribute('href')) || ''));
+        && /README\.md#where-to-go-next$/.test((strip().querySelector('a') && strip().querySelector('a').getAttribute('href')) || ''));
     check("the clone button's tooltip is the README's prompt",
       !!stripButton('Ask the agent to clone it into ai/') && /agent-threads into ai\//.test(stripButton('Ask the agent to clone it into ai/').title));
     check('and nothing is sent yet', sentBatches.length === sentBefore);

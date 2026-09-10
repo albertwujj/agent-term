@@ -1409,9 +1409,12 @@ terminal.attachCustomKeyEventHandler((event) => {
     pasteFromClipboard,
     writeClipboardText: (text) => navigator.clipboard.writeText(text),
     copyArmedSelection: (transform) => {
-      const text = armedTerminalSelectionContext ? armedTerminalSelectionContext.selectedText : '';
+      const context = armedTerminalSelectionContext;
+      const text = context ? context.selectedText : '';
       if (!text) return false;
-      navigator.clipboard.writeText(transform ? transform(text) : text);
+      const start = context.visualRange && context.visualRange.start;
+      const startColumn = start && Number.isFinite(start.column) ? start.column : 0;
+      navigator.clipboard.writeText(transform ? transform(text, { startColumn }) : text);
       return true;
     },
     onSelectionCopied: hideTerminalSelectionCommentHint,
