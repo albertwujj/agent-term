@@ -306,5 +306,21 @@ test('empty Enter pre-cliStarted does not emit shell command', (cap, _get, getSh
   assert.deepStrictEqual(getShell(), ['claude']);
 });
 
+test('a launch line fed as keystrokes is reported whole, with options typed after it', (cap, _get, getShell) => {
+  // main types the picker's launch line through handleInput (writeTyped),
+  // so the user's Enter reports the line plus what they added.
+  cap.handleInput('codex -c \'tui.terminal_title=["app-name","thread"]\' ');
+  cap.handleInput('--model gpt-5\r');
+  assert.deepStrictEqual(getShell(), ['codex -c \'tui.terminal_title=["app-name","thread"]\' --model gpt-5']);
+});
+
+test('Ctrl+C abandons the line, so a cancelled launch line is not read at the next Enter', (cap, _get, getShell) => {
+  cap.handleInput('codex -c \'tui.terminal_title=["app-name","thread"]\' ');
+  cap.handleInput('\x03');                          // Ctrl+C
+  cap.handleInput('ls\r');
+  assert.deepStrictEqual(getShell(), ['ls']);
+  assert.strictEqual(cap._state().buf, '');
+});
+
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
 process.exit(testsFailed > 0 ? 1 : 0);

@@ -22,7 +22,7 @@ On a Mac each session is its own Dock tile, in the session's color with the firs
 
 ![filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
-**The sessions you set aside.** Right-click the taskbar button or the Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N while an AgentTerm window is in front. Either opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your prompts and the agent's own titles; resume any of them, run what you typed as a shell command, or press Esc for a plain shell. Resuming returns to the directory that session was working in and starts its CLI there, because a CLI's own resume list is usually the sessions from that directory.
+**The sessions you set aside.** Right-click the taskbar button or the Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N while an AgentTerm window is in front. Either opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your prompts and the agent's own titles; resume any of them, start a CLI (options typed after its name are carried along), run what you typed as a shell command, or press Esc for a plain shell. Shift+Enter types the line into the shell instead of running it, so you can add or change options there; the terminal's own additions are in view (Codex is asked to title its threads), and Enter runs it. After a shell command or Esc, a strip above the terminal keeps the CLIs on offer: click one to start it the same way, Shift-click to add options first, or press Ctrl/Cmd+Shift+S for the picker again. Resuming returns to the directory that session was working in and starts its CLI there, because a CLI's own resume list is usually the sessions from that directory.
 
 **Type `npm run start` (`start:wsl` on WSL) once, from the directory you want the terminal to open in.** Three ways a window comes to be, and where each starts:
 
@@ -33,5 +33,5 @@ On a Mac each session is its own Dock tile, in the session's color with the firs
 | After the last closes | spawned automatically | the same rule, from the window that closed |
 
 - Every new window picks up the latest source from your agent-term clone; a build that fails stops that launch rather than running stale bundles.
-- The picker shows the directory. If it is not the one you want, `cd` there and type the AI CLI's name.
+- The picker shows the directory. If it is not the one you want, `cd` there, then start the CLI from the strip, or bring the picker back with Ctrl/Cmd+Shift+S or a click on Sessions in the bar; all three work until a CLI has started in the window. Typing the CLI's name yourself works too; the strip and the picker are what carry the options.
 - To quit for good instead of getting a fresh window, type `exit`. Like `cd` and the CLI's name, it is just a shell command.

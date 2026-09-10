@@ -3,9 +3,12 @@ const { JSDOM } = require('jsdom');
 
 const {
   renderHintMarkup,
+  renderLaunchMarkup,
   recordSubmit,
   recordInterceptOff,
+  recordLaunchOff,
   show,
+  showLaunch,
   destroy,
 } = require('../src/resume-hint');
 
@@ -168,6 +171,49 @@ test('submit notifications transition then auto-dismiss the mounted hint', () =>
 
   recordSubmit();
   assert.strictEqual(document.querySelector('.at-resume-hint'), null, 'third submit should dismiss');
+
+  destroy({ cancelIntercept: false });
+  delete global.window;
+  delete global.document;
+});
+
+test('the launch band names the CLI the Enter starts and leaves room for options', () => {
+  const doc = fragment(renderLaunchMarkup({ cli: 'codex' }));
+  const pre = doc.querySelector('.at-resume-hint-pre');
+  // The dot's spacing is margin, not text.
+  assert.strictEqual(pre.textContent.replace(/\s+/g, ' ').trim(), 'Add options if you need any·Enter starts codex');
+  assert.strictEqual(pre.querySelector('kbd').textContent, 'Enter');
+  assert.ok(doc.querySelector('.at-resume-hint-close'));
+  assert.ok(!doc.querySelector('.at-resume-hint-chip'), 'no title chip: nothing to filter for');
+});
+
+test('the launch band goes on the submit that runs the line, or when main ends the line', () => {
+  installDom();
+  let cancelled = 0;
+  window.pty.cancelResumeIntercept = () => { cancelled++; };
+
+  showLaunch({ cli: 'claude' });
+  const root = document.querySelector('.at-resume-hint.launch');
+  assert.ok(root, 'launch band should mount');
+  recordSubmit();
+  assert.strictEqual(document.querySelector('.at-resume-hint'), null, 'the Enter that runs the line dismisses');
+
+  showLaunch({ cli: 'claude' });
+  recordLaunchOff();
+  assert.strictEqual(document.querySelector('.at-resume-hint'), null, 'main ending the line dismisses');
+
+  showLaunch({ cli: 'claude' });
+  document.querySelector('.at-resume-hint-close').click();
+  assert.strictEqual(document.querySelector('.at-resume-hint'), null, 'the close button dismisses');
+  assert.strictEqual(cancelled, 0, 'a launch band never cancels a resume intercept');
+
+  // A resume band mounted after the launch (a later pick) is not the
+  // launch band's to dismiss: main's launch-off for the replaced line
+  // arrives after the resume hint is up.
+  showLaunch({ cli: 'codex' });
+  show({ cli: 'claude', prompt: 'Fix auth retry handling', title: 'Auth retry work' });
+  recordLaunchOff();
+  assert.ok(document.querySelector('.at-resume-hint:not(.launch)'), 'the resume band stays');
 
   destroy({ cancelIntercept: false });
   delete global.window;

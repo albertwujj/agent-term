@@ -1,9 +1,18 @@
-// Resume-hint — renderer band shown after the user picks a past session
-// in the agent-term picker. It carries one instruction per moment, in
-// label form rather than sentences: the terminal below is full of prose,
-// so the band keeps to a few words around one object (the Enter keycap
-// before the shortcut fires, the title chip after), with segments split
-// by a middle dot.
+// Resume-hint — renderer band shown after a pick in the agent-term picker.
+// It carries one instruction per moment, in label form rather than
+// sentences: the terminal below is full of prose, so the band keeps to a
+// few words around one object (the Enter keycap before the shortcut fires,
+// the title chip after), with segments split by a middle dot.
+//
+// Two picks mount it. A resume (show) walks the states below. A start-new
+// taken with Shift+Enter (showLaunch) has one moment: main has typed the
+// CLI's launch line into the shell and left it at the prompt, so the band
+// reads
+//
+//   launch         "Add options if you need any · [Enter] starts codex"
+//
+// and goes when main says the line ran, was cleared, or was replaced by a
+// later pick (recordLaunchOff), or on the first submit it sees.
 //
 //   pre-Enter      "Wait for the input line · [Enter] sends /resume"
 //                  Main's pty-input handler is armed (pendingResumeIntercept)
@@ -71,6 +80,7 @@ const AUTO_DISMISS_ENTERS = 3;
 let mountedRoot = null;
 let stylesInjected = false;
 let enterCount = 0;
+let mode = 'resume';   // 'resume' | 'launch': which pick mounted the band
 
 const HINT_CSS = `
 .at-resume-hint {
@@ -271,6 +281,10 @@ function destroy({ cancelIntercept = true } = {}) {
 // instead of xterm key events so every path that advances the AI CLI is seen.
 function recordSubmit() {
   if (!mountedRoot) return;
+  if (mode === 'launch') {
+    destroy({ cancelIntercept: false });
+    return;
+  }
   enterCount += 1;
   if (enterCount === 1 && !mountedRoot.classList.contains('intercept-off')) {
     mountedRoot.classList.add('post-enter');
@@ -329,6 +343,7 @@ function show({ cli, prompt, title } = {}) {
   destroy({ cancelIntercept: false });   // clear any prior mount; don't double-cancel
   injectStyles();
   enterCount = 0;
+  mode = 'resume';
   const el = document.createElement('div');
   el.className = 'at-resume-hint';
   el.innerHTML = renderHintMarkup({ cli, prompt, title });
@@ -337,13 +352,47 @@ function show({ cli, prompt, title } = {}) {
   mountedRoot = el;
 }
 
+// The launch band's inner HTML: the one keycap, and what it starts.
+function renderLaunchMarkup({ cli } = {}) {
+  const name = String(cli || '').trim() || 'the CLI';
+  const sep = '<span class="sep">·</span>';
+  return `
+    <span class="at-resume-hint-text"><span class="at-resume-hint-pre">Add options if you need any${sep}<kbd>Enter</kbd> starts ${escapeHtml(name)}</span></span>
+    <button class="at-resume-hint-close" aria-label="Dismiss" title="Dismiss">✕</button>
+  `;
+}
+
+// Mount the launch band. payload: { cli }. The ✕ removes the band only:
+// the line stays at the prompt, and main keeps tracking it.
+function showLaunch({ cli } = {}) {
+  destroy({ cancelIntercept: false });
+  injectStyles();
+  enterCount = 0;
+  mode = 'launch';
+  const el = document.createElement('div');
+  el.className = 'at-resume-hint launch';
+  el.innerHTML = renderLaunchMarkup({ cli });
+  document.body.appendChild(el);
+  el.querySelector('.at-resume-hint-close').addEventListener('click', () => destroy({ cancelIntercept: false }));
+  mountedRoot = el;
+}
+
+// Main's word that the typed line is no longer awaiting Enter. A resume
+// band mounted since (a later pick) is not touched.
+function recordLaunchOff() {
+  if (mountedRoot && mode === 'launch') destroy({ cancelIntercept: false });
+}
+
 module.exports = {
   HINT_HEIGHT_PX,
   HINT_CSS,
   AUTO_DISMISS_ENTERS,
   renderHintMarkup,
+  renderLaunchMarkup,
   recordSubmit,
   recordInterceptOff,
+  recordLaunchOff,
   show,
+  showLaunch,
   destroy,
 };

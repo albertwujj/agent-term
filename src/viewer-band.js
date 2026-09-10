@@ -32,7 +32,7 @@ function ensureBandStyles() {
          faint tint back, mix a little var(--at-hue) in here. */
       --vb-edge: #0c0c0c;
       position: fixed;
-      top: calc(var(--at-chrome-height, 0px) + var(--at-chrome-bottom-gap, 0px));
+      top: calc(var(--at-chrome-height, 0px) + var(--at-chrome-bottom-gap, 0px) + var(--at-launcher-height, 0px));
       left: 0; right: 0; width: 100vw;
       height: var(--vb-open-h, 62vh);
       min-height: var(--vb-min-h, 280px);

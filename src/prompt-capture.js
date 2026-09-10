@@ -219,6 +219,15 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
         continue;
       }
 
+      // Ctrl+C: the line is abandoned (shells and AI CLIs alike drop the
+      // input), so the buffer goes with it. A launch line the picker typed
+      // and the user cancelled must not be read at the next Enter.
+      if (code === 0x03) {
+        reset();
+        i++;
+        continue;
+      }
+
       // Ctrl+W: delete the previous word + any preceding whitespace.
       // macOS Option+Backspace maps to this in many CLIs.
       if (code === 0x17) {

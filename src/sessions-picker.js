@@ -7,7 +7,11 @@
 //     activeIds: [number],          // ids that are currently active (disabled in list)
 //     cwd: string | null,           // where a new session starts (the shell's start dir)
 //     onPick(id):           user resumed a past session
-//     onStartNew(cli):      user started a new session (cli = 'claude'|'codex'|... or null for shell)
+//     onStartNew(command, { typeOnly }):
+//                           user chose row 0: a launch line ('claude',
+//                           'codex --model x') or a shell command literal.
+//                           typeOnly (Shift+Enter) asks for the line typed
+//                           into the shell and left there to edit, not run
 //     onClose():            user dismissed the picker (Esc / clicked outside / Enter with nothing to activate)
 //   });
 //   handle.destroy();   // tear down (called by caller after onPick / onStartNew / onClose)
@@ -15,20 +19,23 @@
 // The text input does double duty:
 //   - filters the past-sessions list by case-insensitive word intersection on
 //     title + prompt text
-//   - drives row 0, which exists only while something is typed: a prefix match
-//     against KNOWN_CLIS (exact or unique) autocompletes to that CLI's "Start
-//     new" row; otherwise the literal filter text is offered as a "Run" row
-//     (typed verbatim into the shell on Enter). With nothing typed the list is
+//   - drives row 0, which exists only while something is typed: a first word
+//     that names a CLI (exactly or as a unique prefix; cli-detect.js) makes
+//     it that CLI's "Start new" row, with any options typed after the name
+//     carried along; otherwise the literal filter text is offered as a "Run"
+//     row. Enter runs it; Shift+Enter types it into the shell unsubmitted,
+//     for adding or changing options there. With nothing typed the list is
 //     the past sessions alone; a plain shell is reached by Esc.
 //
 // Keyboard:
 //   ↑/↓        navigate between rows (skipping disabled active rows)
 //   Enter      activate the highlighted row
+//   ⇧Enter     on row 0: type the command into the shell without running it
 //   Esc        dismiss → onClose
 //   Delete     on a past-session row: remove it from the picker for this
 //              session (in-memory only; sessions-log unchanged)
 
-const KNOWN_CLIS = ['claude', 'codex', 'copilot', 'agent'];
+const { parseLaunch } = require('./cli-detect');
 const cliIcons = require('./cli-icons');
 const { cleanAiTitle, aiTitleDedupeKey } = require('./ai-title');
 const {
@@ -81,6 +88,7 @@ function createPicker({
       <div class="at-picker-footer">
         <span>↑↓ navigate</span>
         <span>↵ select</span>
+        <span>⇧↵ add options</span>
         <span>del hide</span>
         <span>esc skip</span>
       </div>
@@ -93,15 +101,6 @@ function createPicker({
   const modalEl = overlay.querySelector('.at-picker-modal');
 
   // ---- helpers ----
-
-  function detectCliFromFilter(text) {
-    const t = (text || '').trim().toLowerCase();
-    if (!t) return null;
-    if (KNOWN_CLIS.includes(t)) return t;
-    const matches = KNOWN_CLIS.filter(c => c.startsWith(t));
-    if (matches.length === 1) return matches[0];
-    return null;
-  }
 
   // Row 0 ("Start new …" / "Run …") exists only while something is typed.
   // Past rows follow at rowOffset(); a visible-active row is disabled.
@@ -424,21 +423,22 @@ function createPicker({
       const nextSelected = visibleRows.findIndex(s => s.id === previousSelectedSessionId);
       if (nextSelected !== -1) selectedIndex = nextSelected;
     }
-    const detectedCli = detectCliFromFilter(filterText);
+    const launch = parseLaunch(filterText);
     let newSessionLabel = '';
-    if (detectedCli) {
+    if (launch) {
       // Row 0 is the "start new" autocomplete affordance — the user is
       // typing, looking for feedback on what they typed and how it
       // expanded. Render the CLI name in TEXT with the typed prefix
       // bolded so they can see character-by-character that "cl" →
       // "claude" (vs. an icon which would tell them nothing about the
       // match). The icon's job — visual identification of an existing
-      // session — happens on the past-session rows below.
-      const typed = filterText.trim();
-      const matchedLen = Math.min(typed.length, detectedCli.length);
-      const prefix = typed.slice(0, matchedLen);
-      const rest = detectedCli.slice(matchedLen);
-      newSessionLabel = `Start new <strong>${escapeHtml(prefix)}</strong>${escapeHtml(rest)} session`;
+      // session — happens on the past-session rows below. Options typed
+      // after the name follow in the code font: they ride on the launch.
+      const matchedLen = Math.min(launch.typed.length, launch.cli.length);
+      const prefix = launch.typed.slice(0, matchedLen);
+      const rest = launch.cli.slice(matchedLen);
+      newSessionLabel = `Start new <strong>${escapeHtml(prefix)}</strong>${escapeHtml(rest)} session`
+        + (launch.args ? ` <code>${escapeHtml(launch.args)}</code>` : '');
     } else if (filterText.trim()) {
       // A command literal: the code font marks it as a shell command; it runs
       // in the directory named above the input.
@@ -645,13 +645,14 @@ function createPicker({
     applySelectionStyles();
   }
 
-  function activate(index) {
+  function activate(index, { typeOnly = false } = {}) {
     const offset = rowOffset();
     if (offset && index === 0) {
-      const command = detectCliFromFilter(filterText) || filterText.trim();
+      const launch = parseLaunch(filterText);
+      const command = launch ? launch.command : filterText.trim();
       if (command && typeof onStartNew === 'function') {
         cancelActiveHiddenSearch();
-        return onStartNew(command);
+        return onStartNew(command, { typeOnly });
       }
       return;
     }
@@ -706,7 +707,7 @@ function createPicker({
     }
     if (e.key === 'ArrowDown') { e.preventDefault(); moveSelection(+1); return; }
     if (e.key === 'ArrowUp')   { e.preventDefault(); moveSelection(-1); return; }
-    if (e.key === 'Enter')     { e.preventDefault(); activate(selectedIndex); return; }
+    if (e.key === 'Enter')     { e.preventDefault(); activate(selectedIndex, { typeOnly: e.shiftKey }); return; }
     if (e.key === 'Tab') {
       // Tab is "move focus to next element" by default — without a trap it
       // jumps to the terminal behind the modal. We consume it and route it:
@@ -715,16 +716,17 @@ function createPicker({
       //     after typing a search term
       //   · fallback: when there are no past matches, treat Tab as the
       //     CLI prefix autocomplete it used to be — "cl" + Tab → fill in
-      //     "claude"
+      //     "claude" (options typed after the name stay: "cl --resume"
+      //     becomes "claude --resume")
       e.preventDefault();
       if (visibleRows.length > 0) {
         moveSelection(e.shiftKey ? -1 : +1);
         return;
       }
-      const cli = detectCliFromFilter(filterText);
-      if (cli && cli !== filterText.trim()) {
-        input.value = cli;
-        filterText = cli;
+      const launch = parseLaunch(filterText);
+      if (launch && launch.command !== filterText.trim()) {
+        input.value = launch.command;
+        filterText = launch.command;
         selectedIndex = 0;
         render();
       }
@@ -1039,4 +1041,4 @@ function injectStyles() {
   document.head.appendChild(style);
 }
 
-module.exports = { createPicker, KNOWN_CLIS };
+module.exports = { createPicker };

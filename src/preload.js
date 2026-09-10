@@ -98,12 +98,23 @@ contextBridge.exposeInMainWorld('pty', {
   // Get real filesystem path from a dropped File object (Electron 33+ removed file.path)
   getPathForFile: (file) => webUtils.getPathForFile(file),
   // ---- Sessions picker ----
-  // Main fires this once on startup with the current sessions snapshot.
+  // Main fires this on startup with the current sessions snapshot, and again
+  // on picker-reopen.
   onShowPicker: (callback) => ipcRenderer.on('show-picker', (event, payload) => callback(payload)),
+  // The picker again in this window, before a CLI has started here (the
+  // chrome bar's Sessions label; Cmd/Ctrl+Shift+S reaches main directly).
+  reopenPicker: () => ipcRenderer.send('picker-reopen'),
   // User picked a past session from the picker → main kicks the resume runner.
   pickerPick: (id) => ipcRenderer.send('picker-pick', id),
-  // User chose to start a new session with the named CLI (or null/empty for shell).
-  pickerStartNew: (cli) => ipcRenderer.send('picker-start-new', cli),
+  // User chose a launch line (a CLI name, with any options typed after it)
+  // or an arbitrary shell command. Main runs it; with typeOnly (Shift+Enter
+  // in the picker) it types the line into the shell and leaves it there.
+  pickerStartNew: (command, opts) => ipcRenderer.send('picker-start-new', command, opts || {}),
+  // Main typed a launch line into the shell and left it: {cli, command}.
+  // The band asks for Enter; off when that Enter came, the line was
+  // cleared, or a later pick replaced it.
+  onLaunchHintShow: (callback) => ipcRenderer.on('launch-hint-show', (event, payload) => callback(payload)),
+  onLaunchHintOff: (callback) => ipcRenderer.on('launch-hint-off', () => callback()),
   // User dismissed the picker without acting (Esc / clicked outside / chose "fresh shell").
   pickerClose: () => ipcRenderer.send('picker-close'),
   // User clicked a hidden active session row in the picker → bring it back

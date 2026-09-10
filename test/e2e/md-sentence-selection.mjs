@@ -159,7 +159,10 @@ try {
   }));
   assert.ok(visible[0].length && visible[1].length, 'prose visible on both pages');
   const leftName = visible[0].at(-1);
-  const rightName = visible[1][0];
+  // A paragraph split by the fold is repeated at the top of the right page,
+  // so the right-hand pick is the first paragraph that is not the left one.
+  const rightName = visible[1].find((name) => name !== leftName);
+  assert.ok(rightName, 'a distinct paragraph on the right page');
   const from = await point(leftName);
   const to = await point(rightName, 'secondary');
   await page.mouse.move(from.x, from.y); await page.mouse.down();

@@ -26,6 +26,8 @@ const { createViewerSelector } = require('./viewer-selector');
 const { isBandFilePath } = require('./band-viewable');
 const chromeBar = require('./chrome-bar');
 const resumeHint = require('./resume-hint');
+const launcherBand = require('./launcher-band');
+const { parseLaunch } = require('./cli-detect');
 const streamWatch = require('./stream/renderer-watch');
 const streamIndicator = require('./stream/stream-indicator');
 const { createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
@@ -54,6 +56,8 @@ const { isReviewPackagePath } = require('./review-package-path');
 // whenever main pushes a chrome-state payload (hue / cli / prompt / isWorking).
 chromeBar.mount({
   onContextMenu: () => { try { window.pty.chromeBarContextMenu(); } catch {} },
+  // Before a CLI: the Sessions label brings the picker back (main gates it).
+  onSessionsClick: () => { try { window.pty.reopenPicker(); } catch {} },
 });
 
 // Streaming indicator (status dot + toasts on transitions).
@@ -61,6 +65,8 @@ streamIndicator.init();
 window.pty.onChromeState((payload) => {
   chromeBar.update(payload);
   currentCli = (payload && payload.cli) || null;
+  // A CLI is starting here: the launcher strip has done its job.
+  if (currentCli) launcherBand.destroy();
   // Re-fit the terminal in case the chrome height was applied (mac fallback path).
   setTimeout(() => { try { fitAddon.fit(); } catch {} }, 0);
 });
@@ -79,11 +85,35 @@ function closeActivePicker() {
     try { terminal.focus(); } catch {}
   }
 }
+// The launcher strip: the picker's chooser kept in view once the picker
+// hands the window to the shell (Esc, a click outside, or a shell command
+// from its Run row). It mounts together with the picker, beneath it, so
+// the terminal reserves its height from the start and nothing shifts when
+// the picker goes; a pick that starts a CLI removes it. A chip starts that
+// CLI the picker's way (its options included); Shift types the line for
+// editing first. Sessions from the picker order the chips by the CLIs the
+// user has run.
+let lastPickerSessions = [];
+function showLauncher() {
+  if (launcherBand.isMounted()) return;
+  launcherBand.show({
+    clis: launcherBand.launcherClis(lastPickerSessions),
+    platform: window.pty.platform,
+    onStart: (cli, opts) => {
+      launcherBand.destroy();
+      try { window.pty.pickerStartNew(cli, opts); } catch {}
+      try { terminal.focus(); } catch {}
+    },
+    onResize: () => { try { fitAddon.fit(); } catch {} },
+  });
+}
 window.pty.onShowPicker((payload) => {
   closeActivePicker();
   try { clearTerminalSelection(); } catch {}
   try { hideTerminalSelectionCommentHint(); } catch {}
   const { sessions = [], activeIds = [], cwd = null } = payload || {};
+  lastPickerSessions = sessions;
+  showLauncher();
   activePicker = createPicker({
     sessions,
     activeIds,
@@ -96,6 +126,7 @@ window.pty.onShowPicker((payload) => {
       // first prompt), so it always agrees with the prompt shown in the
       // chrome line; the CLI's own resume dialog lists it.
       const picked = sessions.find(s => s.id === id);
+      launcherBand.destroy();
       window.pty.pickerPick(id);
       if (picked) {
         resumeHint.show({
@@ -106,7 +137,12 @@ window.pty.onShowPicker((payload) => {
       }
       closeActivePicker();
     },
-    onStartNew: (cli) => { window.pty.pickerStartNew(cli); closeActivePicker(); },
+    onStartNew: (command, opts) => {
+      // A launch takes the strip with it; a shell command leaves it up.
+      if (parseLaunch(command)) launcherBand.destroy();
+      window.pty.pickerStartNew(command, opts);
+      closeActivePicker();
+    },
     onClose: () => { window.pty.pickerClose(); closeActivePicker(); },
   });
 });
@@ -125,6 +161,14 @@ window.pty.onResumeHintSubmit(() => {
 });
 window.pty.onResumeHintInterceptOff(() => {
   resumeHint.recordInterceptOff();
+});
+// A picker launch typed into the shell: the band asks for the Enter that
+// runs it, and goes when main says the line ran, was cleared, or replaced.
+window.pty.onLaunchHintShow((payload) => {
+  resumeHint.showLaunch(payload || {});
+});
+window.pty.onLaunchHintOff(() => {
+  resumeHint.recordLaunchOff();
 });
 
 const openHttpUrl = createHttpUrlOpener({
@@ -1555,7 +1599,7 @@ function ensureTerminalCommentStyles() {
     }
     .terminal-output-frozen-pill {
       position: fixed;
-      top: calc(var(--at-chrome-height, 0px) + 10px);
+      top: calc(var(--at-chrome-height, 0px) + var(--at-launcher-height, 0px) + 10px);
       left: 50%;
       transform: translateX(-50%);
       z-index: 10002;

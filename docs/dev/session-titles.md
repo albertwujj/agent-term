@@ -54,14 +54,25 @@ config file and leaves it untouched. The override is scoped to launches
 AgentTerm issues and to Codex: no shell wrappers, no rewriting what the
 user typed, no config writes, no guessing at metadata.
 
+A start-new pick runs the line. Taken with Shift+Enter it is typed into
+the shell and left at the prompt instead, so the override is in view and
+the user's own options follow it; their Enter runs it (`picker-start-new`
+in `main.js`, the launch band in `resume-hint.js`). Either way the line
+goes through prompt-capture as typed keystrokes, so the Enter reports the
+whole command and the CLI is recorded the way a hand-typed launch is.
+
 A resume goes through the same launch. AgentTerm does not hand Codex a
 thread id — it starts a fresh process and the user picks the conversation
 in Codex's own `/resume` dialog — but the process outlives that dialog,
 so the setting still governs the resumed thread's title.
 
 A `codex` the user types in the shell is not ours to rewrite, so it keeps
-the default project title. To get names there, the user adds it to their
-own configuration:
+the default project title. Once the picker hands a window to the shell
+(Esc, or a shell command such as `cd` from its Run row) the launcher strip
+(`launcher-band.js`) keeps the CLIs on offer, and a chip starts Codex
+through the same launch, setting included; the picker itself is one step
+away too (Sessions in the chrome bar, Cmd/Ctrl+Shift+S). To get names
+from a hand-typed `codex`, the user adds it to their own configuration:
 
 ```toml
 [tui]
@@ -115,8 +126,11 @@ picker shows that as a drift line.
 ## Tests
 
 `test/ai-title.test.js` covers the predicate and the launch rewrite,
+`test/cli-detect.test.js` which commands count as a launch,
 `test/sessions-log.test.js` the read-time repair, and
 `test/sessions-picker.test.js` the rendered title line. The launch paths
 are covered end to end in `test/e2e/attach-identity-title.mjs`, where the
 fake `codex` refuses to emit a topic unless the override actually reached
-it — so the test fails if the wiring regresses, not merely the helper.
+it — so the test fails if the wiring regresses, not merely the helper;
+that includes the launcher strip after a shell command, its Codex chip
+Shift-clicked so the line is typed, and an option added onto it by hand.

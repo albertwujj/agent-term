@@ -25,10 +25,13 @@
          doesn't overlap the first row of the terminal.
          --at-chrome-bottom-gap adds breathing room below the 1px hue
          divider so the divider reads as a chrome separator rather than
-         the topmost xterm row. Set by chrome-bar.js. */
-      height: calc(100% - var(--at-chrome-height, 0px) - var(--at-chrome-bottom-gap, 0px));
+         the topmost xterm row. Set by chrome-bar.js.
+         --at-launcher-height is the launcher strip while it is up
+         (launcher-band.js), so it pushes the terminal down instead of
+         covering its first rows. */
+      height: calc(100% - var(--at-chrome-height, 0px) - var(--at-chrome-bottom-gap, 0px) - var(--at-launcher-height, 0px));
       width: 100%;
-      margin-top: calc(var(--at-chrome-height, 0px) + var(--at-chrome-bottom-gap, 0px));
+      margin-top: calc(var(--at-chrome-height, 0px) + var(--at-chrome-bottom-gap, 0px) + var(--at-launcher-height, 0px));
     }
     /* Thin scrollbar like Windows Terminal */
     .xterm-viewport::-webkit-scrollbar {

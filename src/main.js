@@ -99,6 +99,7 @@ const { rebuildRuntimeBundles } = require('./runtime-build');
 const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
 const { cleanAiTitle, aiTitleDedupeKey, isConversationTitle, aiCliLaunchCommand } = require('./ai-title');
+const { detectCli } = require('./cli-detect');
 const { aiCliRendererEnv } = require('./cli-renderer-env');
 const { inheritableEnv } = require('./inheritable-env');
 const { isReviewPackagePath } = require('./review-package-path');
@@ -128,27 +129,6 @@ const { requireSourceStartCwd } = require('./source-start-cwd');
 // a friendly productivity-tool primary. Subsequent sessions still use
 // max-min around it.
 const START_HUE = 210;
-
-// Known AI CLIs we can detect from a typed shell command (claude, codex, etc.).
-// First match wins; "gh copilot" is checked before bare "copilot" so the longer
-// form takes precedence.
-const CLI_PATTERNS = [
-  { name: 'copilot', re: /^gh\s+copilot(?:\s|$)/i },
-  { name: 'claude',  re: /^claude(?:\s|$)/i },
-  { name: 'codex',   re: /^codex(?:\s|$)/i },
-  { name: 'copilot', re: /^copilot(?:\s|$)/i },
-  { name: 'agent',   re: /^agent(?:\s|$)/i },
-  { name: 'agent',   re: /^cursor-agent(?:\s|$)/i },
-];
-
-function detectCli(cmd) {
-  const trimmed = (cmd || '').trim();
-  for (const p of CLI_PATTERNS) {
-    if (p.re.test(trimmed)) return p.name;
-  }
-  return null;
-}
-
 
 // Sizes for the DWM iconic thumbnail and live preview bitmaps. Thumbnail size
 // matches Windows 11 default; live preview is a clean 16:9 large enough to look
@@ -372,17 +352,17 @@ let relaunchStarted = false;
 // do in a normal browser instead of inheriting our dark.
 let guestColorScheme = 'light';
 
-function sendResumeHint(channel) {
+function sendHint(channel, payload) {
   try {
     if (mainWindow && mainWindow.webContents) {
-      mainWindow.webContents.send(channel);
+      mainWindow.webContents.send(channel, payload);
     }
   } catch {}
 }
-function notifyResumeHintSubmit() { sendResumeHint('resume-hint-submit'); }
+function notifyResumeHintSubmit() { sendHint('resume-hint-submit'); }
 // The intercept was cancelled by non-Enter input; the hint drops its
 // "press Enter" promise and shows the manual /resume guidance instead.
-function notifyResumeHintInterceptOff() { sendResumeHint('resume-hint-intercept-off'); }
+function notifyResumeHintInterceptOff() { sendHint('resume-hint-intercept-off'); }
 
 // --- Per-window taskbar icon ---
 // Recipe: pure colored rounded square + faint inset top highlight; hue advances
@@ -446,6 +426,13 @@ let activeFileWritten = false;
 // thing). The visual resume hint already tells them what to filter for —
 // this just saves them the /resume keystrokes when they're ready.
 let pendingResumeIntercept = false;
+// Launch flow: a picker start-new with Shift+Enter types the command into
+// the shell and leaves it there, unsubmitted (see picker-start-new). This
+// holds the CLI's name (null for a shell command) while that line awaits
+// the user's Enter, and drives the launch band in the renderer. It ends on
+// Enter (the shell runs whatever the line became), on a cleared line
+// (Ctrl+C, Ctrl+U), or when a later pick clears the line to write its own.
+let pendingLaunch = null;
 // Submit timing: write body, wait until the CLI ECHOES output (proving
 // it's read the body and rendered a frame — therefore back at its read
 // loop), then send CR after a small post-echo margin. The CR lands in
@@ -1544,9 +1531,21 @@ function onPromptCaptured(promptText) {
 
 function onShellCommandTyped(cmd) {
   // Most recent pre-cliStarted shell command wins. If it matches a known CLI
-  // invocation pattern, remember it for the eventual "cli" log entry.
+  // invocation pattern, remember it for the eventual "cli" log entry, and
+  // show the CLI as starting: the chrome band's waiting state at once, and a
+  // title bar naming the CLI so the taskbar button doesn't briefly flash
+  // whatever the CLI sets first (darwin: the band shows the waiting state,
+  // so the title is the CLI name alone). A launch typed by hand and one
+  // typed by the picker both arrive here, so both start the same way.
   const cli = detectCli(cmd);
-  if (cli) detectedCli = cli;
+  if (!cli) return;
+  detectedCli = cli;
+  syncChromeState();
+  try {
+    if (mainWindow) {
+      mainWindow.setTitle(process.platform === 'darwin' ? cli : `${cli} — waiting for prompt`);
+    }
+  } catch {}
 }
 
 // Take over the identity of an existing session (called when the user picks
@@ -1678,7 +1677,7 @@ function pickerSessionPayload(userDataDir, s) {
   };
 }
 
-function showSessionsPicker() {
+function showSessionsPicker(cwd = null) {
   if (!mainWindow || !mainWindow.webContents) return;
   // Reflect the picker state in the title bar / button text — until the user
   // chooses something, this is what identifies the window.
@@ -1690,12 +1689,28 @@ function showSessionsPicker() {
     const list = sessionsLog.menuList(userDataDir);
     const sessions = list.map(s => pickerSessionPayload(userDataDir, s));
     const activeIds = sessions.filter(s => s.isActive).map(s => s.id);
-    // The shell has just spawned, so its cwd is the start dir: read it
-    // synchronously rather than probing the live process.
-    mainWindow.webContents.send('show-picker', { sessions, activeIds, cwd: shellStartCwd() });
+    // On startup the shell has just spawned, so its cwd is the start dir:
+    // read synchronously rather than probing the live process. A reopen
+    // passes the live cwd, which a cd in between has moved.
+    mainWindow.webContents.send('show-picker', { sessions, activeIds, cwd: cwd || shellStartCwd() });
   } catch (err) {
     console.warn('[main] showSessionsPicker failed:', err && err.message);
   }
+}
+
+// The picker again, in this window, while no CLI has started here: the user
+// went to the shell (Esc, or a command such as cd) and now wants a CLI
+// launched the picker's way, with the line it types. Once a CLI has booted
+// the window is that session's, and a fresh picker belongs in a fresh
+// window (Cmd/Ctrl+Shift+N). Reached from the chrome bar's Sessions label
+// and Cmd/Ctrl+Shift+S.
+async function reopenSessionsPicker() {
+  if (iconLocked) return;
+  clearPendingLaunchLine();
+  let cwd = null;
+  try { cwd = await getPrimaryCwd(); } catch {}
+  if (iconLocked) return;   // a CLI booted while the cwd was read
+  showSessionsPicker(cwd);
 }
 
 function chromeBarCopyText() {
@@ -2340,6 +2355,15 @@ function createWindow() {
       launchNewInstance();
       return;
     }
+    // Cmd/Ctrl+Shift+S: the sessions picker again in this window, while no
+    // CLI has started here (reopenSessionsPicker). With a CLI running the
+    // chord is the terminal's.
+    const cmdShiftS = (input.control || input.meta) && input.shift && (k === 'S' || k === 's');
+    if (cmdShiftS && !iconLocked) {
+      event.preventDefault();
+      reopenSessionsPicker();
+      return;
+    }
     // Cmd/Ctrl+Shift+R was here, and is retired. It predated Shift+N and did
     // the same job worse: both spawn a fresh process that rebuilds every bundle
     // before it opens, so both pick up edited source, and either way you land
@@ -2729,6 +2753,13 @@ ipcMain.on('pty-input', (event, data) => {
       notifyResumeHintInterceptOff();
     }
   }
+  // A typed launch line ends with the user's Enter (the shell runs whatever
+  // the line became; onShellCommandTyped reads it) or with the line cleared
+  // (Ctrl+C, Ctrl+U). Anything else is options being added to it.
+  if (pendingLaunch && !isAutoTerminalProtocol && typeof data === 'string') {
+    if (isPlainEnter(data)) endPendingLaunch('Enter');
+    else if (data === '\x03' || data === '\x15') endPendingLaunch('line cleared');
+  }
   if (ptyProcess) {
     ptyProcess.write(data);
   }
@@ -3091,6 +3122,7 @@ ipcMain.on('picker-pick', (event, id) => {
     // keeps the failure loud: if the directory is gone the CLI doesn't
     // launch somewhere wrong — the shell prints the cd error instead.
     const command = picked.cwd ? `cd ${shellEscape(picked.cwd)} && ${launch}` : launch;
+    clearPendingLaunchLine();
     try { ptyProcess.write(command + '\r'); } catch {}
     pendingResumeIntercept = true;
     log('[resume] armed intercept after picker-pick id=' + id +
@@ -3098,30 +3130,66 @@ ipcMain.on('picker-pick', (event, id) => {
   }
 });
 
-ipcMain.on('picker-start-new', (event, cli) => {
-  // cli may be a known CLI name, an arbitrary command literal, or null/empty.
+// Written as keystrokes: the pty gets the bytes, and prompt-capture sees
+// them the way it sees the user's own, so the shell line and the capture
+// buffer stay in step (its Enter then reports the whole line, and its
+// Ctrl+U clears what we typed too).
+function writeTyped(text) {
+  try { ptyProcess.write(text); } catch {}
+  if (promptCapture && !promptCapture.isLocked()) promptCapture.handleInput(text);
+}
+
+// Type a command into the shell and leave it at the prompt. A CLI launch
+// gets the band that asks for Enter; a shell command is just typed.
+function typeLaunchLine(line, cli) {
+  clearPendingLaunchLine();
+  writeTyped(line);
+  pendingLaunch = { cli };
+  if (cli) sendHint('launch-hint-show', { cli, command: line.trim() });
+  log('[launch] typed the ' + (cli || 'shell') + ' line, unsubmitted');
+}
+
+// A launch line still at the prompt is cleared (Ctrl+U kills the line in
+// bash, zsh and fish alike) before another pick writes to the shell.
+function clearPendingLaunchLine() {
+  if (!pendingLaunch || !ptyProcess) return;
+  writeTyped('\x15');
+  endPendingLaunch('replaced');
+}
+
+function endPendingLaunch(reason) {
+  if (!pendingLaunch) return;
+  log('[launch] ' + (pendingLaunch.cli || 'shell') + ' line: ' + reason);
+  pendingLaunch = null;
+  sendHint('launch-hint-off');
+}
+
+ipcMain.on('picker-start-new', (event, command, { typeOnly = false } = {}) => {
+  // command is a launch line the picker read as an AI CLI ("codex",
+  // "claude --resume") or an arbitrary shell command literal.
   // No resume intercept on fresh starts — only on resumes from past sessions.
   pendingResumeIntercept = false;
-  if (!cli || !ptyProcess) return;
-  // Only set detectedCli if cli matches a known AI CLI. Arbitrary command
-  // literals (typed by user) launch and run, but don't trigger session
-  // recording — they're treated as ordinary shell commands.
-  const known = detectCli(cli);
-  if (known) {
-    detectedCli = known;
-    // Show the banner immediately in "(starting…)" state; tryLockIcon will
-    // upgrade it once the OSC title arrives.
-    syncChromeState();
-    // Title bar reflects the waiting-for-prompt state so the taskbar button
-    // doesn't briefly flash whatever the CLI sets first. darwin: the chrome
-    // band shows the waiting state, so the title is the CLI name alone.
-    try {
-      mainWindow.setTitle(process.platform === 'darwin'
-        ? known
-        : `${known} — waiting for prompt`);
-    } catch {}
+  if (!command || !ptyProcess) return;
+  // An AI CLI launch carries the options we add (Codex's title setting); a
+  // shell command is written as typed.
+  const known = detectCli(command);
+  const line = known ? aiCliLaunchCommand(command) : command;
+  if (typeOnly) {
+    // Shift+Enter: the line sits at the prompt with those options in view,
+    // the user adds or changes any, and their Enter runs it; the trailing
+    // space leaves the cursor where an option goes.
+    typeLaunchLine(line + ' ', known);
+    return;
   }
-  try { ptyProcess.write(aiCliLaunchCommand(cli) + '\r'); } catch {}
+  // Enter: run it. Written as keystrokes, so the Enter reaches
+  // onShellCommandTyped with the whole line, which is where a CLI is
+  // recorded and shown as starting; a shell command is not a session start.
+  clearPendingLaunchLine();
+  writeTyped(line + '\r');
+});
+
+ipcMain.on('picker-reopen', () => {
+  reopenSessionsPicker();
 });
 
 ipcMain.on('picker-close', () => {

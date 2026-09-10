@@ -40,6 +40,8 @@
 // Interaction:
 //   · Whole bar is a -webkit-app-region: drag region for window dragging.
 //   · Right-click on the prompt area copies the full captured prompt.
+//   · Before a CLI, the Sessions label is a click target: the picker again
+//     in this window (onSessionsClick; main decides whether it still may).
 
 const BAR_HEIGHT_PX = 42;
 const BODY_FONT = '16px "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, "Courier New", monospace';
@@ -106,6 +108,8 @@ const BAR_CSS = `
   color: #909090;
   font-style: italic;
 }
+.at-chrome-text.at-chrome-sessions { cursor: pointer; }
+.at-chrome-text.at-chrome-sessions:hover { color: #c8c8c8; }
 .at-chrome-lock, .at-chrome-jobs {
   flex: 0 0 auto;
   width: 16px; height: 16px;
@@ -258,13 +262,13 @@ function escapeHtml(s) {
   }[ch]));
 }
 
-function ensureMounted({ onContextMenu } = {}) {
+function ensureMounted({ onContextMenu, onSessionsClick } = {}) {
   if (mountedRoot) return mountedRoot;
   injectStyles();
   const el = document.createElement('div');
   el.className = 'at-chrome';
   el.innerHTML = `
-    <span class="at-chrome-text dim">Sessions</span>
+    <span class="at-chrome-text dim at-chrome-sessions">Sessions</span>
   `;
   document.body.appendChild(el);
   el.style.webkitAppRegion = 'drag';
@@ -278,13 +282,19 @@ function ensureMounted({ onContextMenu } = {}) {
     ev.stopPropagation();
     if (typeof onContextMenu === 'function') onContextMenu();
   });
-  // Jobs-icon click → detail popover. Delegated so it survives the
-  // innerHTML replacement update() does.
+  // Jobs-icon click → detail popover; Sessions label → the picker again.
+  // Delegated so both survive the innerHTML replacement update() does.
   el.addEventListener('click', (ev) => {
-    const hit = ev.target && ev.target.closest && ev.target.closest('.at-chrome-jobs');
-    if (!hit) return;
-    ev.stopPropagation();
-    toggleJobsPopover();
+    const closest = (sel) => ev.target && ev.target.closest && ev.target.closest(sel);
+    if (closest('.at-chrome-jobs')) {
+      ev.stopPropagation();
+      toggleJobsPopover();
+      return;
+    }
+    if (closest('.at-chrome-sessions') && typeof onSessionsClick === 'function') {
+      ev.stopPropagation();
+      onSessionsClick();
+    }
   });
   // Full-width hue divider, sibling of the chrome bar — sits at the
   // exact bottom of the titleBarOverlay region and extends past
@@ -304,7 +314,7 @@ function ensureMounted({ onContextMenu } = {}) {
 // composition by mutating the DOM in place.
 function renderBarMarkup(state) {
   const s = state || {};
-  let text, dim;
+  let text, dim, sessions = false;
   if (s.prompt) {
     text = s.prompt;
     dim = false;
@@ -314,9 +324,10 @@ function renderBarMarkup(state) {
   } else {
     text = 'Sessions';
     dim = true;
+    sessions = true;
   }
   return `
-    <span class="at-chrome-text${dim ? ' dim' : ''}">${escapeHtml(text)}</span>
+    <span class="at-chrome-text${dim ? ' dim' : ''}${sessions ? ' at-chrome-sessions' : ''}">${escapeHtml(text)}</span>
     ${renderJobsMarkup(s.jobs)}
     ${renderLockMarkup(s.lock)}
   `;

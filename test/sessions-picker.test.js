@@ -31,11 +31,12 @@ async function test(name, fn) {
   }
 }
 
-function key(el, keyName) {
+function key(el, keyName, init = {}) {
   const event = new window.KeyboardEvent('keydown', {
     key: keyName,
     bubbles: true,
     cancelable: true,
+    ...init,
   });
   el.dispatchEvent(event);
   return event;
@@ -484,6 +485,59 @@ await test('typing brings row 0 back and selects it', () => {
   assert.ok(rows[0].classList.contains('at-picker-row-selected'));
   key(el, 'Enter');
   assert.strictEqual(started, 'codex');
+  picker.destroy();
+});
+
+await test('options typed after the CLI name ride on the launch, and Tab completes the name alone', () => {
+  let started = null;
+  const picker = createPicker({
+    sessions: [],
+    onPick: () => {}, onStartNew: (command, opts) => { started = [command, opts]; }, onClose: () => {},
+  });
+  const el = document.querySelector('.at-picker-input');
+  input(el, 'cl --resume');
+  const label = document.querySelector('.at-picker-row-new .at-picker-newlabel');
+  assert.strictEqual(label.querySelector('strong').textContent, 'cl');
+  assert.strictEqual(label.querySelector('code').textContent, '--resume');
+  assert.ok(label.textContent.includes('Start new claude session'));
+  key(el, 'Tab');
+  assert.strictEqual(el.value, 'claude --resume');
+  key(el, 'Enter');
+  assert.deepStrictEqual(started, ['claude --resume', { typeOnly: false }]);
+  picker.destroy();
+});
+
+await test('Shift+Enter asks for the line typed into the shell, not run', () => {
+  let started = null;
+  const picker = createPicker({
+    sessions: [],
+    onPick: () => {}, onStartNew: (command, opts) => { started = [command, opts]; }, onClose: () => {},
+  });
+  const el = document.querySelector('.at-picker-input');
+  input(el, 'codex');
+  key(el, 'Enter', { shiftKey: true });
+  assert.deepStrictEqual(started, ['codex', { typeOnly: true }]);
+  assert.ok([...document.querySelectorAll('.at-picker-footer span')].some(s => s.textContent === '⇧↵ add options'));
+  picker.destroy();
+});
+
+await test('an invocation known in full is a launch; a shell command stays a Run row', () => {
+  let started = null;
+  const picker = createPicker({
+    sessions: [],
+    onPick: () => {}, onStartNew: (command) => { started = command; }, onClose: () => {},
+  });
+  const el = document.querySelector('.at-picker-input');
+  input(el, 'gh copilot');
+  assert.ok(document.querySelector('.at-picker-row-new .at-picker-newlabel').textContent.includes('Start new copilot session'));
+  key(el, 'Enter');
+  assert.strictEqual(started, 'gh copilot');
+  input(el, 'cd ~/repo');
+  const label = document.querySelector('.at-picker-row-new .at-picker-newlabel');
+  assert.strictEqual(label.querySelector('code').textContent, 'cd ~/repo');
+  assert.ok(label.textContent.startsWith('+ Run'));
+  key(el, 'Enter');
+  assert.strictEqual(started, 'cd ~/repo');
   picker.destroy();
 });
 

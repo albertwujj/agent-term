@@ -23,6 +23,10 @@
 //      a project label already in the log is repaired by the named thread
 //   6. codex typed by hand, so no override: the project label and its
 //      spinner frames never become a conversation title
+//   7. codex after a shell command: the launcher strip stays up, a
+//      Shift-click on its codex chip types the line, an option is added by
+//      hand, Enter runs it
+//      → the override reached codex, and the named thread is the title
 //
 // Run: npm run test:e2e
 
@@ -51,10 +55,13 @@ const PROMPT = 'please add retry logic to the uploader';
 // session the window recorded. How it starts decides which launch path is
 // under test: `seed` pre-writes a past session and picks it (picker-pick,
 // with the resume intercept armed), `pickerLaunch` sends picker-start-new,
-// and the default types the bare command the way the user would in the shell.
-// Only the picker paths go through the launch-command rewrite, so the codex
-// scenarios below can tell "we supplied the setting" from "we didn't".
-async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch = false, seed = [] } = {}) {
+// `stripLaunch` runs a shell command first and Shift-clicks the launcher
+// strip's chip, so the line is typed and the Enter that runs it is the
+// user's, and the default types the bare command the way the user would in
+// the shell. Only the picker and strip paths go through the launch-command
+// rewrite, so the codex scenarios below can tell "we supplied the setting"
+// from "we didn't".
+async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch = false, stripLaunch = false, seed = [] } = {}) {
   const UD = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-attach-e2e-')));
   for (const event of seed) sessionsLog.appendEvent(UD, event);
   const app = await electron.launch({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR], timeout: 45_000 });
@@ -75,6 +82,19 @@ async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch
     await page.evaluate((id) => window.pty.pickerPick(id), seed[0].id);
   } else if (pickerLaunch) {
     await page.evaluate((command) => window.pty.pickerStartNew(command), cli);
+  } else if (stripLaunch) {
+    // The Escape above left the launcher strip up; a shell command keeps it.
+    await page.keyboard.type('cd .');
+    await page.keyboard.press('Enter');
+    await sleep(300);
+    await page.waitForSelector('.at-launcher', { timeout: 5_000 });
+    await page.click(`.at-launcher-chip[data-cli="${cli}"]`, { modifiers: ['Shift'] });   // typed, left at the prompt
+    await page.waitForSelector('.at-resume-hint.launch', { timeout: 5_000 });
+    await page.waitForFunction(() => !document.querySelector('.at-launcher'), null, { timeout: 5_000 });
+    await sleep(300);
+    await page.keyboard.type('--model fake');   // an option added onto the typed line
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !document.querySelector('.at-resume-hint'), null, { timeout: 5_000 });
   } else {
     await page.keyboard.type(cli);
     await page.keyboard.press('Enter');
@@ -182,6 +202,21 @@ console.log('6 — Codex manually launched with default title never claims a pro
   const { events, session } = await runScenario('codex-default', fake, [PROMPT], { cli: 'codex' });
   check('manual Codex still captures prompts', session && session.prompt === PROMPT, session && session.prompt);
   check('default project title is not recorded', session && session.title === null && !events.some(e => e.e === 'title'),
+    JSON.stringify(events.filter(e => e.e === 'title')));
+}
+
+console.log('7 — Codex after a shell command: the launcher strip types the line, an option added by hand');
+{
+  const fake = codexWithTitleSetting([
+    osc('codex | 01a072c1-544f-7153-9da1-a39c29e6e9b9'), 'read -r a',
+    osc(CODEX_TOPIC), 'read -r b',
+  ].join('; ') + ';');
+  const { events, session } = await runScenario('codex-strip', fake, [PROMPT], { cli: 'codex', stripLaunch: true });
+  check('the strip\'s line carries the title setting past a hand-typed option',
+    session && session.title === CODEX_TOPIC, session && session.title);
+  check('the session records codex and the typed prompt',
+    session && session.cli === 'codex' && session.prompt === PROMPT, JSON.stringify(session));
+  check('Codex unnamed ID never logged', events.filter(e => e.e === 'title').every(e => e.title === CODEX_TOPIC),
     JSON.stringify(events.filter(e => e.e === 'title')));
 }
 
