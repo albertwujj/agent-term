@@ -301,6 +301,104 @@ test('Ctrl+C copies the selection as message text on Windows', () => {
   assertEqual(scrollLine, 9, 'Ctrl+C should restore the viewport on Windows');
 });
 
+for (const alternate of [false, true]) {
+  test(`Windows Enter smart-copies without terminal input in the ${alternate ? 'alternate' : 'normal'} buffer`, async () => {
+    const terminal = createTestTerminal();
+    const copied = [];
+    const input = [];
+    let disarmed = 0;
+    try {
+      if (alternate) await writeAndWait(terminal, '\x1b[?1049h');
+      await writeAndWait(terminal, '⏺ selected prose\r\n  wraps here\r\n• next item');
+      terminal.select(0, 0, terminal.cols * 2 + '• next item'.length);
+      const viewportY = terminal.buffer.active.viewportY;
+      terminal.onData((data) => input.push(data));
+      terminal.attachCustomKeyEventHandler((event) => handleTerminalKeydown({
+        event,
+        terminal,
+        platform: 'win32',
+        writeClipboardText: (text) => copied.push(text),
+        onSelectionCopied: () => {
+          assertTrue(!terminal.hasSelection(), 'Disarm the comment snapshot after clearing the live selection');
+          disarmed++;
+        },
+      }));
+
+      // jsdom doesn't generate the browser's follow-up keypress. Reproduce it
+      // only for an uncancelled keydown: returning false to xterm alone leaves
+      // this path open, and the selection has already been cleared by then.
+      const pressEnter = () => {
+        const dispatch = (type) => terminal.textarea.dispatchEvent(new window.KeyboardEvent(type, {
+          key: 'Enter', code: 'Enter', keyCode: 13, charCode: type === 'keypress' ? 13 : 0,
+          bubbles: true, cancelable: true,
+        }));
+        if (dispatch('keydown')) dispatch('keypress');
+        dispatch('keyup');
+      };
+
+      pressEnter();
+      assertEqual(copied, ['selected prose wraps here\nnext item'], 'Enter should use smart copy');
+      assertEqual(input, [], 'The copy must not send Enter through xterm.onData to the PTY');
+      assertEqual(disarmed, 1, 'Copy must dismiss the saved selection and its hint');
+      assertTrue(!terminal.hasSelection(), 'Copy should clear the selection');
+      assertEqual(terminal.buffer.active.viewportY, viewportY, 'Copy should preserve the viewport');
+
+      pressEnter();
+      assertEqual(input, ['\r'], 'The next Enter without a selection should reach the PTY once');
+      assertEqual(copied.length, 1, 'Enter without a selection must not copy again');
+      assertEqual(disarmed, 1, 'Enter without a selection must not trigger copy cleanup');
+    } finally {
+      terminal.dispose();
+    }
+  });
+}
+
+test('Windows Enter copies and disarms a saved selection after mouse capture clears the live selection', () => {
+  let saved = '⏺ saved prose\n  wraps here';
+  let copied;
+  const event = createKeyEvent({ key: 'Enter' });
+  const options = {
+    event,
+    terminal: { hasSelection: () => false },
+    platform: 'win32',
+    copyArmedSelection: (transform) => {
+      if (!saved) return false;
+      copied = transform(saved);
+      return true;
+    },
+    onSelectionCopied: () => { saved = null; },
+  };
+  assertEqual(handleTerminalKeydown(options), false, 'The saved selection owns the first Enter');
+  assertTrue(event.isDefaultPrevented(), 'Snapshot copy must also suppress keypress');
+  assertEqual(copied, 'saved prose wraps here', 'Snapshot copy must use smart copy');
+  assertEqual(saved, null, 'Copy must disarm the saved selection');
+  assertEqual(handleTerminalKeydown({ ...options, event: createKeyEvent({ key: 'Enter' }) }), true,
+    'A second Enter must reach the shell after the saved selection is dismissed');
+});
+
+test('modified Enter and non-Windows Enter keep their terminal behavior with a selection', () => {
+  for (const overrides of [{ shiftKey: true }, { ctrlKey: true }, { altKey: true }, { metaKey: true }]) {
+    const event = createKeyEvent({ key: 'Enter', ...overrides });
+    const allowed = handleTerminalKeydown({
+      event,
+      terminal: { hasSelection: () => true },
+      platform: 'win32',
+    });
+    assertEqual(allowed, true, 'Modified Enter must not copy');
+    assertTrue(!event.isDefaultPrevented(), 'Modified Enter should keep its default behavior');
+  }
+  for (const platform of ['darwin', 'linux']) {
+    const event = createKeyEvent({ key: 'Enter' });
+    const allowed = handleTerminalKeydown({
+      event,
+      terminal: { hasSelection: () => true },
+      platform,
+    });
+    assertEqual(allowed, true, 'Enter should keep its terminal behavior outside Windows');
+    assertTrue(!event.isDefaultPrevented(), 'Non-Windows Enter should keep its default behavior');
+  }
+});
+
 test('Cmd+Shift+C copies the selection as it appears on macOS', () => {
   let copiedText = null;
   let clearCalls = 0;

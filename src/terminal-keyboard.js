@@ -23,6 +23,7 @@ function handleTerminalKeydown({
   pasteFromClipboard,
   writeClipboardText,
   copyArmedSelection,
+  onSelectionCopied,
 }) {
   if (event.type !== 'keydown') return true;
 
@@ -56,15 +57,23 @@ function handleTerminalKeydown({
   const copy = (transform) => {
     if (terminal.hasSelection()) {
       copySelectionToClipboard({ terminal, writeClipboardText, transform });
-      return true;
+    } else if (!(typeof copyArmedSelection === 'function' && copyArmedSelection(transform))) {
+      return false;
     }
-    return typeof copyArmedSelection === 'function' && copyArmedSelection(transform);
+    // Clearing xterm's selection fires selection/scroll listeners, which can
+    // restore the comment highlight from its saved snapshot. Disarm after
+    // those listeners run, for both live selections and snapshot copies.
+    if (typeof onSelectionCopied === 'function') onSelectionCopied();
+    return true;
   };
 
   if (platform === 'win32') {
     // The console's copy gesture, so the same copy as Ctrl+C.
-    if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.shiftKey && terminal.hasSelection()) {
-      copySelectionToClipboard({ terminal, writeClipboardText, transform: smartCopyText });
+    if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey && copy(smartCopyText)) {
+      // Returning false only stops xterm's keydown handler. Cancel the browser
+      // default too, or a follow-up keypress sends Enter after copying clears
+      // the selection.
+      event.preventDefault();
       return false;
     }
 

@@ -1412,9 +1412,9 @@ terminal.attachCustomKeyEventHandler((event) => {
       const text = armedTerminalSelectionContext ? armedTerminalSelectionContext.selectedText : '';
       if (!text) return false;
       navigator.clipboard.writeText(transform ? transform(text) : text);
-      hideTerminalSelectionCommentHint();
       return true;
     },
+    onSelectionCopied: hideTerminalSelectionCommentHint,
   });
   // A nav-key keydown headed for the shell means the user is driving a running
   // program (navigating a prompt/menu), not commenting — thaw the frozen view so
