@@ -3,7 +3,9 @@
 //
 // Public API:
 //   const handle = createPicker({
-//     sessions: [{ id, hue, cli, title, prompt, isActive, lastEventAt }, ...],
+//     sessions: [{ id, hue, cli, title, prompt, identityParts, lastPrompt, isActive, lastEventAt }, ...],
+//                 prompt is the identity: the first prompt, joined with the
+//                 next one or two while short; identityParts are those prompts
 //     activeIds: [number],          // ids that are currently active (disabled in list)
 //     cwd: string | null,           // where a new session starts (the shell's start dir)
 //     onPick(id):           user resumed a past session
@@ -265,6 +267,8 @@ function createPicker({
           title: s.title,
           lastTitle: s.lastTitle,
           prompt: s.prompt,
+          identityParts: s.identityParts,
+          lastPrompt: s.lastPrompt,
           lastEventAt: s.lastEventAt,
           isActive: s.isActive,
           isHidden: s.isHidden,
@@ -537,19 +541,24 @@ function createPicker({
       }
       // Conditional subtitle lines.
       //   · last prompt — recency hint ("what was I most recently working
-      //     on") with a ↳ continuation glyph. Suppressed when there's no
-      //     follow-up (lastPrompt == prompt) or no prompt at all.
+      //     on") with a ↳ continuation glyph. Suppressed when the identity
+      //     line already shows it (it is the first prompt, or one joined
+      //     onto it) or there is no prompt at all.
       //   · title lines — symmetric with the prompts pair above:
       //       title (italic, the identity title: the CLI's name for this
       //       conversation), then ↳ lastTitle (italic) when the window
       //       most recently ran something else.
       //     Both fall through redundancy filters (empty / equal to cli /
       //     equal to either prompt) and dedupe against each other.
-      const showLast = s.lastPrompt && s.lastPrompt !== s.prompt;
+      const identityParts = Array.isArray(s.identityParts) && s.identityParts.length
+        ? s.identityParts
+        : [s.prompt];
+      const showLast = s.lastPrompt && !identityParts.includes(s.lastPrompt);
       const titleCandidates = [];
       const titleKeys = new Set([
         aiTitleDedupeKey(s.cli, s.cli),
         aiTitleDedupeKey(s.prompt, s.cli),
+        ...identityParts.map(p => aiTitleDedupeKey(p, s.cli)),
         aiTitleDedupeKey(s.lastPrompt, s.cli),
       ].filter(Boolean));
       function addTitleCandidate(rawTitle) {

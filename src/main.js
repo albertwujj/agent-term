@@ -58,6 +58,7 @@ const {
 } = require('./caret-shortcut');
 const { getViewerShortcutAction } = require('./viewer-shortcut');
 const { createPromptCapture } = require('./prompt-capture');
+const { identityFromPrompts } = require('./session-identity');
 const promptThumbnail = require('./prompt-thumbnail');
 const dwm = require('./dwm-thumbnail');
 const sessionsLog = require('./sessions-log');
@@ -410,7 +411,15 @@ let lockedTitle = null;
 let lockedHue = null;
 let sessionStartTime = null;
 let tooltipInterval = null;
+// The session's identity text: the verbatim first prompt, joined with the
+// next one or two while short (session-identity.js). Every identity surface
+// reads it under this, its historical name.
 let firstPrompt = null;
+// The prompts the identity is built from, with their times, and whether a
+// later prompt can still join. Kept in step with the fold in sessions-log
+// by using the same rule, so the window and the picker agree.
+let identityPrompts = [];
+let identityComplete = false;
 // Directory the established agent session was launched from. Unlike the PTY's
 // live cwd, this only gains meaning once an initial prompt promotes the window
 // to a session (or a recorded session is resumed). Successor windows use it in
@@ -683,6 +692,14 @@ function identityString() {
   return firstPrompt || '';
 }
 
+// The prompts the identity is made of, as text. Surfaces that show the
+// identity once (the chrome bar, the thumbnail header) drop these from
+// their prompt lists, or the same words would appear twice.
+function identityPartSet() {
+  if (identityPrompts.length > 0) return new Set(identityPrompts.map(p => p.prompt));
+  return new Set(firstPrompt ? [firstPrompt] : []);
+}
+
 function cycleIconParams(idx) {
   return {
     hue: (idx * ICON_HUE_STEP) % 360,
@@ -819,9 +836,11 @@ function thumbnailPayload() {
     } catch {}
   }
   const allPrompts = logEntries.filter(p => p && p.prompt);
+  const identityParts = identityPartSet();
   // Body list (small thumbnail) shows recent prompts newest-first, EXCLUDING
-  // firstPrompt — it lives in the header and shouldn't appear again below.
-  const recentPrompts = allPrompts.slice().reverse().filter(p => p.prompt !== firstPrompt);
+  // the identity's prompts — they live in the header and shouldn't appear
+  // again below.
+  const recentPrompts = allPrompts.slice().reverse().filter(p => !identityParts.has(p.prompt));
   // Live-preview timeline: chronological merge of prompts + titles. Titles
   // are filtered to those AFTER firstPrompt's timestamp (boot-banner titles
   // aren't part of the session's narrative) and deduped against repeats.
@@ -849,8 +868,10 @@ function thumbnailPayload() {
   // This handles raw OSC variants like "Claude Code · X · X" vs "✳ X"
   // as the same semantic title.
   const titleSeen = new Set();
-  const fpEchoKey = aiTitleDedupeKey(firstPrompt || '', detectedCli);
-  if (fpEchoKey) titleSeen.add(fpEchoKey);
+  for (const part of identityParts) {
+    const echoKey = aiTitleDedupeKey(part, detectedCli);
+    if (echoKey) titleSeen.add(echoKey);
+  }
   const filteredTitles = [];
   for (const t of allTitles) {
     // The same read-time repair listSessions applies: a Codex project label
@@ -881,7 +902,7 @@ function thumbnailPayload() {
   // (most recent at bottom) and stays consistent with the chronological
   // live preview layout.
   const recentActivity = events
-    .filter(e => !(e.type === 'prompt' && e.text === firstPrompt));
+    .filter(e => !(e.type === 'prompt' && identityParts.has(e.text)));
   // Pre-prompt state: no captured prompts yet but we have an OSC title.
   // Use the title as the header's "verbatim" stand-in so the card isn't
   // empty during the brief gap between CLI boot and the user's first Enter.
@@ -926,6 +947,7 @@ function thumbnailPayload() {
     cli: detectedCli || '',
     isWorking,
     firstPrompt: headerText,
+    identityParts: [...identityParts],
     firstPromptOverflow,
     refs,
     recentPrompts,
@@ -1499,8 +1521,21 @@ function onPromptCaptured(promptText) {
     });
   }
 
+  // The identity takes this prompt while it is still short (session-
+  // identity.js): the same rule the fold applies to the log, so this window
+  // and the picker name the session alike. Growth re-renders the surfaces
+  // the first prompt did; the letters in front stay as they were.
+  let identityGrew = false;
+  if (!identityComplete) {
+    identityPrompts.push({ prompt: promptText, t: lastPromptTime });
+    const identity = identityFromPrompts(identityPrompts);
+    identityPrompts = identity.prompts;
+    identityComplete = identity.complete;
+    if (!isFirst && identity.text !== firstPrompt) identityGrew = true;
+    firstPrompt = identity.text;
+  }
+
   if (isFirst) {
-    firstPrompt = promptText;
     // The boot vocabulary closes here — from now on, arriving OSC titles
     // outside it are logged as the session's drifting title (see the
     // set-title handler).
@@ -1528,6 +1563,9 @@ function onPromptCaptured(promptText) {
     // We render the icon first so we know the chosen N; the title is set
     // from the same N, keeping the icon and title text in sync. Identity
     // is the verbatim first prompt.
+    renderIdentityIconAndTitle();
+    syncChromeState();
+  } else if (identityGrew) {
     renderIdentityIconAndTitle();
     syncChromeState();
   }
@@ -1561,6 +1599,12 @@ function resumeFromSession(picked) {
   lockedHue = (typeof picked.hue === 'number') ? picked.hue : null;
   lockedTitle = picked.title || null;
   firstPrompt = picked.prompt || null;
+  // The identity's prompts come along, with their times: one that is still
+  // short and young keeps taking prompts here, as the fold will.
+  identityPrompts = Array.isArray(picked.identityPrompts) && picked.identityPrompts.length
+    ? picked.identityPrompts.map(p => ({ prompt: p.prompt, t: p.t || 0 }))
+    : (firstPrompt ? [{ prompt: firstPrompt, t: picked.startedAt || 0 }] : []);
+  identityComplete = identityFromPrompts(identityPrompts).complete;
   sessionCwd = picked.cwd || shellStartCwd();
   detectedCli = picked.cli || null;
   sessionStartTime = Date.now();
@@ -1671,6 +1715,10 @@ function pickerSessionPayload(userDataDir, s) {
     title: s.title,
     lastTitle: s.lastTitle,
     prompt: s.prompt,
+    // The prompts the identity is made of; the picker keeps its "last
+    // prompt" line for a prompt the identity does not already show.
+    identityParts: (s.identityPrompts || []).map(p => p.prompt),
+    lastPrompt: s.lastPrompt,
     lastEventAt: s.lastEventAt,
     isActive: s.isActive,
     isHidden,

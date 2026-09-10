@@ -547,11 +547,15 @@ function buildLivePreviewScript(opts) {
     sessionStartTime = 0,
     displayScale = 1,
     firstPrompt = '',
+    identityParts = null,
     firstPromptOverflow = '',
     refs = [],
     thumbWidth = 0,
     thumbHeight = 0,
   } = opts || {};
+  // The prompts the header (firstPrompt) is made of: the first prompt and
+  // the ones joined onto it while it was short (session-identity.js).
+  const headerPrompts = new Set(Array.isArray(identityParts) && identityParts.length ? identityParts : [firstPrompt]);
 
   const fontStack = JSON.stringify(FONT_STACK);
   // Icon size in canvas pixels matches the metadata-strip text scale (label
@@ -568,21 +572,22 @@ function buildLivePreviewScript(opts) {
   //     payload the small thumbnail card uses, since the thumb and live
   //     preview never display simultaneously and there's no reason for
   //     them to show different slices of the same prompt.
-  //   · Activity list excludes the firstPrompt event entirely so the live
-  //     preview never repeats text that's already visible elsewhere.
-  // Titles emitted in the firstPrompt's window (i.e., before the second
-  // prompt) get attached to the top section's overflow; titles tied to
-  // later prompts get collapsed onto a " · "-joined line beneath them.
+  //   · Activity list excludes the header's prompt events entirely so the
+  //     live preview never repeats text that's already visible elsewhere.
+  // Titles emitted in the header prompts' window (i.e., before the first
+  // prompt past the header) get attached to the top section's overflow;
+  // titles tied to later prompts get collapsed onto a " · "-joined line
+  // beneath them.
   const collapsed = collapseInlineTitles(events);
   let topInlineTitles = [];
   const activityEvents = [];
-  let foundFirst = false;
+  let pastHeader = false;
   for (const ev of collapsed) {
-    if (!foundFirst && ev.type === 'prompt' && ev.text === firstPrompt) {
-      topInlineTitles = ev.inlineTitles || [];
-      foundFirst = true;
+    if (!pastHeader && ev.type === 'prompt' && headerPrompts.has(ev.text)) {
+      topInlineTitles = topInlineTitles.concat(ev.inlineTitles || []);
       continue;
     }
+    if (ev.type === 'prompt') pastHeader = true;
     activityEvents.push(ev);
   }
   // If no firstPrompt match (pre-prompt state), titles already collected
