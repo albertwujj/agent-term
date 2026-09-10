@@ -29,7 +29,9 @@ function check(name, cond, detail) {
 async function main() {
   const app = await electron.launch({
     executablePath: ELECTRON_BIN,
-    args: ['--no-sandbox', APP_DIR],
+    // wordAt reads text and measures DOM ranges under .xterm-rows. WebGL
+    // paints into a canvas instead, so use the app's DOM fallback here.
+    args: ['--no-sandbox', '--disable-gpu', APP_DIR],
     timeout: 45_000,
   });
   const page = await app.firstWindow();

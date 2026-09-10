@@ -59,6 +59,7 @@ async function main() {
   // being installed. Use a slow interval to exercise late second presses.
   await app.evaluate(({ ipcMain }) => {
     globalThis.__clickActions = [];
+    globalThis.__clickComments = [];
     globalThis.__clickTimingReads = 0;
     ipcMain.removeHandler('get-double-click-interval');
     ipcMain.handle('get-double-click-interval', () => { globalThis.__clickTimingReads++; return 700; });
@@ -69,6 +70,14 @@ async function main() {
         return { success: true, status: 'ok' };
       });
     }
+    // Observe the selected-text payload at the renderer/main boundary. Sending
+    // this prose to a real shell executes it as commands; command-not-found
+    // hooks can still be running when the next fixture command is typed.
+    ipcMain.removeHandler('submit-inline-comment');
+    ipcMain.handle('submit-inline-comment', (_event, body) => {
+      globalThis.__clickComments.push(body);
+      return { success: true };
+    });
   });
   const actions = () => app.evaluate(() => globalThis.__clickActions);
   const timingReads = () => app.evaluate(() => globalThis.__clickTimingReads);
@@ -88,24 +97,21 @@ async function main() {
     bubble: !!document.querySelector('.terminal-comment-bubble'),
     pill: !!document.querySelector('.terminal-comment-selection-hint'),
   }));
-  // What the gesture actually selected, read from the far end of the loop: type a
-  // comment, send it, and the message the agent receives marks the selected span
-  // as [selected]…[/selected]. The shell then errors on the pasted text, which is
-  // why each case starts from a cleared screen.
+  // Drive the real composer and read the submitted message, whose selection
+  // markers identify the exact span picked by the gesture.
   const commentAndSend = async (text) => {
+    const before = await app.evaluate(() => globalThis.__clickComments.length);
     await focusTerm();
     await page.keyboard.type(text);
-    await page.waitForSelector('.terminal-comment-bubble', { timeout: 3_000 }).catch(() => {});
+    await page.waitForSelector('.terminal-comment-bubble', { timeout: 3_000 });
     await page.keyboard.press('Enter');
-    await sleep(900);
-    return page.evaluate(() => (
-      [...document.querySelectorAll('.xterm-rows > div')].map((r) => r.textContent || '').join('\n')
-    ));
+    await page.waitForSelector('.terminal-comment-bubble', { state: 'detached', timeout: 3_000 });
+    const comments = await app.evaluate(() => globalThis.__clickComments);
+    if (comments.length !== before + 1) throw new Error('Expected one submitted selection comment');
+    return comments[before];
   };
-  // The most recent marker on screen: earlier cases leave their own in the
-  // scrollback.
-  const selectedIn = (screenText) => {
-    const all = [...screenText.matchAll(/\[selected](.*?)\[\/selected]/gs)];
+  const selectedIn = (message) => {
+    const all = [...message.matchAll(/\[selected](.*?)\[\/selected]/gs)];
     return all.length ? all[all.length - 1][1] : null;
   };
   const navFired = async () => {
@@ -302,6 +308,11 @@ async function main() {
     await runCmd("printf '%s\\n' 'drag isSessionActive toward this word'");
     const dragSymbol = await wordTarget('drag isSessionActive toward', 'isSessionActive');
     const dragEnd = await wordTarget('drag isSessionActive toward', 'word');
+    if (!dragSymbol || !dragEnd) {
+      throw new Error('drag fixture output missing: ' + JSON.stringify(await page.evaluate(() => (
+        [...document.querySelectorAll('.xterm-rows > div')].map(row => row.textContent || '').filter(Boolean)
+      ))));
+    }
     await clearNavFeedback();
     await page.mouse.move(dragSymbol.x, dragSymbol.y);
     await page.mouse.down();
@@ -401,8 +412,6 @@ async function main() {
     await sleep(200);
     check('and gone once the selection is dismissed', await markCount() === 0);
 
-    // Sending a comment is left for last — the message echoes the same words back
-    // into the screen, which would confuse the row lookup.
     console.log('a double click on plain output selects a word and offers a comment');
     await runCmd("printf '%s\\n' 'the quick brown fox jumped over the lazy dog'");
     await sleep(1200);
@@ -452,7 +461,6 @@ async function main() {
     check('the keystrokes reached the shell, not a comment',
       after.some((row) => row === 'back-to-the-shell'), after.slice(-4));
 
-    // Sending comes last per line: the sent message echoes the same words back.
     console.log('the comment carries exactly what was selected');
     const brown = await at('brown');
     await page.mouse.dblclick(brown.x, brown.y);
