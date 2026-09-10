@@ -5443,7 +5443,7 @@ function createMarkdownViewer({
         }, AGENT_THREADS_CLONE_PROMPT],
         ['Send anyway', false, () => finish('send')],
         ['Cancel', false, () => finish('cancel')],
-      ], { link: { label: 'README', url: 'https://github.com/albertwujj/agent-term/blob/main/README.md#make-it-yours' } });
+      ], { link: { label: 'README', url: 'https://github.com/albertwujj/agent-term/blob/main/README.md#how-to-start' } });
     });
   }
 

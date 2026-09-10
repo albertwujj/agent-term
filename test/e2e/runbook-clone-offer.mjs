@@ -159,7 +159,7 @@ async function main() {
     const shown = await waitFor(notice);
     check('the strip appears below the composer, in place of its actions', !!shown && shown.composerActionsHidden, shown);
     check('it says what is missing and links the README', !!shown && shown.text.startsWith('agent-threads is not installed.')
-      && /README\.md#make-it-yours$/.test(shown.link || ''), shown);
+      && /README\.md#how-to-start$/.test(shown.link || ''), shown);
     check('with the clone first, then send anyway, then cancel', !!shown
       && JSON.stringify(shown.buttons) === JSON.stringify(['Ask the agent to clone it into ai/', 'Send anyway', 'Cancel']), shown && shown.buttons);
     check("and the clone button's tooltip is the README's prompt", !!shown && shown.primaryTitle === AGENT_THREADS_CLONE_PROMPT, shown && shown.primaryTitle);
