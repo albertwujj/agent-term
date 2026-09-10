@@ -38,7 +38,7 @@ The host also lets a capable agent do more than its CLI can alone. A CLI does no
 
 ## Fit it to your work
 
-It is yours, and the agents, made better by running in this grown terminal, grow it further. When something falls short in your situation, the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix, and a feature your work needs comes the same way. With agents at your disposal, you can fit the tool to your work, which you know best. So start your own, use and build upon this repo.
+It is yours, and the agents, made better by running in this grown terminal, grow it further. When something falls short in your situation, the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. So start with this repo, use and build upon it.
 
 ## What's added so far
 
@@ -59,7 +59,7 @@ These are the main ones. Follow the links to see an overview of more features om
 
 Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. An agent and its host grow into one whole, independent of the other wholes and cooperating with them through conventions such as the checkout lock. Subagents belong inside it, under the main agent.
 
-## How to start
+## Where to go next
 
 The first start gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
 
