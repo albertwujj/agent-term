@@ -27,8 +27,6 @@ Drafts stay attached to what you commented on; documents and reviews keep the ag
 
 ## Useful details
 
-In the terminal, `Esc` clears a selection so typing reaches the shell again.
-
 To comment on a terminal link that opens immediately, drag-select its text ([what a click does](clicks.md)).
 
 If a CLI's full-screen display prevents selection, hold `Shift` while selecting ([how a CLI draws](dev/cli-rendering.md)).

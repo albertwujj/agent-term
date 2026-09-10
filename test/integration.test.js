@@ -241,14 +241,14 @@ test('copySelectionToClipboard preserves viewport after clearing selection', () 
   assertEqual(scrollLine, 42, 'Viewport should be restored after copy');
 });
 
-test('Cmd+C copies selection on macOS', () => {
+test('Cmd+C copies the selection as message text on macOS', () => {
   let copiedText = null;
   let clearCalls = 0;
   let scrollLine = null;
   const event = createKeyEvent({ key: 'c', metaKey: true });
   const terminal = {
     hasSelection: () => true,
-    getSelection: () => 'mac selection',
+    getSelection: () => '⏺ mac selection that\n  wraps',
     buffer: { active: { viewportY: 7 } },
     clearSelection: () => { clearCalls++; },
     scrollToLine: (line) => { scrollLine = line; },
@@ -266,19 +266,19 @@ test('Cmd+C copies selection on macOS', () => {
   });
 
   assertEqual(allowed, false, 'Cmd+C should be intercepted when selection exists');
-  assertEqual(copiedText, 'mac selection', 'Cmd+C should copy the selection');
+  assertEqual(copiedText, 'mac selection that wraps', 'Cmd+C should copy the selection as message text');
   assertEqual(clearCalls, 1, 'Cmd+C should clear the selection');
   assertEqual(scrollLine, 7, 'Cmd+C should restore the viewport');
 });
 
-test('Ctrl+C copies selection on Windows', () => {
+test('Ctrl+C copies the selection as message text on Windows', () => {
   let copiedText = null;
   let clearCalls = 0;
   let scrollLine = null;
   const event = createKeyEvent({ key: 'c', ctrlKey: true });
   const terminal = {
     hasSelection: () => true,
-    getSelection: () => 'windows selection',
+    getSelection: () => '│ windows selection │',
     buffer: { active: { viewportY: 9 } },
     clearSelection: () => { clearCalls++; },
     scrollToLine: (line) => { scrollLine = line; },
@@ -296,12 +296,12 @@ test('Ctrl+C copies selection on Windows', () => {
   });
 
   assertEqual(allowed, false, 'Ctrl+C should be intercepted when selection exists on Windows');
-  assertEqual(copiedText, 'windows selection', 'Ctrl+C should copy the selection on Windows');
+  assertEqual(copiedText, 'windows selection', 'Ctrl+C should copy the selection as message text on Windows');
   assertEqual(clearCalls, 1, 'Ctrl+C should clear the selection on Windows');
   assertEqual(scrollLine, 9, 'Ctrl+C should restore the viewport on Windows');
 });
 
-test('Cmd+Shift+C copies the selection as message text on macOS', () => {
+test('Cmd+Shift+C copies the selection as it appears on macOS', () => {
   let copiedText = null;
   let clearCalls = 0;
   const event = createKeyEvent({ key: 'C', metaKey: true, shiftKey: true });
@@ -325,12 +325,12 @@ test('Cmd+Shift+C copies the selection as message text on macOS', () => {
   });
 
   assertEqual(allowed, false, 'Cmd+Shift+C should be intercepted');
-  assertEqual(copiedText, 'wrapped at the column width', 'Cmd+Shift+C should copy flattened text');
+  assertEqual(copiedText, '⏺ wrapped at the\n  column width', 'Cmd+Shift+C should copy the terminal layout');
   assertEqual(clearCalls, 1, 'Cmd+Shift+C should clear the selection like Cmd+C');
   assertTrue(event.isDefaultPrevented(), 'Cmd+Shift+C should prevent the browser default');
 });
 
-test('Ctrl+Shift+C copies the selection as message text on Windows', () => {
+test('Ctrl+Shift+C copies the selection as it appears on Windows', () => {
   let copiedText = null;
   const event = createKeyEvent({ key: 'C', ctrlKey: true, shiftKey: true });
   const terminal = {
@@ -353,12 +353,12 @@ test('Ctrl+Shift+C copies the selection as message text on Windows', () => {
   });
 
   assertEqual(allowed, false, 'Ctrl+Shift+C should be intercepted on Windows');
-  assertEqual(copiedText, 'boxed prose', 'Ctrl+Shift+C should copy flattened text on Windows');
+  assertEqual(copiedText, '│ boxed │\n│ prose │', 'Ctrl+Shift+C should copy the terminal layout on Windows');
 });
 
-test('Cmd+Shift+C takes the armed snapshot when the live selection is gone', () => {
+test('Cmd+C takes the armed snapshot as message text when the live selection is gone', () => {
   let armedTransform = undefined;
-  const event = createKeyEvent({ key: 'C', metaKey: true, shiftKey: true });
+  const event = createKeyEvent({ key: 'c', metaKey: true });
 
   const allowed = handleTerminalKeydown({
     event,
@@ -372,7 +372,7 @@ test('Cmd+Shift+C takes the armed snapshot when the live selection is gone', () 
     copyArmedSelection: (transform) => { armedTransform = transform; return true; },
   });
 
-  assertEqual(allowed, false, 'Cmd+Shift+C should be intercepted off the snapshot');
+  assertEqual(allowed, false, 'Cmd+C should be intercepted off the snapshot');
   assertEqual(typeof armedTransform, 'function', 'The snapshot copy should receive the message transform');
   assertEqual(armedTransform('⏺ a\n  b'), 'a b', 'The transform should be the smart copy');
 });
@@ -395,9 +395,9 @@ test('Ctrl+Shift+C with nothing to copy never reaches the shell on Windows', () 
   assertEqual(allowed, false, 'An empty Ctrl+Shift+C must not fall through as an interrupt');
 });
 
-test('Cmd+C ignores the armed snapshot transform', () => {
+test('Cmd+Shift+C passes the armed snapshot no transform', () => {
   let armedTransform = 'unset';
-  const event = createKeyEvent({ key: 'c', metaKey: true });
+  const event = createKeyEvent({ key: 'C', metaKey: true, shiftKey: true });
 
   handleTerminalKeydown({
     event,
@@ -411,7 +411,7 @@ test('Cmd+C ignores the armed snapshot transform', () => {
     copyArmedSelection: (transform) => { armedTransform = transform; return true; },
   });
 
-  assertEqual(armedTransform, undefined, 'Plain copy passes no transform');
+  assertEqual(armedTransform, undefined, 'The Shift copy keeps the snapshot as it is');
 });
 
 test('Ctrl+C is left alone on macOS', () => {

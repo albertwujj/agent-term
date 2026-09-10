@@ -1,12 +1,13 @@
-// Copy a terminal selection as message text (Cmd/Ctrl+Shift+C).
+// Copy a terminal selection as message text: what the copy chord does
+// (Cmd/Ctrl+C); Shift added keeps the terminal layout.
 //
 // Agent output is laid out for the terminal: the CLI hard-wraps prose at the
 // column width, prefixes lines with its gutter (⏺ ⎿ › • and box borders), and
-// pads with spaces. Plain copy keeps all of that, so a pasted passage lands in
-// a chat as a paragraph chopped into 80-column lines with glyphs down the left
-// edge. This copy strips only what is certainly layout and leaves the words
-// whole: a stray glyph left behind is one delete, a missing apostrophe in
-// every sentence is a rewrite. Punctuation, paths and file:line references
+// pads with spaces. A verbatim copy keeps all of that, so a pasted passage
+// lands in a chat as a paragraph chopped into 80-column lines with glyphs down
+// the left edge. This copy strips only what is certainly layout and leaves the
+// words whole: a stray glyph left behind is one delete, a missing apostrophe
+// in every sentence is a rewrite. Punctuation, paths and file:line references
 // stay; the viewer's ⧉ plain copy uses the same shape (docs/copy.md), so
 // "copy for a message" means one thing across the app.
 //
