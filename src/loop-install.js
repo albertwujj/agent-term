@@ -1,5 +1,5 @@
 // The prompt the terminal sends when a send finds no agent-threads runbook
-// and the user asks it to: the README's "Make it yours" example for adding
+// and the user asks it to: the README's "Fit it to your work" example for adding
 // a loop, with agent-threads' URL in place of the loop shown there, so a
 // reader who has seen the README recognises it. test/loop-install.test.js
 // keeps the two the same shape.
