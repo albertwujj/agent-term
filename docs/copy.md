@@ -16,4 +16,4 @@ Besides copying, the click also arms the block for a comment or an edit ([plan](
 
 **From the terminal.** `Ctrl/Cmd+C` on a selection copies it as message text. The gutter goes: the marks a CLI puts before a message or a tool result (`⏺ ⎿ • ›`), the `>` before an echoed prompt, box borders and their table rules, and key hints like `(ctrl+o to expand)`. Words, punctuation, paths, list markers, and symbols inside the text stay as printed. A line break is kept unless the line ran to the wrap column and the next word would not have fit, so a wrapped paragraph becomes one line while code, listings, and short lines keep theirs, indented as they were relative to the block. `Ctrl/Cmd+Shift+C` copies the selection as it appears on screen, the copy to take when the layout itself matters.
 
-On Windows, `Enter` with a terminal selection takes the same message-text copy and dismisses the selection, its highlight, and the “Type to comment” hint without sending Enter to the shell or agent. With no selection, `Enter` works as usual.
+On Windows, `Enter` with a selection copies the same way.
