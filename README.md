@@ -38,7 +38,7 @@ The host also lets a capable agent do more than its CLI can alone. A CLI does no
 
 ## Yours to grow
 
-It is yours. The agents, made better by running in this grown terminal, grow it further: when something falls short for you, the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix. That is also part of the larger point: with agents at your disposal, you can grow your own tool to fit your needs, which you know best. Needs follow situations, and a situation is rarely yours alone, so what you grow for yours serves the others in it. The loops below each began that way: one piece grown for one situation, in its own repo for anyone in the same one. So start your own, use and build upon this repo.
+It is yours. The agents, made better by running in this grown terminal, grow it further: when something falls short for you, the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix. That is also part of the larger point: with agents at your disposal, you can grow your own tool to fit your needs, which you know best. Needs follow situations, and a situation is rarely yours alone, so what you grow for yours serves the others in it. So start your own, use and build upon this repo.
 
 ## What's added so far
 
@@ -63,7 +63,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 The first start gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
 
-The rest are [loops](docs/loops.md) grown for particular situations, each in its own repo: [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
+The rest are [loops](docs/loops.md), each one piece grown for one situation, in its own repo for anyone in the same one: [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
 
 ```text
 Clone https://github.com/yunxin/agent-lock into ai/ in this project,
@@ -72,6 +72,6 @@ and leave ai/ out of .gitignore.
 
 Then start a task with `@proceed-b`, which completes to the lock's [guide doc](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) in the [agent-lock](https://github.com/yunxin/agent-lock) clone, and the agent takes the [checkout lock](docs/lock.md) before it works.
 
-**Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
+**Grow it.** Every new window starts from the latest source, so a fix you make with your agents is in the next window you open ([how a window opens](docs/sessions.md)).
 
 Built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT.
