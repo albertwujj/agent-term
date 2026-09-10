@@ -14,6 +14,6 @@ Besides copying, the click also arms the block for a comment or an edit ([plan](
 
 **Markdown, for GitHub or Reddit.** `Ctrl/Cmd`-click the button (`Alt` works too) to copy the markdown source of the same scope, for a surface that renders markdown itself. The flash on the button says which copy fired: `✓` for text, `✓ md` for source.
 
-**From the terminal.** `Ctrl/Cmd+C` on a selection copies it as message text: what the terminal added for its own layout is removed, and what the agent wrote stays, so the text pastes into an email or a chat with little or nothing to fix. A paragraph the CLI wrapped at the column width becomes one line, with the `⏺` marks and box borders gone; a code block or a file listing keeps its lines and indentation. `Ctrl/Cmd+Shift+C` copies the selection as it appears on screen, the copy to take when the layout itself matters.
+**From the terminal.** `Ctrl/Cmd+C` on a selection copies it as message text: what the terminal added is removed, and what the agent wrote stays, so text pasted into an email or a chat needs little or no fixing. `Ctrl/Cmd+Shift+C` copies the selection as it appears on screen, the copy to take when the layout itself matters.
 
 On Windows, `Enter` with a selection copies the same way.
