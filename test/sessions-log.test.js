@@ -445,6 +445,45 @@ test('compactSessionsLog drops events older than the window', (dir) => {
   assert.ok(remaining.every(ev => ev.id === 2));
 });
 
+test('compactSessionsLog keeps a session whole while its last event is in the window', (dir) => {
+  // The reported case: a session started before the window, still in use.
+  // Its started + cli + first prompt are old; its last prompt is recent.
+  log.appendEvent(dir, { e: 'started', id: 7, hue: 120, token: 'abc' });
+  log.appendEvent(dir, { e: 'cli',     id: 7, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 7, prompt: 'the first prompt' });
+  log.appendEvent(dir, { e: 'prompt',  id: 7, prompt: 'the latest prompt' });
+  // Another session entirely outside the window goes whole.
+  log.appendEvent(dir, { e: 'started', id: 6, hue: 0 });
+  log.appendEvent(dir, { e: 'cli',     id: 6, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 6, prompt: 'an old prompt' });
+  log.appendEvent(dir, { e: 'closed',  id: 6 });
+
+  const file = path.join(dir, 'sessions.jsonl');
+  const old = Date.now() - 60 * 24 * 60 * 60 * 1000;
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map(l => {
+    const ev = JSON.parse(l);
+    if (!(ev.id === 7 && ev.prompt === 'the latest prompt')) ev.t = old;
+    return JSON.stringify(ev);
+  }).join('\n') + '\n';
+  fs.writeFileSync(file, lines);
+
+  const dropped = log.compactSessionsLog(dir);
+  assert.strictEqual(dropped, 4);
+  const remaining = log.readLog(dir);
+  assert.strictEqual(remaining.length, 4);
+  assert.ok(remaining.every(ev => ev.id === 7));
+
+  // The fold still identifies it, and the picker still lists it.
+  const [s7] = log.listSessions(dir);
+  assert.strictEqual(s7.cli, 'claude');
+  assert.strictEqual(s7.hue, 120);
+  assert.strictEqual(s7.token, 'abc');
+  assert.strictEqual(s7.prompt, 'the first prompt');
+  assert.strictEqual(s7.lastPrompt, 'the latest prompt');
+  const list = log.menuList(dir, { bootTime: FROZEN_BOOT });
+  assert.deepStrictEqual(list.map(s => s.id), [7]);
+});
+
 test('compactSessionsLog is a no-op when nothing exceeds the window', (dir) => {
   log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
   log.appendEvent(dir, { e: 'closed',  id: 1 });

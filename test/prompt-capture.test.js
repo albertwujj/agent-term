@@ -51,20 +51,90 @@ test('first long-enough Enter after cliStarted is captured', (cap, get) => {
   assert.strictEqual(cap.isLocked(), false);
 });
 
-test('short typed input is skipped, next long enough is captured', (cap, get) => {
+test('one-key and one-word answers are skipped, a short prompt is captured', (cap, get, _s, getAll) => {
   cap.notifyCliStarted();
-  cap.handleInput('hi\r');                         // 2 chars, skipped
-  cap.handleInput('test\r');                       // 4 chars, skipped
-  cap.handleInput('Investigate the bug\r');        // 19 chars, captured
-  assert.strictEqual(get(), 'Investigate the bug');
+  cap.handleInput('y\r');                          // 1 char, a dialog answer, skipped
+  cap.handleInput('ok\r');                         // 2 chars, skipped
+  cap.handleInput('yes\r');                        // 3 chars, skipped
+  cap.handleInput('fix bug\r');                    // 7 chars: a prompt, and the first
+  assert.deepStrictEqual(getAll(), ['fix bug']);
 });
 
-test('selector type-filter ("old proj") is skipped by length threshold', (cap, get) => {
+test('selector type-filter ("old proj") is the pick, not a prompt', (cap, get) => {
   cap.notifyCliStarted();
-  cap.handleInput('/resume\r');                    // skipped (slash)
-  cap.handleInput('old proj\r');                   // 8 chars typed in selector filter, skipped
+  cap.handleInput('/resume\r');                    // skipped (slash), opens the dialog
+  cap.handleInput('old proj\r');                   // typed in the selector filter, Enter picks: skipped
   cap.handleInput('Continue with the refactor\r'); // captured
   assert.strictEqual(get(), 'Continue with the refactor');
+});
+
+// The reported case: a manual /resume, a filter, the pick, then a first
+// prompt of 13 characters. The old 15-char floor dropped it and the session
+// took the prompt after it as its identity.
+test('a short first prompt after the resume pick is the identity', (cap, get, _s, getAll) => {
+  cap.handleInput('claude\r');
+  cap.notifyCliStarted();
+  cap.handleInput('/resume\r');
+  cap.handleInput('stuck\r');                      // filter + pick
+  cap.handleInput('generate more\r');              // 13 chars, the first prompt
+  cap.handleInput('also, stories site is down. check and bring it up\r');
+  assert.deepStrictEqual(getAll(), ['generate more', 'also, stories site is down. check and bring it up']);
+});
+
+test('a long filter typed in the resume dialog is still the pick, not a prompt', (cap, get, _s, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('/resume\r');
+  cap.handleInput('check if process is stuck\r');  // 25 chars, but it is the pick
+  cap.handleInput('generate more\r');
+  assert.deepStrictEqual(getAll(), ['generate more']);
+});
+
+test('/resume with arguments opens the dialog too', (cap, get, _s, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('/resume stuck\r');
+  cap.handleInput('\x1b[B\r');                     // arrow to it, pick
+  cap.handleInput('generate more\r');
+  assert.deepStrictEqual(getAll(), ['generate more']);
+});
+
+test('Esc closes the resume dialog: the next Enter is a prompt again', (cap, get, _s, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('/resume\r');
+  cap.handleInput('\x1b');                          // bare Esc, dialog closed
+  cap.handleInput('generate more\r');
+  assert.deepStrictEqual(getAll(), ['generate more']);
+});
+
+test('Ctrl+C closes the resume dialog: the next Enter is a prompt again', (cap, get, _s, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('/resume\r');
+  cap.handleInput('stu\x03');                       // half a filter, then Ctrl+C
+  cap.handleInput('generate more\r');
+  assert.deepStrictEqual(getAll(), ['generate more']);
+});
+
+test('arrow keys in the resume dialog do not close it', (cap, get, _s, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('/resume\r');
+  cap.handleInput('\x1b[B');
+  cap.handleInput('\x1b[B');
+  cap.handleInput('old proj\r');                   // still the pick
+  cap.handleInput('generate more\r');
+  assert.deepStrictEqual(getAll(), ['generate more']);
+});
+
+test('the Enter after an inline slash command is a prompt, even a short one', (cap, get, _s, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('/clear\r');
+  cap.handleInput('generate more\r');
+  assert.deepStrictEqual(getAll(), ['generate more']);
+});
+
+test('a resume dialog opened before cliStarted is not tracked', (cap, get, _s, getAll) => {
+  cap.handleInput('/resume\r');                    // a shell command, whatever it is
+  cap.notifyCliStarted();
+  cap.handleInput('generate more\r');
+  assert.deepStrictEqual(getAll(), ['generate more']);
 });
 
 test('empty Enter after cliStarted is skipped, next prompt captured', (cap, get) => {
@@ -264,7 +334,9 @@ test('multiple slash commands in a row, then real prompt', (cap, get) => {
 test('whitespace before slash still detected as command', (cap, get) => {
   cap.notifyCliStarted();
   cap.handleInput('  /resume\r');
-  cap.handleInput('Real prompt content here\r');   // 24 chars, captured
+  assert.strictEqual(cap._state().inResumeDialog, true);   // recognised as /resume: the dialog is open
+  cap.handleInput('\r');                                   // the pick
+  cap.handleInput('Real prompt content here\r');           // captured
   assert.strictEqual(get(), 'Real prompt content here');
 });
 

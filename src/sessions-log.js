@@ -57,7 +57,7 @@ const { currentGuiSession } = require('./gui-session');
 const { writeFileAtomicSync } = require('./atomic-file');
 const { isConversationTitle } = require('./ai-title');
 
-const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks (display + compaction window)
+const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks since a session's last event (display + compaction window)
 
 // Round to the nearest minute so os.uptime()'s second-resolution ticks don't
 // break equality comparisons across rapid-fire reads/writes within one boot.
@@ -421,10 +421,19 @@ function removeFromPendingRecovery(userDataDir, id) {
 
 // ---- compaction ----
 
-// Drop log entries older than RECENT_WINDOW_MS (or override via opts.maxAgeMs).
-// Atomic rewrite — we only touch the file if something was dropped. Returns
-// the number of events removed. Called at app start to keep load time bounded
-// for long-lived installs.
+// Drop the sessions whose last event is older than RECENT_WINDOW_MS (or
+// override via opts.maxAgeMs). Atomic rewrite — we only touch the file if
+// something was dropped. Returns the number of events removed. Called at app
+// start to keep load time bounded for long-lived installs.
+//
+// A session goes whole or stays whole. The picker shows a session by its last
+// event (menuList), and the fold identifies it by its first ones: `started`
+// carries the hue and token, `cli` says what to relaunch, and the first
+// `prompt` is the identity. Dropping events one by one left a session that
+// ran past the window with its recent prompts but no `cli`, which every
+// picker query skips, so the picker showed nothing to resume; its identity
+// prompt drifted to the oldest surviving one too. An event with no session
+// id (none is written today) is kept on its own age.
 //
 // The rewrite replaces the whole file, so an event another window appends
 // between the read and the rename is lost. Only the sole window may compact:
@@ -435,7 +444,16 @@ function compactSessionsLog(userDataDir, opts = {}) {
   const cutoff = Date.now() - (opts.maxAgeMs || RECENT_WINDOW_MS);
   const events = readLog(userDataDir);
   if (events.length === 0) return 0;
-  const kept = events.filter(e => (e.t || 0) >= cutoff);
+  const lastEventAt = new Map();
+  for (const e of events) {
+    if (typeof e.id !== 'number') continue;
+    const t = e.t || 0;
+    if (t > (lastEventAt.get(e.id) || 0)) lastEventAt.set(e.id, t);
+  }
+  const kept = events.filter(e => {
+    const t = typeof e.id === 'number' ? lastEventAt.get(e.id) : (e.t || 0);
+    return t >= cutoff;
+  });
   if (kept.length === events.length) return 0;
   const body = kept.length ? kept.map(JSON.stringify).join('\n') + '\n' : '';
   writeFileAtomicSync(paths(userDataDir).log, body);

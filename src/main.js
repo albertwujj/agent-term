@@ -2714,6 +2714,10 @@ ipcMain.on('pty-input', (event, data) => {
       const wrote = writeAsSubmission('/resume');
       log('[resume] intercept fired wrote=' + wrote);
       if (wrote) notifyResumeHintSubmit();
+      // The capture mirrors what the CLI is sent, so it sees this /resume
+      // as if typed: the Enter that follows is the pick in the CLI's resume
+      // dialog, not a prompt (see prompt-capture.js rule 3).
+      if (wrote && promptCapture && !promptCapture.isLocked()) promptCapture.handleInput('/resume\r');
       pendingResumeIntercept = false;
       lastInputTime = Date.now();
       // /resume is a submit too — release the progress-bar typing
