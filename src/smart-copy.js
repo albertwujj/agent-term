@@ -9,13 +9,16 @@
 // word as written: a stray glyph left behind is one delete, a missing
 // apostrophe in every sentence is a rewrite. The viewer's ⧉ plain copy uses
 // the same shape (docs/copy.md), so "copy for a message" means one thing
-// across the app. The rules, as a user can hold them:
+// across the app. The one goal is the fewest fixes on the other side; the
+// rules below are stated for whoever maintains them.
 //
 // Glyphs. Only what a CLI draws as gutter goes, and only at a line's edges:
 // the marks before a message or a tool result (⏺ ⎿ • ◦ ● ▪ ▸ › ❯ ✻ ✦ and
-// spinner frames), the > before an echoed prompt, and box borders. Symbols in
-// the text stay: a leading ✅ or → or ⚠ is the agent's, a │ between table
-// cells is the table's.
+// spinner frames), the > before an echoed prompt, box borders, and a trailing
+// key hint such as "(ctrl+o to expand)". Symbols in the text stay: a leading
+// ✅ or → or ⚠ is the agent's, a │ between table cells is the table's. ASCII
+// | and + are text: a markdown or psql table pasted whole is still a table,
+// stripped on one side it is nothing.
 //
 // Lines. xterm already rejoins the rows the terminal wrapped; the splits left
 // in a selection are the CLI's own, and each is either a wrap or a real line
@@ -44,8 +47,7 @@
 // table stay together.
 
 // Box drawing and block elements. Stripped at either edge of a line; never a
-// line break on their own. `|` covers terminals that draw borders in ASCII,
-// at the start only: a trailing `|` is a markdown table row, which stays.
+// line break on their own.
 const BORDER = '\\u2500-\\u259F';
 // Gutter marks: ⏺ ⎿ (claude), • › (codex), ✦ (gemini), ● ◦ ▪ ▸ ▶ ❯ and the
 // spinner frames ✻ ✽ ✶ ✳ ✢ and braille. Stripped at the start, where the
@@ -53,12 +55,15 @@ const BORDER = '\\u2500-\\u259F';
 const MARK = '\\u23FA\\u23BF\\u2022\\u203A\\u2726\\u25CF\\u25E6\\u25AA\\u25B8\\u25B6\\u276F\\u273B\\u273D\\u2736\\u2733\\u2722\\u2800-\\u28FF';
 
 const LEADING_SPACE = /^[ \t]+/;
-const LEADING_BORDER = new RegExp(`^[${BORDER}|]+`, 'u');
+const LEADING_BORDER = new RegExp(`^[${BORDER}]+`, 'u');
 const LEADING_MARK = new RegExp(`^[${MARK}>]+`, 'u');
 const TRAILING_BORDER = new RegExp(`[${BORDER}]+$`, 'u');
-// A table rule: nothing but rule glyphs, with a junction (├ ┤ ┬ ┴ ┼, or | and
-// + in ASCII and markdown tables) among them.
-const TABLE_RULE = /^[\s─-▟|+\-=:]*[├┤┬┴┼╞╡╤╧╪|+][\s─-▟|+\-=:]*$/u;
+// A box-drawn table rule: nothing but rule glyphs, with a junction (├ ┤ ┬ ┴
+// ┼ and their double-line forms) among them.
+const TABLE_RULE = /^[\s─-▟]*[├┤┬┴┼╞╡╤╧╪][\s─-▟]*$/u;
+// A CLI's key hint at the end of a line: "(ctrl+o to expand)", "(esc to
+// cancel)". Terminal UI, never message text.
+const KEY_HINT = /\s*\((?:ctrl|cmd|⌘|alt|opt|shift|esc|tab|enter)\b[^()]*\)$/i;
 // A list item, its marker kept: dash, star or plus, or a number with a dot or
 // a paren, followed by a space and text.
 const LIST_ITEM = /^(?:[-*+]|\d+[.)]) \S/;
@@ -103,9 +108,8 @@ function stripLine(line) {
     if (m) { indent += displayWidth(m[0]); rest = rest.slice(m[0].length); marked = true; continue; }
     break;
   }
-  const text = rest.replace(/\s+$/, '').replace(TRAILING_BORDER, '').replace(/\s+$/, '');
-  // The rule test reads the whole row: a markdown rule's leading | is a
-  // border to the strip above, and the dashes after it would pass as text.
+  const text = rest.replace(/\s+$/, '').replace(TRAILING_BORDER, '').replace(/\s+$/, '').replace(KEY_HINT, '');
+  // The rule test reads the whole row, before the border strip took its ends.
   const kind = !/\S/.test(line) ? 'blank' : TABLE_RULE.test(line) ? 'rule' : text ? 'text' : 'edge';
   const words = text.split(/\s+/);
   return {

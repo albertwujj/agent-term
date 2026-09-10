@@ -95,8 +95,9 @@ test('list items keep their markers, one per line, wrapped items rejoin', () => 
   );
 });
 
-test('a trailing markdown table pipe stays; a leading ASCII pipe is a border', () => {
-  assertEqual(smartCopyText('| a | b |'), 'a | b |');
+test('ASCII tables are text and stay whole', () => {
+  assertEqual(smartCopyText('| a | b |\n|---|---|\n| 1 | 2 |', { cols: 80 }), '| a | b |\n|---|---|\n| 1 | 2 |');
+  assertEqual(smartCopyText('+---+---+\n| a | b |\n+---+---+', { cols: 80 }), '+---+---+\n| a | b |\n+---+---+');
 });
 
 test('whitespace inside a line is untouched', () => {
@@ -239,7 +240,6 @@ test('table rules vanish and the rows stay together, cells divided as drawn', ()
     '└──────┴──────┘',
   ].join('\n');
   assertEqual(smartCopyText(raw, { cols: 80 }), 'name │ size\na.js │ 12k\nb.js │ 3k');
-  assertEqual(smartCopyText('| a | b |\n|---|---|\n| 1 | 2 |', { cols: 80 }), 'a | b |\n1 | 2 |');
 });
 
 test('a line filled to the last column that ends mid-path rejoins without a space', () => {
@@ -250,6 +250,12 @@ test('a line filled to the last column that ends mid-path rejoins without a spac
   // A full line that ends in a word, not a path, takes its space.
   const prose = '⏺ ' + 'word '.repeat(15) + 'ends'; // 81 → capped; ends in a word
   assertEqual(smartCopyText(`${prose}\n  next`, { cols: 80 }).endsWith('ends next'), true);
+});
+
+test('a trailing key hint goes; parentheses in the text stay', () => {
+  assertEqual(smartCopyText('⏺ Read(src/foo.js)\n  ⎿  Read 40 lines (ctrl+o to expand)', { cols: 80 }), 'Read(src/foo.js)\nRead 40 lines');
+  assertEqual(smartCopyText('⏺ Searched (3 files)', { cols: 80 }), 'Searched (3 files)');
+  assertEqual(smartCopyText('  ⎿  Running… (esc to cancel)', { cols: 80 }), 'Running…');
 });
 
 test('without a width every break is judged against the longest line', () => {
