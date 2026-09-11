@@ -88,6 +88,71 @@ test('closed event marks session closed', (dir) => {
   assert.ok(s.closedAt > 0);
 });
 
+// ---- identity: the first prompt, and the next one or two while short ----
+
+test('listSessions: a short first prompt takes the next one as its identity', (dir) => {
+  // The reported case: "generate more" alone names nothing; the prompt
+  // after it does, and the identity is both, first prompt in front.
+  log.appendEvent(dir, { e: 'started', id: 8, hue: 192 });
+  log.appendEvent(dir, { e: 'cli',     id: 8, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 8, prompt: 'generate more' });
+  log.appendEvent(dir, { e: 'title',   id: 8, title: '✳ Check if process is stuck' });
+  log.appendEvent(dir, { e: 'prompt',  id: 8, prompt: 'also, stories site is down. check and bring it up' });
+  log.appendEvent(dir, { e: 'prompt',  id: 8, prompt: 'what about the gems site' });
+  const [s] = log.listSessions(dir);
+  assert.strictEqual(s.prompt, 'generate more · also, stories site is down. check and bring it up');
+  assert.deepStrictEqual(s.identityPrompts.map(p => p.prompt), ['generate more', 'also, stories site is down. check and bring it up']);
+  assert.ok(s.identityPrompts.every(p => typeof p.t === 'number' && p.t > 0));
+  assert.strictEqual(s.lastPrompt, 'what about the gems site');
+  // The identity title is still the first title after the first prompt.
+  assert.strictEqual(s.title, '✳ Check if process is stuck');
+});
+
+test('listSessions: a first prompt long enough is the whole identity', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Investigate the timeout in the worker pool' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'now the retry path' });
+  const [s] = log.listSessions(dir);
+  assert.strictEqual(s.prompt, 'Investigate the timeout in the worker pool');
+  assert.deepStrictEqual(s.identityPrompts.map(p => p.prompt), ['Investigate the timeout in the worker pool']);
+  assert.strictEqual(s.lastPrompt, 'now the retry path');
+});
+
+test('listSessions: a prompt from a later sitting never joins the identity', (dir) => {
+  // A short first prompt, then the session resumed a day later: the label
+  // the user picked it by stays.
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'generate more' });
+  log.appendEvent(dir, { e: 'closed',  id: 1 });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'also, stories site is down' });
+  const file = path.join(dir, 'sessions.jsonl');
+  const day = 24 * 60 * 60 * 1000;
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map(l => {
+    const ev = JSON.parse(l);
+    if (ev.prompt !== 'also, stories site is down') ev.t -= day;
+    return JSON.stringify(ev);
+  }).join('\n') + '\n';
+  fs.writeFileSync(file, lines);
+  const [s] = log.listSessions(dir);
+  assert.strictEqual(s.prompt, 'generate more');
+  assert.strictEqual(s.lastPrompt, 'also, stories site is down');
+});
+
+test('searchHiddenPromptMatches skips every prompt the identity already shows', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 8, hue: 192 });
+  log.appendEvent(dir, { e: 'cli',     id: 8, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 8, prompt: 'generate more' });
+  log.appendEvent(dir, { e: 'prompt',  id: 8, prompt: 'also, stories site is down' });
+  log.appendEvent(dir, { e: 'prompt',  id: 8, prompt: 'and the stories catalog copy' });
+  // "stories" is in the joined second prompt (shown on the identity line)
+  // and in the third (hidden): only the third is a hidden match.
+  const groups = log.searchHiddenPromptMatches(dir, 'stories');
+  assert.strictEqual(groups.length, 1);
+  assert.deepStrictEqual(groups[0].matches.map(m => m.text), ['and the stories catalog copy']);
+});
+
 test('listSessions: the identity title is the first title after the first prompt', (dir) => {
   // A pre-prompt title is the CLI's boot banner, never the identity.
   log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
@@ -443,6 +508,45 @@ test('compactSessionsLog drops events older than the window', (dir) => {
   const remaining = log.readLog(dir);
   assert.strictEqual(remaining.length, 2);
   assert.ok(remaining.every(ev => ev.id === 2));
+});
+
+test('compactSessionsLog keeps a session whole while its last event is in the window', (dir) => {
+  // The reported case: a session started before the window, still in use.
+  // Its started + cli + first prompt are old; its last prompt is recent.
+  log.appendEvent(dir, { e: 'started', id: 7, hue: 120, token: 'abc' });
+  log.appendEvent(dir, { e: 'cli',     id: 7, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 7, prompt: 'the first prompt' });
+  log.appendEvent(dir, { e: 'prompt',  id: 7, prompt: 'the latest prompt' });
+  // Another session entirely outside the window goes whole.
+  log.appendEvent(dir, { e: 'started', id: 6, hue: 0 });
+  log.appendEvent(dir, { e: 'cli',     id: 6, cli: 'claude' });
+  log.appendEvent(dir, { e: 'prompt',  id: 6, prompt: 'an old prompt' });
+  log.appendEvent(dir, { e: 'closed',  id: 6 });
+
+  const file = path.join(dir, 'sessions.jsonl');
+  const old = Date.now() - 60 * 24 * 60 * 60 * 1000;
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map(l => {
+    const ev = JSON.parse(l);
+    if (!(ev.id === 7 && ev.prompt === 'the latest prompt')) ev.t = old;
+    return JSON.stringify(ev);
+  }).join('\n') + '\n';
+  fs.writeFileSync(file, lines);
+
+  const dropped = log.compactSessionsLog(dir);
+  assert.strictEqual(dropped, 4);
+  const remaining = log.readLog(dir);
+  assert.strictEqual(remaining.length, 4);
+  assert.ok(remaining.every(ev => ev.id === 7));
+
+  // The fold still identifies it, and the picker still lists it.
+  const [s7] = log.listSessions(dir);
+  assert.strictEqual(s7.cli, 'claude');
+  assert.strictEqual(s7.hue, 120);
+  assert.strictEqual(s7.token, 'abc');
+  assert.strictEqual(s7.prompt, 'the first prompt');
+  assert.strictEqual(s7.lastPrompt, 'the latest prompt');
+  const list = log.menuList(dir, { bootTime: FROZEN_BOOT });
+  assert.deepStrictEqual(list.map(s => s.id), [7]);
 });
 
 test('compactSessionsLog is a no-op when nothing exceeds the window', (dir) => {

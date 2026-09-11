@@ -19,9 +19,18 @@
 //   3. After cliStarted: an Enter is captured ONLY if all hold:
 //        - buffer is non-empty after trim
 //        - `hadPaste` OR (buffer does NOT start with "/" AND trimmed
-//          length >= MIN_TYPED_PROMPT_LEN). Pastes bypass both filters;
-//          otherwise we drop slash-commands (/resume, /help, /clear) and
-//          short typed input (session-selector filter strings, etc.)
+//          length >= MIN_TYPED_PROMPT_LEN AND it is not the pick in the
+//          CLI's resume dialog). Pastes bypass every filter; otherwise
+//          we drop slash-commands (/resume, /help, /clear) and one-key or
+//          one-word answers (y, 1, ok, yes).
+//      A typed "/resume" opens the CLI's resume dialog, where the user may
+//      type a search filter and then presses Enter to pick. That Enter is
+//      the pick, never a prompt, whatever the filter's length, so it is
+//      skipped; a bare Esc or Ctrl+C closes the dialog instead and puts
+//      the next Enter back at the input line. Only /resume gets this: the
+//      other dialogs are navigated with arrows (an empty Enter), and the
+//      Enter after an inline command (/clear, /compact, /cost) is the next
+//      prompt, which may well be short ("generate more").
 //      An Enter that fails the predicate is silently skipped, the next
 //      real input is still capturable.
 //   4. Editing: Backspace/DEL drop the last byte. Ctrl+U clears the
@@ -31,8 +40,13 @@
 //      tracking we can't mirror caret-relative inserts, so the buffer
 //      stays append-only between erases.
 //
-// Tradeoff of MIN_TYPED_PROMPT_LEN: very short genuine prompts ("fix bug",
-// 7 chars) are skipped. Most prompts to AI CLIs are sentences and clear it.
+// Tradeoff of MIN_TYPED_PROMPT_LEN: a typed line this short is taken for a
+// dialog answer, so a two- or three-letter prompt ("why", "go") is skipped
+// and the next one becomes the identity. Anything with a word and a bit
+// more clears it. The floor used to be 15, meant to catch the resume
+// dialog's filter strings; it caught "generate more" instead, and the
+// session's identity became the prompt after it. The pick is now
+// recognised by what precedes it (rule 3), not by its length.
 //
 // State machine outputs are pushed through an onPrompt callback. The machine
 // keeps capturing across prompts so timelines stay current. Call markLocked()
@@ -43,12 +57,19 @@
 const ESC = '\x1b';
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
-const MIN_TYPED_PROMPT_LEN = 15;  // chars; tune if short genuine prompts get missed
+const MIN_TYPED_PROMPT_LEN = 4;   // chars; below this a typed line is a dialog answer, not a prompt
 
 function isPrintable(charCode) {
   // printable ASCII + extended (Latin-1, common for AI CLI prompts).
   // Exclude DEL (127), C0 (<32), and stray C1 control codes.
   return (charCode >= 32 && charCode < 127) || charCode > 159;
+}
+
+// The slash command that opens the CLI's resume dialog: "/resume" alone or
+// with arguments. Every supported CLI (claude, codex, agent, copilot) names
+// it so.
+function isResumeCommand(trimmed) {
+  return /^\/resume(\s|$)/.test(trimmed);
 }
 
 function createPromptCapture({ onPrompt, onShellCommand } = {}) {
@@ -61,6 +82,10 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
   // Enter path bypass MIN_TYPED_PROMPT_LEN and the slash-prefix filter,
   // since paste content is deliberate regardless of length.
   let hadPaste = false;
+  // True between a typed /resume and the Enter that picks in the dialog it
+  // opened (or the Esc / Ctrl+C that closes it). Nothing typed in between
+  // is a prompt: it is the dialog's search filter.
+  let inResumeDialog = false;
 
   function emitShellCommand(text) {
     if (typeof onShellCommand !== 'function') return;
@@ -162,8 +187,11 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       const ch = data[i];
       const code = data.charCodeAt(i);
 
-      // Escape sequence: skip.
+      // Escape sequence: skip. A bare Esc (the key itself, nothing after it
+      // in the chunk) closes whatever dialog is up; the next Enter is back
+      // at the input line.
       if (ch === ESC) {
+        if (i + 1 >= data.length) inResumeDialog = false;
         i = skipEscapeSequence(data, i);
         continue;
       }
@@ -171,14 +199,28 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       // Enter / submit (\r is the dominant submit byte from PTY).
       if (ch === '\r' || ch === '\n') {
         const trimmed = buf.trim();
+        // The Enter after a typed /resume is the pick in the resume dialog,
+        // with the search filter (of any length) in the buffer, or nothing
+        // when the user arrowed to it. Never a prompt.
+        if (cliStarted && inResumeDialog) {
+          inResumeDialog = false;
+          reset();
+          i++;
+          continue;
+        }
         if (cliStarted && trimmed.length > 0) {
           // Pastes bypass the slash/length filters since paste content
           // is deliberate (e.g. "/path/to/file" pasted as part of a
           // question, or a short pasted command). Typed-only buffers
-          // still get filtered: slash-commands are meta-commands, and
-          // short typed input is usually a selector filter.
-          if (!hadPaste &&
-              (trimmed.startsWith('/') || trimmed.length < MIN_TYPED_PROMPT_LEN)) {
+          // still get filtered: slash-commands are meta-commands, and a
+          // line of a few characters is a dialog answer.
+          if (!hadPaste && trimmed.startsWith('/')) {
+            if (isResumeCommand(trimmed)) inResumeDialog = true;
+            reset();
+            i++;
+            continue;
+          }
+          if (!hadPaste && trimmed.length < MIN_TYPED_PROMPT_LEN) {
             reset();
             i++;
             continue;
@@ -219,15 +261,6 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
         continue;
       }
 
-      // Ctrl+C: the line is abandoned (shells and AI CLIs alike drop the
-      // input), so the buffer goes with it. A launch line the picker typed
-      // and the user cancelled must not be read at the next Enter.
-      if (code === 0x03) {
-        reset();
-        i++;
-        continue;
-      }
-
       // Ctrl+W: delete the previous word + any preceding whitespace.
       // macOS Option+Backspace maps to this in many CLIs.
       if (code === 0x17) {
@@ -242,6 +275,18 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
 
       // Tab: typical for completion in shell, treat as a no-op for buffer.
       if (code === 0x09) {
+        i++;
+        continue;
+      }
+
+      // Ctrl+C: closes an open dialog (and clears the line at the input
+      // line). Either way the next Enter is at the input line. Before the
+      // CLI, the shell drops its line the same way, so a launch line the
+      // picker typed and the user cancelled is not read at the next Enter.
+      if (code === 0x03) {
+        inResumeDialog = false;
+        buf = '';
+        hadPaste = false;
         i++;
         continue;
       }
@@ -266,6 +311,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
     pasteBuf = '';
     inPaste = false;
     hadPaste = false;
+    inResumeDialog = false;
   }
 
   return {
@@ -273,7 +319,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
     notifyCliStarted,
     markLocked,
     isLocked: () => locked,
-    _state: () => ({ cliStarted, locked, buf, inPaste, pasteBuf, hadPaste }),
+    _state: () => ({ cliStarted, locked, buf, inPaste, pasteBuf, hadPaste, inResumeDialog }),
   };
 }
 

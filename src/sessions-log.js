@@ -13,7 +13,8 @@
 //       { e:"closed",   id,         t }   // the user closed the window or exited the shell
 //       { e:"lost",     id,         t }   // the window died under a live process (see main.js exitAsGhost)
 //     Reading the log and folding by id yields the current state of every
-//     session ever recorded. Newer events override older for fields like title.
+//     session ever recorded. Newer events override older for fields like title;
+//     the identity prompt is built from the first ones (session-identity.js).
 //
 //   active/<id>.json
 //     Per-live-window file: { pid, bootTime, ... } where bootTime is rounded
@@ -56,8 +57,9 @@ const {
 const { currentGuiSession } = require('./gui-session');
 const { writeFileAtomicSync } = require('./atomic-file');
 const { isConversationTitle } = require('./ai-title');
+const { identityFromPrompts } = require('./session-identity');
 
-const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks (display + compaction window)
+const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks since a session's last event (display + compaction window)
 
 // Round to the nearest minute so os.uptime()'s second-resolution ticks don't
 // break equality comparisons across rapid-fire reads/writes within one boot.
@@ -171,11 +173,14 @@ function normalizePromptForSearch(value) {
 function listSessions(userDataDir) {
   const events = readLog(userDataDir);
   const map = new Map();
+  // The prompts fed to the identity so far, per session, kept only until
+  // the identity is complete (session-identity.js).
+  const identityFeed = new Map();
   for (const ev of events) {
     if (typeof ev.id !== 'number') continue;
     let s = map.get(ev.id);
     if (!s) {
-      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, lastTitle: null, prompt: null, lastPrompt: null, cwd: null, capturedBranches: [], closedAt: null, lostAt: null, token: null };
+      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, capturedBranches: [], closedAt: null, lostAt: null, token: null };
       map.set(ev.id, s);
     }
     s.lastEventAt = ev.t;
@@ -203,16 +208,24 @@ function listSessions(userDataDir) {
           if (!s.title && s.prompt) s.title = ev.title;
         }
         break;
-      // Prompt fold: s.prompt is FIRST-WINS (the session's identity — matches
-      // the in-memory `firstPrompt` semantics used by the chrome bar, icon
-      // letters, and window title). s.lastPrompt is LAST-WINS (recency — what
-      // the user was most recently working on). Previously this overwrote
-      // s.prompt with every event, so listSessions returned the last prompt
-      // as if it were the session's identity, and resumeFromSession's
-      // `firstPrompt = picked.prompt` inherited the wrong value.
+      // Prompt fold: s.prompt is the session's identity — the first prompt,
+      // joined with the next one or two while short (session-identity.js),
+      // the same rule the live window applies to its own `firstPrompt`, so
+      // the chrome bar, icon letters, window title and picker agree.
+      // s.identityPrompts are the prompts it is built from, with their
+      // times, so a resume can keep feeding it. s.lastPrompt is LAST-WINS
+      // (recency — what the user was most recently working on).
       case 'prompt':
         if (ev.prompt) {
-          if (!s.prompt) s.prompt = ev.prompt;
+          let feed = identityFeed.get(ev.id);
+          if (!feed && !s.prompt) { feed = []; identityFeed.set(ev.id, feed); }
+          if (feed) {
+            feed.push({ prompt: ev.prompt, t: ev.t || 0 });
+            const identity = identityFromPrompts(feed);
+            s.prompt = identity.text;
+            s.identityPrompts = identity.prompts;
+            if (identity.complete) identityFeed.delete(ev.id);
+          }
           s.lastPrompt = ev.prompt;
         }
         break;
@@ -421,10 +434,19 @@ function removeFromPendingRecovery(userDataDir, id) {
 
 // ---- compaction ----
 
-// Drop log entries older than RECENT_WINDOW_MS (or override via opts.maxAgeMs).
-// Atomic rewrite — we only touch the file if something was dropped. Returns
-// the number of events removed. Called at app start to keep load time bounded
-// for long-lived installs.
+// Drop the sessions whose last event is older than RECENT_WINDOW_MS (or
+// override via opts.maxAgeMs). Atomic rewrite — we only touch the file if
+// something was dropped. Returns the number of events removed. Called at app
+// start to keep load time bounded for long-lived installs.
+//
+// A session goes whole or stays whole. The picker shows a session by its last
+// event (menuList), and the fold identifies it by its first ones: `started`
+// carries the hue and token, `cli` says what to relaunch, and the first
+// `prompt` is the identity. Dropping events one by one left a session that
+// ran past the window with its recent prompts but no `cli`, which every
+// picker query skips, so the picker showed nothing to resume; its identity
+// prompt drifted to the oldest surviving one too. An event with no session
+// id (none is written today) is kept on its own age.
 //
 // The rewrite replaces the whole file, so an event another window appends
 // between the read and the rename is lost. Only the sole window may compact:
@@ -435,7 +457,16 @@ function compactSessionsLog(userDataDir, opts = {}) {
   const cutoff = Date.now() - (opts.maxAgeMs || RECENT_WINDOW_MS);
   const events = readLog(userDataDir);
   if (events.length === 0) return 0;
-  const kept = events.filter(e => (e.t || 0) >= cutoff);
+  const lastEventAt = new Map();
+  for (const e of events) {
+    if (typeof e.id !== 'number') continue;
+    const t = e.t || 0;
+    if (t > (lastEventAt.get(e.id) || 0)) lastEventAt.set(e.id, t);
+  }
+  const kept = events.filter(e => {
+    const t = typeof e.id === 'number' ? lastEventAt.get(e.id) : (e.t || 0);
+    return t >= cutoff;
+  });
   if (kept.length === events.length) return 0;
   const body = kept.length ? kept.map(JSON.stringify).join('\n') + '\n' : '';
   writeFileAtomicSync(paths(userDataDir).log, body);
@@ -531,7 +562,14 @@ function searchHiddenPromptMatchesForSession(session, promptEvents, query, opts 
   if (normalizedQuery.length < minChars || terms.length === 0) return null;
   if (!session || typeof session.id !== 'number' || !session.prompt) return null;
 
-  const firstPrompt = normalizePromptForSearch(session.prompt).toLowerCase();
+  // The prompts the picker's primary line already shows: the identity's
+  // constituents (a session from the fold), else the prompt itself.
+  const shown = new Set(
+    (Array.isArray(session.identityPrompts) && session.identityPrompts.length
+      ? session.identityPrompts.map(p => p.prompt)
+      : [session.prompt])
+      .map(p => normalizePromptForSearch(p).toLowerCase()),
+  );
   const matches = [];
   for (const ev of promptEvents || []) {
     if (ev.e !== 'prompt') continue;
@@ -541,7 +579,7 @@ function searchHiddenPromptMatchesForSession(session, promptEvents, query, opts 
     const text = normalizePromptForSearch(ev.prompt);
     if (!text) continue;
     const lower = text.toLowerCase();
-    if (lower === firstPrompt) continue;
+    if (shown.has(lower)) continue;
 
     if (!textMatchesSearchTerms(text, terms)) continue;
     const ranges = findAllTermRanges(text, terms);

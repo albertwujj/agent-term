@@ -552,6 +552,48 @@ await test('Enter with nothing typed and no sessions leaves the picker like Esc'
   picker.destroy();
 });
 
+await test('the last-prompt line is dropped when the identity already shows that prompt', async () => {
+  const handle = createPicker({
+    sessions: [{
+      id: 8, cli: 'claude',
+      prompt: 'generate more · also, stories site is down',
+      identityParts: ['generate more', 'also, stories site is down'],
+      lastPrompt: 'also, stories site is down',
+      lastEventAt: 2,
+    }],
+  });
+  const row = document.querySelector('.at-picker-row[data-kind="past"]');
+  assert.ok(row);
+  assert.strictEqual(row.querySelector('.at-picker-prompt-line').textContent, 'generate more · also, stories site is down');
+  assert.strictEqual(row.querySelector('.at-picker-last-line'), null);
+  handle.destroy();
+});
+
+await test('the last-prompt line stays for a prompt past the identity', async () => {
+  const handle = createPicker({
+    sessions: [{
+      id: 8, cli: 'claude',
+      prompt: 'generate more · also, stories site is down',
+      identityParts: ['generate more', 'also, stories site is down'],
+      lastPrompt: 'what about the gems site',
+      lastEventAt: 2,
+    }],
+  });
+  const row = document.querySelector('.at-picker-row[data-kind="past"]');
+  assert.ok(row.querySelector('.at-picker-last-line'));
+  assert.ok(row.querySelector('.at-picker-last-line').textContent.includes('what about the gems site'));
+  handle.destroy();
+});
+
+await test('a session without identityParts still hides a last prompt equal to the prompt', async () => {
+  const handle = createPicker({
+    sessions: [{ id: 1, cli: 'claude', prompt: 'Fix checkout retry logic', lastPrompt: 'Fix checkout retry logic', lastEventAt: 2 }],
+  });
+  const row = document.querySelector('.at-picker-row[data-kind="past"]');
+  assert.strictEqual(row.querySelector('.at-picker-last-line'), null);
+  handle.destroy();
+});
+
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
 process.exit(testsFailed > 0 ? 1 : 0);
 

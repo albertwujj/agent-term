@@ -49,6 +49,12 @@ const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', 
 global.window = dom.window;
 global.document = dom.window.document;
 global.Node = window.Node;
+// The shared composer reads navigator.platform, independently of the viewer's
+// platform option below. Match the Cmd+Enter gestures on every test host.
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: { platform: 'MacIntel' },
+});
 global.requestAnimationFrame = dom.window.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 global.cancelAnimationFrame = dom.window.cancelAnimationFrame = clearTimeout;
 window.CSS = { escape: (s) => s, highlights: new Map() };
@@ -116,8 +122,10 @@ async function sendSelection() {
   key('C');
   const box = document.querySelector('.md-comment-card textarea');
   assert.ok(box, 'comment composer');
+  const before = sent.length;
   key('Enter', { metaKey: true });
   await sleep();
+  assert.equal(sent.length, before + 1, 'Cmd+Enter submits the selection to the prompt');
   return sent.at(-1);
 }
 

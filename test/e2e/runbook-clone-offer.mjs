@@ -77,7 +77,9 @@ async function main() {
   });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
-  await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });
+  // The recording shell prints no prompt, so xterm's helper textarea can
+  // remain zero-sized. Its attachment, not visibility, signals initialization.
+  await page.waitForSelector('.xterm-helper-textarea', { state: 'attached', timeout: 30_000 });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1400, 900));
   await sleep(1500);
   if (await page.evaluate(() => !!document.querySelector('.at-picker-overlay'))) {

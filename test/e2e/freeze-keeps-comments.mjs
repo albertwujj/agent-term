@@ -32,7 +32,8 @@ function check(name, cond, detail) {
 async function main() {
   const app = await electron.launch({
     executablePath: ELECTRON_BIN,
-    args: ['--no-sandbox', APP_DIR],
+    // wordAt and screenText need DOM rows; WebGL paints the text into a canvas.
+    args: ['--no-sandbox', '--disable-gpu', APP_DIR],
     timeout: 45_000,
   });
   const page = await app.firstWindow();
