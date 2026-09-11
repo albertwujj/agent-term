@@ -74,4 +74,4 @@ Then start a task with `@proceed-b`, which completes to the lock's [guide doc](h
 
 **Grow it.** Fill what you need with your agents, using this terminal itself as a boost. Every new window starts from the latest source, so the loop stays short ([how a window opens](docs/sessions.md)).
 
-Built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT.
+AgentTerm is built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT.
