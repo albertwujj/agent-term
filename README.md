@@ -1,6 +1,6 @@
 # Grow your terminal for agents to fit your work
 
-**Use this repo for a head start. What you grow for your situation serves others like you.**
+**Use this repo for a head start, and share what you grow.**
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
 
