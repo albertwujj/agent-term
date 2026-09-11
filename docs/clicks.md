@@ -4,7 +4,7 @@ Click a reference in terminal output to open what the agent is talking about—i
 
 ## In terminal output
 
-**In the window.** Markdown documents, reviews, images, audio, video, PDFs, and local pages open in a viewer above the prompt. A diff line on a document jumps to the corresponding passage for commenting or editing.
+**In the window.** Markdown documents, reviews, images, audio, video, PDFs, and local pages open in a viewer above the prompt. A bare name or a relative path is enough; [what a printed name opens](paths.md) says how it is found. A diff line on a document jumps to the corresponding passage for commenting or editing.
 
 **Other applications.** Code references (`file:line`, symbols, or code-diff lines) jump to your [IDE](ide.md). Files the viewer cannot display and folders open through the OS. These handoffs wait briefly so you can select instead; `Ctrl/Cmd`-click skips the pause.
 
