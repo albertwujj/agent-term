@@ -20,7 +20,7 @@ Every session is a whole OS window; there are no tabs.
 
 ![filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
-**The sessions you set aside.** Right-click a taskbar button or Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N with an AgentTerm window in front. A new window opens with the picker: your past sessions, filtered as you type by your prompts and the agents' own titles. Resume one, start a CLI (with options, if you want them), or drop to a plain shell; the strip above the terminal and Ctrl/Cmd+Shift+S bring the CLIs back until one has started. Resuming returns to the directory that session was working in, because a CLI's own resume list is usually the sessions from that directory.
+**The sessions you set aside.** Right-click a taskbar button or Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N with an AgentTerm window in front. A new window opens with the picker: your past sessions, filtered as you type by your prompts and the agents' own titles. Resume one, start a new one (with options, if you want them), or drop to a plain shell.
 
 **Type `npm run start` (`start:wsl` on WSL) once, from the directory you want the terminal to open in.** Three ways a window comes to be, and where each starts:
 
