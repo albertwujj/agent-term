@@ -34,6 +34,10 @@ The vendor desktop apps also offer a richer interface, each holding that vendor'
 
 Several terminals have gone the vendors' way and grown an agent of their own, with ways to run many at once, including in the cloud, and to get their environment you take their agent. Here nothing about working with your agent changes.
 
+### Native to the OS
+
+Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The one aggregator, the view from your phone, runs on the side, remotely, never interfering with the OS windows. An agent and its host grow into one whole, independent of the other wholes and cooperating with them through shared conventions. Subagents belong inside it, under the main agent.
+
 ### Why it holds
 
 This path can look hacky: the host parses text, and reacts to it. But established text patterns are a stable interface, and a helpful output style sticks around. An agent's intentions arrive in those patterns through every turn, so the parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles the agents use intuitively. Extending it is quick when something new shows up, and none of it is tied to a vendor SDK or API.
@@ -58,10 +62,6 @@ These are the main ones. Follow the links to see an overview of more features om
 | A long CI run either blocks the session, or outlives the agent's turn and finishes unnoticed. | The agent starts the job and hands the terminal back; **[the job reports its own completion](docs/jobs.md)** through the terminal and the idle agent is prompted to pick it up, even across a session restart; a runner icon at the top right shows what is running. |
 | It sits blocked on a question until you're back at your desk. | **[Your phone shows the same terminal](docs/phone.md)**, same layout, so you recognize at once what you left behind; unblock it by voice. |
 | The agent cites file:line and symbols; checking a claim means finding it by hand. | Click any reference and **[your IDE jumps to that exact line](docs/ide.md)** after a brief pause for selection; Ctrl/Cmd-click jumps immediately. The editor stays read-only so a stray key changes nothing. |
-
-## Native to the OS
-
-Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. An agent and its host grow into one whole, independent of the other wholes and cooperating with them through conventions such as the checkout lock. Subagents belong inside it, under the main agent.
 
 ## Where to go next
 
