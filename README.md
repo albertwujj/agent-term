@@ -18,28 +18,6 @@ Click [docs/setup.md](docs/setup.md) if you want to read it.
 
 Once it opens, start or resume your usual agent, select something in its output, and write a [comment](docs/comment.md).
 
-## The terminal path
-
-People run coding agents in an IDE, in the terminal, or in the vendor's desktop app. The terminal keeps pulling them in: Claude Code and Codex shipped as terminal programs, and Cursor and Copilot, born in the IDE, added CLIs of their own. A form from decades ago turned out to be a good fit for what an agent needs: text in, text out, and your shell, git, and every other tool you own one command away.
-
-So why do people still run agents in the IDE, and why are the vendors adding their agents to desktop apps? Partly because the standard terminal interface (TUI), although great for text-centric iteration, cannot offer agents and users the essentials and the boosts a richer interface can. One answer is to move the agent out, into an app built around it. The other is to treat the terminal as the core and extend it. This repo is the second path: a full terminal wrapped in a modern extensible window (Electron), retaining everything you already have and raising the ceiling.
-
-Extending it on demand is what keeps it a terminal. What you are working on comes in when you need it and goes when you are done, so the window is a terminal again the moment you finish. An IDE does not do that, as irrelevant things are already there before you type.
-
-The vendor desktop apps also offer a richer interface, each holding that vendor's agents and only those. This terminal holds one agent per window, of any kind, beside your shell, your repo, and your tests, and it keeps the terminal's focus: only that session in the window, full screen if you like ([native to the OS](#native-to-the-os)).
-
-Several terminals have gone the vendors' way and grown an agent of their own, with ways to run many at once, including in the cloud, and to get their environment you take their agent. Here nothing about working with your agent changes.
-
-## Why it holds
-
-This path can look hacky: the host parses text, and reacts to it. But established text patterns are a stable interface, and a helpful output style sticks around. An agent's intentions arrive in those patterns through every turn, so the parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles the agents use intuitively. Extending it is quick when something new shows up, and none of it is tied to a vendor SDK or API.
-
-With a host that understands its agents, and agents that understand the host, a capable agent does more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. This terminal reads what agents print and opens what they point to inside the window, where you can act on it, and the agent can use its protocol with the host to write to that window.
-
-## Fit it to your work
-
-Use it first as it is, a boost for working with your agents; what you need may already be there. When something is missing or falls short, add it with your agents: the symptom is right there, in front of you and the agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. And the loop itself runs better here, with everything listed below at hand.
-
 ## What's added so far
 
 These are the main ones. Follow the links to see an overview of more features omitted here.
@@ -55,9 +33,35 @@ These are the main ones. Follow the links to see an overview of more features om
 | It sits blocked on a question until you're back at your desk. | **[Your phone shows the same terminal](docs/phone.md)**, same layout, so you recognize at once what you left behind; unblock it by voice. |
 | The agent cites file:line and symbols; checking a claim means finding it by hand. | Click any reference and **[your IDE jumps to that exact line](docs/ide.md)** after a brief pause for selection; Ctrl/Cmd-click jumps immediately. The editor stays read-only so a stray key changes nothing. |
 
-## Native to the OS
+## Why a terminal, and why this shape
+
+The thinking behind the repo, for readers weighing the terminal against an IDE or a vendor app.
+
+### The terminal path
+
+People run coding agents in an IDE, in the terminal, or in the vendor's desktop app. The terminal keeps pulling them in: Claude Code and Codex shipped as terminal programs, and Cursor and Copilot, born in the IDE, added CLIs of their own. A form from decades ago turned out to be a good fit for what an agent needs: text in, text out, and your shell, git, and every other tool you own one command away.
+
+So why do people still run agents in the IDE, and why are the vendors adding their agents to desktop apps? Partly because the standard terminal interface (TUI), although great for text-centric iteration, cannot offer agents and users the essentials and the boosts a richer interface can. One answer is to move the agent out, into an app built around it. The other is to treat the terminal as the core and extend it. This repo is the second path: a full terminal wrapped in a modern extensible window (Electron), retaining everything you already have and raising the ceiling.
+
+Extending it on demand is what keeps it a terminal. What you are working on comes in when you need it and goes when you are done, so the window is a terminal again the moment you finish. An IDE does not do that, as irrelevant things are already there before you type.
+
+The vendor desktop apps also offer a richer interface, each holding that vendor's agents and only those. This terminal holds one agent per window, of any kind, beside your shell, your repo, and your tests, and it keeps the terminal's focus: only that session in the window, full screen if you like ([native to the OS](#native-to-the-os)).
+
+Several terminals have gone the vendors' way and grown an agent of their own, with ways to run many at once, including in the cloud, and to get their environment you take their agent. Here nothing about working with your agent changes.
+
+### Why it holds
+
+This path can look hacky: the host parses text, and reacts to it. But established text patterns are a stable interface, and a helpful output style sticks around. An agent's intentions arrive in those patterns through every turn, so the parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles the agents use intuitively. Extending it is quick when something new shows up, and none of it is tied to a vendor SDK or API.
+
+With a host that understands its agents, and agents that understand the host, a capable agent does more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. This terminal reads what agents print and opens what they point to inside the window, where you can act on it, and the agent can use its protocol with the host to write to that window.
+
+### Native to the OS
 
 Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. An agent and its host grow into one whole, independent of the other wholes and cooperating with them through conventions such as the checkout lock. Subagents belong inside it, under the main agent.
+
+## Fit it to your work
+
+Use it first as it is, a boost for working with your agents; what you need may already be there. When something is missing or falls short, add it with your agents: the symptom is right there, in front of you and the agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. And the loop itself runs better here, with everything listed above at hand.
 
 ## Where to go next
 
