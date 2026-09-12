@@ -18,24 +18,9 @@ Click [docs/setup.md](docs/setup.md) if you want to read it.
 
 Once it opens, start or resume your usual agent, select something in its output, and write a [comment](docs/comment.md).
 
-## What's added so far
-
-These are the main ones. Follow the links to see an overview of more features omitted here.
-
-| In a standard terminal | In this grown terminal |
-|---|---|
-| Several agents running means identical tabs outside, walls of text inside. | Each session gets its own **[unique taskbar button or Dock tile](docs/sessions.md)** (with a preview on Windows, the session title on macOS), so you tell them apart at a glance, and the picker returns you to a running session or revives a closed one, by searching every prompt you typed. |
-| Everything the agent prints (a diff, a plan, a claim, a link) is words or symbols you cannot click. | **[Select any of it and comment](docs/comment.md)**, precise feedback with the exact text quoted; the agent makes the change. A click opens whatever renders (docs, reviews, images, video, PDFs) inside the window; web links open in your browser ([the click rule](docs/clicks.md)). |
-| Its plans are append-only text. | Ask for the plan as a markdown file and click its name where the agent prints it: the doc opens rendered, you **[write in the rendered page](docs/plan.md)** and the agent maintains the source. |
-| Agents sharing a checkout have no awareness of each other: branches move, files change, test ports collide. | Type one `@` mention (`@proceed-b` completes to the guide doc's path) and the agent **[takes the checkout lock](docs/lock.md)** and cuts a branch before its first edit; a padlock at the top right of each window shows who holds it. |
-| The agent finishes a change and you get a wall of diff. | It hands you a **[curated review, rendered](docs/review.md)**, with a narrative you can follow and the parts that need your attention called out; you comment inline, it fixes and replies in place. |
-| A long CI run either blocks the session, or outlives the agent's turn and finishes unnoticed. | The agent starts the job and hands the terminal back; **[the job reports its own completion](docs/jobs.md)** through the terminal and the idle agent is prompted to pick it up, even across a session restart; a runner icon at the top right shows what is running. |
-| It sits blocked on a question until you're back at your desk. | **[Your phone shows the same terminal](docs/phone.md)**, same layout, so you recognize at once what you left behind; unblock it by voice. |
-| The agent cites file:line and symbols; checking a claim means finding it by hand. | Click any reference and **[your IDE jumps to that exact line](docs/ide.md)** after a brief pause for selection; Ctrl/Cmd-click jumps immediately. The editor stays read-only so a stray key changes nothing. |
-
 ## Why a terminal, and why this shape
 
-The thinking behind the repo, for readers weighing the terminal against an IDE or a vendor app.
+The thinking behind the repo. Skip to [what's added so far](#whats-added-so-far) if you are here for the features.
 
 ### The terminal path
 
@@ -55,13 +40,28 @@ This path can look hacky: the host parses text, and reacts to it. But establishe
 
 With a host that understands its agents, and agents that understand the host, a capable agent does more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. This terminal reads what agents print and opens what they point to inside the window, where you can act on it, and the agent can use its protocol with the host to write to that window.
 
-### Native to the OS
-
-Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. An agent and its host grow into one whole, independent of the other wholes and cooperating with them through conventions such as the checkout lock. Subagents belong inside it, under the main agent.
-
 ## Fit it to your work
 
-Use it first as it is, a boost for working with your agents; what you need may already be there. When something is missing or falls short, add it with your agents: the symptom is right there, in front of you and the agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. And the loop itself runs better here, with everything listed above at hand.
+Use it first as it is, a boost for working with your agents; what you need may already be there. When something is missing or falls short, add it with your agents: the symptom is right there, in front of you and the agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. And the loop itself runs better here, with everything listed below at hand.
+
+## What's added so far
+
+These are the main ones. Follow the links to see an overview of more features omitted here.
+
+| In a standard terminal | In this grown terminal |
+|---|---|
+| Several agents running means identical tabs outside, walls of text inside. | Each session gets its own **[unique taskbar button or Dock tile](docs/sessions.md)** (with a preview on Windows, the session title on macOS), so you tell them apart at a glance, and the picker returns you to a running session or revives a closed one, by searching every prompt you typed. |
+| Everything the agent prints (a diff, a plan, a claim, a link) is words or symbols you cannot click. | **[Select any of it and comment](docs/comment.md)**, precise feedback with the exact text quoted; the agent makes the change. A click opens whatever renders (docs, reviews, images, video, PDFs) inside the window; web links open in your browser ([the click rule](docs/clicks.md)). |
+| Its plans are append-only text. | Ask for the plan as a markdown file and click its name where the agent prints it: the doc opens rendered, you **[write in the rendered page](docs/plan.md)** and the agent maintains the source. |
+| Agents sharing a checkout have no awareness of each other: branches move, files change, test ports collide. | Type one `@` mention (`@proceed-b` completes to the guide doc's path) and the agent **[takes the checkout lock](docs/lock.md)** and cuts a branch before its first edit; a padlock at the top right of each window shows who holds it. |
+| The agent finishes a change and you get a wall of diff. | It hands you a **[curated review, rendered](docs/review.md)**, with a narrative you can follow and the parts that need your attention called out; you comment inline, it fixes and replies in place. |
+| A long CI run either blocks the session, or outlives the agent's turn and finishes unnoticed. | The agent starts the job and hands the terminal back; **[the job reports its own completion](docs/jobs.md)** through the terminal and the idle agent is prompted to pick it up, even across a session restart; a runner icon at the top right shows what is running. |
+| It sits blocked on a question until you're back at your desk. | **[Your phone shows the same terminal](docs/phone.md)**, same layout, so you recognize at once what you left behind; unblock it by voice. |
+| The agent cites file:line and symbols; checking a claim means finding it by hand. | Click any reference and **[your IDE jumps to that exact line](docs/ide.md)** after a brief pause for selection; Ctrl/Cmd-click jumps immediately. The editor stays read-only so a stray key changes nothing. |
+
+## Native to the OS
+
+Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The phone hub is the one aggregator, and it runs on the side, remotely, never interfering with the OS windows. An agent and its host grow into one whole, independent of the other wholes and cooperating with them through conventions such as the checkout lock. Subagents belong inside it, under the main agent.
 
 ## Where to go next
 
