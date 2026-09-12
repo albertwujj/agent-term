@@ -1,4 +1,4 @@
-# Grow your terminal for agents to fit your work
+# Grow your agent terminal to fit your work
 
 **Use this repo for a head start, and share what you add.**
 
