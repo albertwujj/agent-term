@@ -28,7 +28,7 @@ Extending it on demand is what keeps it a terminal. What you are working on come
 
 The vendor desktop apps also offer a richer interface, each holding that vendor's agents and only those. This terminal holds one agent per window, of any kind, beside your shell, your repo, and your tests, and it keeps the terminal's focus: only that session in the window, full screen if you like ([native to the OS](#native-to-the-os)).
 
-That move is now coming from the terminal side too: several terminals have grown an agent of their own, with ways to run many at once, including in the cloud. To get their environment you take their agent. Here nothing about working with your agent changes.
+Terminals are now doing the same from their side: several have grown an agent of their own, with ways to run many at once, including in the cloud. To get their environment you take their agent. Here nothing about working with your agent changes.
 
 ## Why it holds
 
