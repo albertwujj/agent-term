@@ -72,6 +72,6 @@ and leave ai/ out of .gitignore.
 
 Then start a task with `@proceed-b`, which completes to the lock's [guide doc](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) in the [agent-lock](https://github.com/yunxin/agent-lock) clone, and the agent takes the [checkout lock](docs/lock.md) before it works. For the other loops, see [their guides](docs/loops.md).
 
-**Grow it.** Every new window starts from the latest source, so a change you make with your agents is in the next window you open ([how a window opens](docs/sessions.md)).
+**Grow it.** Make a change with your agents, and the next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
 AgentTerm is built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT.
