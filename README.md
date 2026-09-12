@@ -38,7 +38,7 @@ The host also lets a capable agent do more than its CLI can alone. A CLI does no
 
 ## Fit it to your work
 
-It is yours, and the agents, made better by running in this grown terminal, grow it further. When something falls short in your situation, the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. So start with this repo, use and build upon it.
+The agents, made better by running in this grown terminal, are the ones that grow it further. When something falls short in your situation, the symptom is right there, in front of you and your agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. So start with this repo, use and build upon it.
 
 ## What's added so far
 
