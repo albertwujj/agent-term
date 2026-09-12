@@ -16,7 +16,7 @@ docs/setup.md.
 
 Click [docs/setup.md](docs/setup.md) if you want to read it.
 
-Once it opens, start your usual agent, select something in its output, and write a [comment](docs/comment.md).
+Once it opens, start or resume your usual agent, select something in its output, and write a [comment](docs/comment.md).
 
 ## The terminal path
 
