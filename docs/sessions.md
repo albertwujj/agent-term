@@ -2,9 +2,9 @@
 
 Every session is a whole OS window; there are no tabs.
 
-**Starting an agent.** Type the CLI's command (`claude`, `codex`, whichever you run) and press Return. From that point on, the AI CLI runs in a real shell, just like in any other terminal.
+**Starting an agent.** Type the CLI's command (`claude`, `codex`, whichever you run) and press Return. From then on the AI CLI runs in a real shell, as in any other terminal.
 
-**Picking up an existing session from before this terminal.** Start the CLI as above, as a new session, and resume the existing one normally in the CLI; the first prompt after the resume becomes the session's initial prompt, and the rest is the same.
+**Picking up a session from before this terminal.** Start the CLI as a new session and resume the existing one inside it; the first prompt after the resume becomes the session's initial prompt.
 
 <p align="center">
 <img src="assets/taskbar-preview.png" alt="your active agent sessions: each a live taskbar button with a thumbnail preview">
@@ -16,13 +16,11 @@ Every session is a whole OS window; there are no tabs.
 <br><sub>On a Mac: one Dock tile per session, among the other apps.</sub>
 </p>
 
-**The sessions you are juggling.** On Windows each sits in the taskbar as its own button, generated from the session's initial prompt: the label never changes, so you can memorize it, and its color is locked to the session, distinct and calm. An initial prompt of a few words takes the next one or two along, joined after it, so the label says what the session is about; the letters in front stay the same. The button carries a working indicator and a preview showing what the session is for and what it is doing, to help you recognize and pick it.
-
-On a Mac each session is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent is working. A tile like "I'd" looks thin at first, but color and letters together become familiar within a few uses, the way an app icon does. Right-click a tile and the menu names the session: the CLI, and the agent's own title for the conversation. Cmd-Tab shows the same tiles, and if you run each session full screen, a Mission Control swipe shows every session, readable, its initial prompt pinned at the top.
+**The sessions you are juggling.** On Windows each is its own taskbar button, labeled from the session's initial prompt in a color locked to the session, with a working indicator and a live preview of what it is doing. On a Mac each is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent works; right-click a tile for the session's name. A tile like "I'd" looks thin at first, but color and letters become familiar within a few uses, the way an app icon does. Run each session full screen and a Mission Control swipe shows every session at once, its initial prompt pinned at the top.
 
 ![filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
-**The sessions you set aside.** Right-click the taskbar button or the Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N while an AgentTerm window is in front. Either opens a new window with the picker, which names its start directory above the input and lists your past sessions, the most recent preselected. Filter them as you type, by your prompts and the agent's own titles; resume any of them, start a CLI (options typed after its name are carried along), run what you typed as a shell command, or press Esc for a plain shell. Shift+Enter types the line into the shell instead of running it, so you can add or change options there; the terminal's own additions are in view (Codex is asked to title its threads), and Enter runs it. After a shell command or Esc, a strip above the terminal keeps the CLIs on offer: click one to start it the same way, Shift-click to add options first, or press Ctrl/Cmd+Shift+S for the picker again. Resuming returns to the directory that session was working in and starts its CLI there, because a CLI's own resume list is usually the sessions from that directory.
+**The sessions you set aside.** Right-click a taskbar button or Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N with an AgentTerm window in front. A new window opens with the picker: your past sessions, filtered as you type by your prompts and the agents' own titles. Resume one, start a CLI (with options, if you want them), or drop to a plain shell; the strip above the terminal and Ctrl/Cmd+Shift+S bring the CLIs back until one has started. Resuming returns to the directory that session was working in, because a CLI's own resume list is usually the sessions from that directory.
 
 **Type `npm run start` (`start:wsl` on WSL) once, from the directory you want the terminal to open in.** Three ways a window comes to be, and where each starts:
 
@@ -33,5 +31,5 @@ On a Mac each session is its own Dock tile, in the session's color with the firs
 | After the last closes | spawned automatically | the same rule, from the window that closed |
 
 - Every new window picks up the latest source from your agent-term clone; a build that fails stops that launch rather than running stale bundles.
-- The picker shows the directory. If it is not the one you want, `cd` there, then start the CLI from the strip, or bring the picker back with Ctrl/Cmd+Shift+S or a click on Sessions in the bar; all three work until a CLI has started in the window. Typing the CLI's name yourself works too; the strip and the picker are what carry the options.
+- If the picker's directory is not the one you want, `cd` there, then start the CLI.
 - To quit for good instead of getting a fresh window, type `exit`. Like `cd` and the CLI's name, it is just a shell command.
