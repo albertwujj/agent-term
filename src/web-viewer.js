@@ -45,7 +45,7 @@ function ensureWebStyles() {
   document.head.appendChild(style);
 }
 
-function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTerminalGrid, getPreloadUrl, platform } = {}) {
+function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTerminalGrid, getPreloadUrl, focusTerminal, platform } = {}) {
   let view = null;
   let viewPreloadKind = null;
   let backBtn = null;
@@ -80,6 +80,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     minHeight: 280,
     closeTitle: 'Close (free memory)',
     getTerminalGrid,
+    focusTerminal,
     // Rolling up hides the page, so its find bar — absolutely positioned over the
     // band — must not stay floating over the collapsed strip.
     onHide: () => closeFind(),

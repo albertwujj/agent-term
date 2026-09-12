@@ -38,6 +38,12 @@ function ensureBandStyles() {
       min-height: var(--vb-min-h, 280px);
       transform: translateY(-8px);
       opacity: 0;
+      /* Closed: inert by construction. The shell stays mounted at its last open
+         height, so pointer-events alone is not enough — a descendant that sets
+         its own pointer-events would still hit-test through the invisible
+         shell, and a focus() call would still land on it. visibility:hidden
+         removes it from hit-testing and focus, once the fade has run. */
+      visibility: hidden;
       pointer-events: none;
       z-index: 8200;
       display: flex;
@@ -49,13 +55,15 @@ function ensureBandStyles() {
       transition: opacity 150ms ease, transform 150ms ease, height 200ms ease,
                   min-height 200ms ease,
                   background-color var(--vb-bg-transition-duration, 320ms) ease,
-                  box-shadow 320ms ease;
+                  box-shadow 320ms ease,
+                  visibility 0s linear 150ms;
     }
     /* Shown and hidden are both visible, differing only in height — so hide/show
        animates as a roll-up/down: the band is top-anchored, so shrinking height
        rides the bottom edge (the bar) up to park as a slim handle. */
     .vb-shell.open, .vb-shell.hidden {
-      opacity: 1; pointer-events: auto; transform: translateY(0);
+      opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0);
+      transition-delay: 0s; /* visible at once; the delay is for closing only */
     }
     .vb-shell.hidden {
       height: var(--vb-collapsed-h, 26px);
@@ -243,6 +251,9 @@ function createViewerBand({
   onClose,
   onShow,
   onHide,
+  focusTerminal,      // where the keyboard goes when the band rolls up or closes
+                      // while holding focus (a click in the band lands focus on
+                      // its shell, a bar button, a composer, a webview guest)
 } = {}) {
   let shell = null;
   let bar = null;
@@ -367,6 +378,17 @@ function createViewerBand({
     raf(() => raf(() => { if (shell) shell.classList.remove('vb-snap'); }));
   }
 
+  // A band that leaves the screen must not keep the keyboard: focus inside it
+  // (the shell itself, a bar button, a composer, a webview guest) would make the
+  // window read as frozen — every key lands on something that is no longer
+  // there. Hand it to the terminal, the one surface always underneath.
+  function releaseFocus() {
+    if (!shell || typeof focusTerminal !== 'function') return;
+    const active = document.activeElement;
+    if (!active || !shell.contains(active)) return;
+    try { focusTerminal(); } catch {}
+  }
+
   function open() {
     mount();
     applyOpenSize();
@@ -386,6 +408,7 @@ function createViewerBand({
       shell.classList.add('hidden');
     });
     state = 'hidden';
+    releaseFocus();
     emitGeometryChange();
     if (typeof onHide === 'function') onHide();
   }
@@ -455,8 +478,9 @@ function createViewerBand({
   function close() {
     if (state === 'closed' || !shell) return;
     sizeMode = restSize; // the next open is a fresh reveal, at the default size
-    shell.classList.remove('open', 'hidden');
+    shell.classList.remove('open', 'hidden', 'vb-full');
     state = 'closed';
+    releaseFocus();
     emitGeometryChange();
     if (typeof onClose === 'function') onClose();
   }

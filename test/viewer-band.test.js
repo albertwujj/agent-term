@@ -131,4 +131,44 @@ fullBand.setDefaultSize('full');
 fullBand.open();
 assert.ok(fullBand.isFull(), 'retargeting while closed takes effect on open');
 
+// Leaving the screen hands the keyboard back. A click in the band lands focus
+// on its shell (or a bar button, a composer, a webview guest); once the band
+// rolls up or closes that element is gone from view, and every key would land
+// on it — the window reads as frozen. The band asks the host to focus the
+// terminal, and only when it actually held focus.
+{
+  let focused = 0;
+  const focusBand = createViewerBand({ name: 'focus', focusTerminal: () => { focused += 1; } });
+  focusBand.open();
+  const other = document.createElement('input');
+  document.body.appendChild(other);
+  other.focus();
+  focusBand.hide();
+  assert.strictEqual(focused, 0, 'a roll-up with focus elsewhere leaves it alone');
+  focusBand.show();
+  focusBand.shell.tabIndex = -1;
+  focusBand.shell.focus();
+  assert.strictEqual(document.activeElement, focusBand.shell);
+  focusBand.hide();
+  assert.strictEqual(focused, 1, 'a roll-up with focus on the shell hands it to the terminal');
+  focusBand.show();
+  focusBand.toggleFullSize();
+  focusBand.bar.querySelector('button').focus();
+  focusBand.close();
+  assert.strictEqual(focused, 2, 'a close with focus on a bar button hands it to the terminal');
+  assert.ok(!focusBand.shell.classList.contains('vb-full'), 'a closed shell drops the full-size marker');
+  assert.ok(!focusBand.shell.classList.contains('open') && !focusBand.shell.classList.contains('hidden'));
+  focusBand.open();
+  other.focus();
+  focusBand.close();
+  assert.strictEqual(focused, 2, 'a close with focus elsewhere leaves it alone');
+  // No host callback: the band still closes.
+  const plain = createViewerBand({ name: 'plain' });
+  plain.open();
+  plain.shell.tabIndex = -1;
+  plain.shell.focus();
+  plain.close();
+  assert.ok(!plain.isOpen());
+}
+
 console.log('viewer-band test passed');

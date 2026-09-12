@@ -203,6 +203,7 @@ function getWebViewer() {
   if (!webViewer) {
     webViewer = createWebViewer({
       onOpen: dismissResumeHintOnViewerOpen,
+      focusTerminal: () => { try { terminal.focus(); } catch {} },
       // Lets the collapsed handle snap its bottom edge to a terminal row
       // boundary so the row peeking below it isn't chopped mid-line.
       getTerminalGrid: () => {

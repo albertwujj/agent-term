@@ -488,7 +488,6 @@ function ensureStyles() {
       border-bottom-color: rgba(120, 113, 108, 0.34);
     }
     .md-spread-pane.secondary .md-viewer-body {
-      pointer-events: auto;
       will-change: transform;
     }
     .md-spread-pane .md-viewer-body {
@@ -1271,6 +1270,7 @@ function createMarkdownViewer({
     defaultSize: 'full',
     closeTitle: 'Close markdown viewer',
     escToHide: false,
+    focusTerminal,
     getTerminalGrid: () => {
       const m = typeof getTerminalMetrics === 'function' ? getTerminalMetrics() : null;
       if (!m || !Number.isFinite(m.top) || !Number.isFinite(m.height) || !Number.isFinite(m.rows) || m.rows <= 0) return null;
@@ -3716,7 +3716,7 @@ function createMarkdownViewer({
   }
 
   function handleVdragDown(event) {
-    if (event.button !== 0 || state.vdrag || state.editing) return;
+    if (event.button !== 0 || state.vdrag || state.editing || !band.isOpen()) return;
     if (event.target && event.target.closest
       && event.target.closest('.md-comment-card, .md-queued-comment-card, .md-pending-strip, .md-thread-card, .md-thread-waiting-line, button, textarea, input')) return;
     const point = resolveArticlePoint(event.clientX, event.clientY);
@@ -6529,6 +6529,7 @@ function createMarkdownViewer({
   }
 
   function handleArticleClick(event) {
+    if (!band.isOpen()) return; // the shell stays mounted while closed; nothing here is live
     // The click that ends a virtual drag is the drag's release, not a click.
     if (state.vdragConsumedClick) {
       state.vdragConsumedClick = false;
