@@ -26,7 +26,7 @@ So why do people still run agents in the IDE, and why are the vendors adding the
 
 Extending it on demand is what keeps it a terminal. What you are working on comes in when you need it and goes when you are done, so the window is a terminal again the moment you finish. An IDE does not do that, as irrelevant things are already there before you type.
 
-What about the vendor desktop apps, which also offer a richer interface? An app built around one vendor's agent trades away key benefits, including the other agents and the closeness to your shell environment. For coding it can also disorient, adding a workspace of its own between you and the code; many who try it drift back to the terminal, where the familiar, the continuity, the repo, the shell, and the tests already live. The grown terminal here keeps all of that and adds a lot more.
+What about the vendor desktop apps, which also offer a richer interface? It is a trade, and you pick one: an app built around one vendor's agent, or a terminal that hosts any agent beside your shell, your repo, and your tests. This one is the second, and it keeps the terminal's focus: one window per agent with only that session in it, full screen if you like ([native to the OS](#native-to-the-os)).
 
 That move is now coming from the terminal side too: several terminals have grown an agent of their own, with ways to run many at once, including in the cloud. To get their environment you take their agent. Here nothing about working with your agent changes.
 
