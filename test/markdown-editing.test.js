@@ -270,6 +270,19 @@ async function run() {
   check('the live-edit control carries the note field (same control as revisit)',
     !!document.querySelector('.md-editing-strip textarea'));
   {
+    // The strip sits in one copy; the other copy carries a blank right after
+    // the block's twin, so both copies keep the same height below the block
+    // (a right page runs from the other copy at the left page's offset).
+    const twin = Array.from(document.querySelectorAll('.md-viewer-body')[1].querySelectorAll('p'))
+      .find((el) => el.textContent.includes('A scratch'));
+    const blank = twin && twin.nextElementSibling;
+    check('the live-edit strip has a blank after the block\'s twin in the other copy',
+      !!(blank && blank.classList.contains('md-editing-strip-spacer')),
+      blank && blank.className);
+    check('the blank is in the copy the strip is not', document.querySelectorAll('.md-editing-strip-spacer').length === 1
+      && !document.querySelector('.md-editing-strip-spacer').closest('.md-viewer-body').contains(document.querySelector('.md-editing-strip')));
+  }
+  {
     // Strike-in-place: the entry Backspace strikes the last char rather than
     // removing it — the text stays whole, one char now sits in a <del>.
     const original = FIXTURE.split('\n').slice(2, 4).join('\n');
@@ -301,6 +314,7 @@ async function run() {
   check('the block is decorated, not duplicated',
     Array.from(primary().querySelectorAll('p')).filter((el) => el.textContent.includes('A scratch')).length === 1);
   check('the in-edit strip leaves with the edit', !document.querySelector('.md-editing-strip'));
+  check('the strip\'s blank leaves with it', !document.querySelector('.md-editing-strip-spacer'));
   check('a resting pending edit carries no strip', !primary().querySelector('.md-pending-strip:not(.sent)'));
   wrapped.querySelector('del.md-pending-del').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   await sleep(10);

@@ -1130,6 +1130,12 @@ function ensureStyles() {
       margin: 8px 0 12px;
       pointer-events: none;
     }
+    /* The live edit strip's stand-in in the other article copy (same margins
+       as .md-pending-strip; height set from the strip). */
+    .md-editing-strip-spacer {
+      margin: 8px 0 12px;
+      pointer-events: none;
+    }
     .md-queued-comment-card-spacer {
       margin: 8px 0 12px;
       pointer-events: none;
@@ -3894,7 +3900,50 @@ function createMarkdownViewer({
   // page when the block's tail is a page away from the caret — the edge
   // OPPOSITE the caret, so it never covers the text being struck. Never
   // moved while its note has focus (moving a focused field would blur-commit).
+  // Wherever it ends up, its blank in the other copy follows (below).
   function updateEditingStripSeat() {
+    seatEditingStrip();
+    syncEditingStripSpacer(state.editing);
+  }
+
+  // The strip lives in ONE article copy. The two copies are laid out as one
+  // document — the right page is the other copy shown one page below the left
+  // page's offset — so a strip in only one of them puts everything under the
+  // edited block a strip's height apart between the copies: with the edit on
+  // the left page, each right page then starts that far past where the left
+  // page ended, and a heading or a few lines vanish into the seam (or repeat
+  // across it, with the edit on the right). So a blank of the strip's exact
+  // height stands after the block's twin in the other copy — the comment
+  // card's placeholder idiom — resized as the note grows and re-seated when
+  // the strip moves (a handover, a re-seat). Pinned, the strip is out of
+  // flow and the blank leaves too.
+  function syncEditingStripSpacer(session) {
+    if (!session) return;
+    const strip = session.strip;
+    const inFlow = !!(strip && strip.isConnected && !strip.classList.contains('pinned'));
+    const block = inFlow ? strip.previousElementSibling : null;
+    const twin = block ? getCounterpartAnchorElement(block) : null;
+    if (!twin) {
+      if (session.stripSpacer) { try { session.stripSpacer.remove(); } catch {} }
+      return;
+    }
+    let spacer = session.stripSpacer;
+    if (!spacer) {
+      spacer = document.createElement('div');
+      spacer.className = 'md-editing-strip-spacer';
+      session.stripSpacer = spacer;
+    }
+    if (spacer.previousElementSibling !== twin) twin.insertAdjacentElement('afterend', spacer);
+    spacer.style.height = `${strip.offsetHeight || 0}px`;
+  }
+
+  function removeEditingStrip(session) {
+    if (!session) return;
+    if (session.strip) { try { session.strip.remove(); } catch {} }
+    if (session.stripSpacer) { try { session.stripSpacer.remove(); } catch {} }
+  }
+
+  function seatEditingStrip() {
     const session = state.editing;
     if (!session || !session.strip || !session.strip.isConnected) return;
     const strip = session.strip;
@@ -4900,7 +4949,12 @@ function createMarkdownViewer({
       placeholder: 'Note for the agent about this edit...',
       seed: session.note || '',
       rows: 2,
-      onInput: () => { autoGrowTextarea(composer.textarea); session.note = composer.textarea.value; },
+      onInput: () => {
+        autoGrowTextarea(composer.textarea);
+        session.note = composer.textarea.value;
+        syncEditingStripSpacer(session);
+        syncSecondaryPane();
+      },
       actions: [
         { label: 'Revert', onClick: () => revertBlockEditor() },
         { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: shiftModEnterLabel(), primary: true, title: 'Enter', onClick: () => { commitBlockEditor(); sendEditBatch({ host: composer.root }); } },
@@ -4930,6 +4984,7 @@ function createMarkdownViewer({
     // Entry moves nothing (the caret is where you clicked): a seat below the
     // fold pins as an overlay instead of scrolling the page to chase it.
     updateEditingStripSeat();
+    syncSecondaryPane();
     return holder;
   }
 
@@ -5002,7 +5057,7 @@ function createMarkdownViewer({
     if (!session) return;
     state.editing = null;
     releaseEditingFollowers(session);
-    if (session.strip) { try { session.strip.remove(); } catch {} }
+    removeEditingStrip(session);
     try { session.el.contentEditable = 'false'; } catch {}
     const anchorId = session.anchorId;
     const note = session.note && session.note.trim() ? session.note.trim() : '';
@@ -5039,7 +5094,7 @@ function createMarkdownViewer({
     const session = state.editing;
     state.editing = null;
     releaseEditingFollowers(session);
-    if (session.strip) { try { session.strip.remove(); } catch {} }
+    removeEditingStrip(session);
     try { session.el.contentEditable = 'false'; } catch {}
     // Nothing committed to the overlay map: a re-layout from the frozen doc
     // drops the in-progress marks and restores any prior overlay untouched.

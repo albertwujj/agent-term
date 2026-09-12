@@ -87,6 +87,17 @@ try {
     };
   });
   await settle();
+  // The strip is in the edited copy only; a blank of its height stands in the
+  // other, so the copies stay one document (a right page is the other copy one
+  // page below the left page's offset — a height gap between them skips or
+  // repeats that much text at every seam).
+  const articleHeights = () => page.evaluate(() =>
+    [...document.querySelectorAll('.md-viewer-body')].map((el) => el.getBoundingClientRect().height));
+  {
+    const [a, b] = await articleHeights();
+    assert.ok(Math.abs(a - b) < 0.5, `the article copies differ in height with the strip open: ${a} vs ${b}`);
+    assert.equal(await page.locator('.md-editing-strip-spacer').count(), 1, 'one blank stands in for the strip');
+  }
   const before = await snapshot();
   assert.equal(before.seats.length, 2, 'the seam row has a spacer in each article');
   assert.ok(before.seats.every((h) => h > 0 && h < 6), 'the small spacer exposes the margin-collapse boundary');
@@ -100,6 +111,24 @@ try {
     assert.deepEqual(after.seats, before.seats, 'the row keeps the same seat on both pages');
   }
   assert.equal(await edit.locator('ins.md-pending-ins').innerText(), ' Earlier, we assumed');
+  {
+    // The note grows the strip; the blank grows with it.
+    const note = page.locator('.md-editing-strip textarea');
+    const stripBefore = await page.locator('.md-editing-strip').evaluate((el) => el.getBoundingClientRect().height);
+    await note.click();
+    // Past the composer's two opening rows: four-plus wrapped lines.
+    await page.keyboard.type(Array.from({ length: 4 }, () =>
+      'A note long enough to wrap onto several lines of the composer, so the strip below the block grows taller than it opened at, and the blank in the other copy has to follow it.').join(' '));
+    await settle();
+    const stripAfter = await page.locator('.md-editing-strip').evaluate((el) => el.getBoundingClientRect().height);
+    assert.ok(stripAfter > stripBefore + 5, `the note should have grown the strip: ${stripBefore} → ${stripAfter}`);
+    const [a, b] = await articleHeights();
+    assert.ok(Math.abs(a - b) < 0.5, `the article copies differ in height after the note grew: ${a} vs ${b}`);
+    await edit.click(); // back to the block: the strip must keep the edit live
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End');
+    await settle();
+    assert.ok(await page.locator('.md-rendered-editing').count(), 'moving from the note back to the text keeps the edit live');
+  }
 
   // Stability must not freeze the old seat: once preceding content moves the
   // row clear of the seam, its spacer should disappear in both articles.
