@@ -40,7 +40,7 @@ This path can look hacky: the host parses text, and reacts to it. But establishe
 
 With a host that understands its agents, and agents that understand the host, a capable agent does more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. This terminal reads what agents print and opens what they point to inside the window, where you can act on it, and the agent can use its protocol with the host to write to that window.
 
-## Fit it to your work
+### Fit it to your work
 
 Use it first as it is, a boost for working with your agents; what you need may already be there. When something is missing or falls short, add it with your agents: the symptom is right there, in front of you and the agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. And the loop itself runs better here, with everything listed below at hand.
 
