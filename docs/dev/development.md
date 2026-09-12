@@ -28,7 +28,7 @@ On Windows these commands use WSL Node.js. The end-to-end suite launches Linux E
 
 The pages under `docs/` are for a person deciding whether to try something and for the moment they first use it. Two rules keep them readable:
 
-- **Name the capability; do not narrate the UI.** Say what can be done in words a reader can carry to the screen ("copy takes the section under the heading you clicked"), and leave the labels, hints, key lists, and messages to the UI itself, which shows them at the moment they matter. A quoted button label, a flash, a hint's wording, or a step-by-step of a dialog is a sign the sentence should go. Images may show UI; prose does not describe what an image shows.
+- **Name the capability; do not narrate the UI.** Say what can be done in words a reader can carry to the screen ("copy takes the section under the heading you clicked"), and leave the labels, hints, key lists, and messages to the UI itself, which shows them at the moment they matter. A quoted button label, a flash, a hint's wording, or a step-by-step of a dialog is a sign the sentence should go. Images may show UI; prose does not describe what an image shows. Nor does it state what a reader already expects: that Esc backs out, that resume returns where you were, that the newest row is first.
 - **A feature change edits the sentence that names it.** Adding a paragraph for each refinement is how a page grows past reading. If the capability changed, change its sentence; if only the UI changed, the doc usually needs nothing.
 
 The test for a sentence: could a reader who has never opened the app tell what to look for, and would they learn nothing more from it once the app is open?
