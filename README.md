@@ -36,7 +36,7 @@ Several terminals have gone the vendors' way and grown an agent of their own, wi
 
 ### Native to the OS
 
-Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. The one aggregator, the view from your phone, runs on the side, remotely, never interfering with the OS windows. An agent and its host grow into one whole, independent of the other wholes and cooperating with them through shared conventions. Subagents belong inside it, under the main agent.
+Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. An agent and its host grow into one whole, cooperating with the others through shared conventions.
 
 ### Why it holds
 
