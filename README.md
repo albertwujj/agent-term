@@ -38,7 +38,7 @@ The host also lets a capable agent do more than its CLI can alone. A CLI does no
 
 ## Fit it to your work
 
-Use it first as it is, a boost for working with your agents; what you need may already be there. When something is missing or falls short in your situation, add it with your agents: the symptom is right there, in front of you and the agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. And the loop runs better in this terminal: you comment on the symptom where you see it, settle the fix on a page, and review it before it lands.
+Use it first as it is, a boost for working with your agents; what you need may already be there. When something is missing or falls short in your situation, add it with your agents: the symptom is right there, in front of you and the agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. And the loop itself runs better here, with everything listed below at hand.
 
 ## What's added so far
 
