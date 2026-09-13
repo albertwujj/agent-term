@@ -19,7 +19,7 @@ Then type your note.
 
 ## Edit the text
 
-You can edit a [rendered plan](plan.md) or a review's commit message directly. The agent takes the edit as your intent; a note, if you attach one, makes the intent clearer.
+You can edit a [rendered plan](plan.md) or a [review's commit message](review.md) directly. The agent takes the edit as your intent; a note, if you attach one, makes the intent clearer.
 
 ## Collect and send
 
