@@ -25,7 +25,8 @@ dom.window.matchMedia = dom.window.matchMedia || (() => ({
 }));
 if (!dom.window.CSS) dom.window.CSS = { escape: (s) => s };
 if (!dom.window.CSS.highlights) dom.window.CSS.highlights = new Map();
-if (!dom.window.Highlight) dom.window.Highlight = class { constructor() {} };
+// The stub keeps its ranges, so a test can ask what the page reads back.
+if (!dom.window.Highlight) dom.window.Highlight = class { constructor(...ranges) { this.ranges = ranges; } };
 dom.window.Range.prototype.getClientRects = dom.window.Range.prototype.getClientRects
   || (() => [{ width: 10, height: 10, left: 0, right: 10, top: 0, bottom: 10 }]);
 dom.window.Range.prototype.getBoundingClientRect = dom.window.Range.prototype.getBoundingClientRect
@@ -41,6 +42,8 @@ const FIXTURE = [
   'Second paragraph carries the thread awaiting the agent.',
   '',
   'Third paragraph is plain text with nothing attached to it.',
+  '',
+  'Fourth paragraph carries three resolved threads, one of them an edit.',
 ].join('\n');
 
 // A resolved thread (rests as a line, click opens the card) and one still
@@ -65,6 +68,41 @@ const store = {
       anchor_status: 'ok',
       status: 'open',
       messages: [{ author: 'user', body: 'Take a look at the second one.', ts: 3, turn: 2 }],
+    },
+    // Three resolved on one block, stored out of time order (a re-anchor can
+    // do that): newest by first message wins the top, not store position.
+    {
+      id: 'r-old',
+      anchor: { snippet: 'three resolved threads' },
+      anchor_status: 'ok',
+      status: 'resolved',
+      messages: [
+        { author: 'user', body: 'Oldest ask on the fourth.', ts: 10, turn: 1 },
+        { author: 'agent', body: 'Done, oldest.', ts: 11, turn: 2 },
+      ],
+    },
+    {
+      id: 'r-new',
+      // An edit the agent re-anchored to the sentence it was about: a
+      // selection, so opening its card reads that text back.
+      anchor: { snippet: 'one of them an edit' },
+      anchor_status: 'ok',
+      status: 'resolved',
+      messages: [
+        { author: 'user', body: '[Edit] Fourth paragraph carries three resolved threads, one of them <del>an edit</del><ins>a change</ins>. [/Edit]', ts: 50, turn: 3 },
+        { author: 'agent', body: 'Kept as it was.', ts: 51, turn: 4 },
+      ],
+    },
+    {
+      id: 'r-mid',
+      // An edit still anchored to its whole block: a locator, no readback.
+      anchor: { snippet: 'Fourth paragraph carries three resolved threads, one of them an edit.' },
+      anchor_status: 'ok',
+      status: 'resolved',
+      messages: [
+        { author: 'user', body: '[Edit] Fourth paragraph <del>carries</del><ins>holds</ins> three resolved threads, one of them an edit. [/Edit]', ts: 30, turn: 2 },
+        { author: 'agent', body: 'Applied, middle.', ts: 31, turn: 3 },
+      ],
     },
   ],
 };
@@ -168,6 +206,68 @@ async function run() {
   document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
   await sleep(1400); // the next tick flushes what was held
   check('and lands once the block is disarmed', !!find('.md-thread-card.needs-user'));
+
+  // --- a block's resolved history: newest first, folded to the newest ---
+  document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+  await sleep(20);
+  const fourth = () => Array.from(primary().querySelectorAll('[data-md-anchor-id]'))
+    .find((b) => b.textContent.includes('Fourth paragraph'));
+  const rows = () => {
+    const out = [];
+    for (let el = fourth().nextElementSibling; el && el.classList.contains('md-resolved-item'); el = el.nextElementSibling) out.push(el);
+    return out;
+  };
+  const shape = () => rows().map((el) => (el.classList.contains('md-thread-card') ? 'card' : 'line'));
+  const hooks = () => rows().map((el) => el.querySelector('.md-anno-text').textContent);
+  const caret = () => { const c = rows()[0] && rows()[0].querySelector('.md-resolved-caret'); return c ? c.textContent : null; };
+  const tail = () => { const m = rows()[0] && rows()[0].querySelector('.md-resolved-more'); return m ? m.textContent : null; };
+  // What the thread readback highlights, as text. Another card on the page
+  // (the second paragraph's, blocked on the user) keeps its own readback up
+  // throughout, so ask for the fourth's text rather than for any highlight.
+  const readback = () => {
+    const h = dom.window.CSS.highlights.get('md-thread-anchor');
+    return h ? h.ranges.map((r) => String(r)) : [];
+  };
+  const highlighted = (text) => readback().some((s) => s.includes(text));
+
+  check('folded: the newest thread alone, as its line', shape().join() === 'line', shape());
+  check('the folded line is the newest by first message, not store order', /Kept as it was/.test(hooks()[0]), hooks());
+  check('the count of the rest is its tail', tail() === '+2 more', tail());
+  check('and a gutter caret says it unfolds', caret() === '▸', caret());
+
+  click(rows()[0]);
+  await sleep(20);
+  check('clicking the folded line opens that thread without unfolding the rest', shape().join() === 'card' && /Kept as it was/.test(rows()[0].textContent), shape());
+  check('the caret stays on the card', caret() === '▸', caret());
+  check('an edit re-anchored to a sentence reads it back', highlighted('one of them an edit'), readback());
+
+  click(rows()[0]);
+  await sleep(20);
+  check('clicking the card folds it back to the line', shape().join() === 'line' && tail() === '+2 more', shape());
+  check('and the readback clears', !highlighted('one of them an edit'), readback());
+
+  click(rows()[0].querySelector('.md-resolved-more'));
+  await sleep(20);
+  check('the tail unfolds to a line per thread, newest first', shape().join() === 'line,line,line'
+    && /Kept as it was/.test(hooks()[0]) && /middle/.test(hooks()[1]) && /oldest/.test(hooks()[2]), hooks());
+  check('unfolded: the caret flips and the tail goes', caret() === '▾' && tail() === null, [caret(), tail()]);
+
+  click(rows()[1]);
+  await sleep(20);
+  check('a line below opens in place', shape().join() === 'line,card,line', shape());
+  check('an edit anchored to its whole block reads nothing back', !highlighted('Fourth paragraph'), readback());
+  click(rows()[1]);
+  await sleep(20);
+  click(rows()[0]);
+  await sleep(20);
+  check('the newest opens at the top of the unfolded list', shape().join() === 'card,line,line', shape());
+
+  click(rows()[0].querySelector('.md-resolved-caret'));
+  await sleep(20);
+  check('folding keeps the newest card open and hides the rest', shape().join() === 'card' && caret() === '▸', shape());
+  click(rows()[0]);
+  await sleep(20);
+  check('the card folds to the line with its tail', shape().join() === 'line' && tail() === '+2 more', [shape(), tail()]);
 
   viewer.close();
   console.log(`\n--- Results: ${passed} passed, ${failed} failed ---`);

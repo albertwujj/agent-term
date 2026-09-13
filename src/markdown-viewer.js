@@ -807,7 +807,6 @@ function ensureStyles() {
        row never fills (a fill reads as an inserted code/callout block). The
        left-accent carries type: slate comment, green edit, amber unsent draft.
        Text truncates to the line via .md-anno-text. */
-    .md-thread-resolved-summary,
     .md-thread-resolved-line,
     .md-thread-waiting-line,
     .md-pending-note-mark,
@@ -837,8 +836,6 @@ function ensureStyles() {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .md-anno-meta { flex: none; color: #94a3b8; font-size: 0.92em; }
-    .md-thread-resolved-summary:hover,
     .md-thread-resolved-line:hover,
     .md-thread-waiting-line:hover,
     .md-pending-note-mark:hover,
@@ -846,15 +843,10 @@ function ensureStyles() {
       color: #334155;
       background-color: var(--md-block);
     }
-    /* Resolved history: the agent finished, so this carries no turn and no
-       content — a count, quiet, one line per block. The work itself is already
-       visible as the document change. Click unfolds the threads behind it. */
-    .md-thread-resolved-summary {
-      border-left-color: #94a3b8;
-      color: #64748b;
-      opacity: 0.8;
-    }
-    .md-thread-resolved-summary:hover { opacity: 1; }
+    /* Resolved history: the agent finished, so it carries no turn — quiet,
+       newest first, one line per thread. Folded, only the newest line shows,
+       with the count of the rest as its tail. The work itself is already
+       visible as the document change. */
     /* The resolved group sits in from the block, leaving a gutter for its fold
        caret — so the caret costs no row and never moves, it only flips. */
     .md-resolved-item { margin-left: 18px; }
@@ -878,6 +870,13 @@ function ensureStyles() {
       opacity: 0.75;
     }
     .md-resolved-caret:hover { color: #475569; opacity: 1; }
+    /* On a card (the newest thread opened) the caret sits by the first line,
+       where the eye starts, rather than mid-card. */
+    .md-thread-card.md-resolved-first > .md-resolved-caret { top: 17px; transform: none; }
+    /* The count of folded threads, on the newest line's tail: the line opens
+       its own thread, the tail unfolds the rest. */
+    .md-resolved-more { flex: none; color: #94a3b8; font-size: 0.92em; }
+    .md-resolved-more:hover { color: #475569; text-decoration: underline; }
     /* One resolved thread behind the count: your opening ask, indented under the
        header that revealed it. Grey like its header — finished, no turn. */
     .md-thread-resolved-line {
@@ -1189,9 +1188,9 @@ function createMarkdownViewer({
     threadPollInFlight: false,
     threadRenderPending: false,
     threadReply: null,
-    // Keep-together spacer heights by box key (thread id / resolved fold key), so
-    // a re-render can put back the blanks above the page top verbatim — the
-    // reader's top line must not move because a spacer above it was recomputed.
+    // Keep-together spacer heights by box key (thread id), so a re-render can
+    // put back the blanks above the page top verbatim — the reader's top line
+    // must not move because a spacer above it was recomputed.
     keepSpacerByKey: new Map(),
     replyDrafts: new Map(), // thread id → reply text typed and clicked away (rests as a row in the card)
     resumeFullPending: false, // a full-size send receded to golden; resume full when the agent's turn ends
@@ -1725,7 +1724,7 @@ function createMarkdownViewer({
   // like text. The card hosting an open reply composer is fitted onto its
   // page by scroll (like the comment bubble) rather than seated, so growing
   // the reply never throws the card onto another page mid-typing.
-  const KEEP_SELECTOR = '.md-thread-card, .md-thread-resolved-summary, .md-thread-resolved-line, .md-thread-waiting-line';
+  const KEEP_SELECTOR = '.md-thread-card, .md-thread-resolved-line, .md-thread-waiting-line';
 
   function keepKeyOf(el) {
     return el && el.getAttribute ? (el.getAttribute('data-md-keep-key') || '') : '';
@@ -5572,7 +5571,7 @@ function createMarkdownViewer({
   // --- Thread layer (sidecar store → inline cards/disclosure lines; the
   // contract is ~/agent-threads/contract.md) ---
 
-  const THREAD_FLOW_SELECTOR = '.md-thread-card, .md-thread-resolved-summary, .md-thread-resolved-line, .md-thread-waiting-line';
+  const THREAD_FLOW_SELECTOR = '.md-thread-card, .md-thread-resolved-line, .md-thread-waiting-line';
   // Resolved threads with no anchor left pile at the article end under one count.
   const ORPHAN_THREAD_KEY = '__orphan__';
 
@@ -5631,20 +5630,25 @@ function createMarkdownViewer({
     return resolveThreadHeadingTarget(article, anchor.heading);
   }
 
-  // The quoted text a comment thread anchors to, as live Ranges in `target` —
-  // the readback of the selection highlight the draft wore while composing.
-  // Comments on a sub-block selection only: an edit thread shows its marks in
-  // place, and a whole-block or image comment's card already sits under the
-  // block it means. The stored snippet and the DOM disagree on whitespace, so
-  // build the normalized text with per-char offsets back into searchable
-  // space, then map the hit to a Range. A miss (text changed since, heading
-  // fallback) yields no readback.
+  // The quoted text a thread anchors to, as live Ranges in `target` — the
+  // readback of the selection highlight the draft wore while composing.
+  // Selections only: a whole-block or image comment's card already sits under
+  // the block it means. An edit thread anchors to its block, a locator rather
+  // than a selection, so it gets no readback either — unless the agent has
+  // since re-anchored it to the text it was about (a sentence inside the
+  // block), which is a selection and reads back like one. (While the edit is
+  // pending its marks show in place; this only matters once they are gone.)
+  // The stored snippet and the DOM disagree on whitespace, so build the
+  // normalized text with per-char offsets back into searchable space, then
+  // map the hit to a Range. A miss (text changed since, heading fallback)
+  // yields no readback.
   function createThreadAnchorRanges(target, thread) {
     const anchor = (thread && thread.anchor) || {};
     const first = (thread && thread.messages && thread.messages[0] && thread.messages[0].body) || '';
-    if (!target || anchor.src || anchor.wholeBlock || parseEditEnvelope(first)) return [];
+    if (!target || anchor.src || anchor.wholeBlock) return [];
     const snip = snippetMatchText(anchor.snippet);
     if (!snip) return [];
+    if (parseEditEnvelope(first) && normalizeChangeMatchText(getRenderedText(target)) === snip) return [];
     const { text } = getSearchableTextNodes(target);
     let norm = '';
     const offsets = []; // offsets[i] = searchable-space offset of norm[i]
@@ -5761,23 +5765,19 @@ function createMarkdownViewer({
     band.toggleFullSize();
   }
 
-  // All of a block's resolved threads, as one line: a count and nothing else.
-  // They are finished business and their result already shows as the document
-  // change, so the page spends one line on them. It is a HEADER — its threads
-  // unfold beneath it, so the control stays put under the cursor.
-  // Folded, the whole history is this one row: the newest thread's hook, with
-  // the rest surviving as "+N more". No count — you can see what it was.
-  function buildResolvedFoldedRow(group) {
-    const line = document.createElement('div');
-    line.className = 'md-thread-resolved-summary';
-    fillThreadHook(line, group[group.length - 1]);
-    if (group.length > 1) {
-      const more = document.createElement('span');
-      more.className = 'md-anno-meta';
-      more.textContent = `+${group.length - 1} more`;
-      line.append(more);
-    }
-    return line;
+  // A block's resolved threads, newest first: the one you just finished is the
+  // one you come back to, so it sits at the top, under the block, where its
+  // card opens without a page turn. Newest by when the thread was opened (its
+  // first message) — the store's order is that too, but a re-anchor rides a
+  // later event, and moving a thread must not make it look recent.
+  function sortThreadsNewestFirst(group) {
+    const opened = (thread) => {
+      const first = Array.isArray(thread.messages) && thread.messages[0];
+      return first && Number.isFinite(first.ts) ? first.ts : 0;
+    };
+    return group.map((thread, index) => ({ thread, index }))
+      .sort((a, b) => (opened(b.thread) - opened(a.thread)) || (b.index - a.index))
+      .map((entry) => entry.thread);
   }
 
   // Open or fold a thread row, moving the state and the pixels together.
@@ -5800,13 +5800,13 @@ function createMarkdownViewer({
     else relayoutThroughQueuedComments();
   }
 
-  // The fold control, by state. Folded, the row itself is the control — one
-  // full-width target, no chrome — and its "+N more" already marks it as a
-  // fold rather than a thread. Expanded, the first row is a thread line whose
-  // click opens that thread, so folding back gets a gutter caret: the one
-  // place a second control fits without spending a line. The caret exists
-  // exactly when there is something to fold.
-  function addResolvedFoldControl(el, key, expanded) {
+  // The fold control, on the newest thread's row (line or card) in both
+  // states. The row is always that thread's own — click opens it, the card
+  // folds back on click — so the fold lives beside it, not on it: a gutter
+  // caret, the one place a second control fits without spending a line, and
+  // folded, the count of what is hidden as the line's tail, which unfolds too.
+  // The caret exists exactly when there is something to fold.
+  function addResolvedFoldControl(el, key, expanded, hidden) {
     if (!el) return;
     const toggle = (event) => {
       event.preventDefault();
@@ -5816,21 +5816,24 @@ function createMarkdownViewer({
         else state.resolvedExpanded.add(key);
       });
     };
-    if (!expanded) {
-      el.title = 'Show earlier resolved';
-      el.addEventListener('mousedown', (event) => event.stopPropagation());
-      el.addEventListener('click', toggle);
-      return;
-    }
+    const stop = (event) => { event.preventDefault(); event.stopPropagation(); };
     el.classList.add('md-resolved-first');
     const caret = document.createElement('button');
     caret.type = 'button';
     caret.className = 'md-resolved-caret';
-    caret.textContent = '▾';
-    caret.title = 'Fold resolved';
-    caret.addEventListener('mousedown', (event) => { event.preventDefault(); event.stopPropagation(); });
+    caret.textContent = expanded ? '▾' : '▸';
+    caret.title = expanded ? 'Fold resolved' : `Show ${hidden} earlier`;
+    caret.addEventListener('mousedown', stop);
     caret.addEventListener('click', toggle);
     el.appendChild(caret);
+    if (expanded || !el.classList.contains('md-thread-resolved-line')) return;
+    const more = document.createElement('span');
+    more.className = 'md-resolved-more';
+    more.textContent = `+${hidden} more`;
+    more.title = caret.title;
+    more.addEventListener('mousedown', stop);
+    more.addEventListener('click', toggle);
+    el.appendChild(more);
   }
 
   // One resolved thread, at rest behind the count: your opening ask and nothing
@@ -6167,7 +6170,7 @@ function createMarkdownViewer({
           }
           // Open threads blocked on the user render in full — that is the
           // user's worklist; ones awaiting the agent rest as a line. Resolved
-          // ones are held back and emitted below as a single count per block.
+          // ones are held back and emitted below, grouped per block.
           if (isThreadResolved(thread)) {
             const key = (target && getAnchorIdForTarget(target)) || ORPHAN_THREAD_KEY;
             if (!resolvedByBlock.has(key)) resolvedByBlock.set(key, { target, threads: [] });
@@ -6183,31 +6186,30 @@ function createMarkdownViewer({
           if (target) insertCommentFlowElementAfterTarget(target, el);
           else article.appendChild(el);
         }
-        // One line per block for everything resolved. Unfolded, the threads
-        // themselves render above their count, so the line also folds them back.
+        // A block's resolved history, newest first. Folded, only the newest
+        // shows — a line per thread (your opening ask) when unfolded — and the
+        // full card only for the ones you open. The newest is the same row in
+        // both states, so folding never moves it and its card opens without
+        // unfolding the rest.
         for (const [key, { target, threads: group }] of resolvedByBlock) {
+          const ordered = sortThreadsNewestFirst(group);
           // A lone resolved thread has no fold to manage: its row IS the
           // thread line — click opens the card, the card folds on click.
-          const single = group.length === 1;
+          const single = ordered.length === 1;
           const expanded = single || state.resolvedExpanded.has(key);
           const put = (el) => {
             if (target) insertCommentFlowElementAfterTarget(target, el);
             else article.appendChild(el);
           };
-          // Two levels, and expansion costs no extra row: folded is the newest
-          // hook alone; unfolded is a line per thread (your opening ask), with
-          // the full card only for the one you open.
-          const rows = expanded
-            ? group.map((thread) => {
-              if (!state.expandedThreads.has(thread.id)) {
-                return stampKeepKey(buildResolvedThreadLine(thread), `thread:${thread.id}`);
-              }
-              if (target) anchorRanges.push(...createThreadAnchorRanges(target, thread));
-              return stampKeepKey(buildThreadCard(thread, !target), `thread:${thread.id}`);
-            })
-            : [stampKeepKey(buildResolvedFoldedRow(group), `fold:${key}`)];
+          const rows = (expanded ? ordered : ordered.slice(0, 1)).map((thread) => {
+            if (!state.expandedThreads.has(thread.id)) {
+              return stampKeepKey(buildResolvedThreadLine(thread), `thread:${thread.id}`);
+            }
+            if (target) anchorRanges.push(...createThreadAnchorRanges(target, thread));
+            return stampKeepKey(buildThreadCard(thread, !target), `thread:${thread.id}`);
+          });
           for (const row of rows) row.classList.add('md-resolved-item');
-          if (!single) addResolvedFoldControl(rows[0], key, expanded);
+          if (!single) addResolvedFoldControl(rows[0], key, expanded, ordered.length - 1);
           for (const row of rows) put(row);
         }
         resolvedByBlock.clear();
