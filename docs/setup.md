@@ -20,4 +20,4 @@ npm --prefix ~/agent-term run start
 
 ## Optional suite
 
-Each one can be installed separately; see [the loops](loops.md).
+Each one can be installed separately; see [the suite](suite.md).

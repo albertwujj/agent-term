@@ -1,8 +1,8 @@
-# The loops
+# The suite
 
-Each loop is a small repo of its own, and each is optional. See the [README's prompt](../README.md#where-to-go-next) for an example of how to add one.
+Each piece of the suite is a small repo of its own, and each is optional. See the [README's prompt](../README.md#where-to-go-next) for an example of how to add one.
 
-| Loop | What it adds | Setting up |
+| Piece | What it adds | Setting up |
 |---|---|---|
 | [agent-threads](https://github.com/albertwujj/agent-threads) | writing on [plans and documents](plan.md), and on [curated reviews](review.md) | one clone, for both |
 | [agent-lock](https://github.com/yunxin/agent-lock) | the [checkout lock](lock.md) agents share | a clone |
@@ -10,6 +10,6 @@ Each loop is a small repo of its own, and each is optional. See the [README's pr
 | [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) | [your phone](phone.md) as the same terminal | a relay you host, and the page added to your home screen |
 | [IntelliJ Navigator](https://github.com/albertwujj/intellij-navigator/releases) | [click a reference, the IDE jumps](ide.md) | a plugin installed in the IDE |
 
-A clone is best placed in `ai/` in the project (see [placement](conventions.md) for alternatives). A loop is commanded from the prompt by naming one of its instruction files, such as [`@produce-r`](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md) for a review.
+A clone is best placed in `ai/` in the project (see [placement](conventions.md) for alternatives). The agent-facing pieces are commanded from the prompt by naming one of their instruction files, such as [`@produce-r`](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md) for a review.
 
 Voice on the phone reads from a kit of its own, [voice-to-agent](https://github.com/albertwujj/voice-to-agent), placed like the others. The terminal resolves it.

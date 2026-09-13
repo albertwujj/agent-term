@@ -67,14 +67,14 @@ These are the main ones. Follow the links to see an overview of more features om
 
 The first start gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
 
-The rest are [optional loops](docs/loops.md): [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
+The rest are the [optional suite](docs/suite.md): [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
 
 ```text
 Clone https://github.com/yunxin/agent-lock into ai/ in this project,
 and leave ai/ out of .gitignore.
 ```
 
-Then start a task with `@proceed-b`, which completes to the lock's [guide doc](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) in the [agent-lock](https://github.com/yunxin/agent-lock) clone, and the agent takes the [checkout lock](docs/lock.md) before it works. For the other loops, see [their guides](docs/loops.md).
+Then start a task with `@proceed-b`, which completes to the lock's [guide doc](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) in the [agent-lock](https://github.com/yunxin/agent-lock) clone, and the agent takes the [checkout lock](docs/lock.md) before it works. For the other pieces, see [their guides](docs/suite.md).
 
 **Grow it.** Make a change with your agents, and the next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
