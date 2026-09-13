@@ -105,6 +105,7 @@ const { aiCliRendererEnv } = require('./cli-renderer-env');
 const { inheritableEnv } = require('./inheritable-env');
 const { isReviewPackagePath } = require('./review-package-path');
 const { DISK_LIST_PY, DISK_TIER_CAP, diskTiers } = require('./viewer-disk-search');
+const { mentionedFolderCandidates, sanitizeMentionedFolders } = require('./mentioned-folders');
 const { DISK_SEARCH_EXTENSIONS } = require('./band-viewable');
 const {
   journalPathForStore,
@@ -3540,11 +3541,37 @@ async function searchClickedPath(root, rel, timeout) {
   return r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
+// The clicked name tried directly inside folders the terminal has printed
+// (src/mentioned-folders.js), nearest the click first: one shell round trip
+// over every candidate path, hits in folder order. A scratch directory outside
+// the repo and home is reachable no other way. `test -e` admits a folder too;
+// markdown resolution passes -f.
+async function mentionedFolderHits(folders, rel, { test = '-e' } = {}) {
+  const list = sanitizeMentionedFolders(folders);
+  if (list.length === 0) return [];
+  const home = list.some((f) => f.startsWith('~'))
+    ? (await posixSh('printf %s "$HOME"')).stdout.trim()
+    : '';
+  const candidates = mentionedFolderCandidates(list, rel, { home });
+  if (candidates.length === 0) return [];
+  const r = await posixSh(
+    `for p in ${candidates.map(shellEscape).join(' ')}; do test ${test} "$p" && printf '%s\\n' "$p"; done; true`,
+    { timeout: 5000 });
+  return r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+}
+
+// The folders a click's IPC context carries, if any.
+function clickContextFolders(context) {
+  return sanitizeMentionedFolders(context && context.folders);
+}
+
 // search: 'fallback' (default) opens the nearest interpretation fast — an
-// exact hit under the shell cwd wins outright and the wider searches only run
-// when it misses. 'always' (Alt-click) runs the full sweep even when the cwd
-// hit exists, so every candidate lands in the chooser (cwd hit listed first).
-async function resolveClickedPath(filePath, { search = 'fallback' } = {}) {
+// exact hit under the shell cwd wins outright, then the name inside a folder
+// the terminal printed, and the wider searches only run when those miss.
+// 'always' (Alt-click) runs the full sweep even when the cwd hit exists, so
+// every candidate lands in the chooser (cwd hit first, printed folders' hits
+// next). folders: see mentionedFolderHits.
+async function resolveClickedPath(filePath, { search = 'fallback', folders = [] } = {}) {
   let p = String(filePath || '');
   if (p === '~' || p.startsWith('~/')) {
     const home = (await posixSh('printf %s "$HOME"')).stdout.trim();
@@ -3565,12 +3592,17 @@ async function resolveClickedPath(filePath, { search = 'fallback' } = {}) {
   if (exact && search === 'fallback') return { path: exact };
   // ../-relative paths only make sense against the cwd — no suffix to search by.
   if (rel.split('/').includes('..')) return exact ? { path: exact } : null;
+  const mentioned = await mentionedFolderHits(folders, rel);
+  if (mentioned.length && search === 'fallback') {
+    return mentioned.length === 1 ? { path: mentioned[0] } : { choices: mentioned };
+  }
   let hits = cwd ? await searchClickedPath(cwd, rel, 5000) : [];
   if (search === 'always' || hits.length === 0) {
     const home = (await posixSh('printf %s "$HOME"')).stdout.trim();
     if (home && home !== cwd) hits = hits.concat(await searchClickedPath(home, rel, 10000));
   }
-  const unique = [...new Set(exact ? [exact, ...hits] : hits)].slice(0, CLICK_SEARCH_MAX_CHOICES);
+  const unique = [...new Set([...(exact ? [exact] : []), ...mentioned, ...hits])]
+    .slice(0, CLICK_SEARCH_MAX_CHOICES);
   if (unique.length === 0) return null;
   return unique.length === 1 ? { path: unique[0] } : { choices: unique };
 }
@@ -3627,7 +3659,11 @@ async function markdownHomeSweep(root, rel) {
 // Scope is the repo (cwd) tree plus its sibling folders, then home when those
 // miss (node_modules etc. pruned; .git contributes only .git/discussion); the
 // show-every-candidate sweep stays reserved for the explicit Alt-click gesture.
-async function resolveMarkdownChoices(filePath) {
+// A folder the terminal printed (folders, see mentionedFolderHits) is tried
+// ahead of the tree searches: for a path with separators it answers outright
+// after the exact cwd hit; for a bare name its copies join the sweep's, right
+// after the repo root's own copy, so a same-named file still surfaces a picker.
+async function resolveMarkdownChoices(filePath, { folders = [] } = {}) {
   if (filePath.startsWith('/')) {
     return (await posixSh(`test -f ${shellEscape(filePath)}`)).code === 0 ? { path: filePath } : null;
   }
@@ -3647,6 +3683,8 @@ async function resolveMarkdownChoices(filePath) {
   if (rel.includes('/')) {
     const exact = `${cwd}/${rel}`;
     if ((await posixSh(`test -f ${shellEscape(exact)}`)).code === 0) return { path: exact };
+    const mentioned = await mentionedFolderHits(folders, rel, { test: '-f' });
+    if (mentioned.length) return { path: mentioned[0] };
     const hit = (await posixSh(
       `find ${shellEscape(root)} ${CLICK_SEARCH_PRUNE} -path ${shellEscape('*/' + rel)} -print 2>/dev/null | head -1`,
       { timeout: 10000 })).stdout.trim();
@@ -3661,10 +3699,13 @@ async function resolveMarkdownChoices(filePath) {
   // found by the cutoff. A `find | head -N` pipeline can't do this: head waits
   // for N hits or EOF, so find walks the entire neighborhood even when every
   // copy was printed in the first second.
-  const hits = (await posixSh(
+  const mentioned = await mentionedFolderHits(folders, rel, { test: '-f' });
+  const swept = (await posixSh(
     `python3 -c ${shellEscape(MARKDOWN_SWEEP_PY)} ${shellEscape(cwd)} ${shellEscape(root)} ${shellEscape(rel)} ${MARKDOWN_SIBLING_BUDGET_S} ${MARKDOWN_CHOICE_MAX}`,
     { timeout: 10000 }))
     .stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+  const rootHit = `${cwd}/${rel}`;
+  const hits = [...new Set([...(swept.includes(rootHit) ? [rootHit] : []), ...mentioned, ...swept])];
   if (hits.length === 0) {
     const homeHits = await markdownHomeSweep(root, rel);
     if (homeHits.length === 0) return null;
@@ -3757,9 +3798,9 @@ ipcMain.handle('stat-markdown-file', async (event, filePath, imagePaths) => {
   }
 });
 
-ipcMain.handle('resolve-markdown-choices', async (event, filePath) => {
+ipcMain.handle('resolve-markdown-choices', async (event, filePath, context) => {
   try {
-    return await resolveMarkdownChoices(filePath);
+    return await resolveMarkdownChoices(filePath, { folders: clickContextFolders(context) });
   } catch (e) {
     return null;
   }
@@ -4400,9 +4441,9 @@ ipcMain.handle('capture-review-branch', async (event, reviewUrl) => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
-ipcMain.handle('resolve-file-url', async (event, filePath) => {
+ipcMain.handle('resolve-file-url', async (event, filePath, context) => {
   try {
-    const resolved = await resolveClickedPath(filePath);
+    const resolved = await resolveClickedPath(filePath, { folders: clickContextFolders(context) });
     if (!resolved) return { success: false, error: 'File not found' };
     // The web viewer has no chooser; an ambiguous search takes the first hit,
     // which is what the old first-match find did.
@@ -5248,9 +5289,9 @@ ipcMain.handle('get-webview-preload-urls', () => {
 // hand every candidate back for the renderer's chooser. Resolve only, no open —
 // the renderer routes the picked path to its normal destination (md viewer,
 // web viewer, IDE for anchored clicks, OS open).
-ipcMain.handle('resolve-path-choices', async (event, filePath) => {
+ipcMain.handle('resolve-path-choices', async (event, filePath, context) => {
   try {
-    return await resolveClickedPath(filePath, { search: 'always' });
+    return await resolveClickedPath(filePath, { search: 'always', folders: clickContextFolders(context) });
   } catch (e) {
     return null;
   }
@@ -5262,9 +5303,9 @@ ipcMain.handle('resolve-path-choices', async (event, filePath) => {
 // needs the WSL path in \\wsl.localhost UNC form (wslpath -w), Finder takes
 // the POSIX path as-is. An ambiguous relative path comes back as { choices }
 // for the renderer's chooser instead of guessing.
-ipcMain.handle('open-resource', async (event, filePath) => {
+ipcMain.handle('open-resource', async (event, filePath, context) => {
   try {
-    const resolved = await resolveClickedPath(filePath);
+    const resolved = await resolveClickedPath(filePath, { folders: clickContextFolders(context) });
     if (!resolved) return { success: false, error: 'File not found' };
     if (resolved.choices) return { success: false, choices: resolved.choices };
     const target = process.platform === 'win32'

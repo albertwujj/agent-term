@@ -4,7 +4,7 @@ Click a file name or path the agent printed, and the terminal finds the file and
 
 **Any form works.** A bare file name (`README.md`), a relative path (`docs/plan.md`, `../agent-lock/README.md`), an absolute path, or one starting with `~`. So the agent's ordinary output is enough; it does not have to print full paths.
 
-**Where it looks.** An absolute or `~` path names one file and opens if it exists. A relative path is tried under the session's shell directory first. When that misses, the terminal searches for a path that ends the same way: through the repo, then its neighbouring folders for markdown, then your home folder. A bare name is searched the same way, by name.
+**Where it looks.** An absolute or `~` path names one file and opens if it exists. A relative path is tried under the session's shell directory first, then inside any folder already printed in the terminal, nearest the click first, which is how a file an agent made in its scratch directory opens from its bare name. When those miss, the terminal searches for a path that ends the same way: through the repo, then its neighbouring folders for markdown, then your home folder. A bare name is searched the same way, by name.
 
 **Several matches.** A bare name like `README.md` often exists in more than one place. One match opens at once; several are offered to choose from, the one under the session's directory first. Hold Alt (Option on a Mac) while clicking to be offered every match everywhere, which is how you reach a same-named file in another repo.
 

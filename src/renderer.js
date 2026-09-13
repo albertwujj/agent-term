@@ -49,6 +49,11 @@ const {
   sameViewer,
   viewerFileUrlToPath,
 } = require('./viewer-history');
+const {
+  MENTIONED_SCAN_ROWS_ABOVE,
+  MENTIONED_SCAN_ROWS_BELOW,
+  extractMentionedFolders,
+} = require('./mentioned-folders');
 const { isReviewPackagePath } = require('./review-package-path');
 
 // Custom title-bar / chrome bar — replaces the old session-banner row and
@@ -3017,7 +3022,7 @@ const decorationPress = createDecorationPressController({
     if (terminalOutputFrozen && !activeTerminalComment && !queuedTerminalComments.length) {
       unfreezeTerminalOutput('decoration-navigation');
     }
-    if (typeof match.action === 'function') match.action(match, options);
+    if (typeof match.action === 'function') match.action(match, withClickFolders(match, options));
   },
 });
 
@@ -3803,10 +3808,11 @@ function imageAttachmentSegmentMatch(analysis, seg) {
       const mod = options.modifiers || {};
       // The stitched path is always an image by construction, so it renders in
       // the band unless a modifier asks for the OS.
+      const context = clickContext(options);
       if (isBandFilePath(analysis.fullPath) && !fileWantsOsHandoff(mod)) {
-        if (await openFileInViewerBand(analysis.fullPath)) return;
+        if (await openFileInViewerBand(analysis.fullPath, context)) return;
       }
-      const result = await openResourceChoosing(analysis.fullPath, { forceChoose: !!mod.altKey });
+      const result = await openResourceChoosing(analysis.fullPath, { forceChoose: !!mod.altKey, ...context });
       if (result && !result.success && !result.dismissed) {
         showToast(result.error || 'Could not open file');
       }
@@ -3888,8 +3894,53 @@ function isHtmlDocumentPath(text) {
 // system browser, but the escalation for a file is the OS default app: a
 // browser tab is a worse place to look at a PNG than Preview is. So a modified
 // click skips this entirely and takes the openResourceChoosing path below.
-async function openFileInViewerBand(filePath) {
-  const res = await window.pty.resolveFileUrl(filePath);
+// Folders already printed around a clicked row, nearest the click first, for
+// the resolver to try a relative name in (src/mentioned-folders.js): an
+// agent's scratch directory shows up in a tool header a few lines before the
+// bare name of the file it made there. Read from the active buffer at click
+// time over a bounded window; nothing is kept between clicks.
+function mentionedFoldersAround(bufferRow) {
+  try {
+    const buffer = terminal.buffer.active;
+    const length = Number.isFinite(buffer.length) ? buffer.length : 0;
+    const row0 = Number.isFinite(bufferRow) ? bufferRow : Math.max(0, length - 1);
+    const start = bufferLogicalLineStart(buffer, Math.max(0, row0 - MENTIONED_SCAN_ROWS_ABOVE));
+    const end = Math.min(length, row0 + MENTIONED_SCAN_ROWS_BELOW);
+    const lines = [];
+    for (let row = start; row < end;) {
+      const logical = readBufferLogicalLine(buffer, row);
+      if (!logical) { row++; continue; }
+      lines.push({ row, text: logical.text });
+      row = logical.endRow + 1;
+    }
+    return extractMentionedFolders(lines, row0);
+  } catch (err) {
+    console.warn('[mentioned-folders] scan failed', err);
+    return [];
+  }
+}
+
+// Every path action can ask for the folders printed around its row. The scan
+// runs once per click, and only when an action asks.
+function withClickFolders(match, options) {
+  let folders = null;
+  return {
+    ...(options || {}),
+    mentionedFolders: () => {
+      if (!folders) folders = mentionedFoldersAround(match && match.bufferRow);
+      return folders;
+    },
+  };
+}
+
+// The IPC context a resolver takes from a click's options.
+function clickContext(options) {
+  const ask = options && options.mentionedFolders;
+  return { folders: typeof ask === 'function' ? ask() : [] };
+}
+
+async function openFileInViewerBand(filePath, context = {}) {
+  const res = await window.pty.resolveFileUrl(filePath, context);
   if (res && res.success && res.url) {
     openUrlFromTerminal(res.url, 'band-file', false);
     return true;
@@ -3917,10 +3968,11 @@ async function openWindowsPathMatch(match, options, toPosix) {
   const posix = toPosix(normalized);
   if (RESOURCE_EXTENSIONS.test(posix)) {
     const mod = (options && options.modifiers) || {};
+    const context = clickContext(options);
     if (isBandFilePath(posix) && !fileWantsOsHandoff(mod)) {
-      if (await openFileInViewerBand(posix)) return;
+      if (await openFileInViewerBand(posix, context)) return;
     }
-    const result = await openResourceChoosing(posix, { forceChoose: !!mod.altKey });
+    const result = await openResourceChoosing(posix, { forceChoose: !!mod.altKey, ...context });
     if (result && !result.success && !result.dismissed) {
       showToast(result.error || 'Could not open file');
     }
@@ -4622,8 +4674,8 @@ function showPathChooser(choices) {
 // Resolve a path with the full everywhere-sweep (cwd hit included) and let the
 // user pick. Returns the picked absolute path, or null: { dismissed } when the
 // user closed the chooser, { notFound } when the sweep came up empty.
-async function chooseAmongAllMatches(filePath) {
-  const res = await window.pty.resolvePathChoices(filePath);
+async function chooseAmongAllMatches(filePath, context = {}) {
+  const res = await window.pty.resolvePathChoices(filePath, context);
   if (!res || (!res.path && !(res.choices || []).length)) return { notFound: true };
   if (res.path) return { path: res.path };
   const picked = await showPathChooser(res.choices);
@@ -4634,14 +4686,14 @@ async function chooseAmongAllMatches(filePath) {
 // the chooser reports { dismissed } so callers neither toast nor fall through
 // to the IDE — the user already saw and declined the matches. forceChoose
 // (Alt-click) sweeps everywhere up front instead of taking the nearest hit.
-async function openResourceChoosing(filePath, { forceChoose = false } = {}) {
+async function openResourceChoosing(filePath, { forceChoose = false, folders = [] } = {}) {
   if (forceChoose) {
-    const chosen = await chooseAmongAllMatches(filePath);
+    const chosen = await chooseAmongAllMatches(filePath, { folders });
     if (chosen.dismissed) return { success: false, dismissed: true };
     if (chosen.notFound) return { success: false, error: 'File not found' };
     return await window.pty.openResource(chosen.path);
   }
-  const result = await window.pty.openResource(filePath);
+  const result = await window.pty.openResource(filePath, { folders });
   if (result && Array.isArray(result.choices) && result.choices.length) {
     const picked = await showPathChooser(result.choices);
     if (!picked) return { success: false, dismissed: true };
@@ -4659,8 +4711,11 @@ function buildFileRequest(filePath, line, column, matchText) {
 }
 
 // Helper function to navigate to a file:line
-async function navigateToFileLine(filePath, line, column, { copyResponse = false, matchText, landingKind, modifiers } = {}) {
+async function navigateToFileLine(filePath, line, column, { copyResponse = false, matchText, landingKind, modifiers, mentionedFolders } = {}) {
   let navigablePath = normalizeNavigablePath(filePath) || filePath;
+  // Folders printed around a terminal click, for the resolvers below; a
+  // navigation from elsewhere (a viewer link, the search bar) has none.
+  const clickFolders = () => clickContext({ mentionedFolders });
   const lineSuffix = line != null ? `:${line}` : '';
   const columnSuffix = column != null ? `:${column}` : '';
   debug(`Navigating to: ${navigablePath}${lineSuffix}${columnSuffix}`);
@@ -4670,7 +4725,7 @@ async function navigateToFileLine(filePath, line, column, { copyResponse = false
   // flows through the normal destinations below (md viewer, web viewer, IDE for
   // anchored clicks, OS open), just in absolute form.
   if (!copyResponse && modifiers && modifiers.altKey) {
-    const chosen = await chooseAmongAllMatches(navigablePath);
+    const chosen = await chooseAmongAllMatches(navigablePath, clickFolders());
     if (chosen.dismissed) return;
     if (chosen.notFound) {
       showToast(`Couldn't locate ${navigablePath}`);
@@ -4686,7 +4741,7 @@ async function navigateToFileLine(filePath, line, column, { copyResponse = false
     // re-run the same sweep, so report it now, in the html branch's words.
     // Alt-click has already picked an absolute path by here, so this just
     // confirms it.
-    const choice = await window.pty.resolveMarkdownChoices(navigablePath);
+    const choice = await window.pty.resolveMarkdownChoices(navigablePath, clickFolders());
     if (choice && Array.isArray(choice.choices)) {
       const picked = await showPathChooser(choice.choices);
       if (!picked) return; // dismissed — the user saw the matches and declined
@@ -4721,7 +4776,7 @@ async function navigateToFileLine(filePath, line, column, { copyResponse = false
   // .html paths open in the embedded web viewer (not the IDE). Resolve to a
   // file:// URL the webview can load; Ctrl/Cmd-click → system browser.
   if (isHtmlDocumentPath(navigablePath)) {
-    const res = await window.pty.resolveFileUrl(navigablePath);
+    const res = await window.pty.resolveFileUrl(navigablePath, clickFolders());
     if (res && res.success && res.url) {
       openUrlFromTerminal(res.url, 'html-file', !!copyResponse);
     } else {
@@ -5331,10 +5386,11 @@ const patterns = [
       const mod = options.modifiers || {};
       // A file the band renders (image, video, audio, pdf) opens there; a
       // modifier means the OS instead, and alt still raises the chooser first.
+      const context = clickContext(options);
       if (isBandFilePath(match.text) && !fileWantsOsHandoff(mod)) {
-        if (await openFileInViewerBand(match.text)) return;
+        if (await openFileInViewerBand(match.text, context)) return;
       }
-      const result = await openResourceChoosing(match.text, { forceChoose: !!mod.altKey });
+      const result = await openResourceChoosing(match.text, { forceChoose: !!mod.altKey, ...context });
       if (result && !result.success && !result.dismissed) {
         showToast(result.error || 'Could not open file');
       }

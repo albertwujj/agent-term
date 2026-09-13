@@ -52,20 +52,22 @@ contextBridge.exposeInMainWorld('pty', {
   onNewInstanceLaunchFailed: (callback) => ipcRenderer.on('new-instance-launch-failed', (_event, message) => callback(message)),
   // Open a URL in the default browser
   openURL: (url) => ipcRenderer.invoke('open-url', url),
-  // Open a resource file with the OS default handler
-  openResource: (path) => ipcRenderer.invoke('open-resource', path),
+  // Open a resource file with the OS default handler. `context.folders` on
+  // this and the resolvers below: folders the terminal printed around the
+  // click, tried for a relative name before the tree searches.
+  openResource: (path, context) => ipcRenderer.invoke('open-resource', path, context || {}),
   // Alt-click: resolve a path across cwd + home, returning all candidates
-  resolvePathChoices: (path) => ipcRenderer.invoke('resolve-path-choices', path),
+  resolvePathChoices: (path, context) => ipcRenderer.invoke('resolve-path-choices', path, context || {}),
   // Read a markdown file for the rendered inline viewer
   readMarkdownFile: (path) => ipcRenderer.invoke('read-markdown-file', path),
   statMarkdownFile: (path, imagePaths) => ipcRenderer.invoke('stat-markdown-file', path, imagePaths),
   // Same-named markdown files under cwd → { path } | { choices } | null, so a
   // plain click on an ambiguous name (README.md) can offer a picker.
-  resolveMarkdownChoices: (path) => ipcRenderer.invoke('resolve-markdown-choices', path),
+  resolveMarkdownChoices: (path, context) => ipcRenderer.invoke('resolve-markdown-choices', path, context || {}),
   // Read a review page's comment store (file:// URL of the -comments.json)
   readReviewComments: (fileUrl) => ipcRenderer.invoke('read-review-comments', fileUrl),
   // Resolve a clicked file path (e.g. .html) to a file:// URL for the viewer
-  resolveFileUrl: (path) => ipcRenderer.invoke('resolve-file-url', path),
+  resolveFileUrl: (path, context) => ipcRenderer.invoke('resolve-file-url', path, context || {}),
   // Render an agent-authored review package (review:// launch) → { ok, htmlPath, issues }.
   renderReviewPackage: (packagePath) => ipcRenderer.invoke('render-review-package', packagePath),
   // Cheap existence check (no state change) for auto-open of a freshly-printed review:// link.
