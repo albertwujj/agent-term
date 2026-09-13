@@ -42,7 +42,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 This path can look hacky: the host parses text, and reacts to it. But established text patterns are a stable interface, and a helpful output style sticks around. An agent's intentions arrive in those patterns through every turn, so the parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles the agents use intuitively. Extending it is quick when something new shows up, and none of it is tied to a vendor SDK or API.
 
-With a host that understands its agents, and agents that understand the host, a capable agent does more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. This terminal reads what agents print and opens what they point to inside the window, rendered, for you to work on, and agents can write to it through their protocol with the host.
+With a host that understands its agents, and agents that understand the host, a capable agent does more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. This terminal reads what agents print and opens what they point to inside the window, rendered, for you to read, comment on, and edit, and agents can write to it through their protocol with the host.
 
 ### Fit it to your work
 
