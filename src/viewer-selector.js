@@ -78,20 +78,21 @@ function diskTermLength(text) {
   return parseSearchTerms(text).join('').length;
 }
 
-// A disk row that a known row already stands for. A known file:// row (an
-// image or pdf opened from the terminal) covers the disk row for that path.
-// Known md keys are what the terminal printed: absolute, ~/-relative,
-// repo-relative, or a bare name, so each of those forms is tried against the
-// disk path. A bare known name hides every same-named file on disk: the known
-// row already resolves through the chooser that lists them.
+// A disk row that a known row names for certain: the same file, by path. A
+// known file:// row (an image or pdf opened from the terminal) is that path.
+// A known md key is what the terminal printed: absolute, ~/-relative, or
+// repo-relative with a separator, each of which opens exactly one file, the
+// one the disk row's label spells. A bare name is not: it opens through a
+// chooser over every same-named file, so it stands for none of them and each
+// stays listed with its folder and age.
 function knownCoversDiskEntry(known, entry) {
   if (known.kind === 'url') {
     return /^file:/i.test(known.key) && viewerFileUrlToPath(known.key) === entry.key;
   }
   if (known.kind !== 'md' || entry.kind !== 'md') return false;
   const key = String(known.key || '').replace(/^\.\/+/, '');
-  if (!key) return false;
-  return entry.key === key || entry.label === key || entry.key.endsWith('/' + key);
+  if (!key.includes('/')) return false;
+  return entry.key === key || entry.label === key;
 }
 
 // Kind tag + stripe hue per row: a fast peripheral cue for "what sort of page
@@ -230,11 +231,17 @@ function createViewerSelector({
     render();
   }
 
+  // A cover holds only while the covering row is on screen for this filter,
+  // or is the open viewer: a file the filter matches is then always reachable,
+  // as the known row or as its own disk row, never hidden behind a row the
+  // filter dropped.
   function filterDiskEntries(terms) {
     if (!disk || terms.length === 0) return [];
+    const covering = knownEntries().filter((known) =>
+      known === current || textMatchesSearchTerms(known.key, terms));
     return disk.files.filter((entry) =>
       textMatchesSearchTerms(entry.label, terms)
-      && !knownEntries().some((known) => knownCoversDiskEntry(known, entry)));
+      && !covering.some((known) => knownCoversDiskEntry(known, entry)));
   }
 
   // A tier the budget cut short is said in the heading: "none matching" from

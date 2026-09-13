@@ -394,7 +394,7 @@ await test('disk rows land under the known rows, labelled by tier and filtered b
   selector.destroy();
 });
 
-await test('known rows come first and a known row hides its disk copy', () => {
+await test('a known path hides its disk copy; a bare known name hides nothing', () => {
   const spy = diskSpy();
   const selector = createViewerSelector({
     entries: [{ kind: 'md', key: 'docs/reddit-post.md' }, { kind: 'md', key: 'reddit-faq.md' }],
@@ -413,9 +413,61 @@ await test('known rows come first and a known row hides its disk copy', () => {
   });
 
   const keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
-  assert.deepStrictEqual(keys, ['docs/reddit-post.md', 'reddit-faq.md', 'reddit-draft.md']);
-  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 1 matching reddit');
+  assert.deepStrictEqual(keys, ['docs/reddit-post.md', 'reddit-faq.md', 'notes/reddit-faq.md', 'reddit-draft.md']);
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 2 matching reddit');
 
+  selector.destroy();
+});
+
+await test('absolute and ~ known paths hide their disk copies; a relative path elsewhere does not', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({
+    entries: [
+      { kind: 'md', key: '~/launch/plan-notes.md' },
+      { kind: 'md', key: '/Users/u/repo/docs/plan-guide.md' },
+      { kind: 'md', key: 'md/plan-intent.md' },
+    ],
+    onPick: () => {},
+    ...spy,
+  });
+  input(document.querySelector('.at-vsel-input'), 'plan');
+  progress(selector, spy, {
+    done: true, tier: 'siblings',
+    files: F(
+      '/Users/u/launch/plan-notes.md',
+      '/Users/u/repo/docs/plan-guide.md',
+      '/Users/u/threads/md/plan-intent.md',
+    ),
+  });
+  const keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
+  // The ~ key and the absolute key each name one file, so their disk rows
+  // fold in; md/plan-intent.md resolves by search, so its copy stays listed.
+  assert.deepStrictEqual(keys, [
+    '~/launch/plan-notes.md', '/Users/u/repo/docs/plan-guide.md', 'md/plan-intent.md',
+    '~/threads/md/plan-intent.md',
+  ]);
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — 1 matching plan');
+  selector.destroy();
+});
+
+await test('a known path the filter drops hides nothing', () => {
+  const spy = diskSpy();
+  const selector = createViewerSelector({
+    entries: [{ kind: 'md', key: '/Users/u/launch/open.md' }],
+    onPick: () => {},
+    ...spy,
+  });
+  const el = document.querySelector('.at-vsel-input');
+  // "~/launch" is in the disk label and not in the printed absolute key, so
+  // the known row is off screen and its disk copy must show.
+  input(el, '~/launch');
+  progress(selector, spy, { done: true, tier: 'siblings', files: F('/Users/u/launch/open.md') });
+  let keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
+  assert.deepStrictEqual(keys, ['~/launch/open.md']);
+  // Once the known row matches too, the file shows once, as the known row.
+  input(el, 'launch/open');
+  keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
+  assert.deepStrictEqual(keys, ['/Users/u/launch/open.md']);
   selector.destroy();
 });
 
