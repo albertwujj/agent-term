@@ -17,6 +17,8 @@ Then type your note.
 
 ![the sent message carries the quoted selection, and the agent acts on it](assets/comment-sent-brainstorm.png)
 
+## Or edit the text
+
 A comment says what you want changed; [an edit](plan.md) shows it in the text. The agent reads the intent in either and applies it in its own words; a note on an edit can add the why.
 
 ## Collect and send
