@@ -12,7 +12,7 @@ Click a reference in terminal output to open it: in the window, your IDE, anothe
 
 ## Inside viewers
 
-**Markdown and reviews.** `Ctrl/Cmd`-click follows a link: a file link opens that file in the viewer, a web link opens your browser. A plain click on a link in a markdown document prepares a comment or an edit instead. The review's own navigation links still take plain clicks. See [viewer details](viewer.md#links-and-unsent-work) for unsent-work protection.
+**Markdown and reviews.** `Ctrl/Cmd`-click follows a link: a file link opens that file in the viewer, a web link opens your browser. A plain click on a link name in a markdown document prepares a comment or an edit instead. The review's own navigation links still take plain clicks. See [viewer details](viewer.md#links-and-unsent-work) for unsent-work protection.
 
 **Web pages.** Links browse within the viewer; links that request a new window open in your browser instead.
 
