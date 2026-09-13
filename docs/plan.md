@@ -16,7 +16,7 @@ English is where the real planning happens: much of a design is settled in words
 
 The same loop is a writing aid in its own right. An essay, notes, research, a post: the working directory organizes your context.
 
-Editing goes beyond word swaps: start new lines anywhere in the rendered page, and the agent decides what each becomes in the source (a heading, a list item, a paragraph).
+Editing goes beyond changing what is there, to new sections and blocks: start new lines on the rendered page, and the agent formats what you typed into headings, paragraphs and bullets.
 
 <p align="center">
 <img src="assets/change-highlight.png" width="65%" alt="a long changed paragraph: a bar in the margin marks the block, and hovering shows the exact words that changed">
