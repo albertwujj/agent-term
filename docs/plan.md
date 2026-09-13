@@ -26,4 +26,4 @@ You can also track what the agent changed. A bar in the margin marks each block 
 
 When a draft is ready to go out, one button copies the whole or any section, as plain text for Teams or email, or as markdown for GitHub ([copy a doc into a message](copy.md)).
 
-This is one of the suite's pieces, [agent-threads](https://github.com/albertwujj/agent-threads); see [the suite](suite.md) for setup.
+This is part of the optional suite, [agent-threads](https://github.com/albertwujj/agent-threads); see [the suite](suite.md) for setup.
