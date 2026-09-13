@@ -26,8 +26,10 @@
 //      A bare typed @name is a mention-picker query, also skipped. Its
 //      acceptance Enter is not the prompt submission. Explicit paths
 //      (@dir/file, @file.md), prose containing mentions, and pastes still
-//      count. The completed path is inserted by the CLI, so it is absent
-//      from the input bytes; we cannot reconstruct it here.
+//      count. A renderer snapshot can recover the completed @ token on
+//      the later submission, but only on the same prompt row as its
+//      typed query (prompt-completion.js). Suggestions/output never seed
+//      a separate collection of session files.
 //      A typed "/resume" opens the CLI's resume dialog, where the user may
 //      type a search filter and then presses Enter to pick. That Enter is
 //      the pick, never a prompt, whatever the filter's length, so it is
@@ -54,8 +56,9 @@
 // recognised by what precedes it (rule 3), not by its length.
 // The old floor also happened to drop short @-completion queries. Keep
 // that filter separate so lowering the floor does not name a session
-// after a query such as "@pr-rev". A bare extensionless mention submitted
-// on its own is ambiguous; paste it or use an explicit path to capture it.
+// after a query such as "@pr-rev". Without a matching rendered prompt,
+// a bare extensionless mention on its own remains ambiguous; paste it or
+// use an explicit path to capture it.
 //
 // State machine outputs are pushed through an onPrompt callback. The machine
 // keeps capturing across prompts so timelines stay current. Call markLocked()
@@ -67,6 +70,7 @@ const ESC = '\x1b';
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
 const MIN_TYPED_PROMPT_LEN = 4;   // chars; below this a typed line is a dialog answer, not a prompt
+const { beginMentionCompletion, recoverMentionCompletion } = require('./prompt-completion');
 
 function isPrintable(charCode) {
   // printable ASCII + extended (Latin-1, common for AI CLI prompts).
@@ -95,6 +99,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
   // opened (or the Esc / Ctrl+C that closes it). Nothing typed in between
   // is a prompt: it is the dialog's search filter.
   let inResumeDialog = false;
+  let mentionCompletion = null;
 
   function emitShellCommand(text) {
     if (typeof onShellCommand !== 'function') return;
@@ -107,6 +112,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
   function reset() {
     buf = '';
     hadPaste = false;
+    mentionCompletion = null;
   }
 
   function emit(text) {
@@ -117,6 +123,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
     pasteBuf = '';
     inPaste = false;
     hadPaste = false;
+    mentionCompletion = null;
     if (typeof onPrompt === 'function') onPrompt(trimmed);
   }
 
@@ -157,7 +164,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
     return i + 2;
   }
 
-  function handleInput(data) {
+  function handleInput(data, promptSnapshot = null) {
     if (locked || typeof data !== 'string') return;
 
     let i = 0;
@@ -200,13 +207,27 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       // in the chunk) closes whatever dialog is up; the next Enter is back
       // at the input line.
       if (ch === ESC) {
-        if (i + 1 >= data.length) inResumeDialog = false;
+        // Moving the caret invalidates the append-only position of the
+        // remembered completion. Resume-dialog navigation is unchanged.
+        if (/^\x1b(?:\[[0-9;]*[ABCDHF]|\[(?:1|3|4|7|8)(?:;[0-9]+)?~|O[ABCDHF]|[bf])/.test(data.slice(i))) {
+          mentionCompletion = null;
+        }
+        if (i + 1 >= data.length) {
+          inResumeDialog = false;
+          mentionCompletion = null;
+        }
         i = skipEscapeSequence(data, i);
         continue;
       }
 
       // Enter / submit (\r is the dominant submit byte from PTY).
       if (ch === '\r' || ch === '\n') {
+        if (ch === '\r' && data[i + 1] === '\n') i++; // CRLF is one Enter
+        const bareQuery = /^@[\w-]+$/u.test(buf.trim());
+        const tabCompletedQuery = mentionCompletion?.typedPrefix === buf && buf.length > 0;
+        const recovered = cliStarted && !inResumeDialog
+          ? recoverMentionCompletion(buf, mentionCompletion, promptSnapshot) : null;
+        if (recovered !== null) buf = recovered;
         const trimmed = buf.trim();
         // The Enter after a typed /resume is the pick in the resume dialog,
         // with the search filter (of any length) in the buffer, or nothing
@@ -229,7 +250,14 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
             i++;
             continue;
           }
-          if (!hadPaste && (trimmed.length < MIN_TYPED_PROMPT_LEN || /^@[\w-]+$/u.test(trimmed))) {
+          if (!hadPaste && bareQuery && !(tabCompletedQuery && recovered !== null)) {
+            const completion = beginMentionCompletion(buf, promptSnapshot);
+            reset();
+            mentionCompletion = completion;
+            i++;
+            continue;
+          }
+          if (!hadPaste && trimmed.length < MIN_TYPED_PROMPT_LEN) {
             reset();
             i++;
             continue;
@@ -253,6 +281,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       // user types from here on is "typed", subject to the normal
       // length/slash filters.
       if (code === 0x08 || code === 0x7f) {
+        mentionCompletion = null;
         buf = buf.slice(0, -1);
         if (buf.length === 0) hadPaste = false;
         i++;
@@ -264,8 +293,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       // macOS Cmd+Backspace is commonly bound to it. We don't track
       // cursor position, so clear the entire buffer.
       if (code === 0x15) {
-        buf = '';
-        hadPaste = false;
+        reset();
         i++;
         continue;
       }
@@ -273,6 +301,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       // Ctrl+W: delete the previous word + any preceding whitespace.
       // macOS Option+Backspace maps to this in many CLIs.
       if (code === 0x17) {
+        mentionCompletion = null;
         let end = buf.length;
         while (end > 0 && /\s/.test(buf[end - 1])) end--;
         while (end > 0 && !/\s/.test(buf[end - 1])) end--;
@@ -282,8 +311,15 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
         continue;
       }
 
-      // Tab: typical for completion in shell, treat as a no-op for buffer.
+      // Tab can accept an @ completion too. Remember its query and input
+      // row, keeping the raw bytes intact until a later Enter confirms
+      // the expanded token in that prompt.
       if (code === 0x09) {
+        if (cliStarted && !inResumeDialog) {
+          const recovered = recoverMentionCompletion(buf, mentionCompletion, promptSnapshot);
+          mentionCompletion = beginMentionCompletion(recovered || buf, promptSnapshot, true);
+          if (mentionCompletion) mentionCompletion.typedPrefix = buf;
+        }
         i++;
         continue;
       }
@@ -294,14 +330,14 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       // picker typed and the user cancelled is not read at the next Enter.
       if (code === 0x03) {
         inResumeDialog = false;
-        buf = '';
-        hadPaste = false;
+        reset();
         i++;
         continue;
       }
 
       // Other C0 controls: ignore.
       if (code < 32) {
+        mentionCompletion = null; // unknown editing/history operations
         i++;
         continue;
       }
@@ -321,6 +357,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
     inPaste = false;
     hadPaste = false;
     inResumeDialog = false;
+    mentionCompletion = null;
   }
 
   return {

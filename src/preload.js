@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld('pty', {
   platform: process.platform,
   getDoubleClickInterval: () => ipcRenderer.invoke('get-double-click-interval'),
   start: (cols, rows) => ipcRenderer.send('pty-start', { cols, rows }),
-  write: (data) => ipcRenderer.send('pty-input', data),
+  write: (data, promptSnapshot) => ipcRenderer.send('pty-input', data, promptSnapshot),
   // opts.toPrompt: paste the message into the CLI input and leave it there
   // (no Enter) for the user to finish typing; main then emits 'to-prompt'.
   submitInlineComment: (body, opts) => ipcRenderer.invoke('submit-inline-comment', body, opts),

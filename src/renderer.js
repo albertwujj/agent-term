@@ -28,6 +28,7 @@ const chromeBar = require('./chrome-bar');
 const resumeHint = require('./resume-hint');
 const launcherBand = require('./launcher-band');
 const { parseLaunch } = require('./cli-detect');
+const { readPromptSnapshot } = require('./prompt-completion');
 const streamWatch = require('./stream/renderer-watch');
 const streamIndicator = require('./stream/stream-indicator');
 const { createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
@@ -1331,7 +1332,12 @@ terminal.onData((data) => {
     // keeps the viewer up, so the re-render the approval triggers stays visible.
     if (/[^\x00-\x1f\x7f]/.test(data)) withdrawViewersOnInput();
   }
-  window.pty.write(data);
+  // Sample the already-rendered composer before completion/submit keys.
+  // Main correlates it with typed input; no output-wide path index is made.
+  // A queued redraw is not a reliable snapshot of the current input.
+  const promptSnapshot = currentCli && !terminalWritePendingAt && /^(?:\r\n?|\n|\t)$/.test(data)
+    ? readPromptSnapshot(terminal) : null;
+  window.pty.write(data, promptSnapshot);
 });
 
 // PTY output → Terminal (buffered while frozen so the display holds still)

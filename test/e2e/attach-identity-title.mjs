@@ -29,6 +29,8 @@
 //      → the override reached codex, and the named thread is the title
 //   8. mention completion: one Enter picks the @ query, the next submits
 //      the target URL → only the submitted target names the session
+//   9. a rendered composer recovers only the picked prompt references,
+//      which feed the preview and deep search through the same saved text
 //
 // Run: npm run test:e2e
 
@@ -237,6 +239,32 @@ console.log('8 — mention-picker Enter followed by the actual prompt submission
   check('the first real submission names the session', session && session.prompt === target, JSON.stringify(session));
   check('the conversation title follows the real submission', session && session.title === 'Review the proposed change',
     session && session.title);
+}
+
+console.log('9 — only selected prompt references reach preview and deep search');
+{
+  const target = 'https://review.example/c/team/repo/+/10427036/2';
+  const fixture = path.join(APP_DIR, 'test/fixtures/prompt-completion-cli.py');
+  const fake = `python3 '${fixture.replace(/'/g, "'\\''")}';`;
+  const { events, session } = await runScenario('rendered-completion', fake,
+    ['@pr-rev', target, '@guide', 'more detail'], { cli: 'agent' });
+  const prompts = events.filter(e => e.e === 'prompt');
+  const expected = ['@ai/gerrit/pr-review.md ' + target, '@docs/guide.md more detail'];
+  check('only the two actual submissions are captured, with selected paths',
+    JSON.stringify(prompts.map(p => p.prompt)) === JSON.stringify(expected), JSON.stringify(prompts));
+  check('the saved identity includes the first selected path', session && session.prompt === expected[0], JSON.stringify(session));
+  const { extractPathsAndUrls } = require(path.join(APP_DIR, 'src/icon-render'));
+  const refs = extractPathsAndUrls(session?.prompt).refs;
+  check('the preview reference source includes the selected file',
+    refs.some(ref => ref.full === '@ai/gerrit/pr-review.md'), JSON.stringify(refs));
+  const deep = sessionsLog.searchHiddenPromptMatchesForSession(session, prompts, 'guide.md');
+  check('deep search finds the selected filename in the follow-up prompt',
+    deep && deep.matches.length === 1 && deep.matches[0].text === expected[1], JSON.stringify(deep));
+  for (const excluded of ['never-picked.md', 'output-only.md']) {
+    check(excluded + ' never enters saved prompts or deep search',
+      !prompts.some(p => p.prompt.includes(excluded)) &&
+      !sessionsLog.searchHiddenPromptMatchesForSession(session, prompts, excluded));
+  }
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

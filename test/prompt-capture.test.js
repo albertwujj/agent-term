@@ -2,6 +2,14 @@
 
 const assert = require('assert');
 const { createPromptCapture } = require('../src/prompt-capture');
+const { readPromptSnapshot } = require('../src/prompt-completion');
+const { extractPathsAndUrls } = require('../src/icon-render');
+
+const snapshot = (text, extra = [], { prefix = '  → ', row = 10, type = 'normal' } = {}) => ({
+  type,
+  lines: [{ row, text: prefix + text }, { row: row + 1, text: '' },
+    ...extra.map((text, index) => ({ row: row + 2 + index, text }))],
+});
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -91,6 +99,151 @@ test('a pasted bare mention is intentional prompt content', (cap, _get, _shell, 
   cap.handleInput('\x1b[200~@pr-rev\x1b[201~\r');
   cap.handleInput('next task\r');
   assert.deepStrictEqual(getAll(), ['@pr-rev', 'next task']);
+});
+
+test('selected filename is recovered only into the submitted prompt, excluding suggestions', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('@pr-rev');
+  cap.handleInput('\r', snapshot('@pr-rev', ['   → pr-review.md  ai/gerrit', '     produce-review.md  ai/tasks']));
+  assert.deepStrictEqual(getAll(), []);
+  const url = 'https://review.example/c/team/repo/+/10427036/2';
+  cap.handleInput('\x1b[200~' + url + '\x1b[201~');
+  cap.handleInput('\r', snapshot('@ai/gerrit/pr-review.md ' + url));
+  assert.deepStrictEqual(getAll(), ['@ai/gerrit/pr-review.md ' + url]);
+  assert.deepStrictEqual(extractPathsAndUrls(getAll()[0]).refs, [
+    { kind: 'url', full: url }, { kind: 'mention', full: '@ai/gerrit/pr-review.md' },
+  ]);
+});
+
+test('a mention-only prompt is recorded on the second Enter after its selected path appears', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('@pr-rev');
+  cap.handleInput('\r', snapshot('@pr-rev'));
+  cap.handleInput('\r', snapshot('@ai/gerrit/pr-review.md'));
+  assert.deepStrictEqual(getAll(), ['@ai/gerrit/pr-review.md']);
+});
+
+test('Tab completion can recover a path inside prose without altering the rest of a paste', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('read @pr-rev');
+  cap.handleInput('\t', snapshot('read @pr-rev'));
+  cap.handleInput('\x1b[200~then explain\n  the risks\x1b[201~');
+  cap.handleInput('\r', snapshot('read @ai/gerrit/pr-review.md then explain'));
+  assert.deepStrictEqual(getAll(), ['read @ai/gerrit/pr-review.md then explain\n  the risks']);
+});
+
+test('Tab then Enter records a completed extensionless filename', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('@make');
+  cap.handleInput('\t', snapshot('@make'));
+  cap.handleInput('\r', snapshot('@Makefile'));
+  assert.deepStrictEqual(getAll(), ['@Makefile']);
+});
+
+test('two Enter-selected references stay in the same prompt', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('@pr-rev');
+  cap.handleInput('\r', snapshot('@pr-rev'));
+  cap.handleInput('@guide');
+  cap.handleInput('\r', snapshot('@ai/pr-review.md @guide'));
+  assert.deepStrictEqual(getAll(), []);
+  cap.handleInput('compare them');
+  cap.handleInput('\r', snapshot('@ai/pr-review.md @docs/guide.md compare them'));
+  assert.deepStrictEqual(getAll(), ['@ai/pr-review.md @docs/guide.md compare them']);
+});
+
+test('recovery works for different prompt gutters and buffers without a CLI type', (_cap, _get) => {
+  for (const prefix of ['> ', '  › ', '❯ ', '│ > ']) {
+    for (const type of ['normal', 'alternate']) {
+      const all = [];
+      const cap = createPromptCapture({ onPrompt: p => all.push(p) });
+      cap.notifyCliStarted();
+      cap.handleInput('@guide');
+      cap.handleInput('\r', snapshot('@guide', [], { prefix, type }));
+      cap.handleInput('read this');
+      cap.handleInput('\r', snapshot('@docs/guide.md read this', [], { prefix, type }));
+      assert.deepStrictEqual(all, ['@docs/guide.md read this']);
+    }
+  }
+});
+
+test('files in output, another row, an unrelated prompt, or a menu never enrich a prompt', () => {
+  for (const final of [
+    snapshot('read this', ['  Read @ai/pr-review.md']),
+    snapshot('@ai/pr-review.md read this', [], { row: 11 }),
+    snapshot('@ai/pr-review.md unrelated text'),
+    snapshot('@ai/other.md read this'),
+    snapshot('@pr-rev', ['  → @ai/pr-review.md read this']),
+    snapshot('@ai/pr-review.md read this', [], { type: 'alternate' }),
+  ]) {
+    const all = [];
+    const cap = createPromptCapture({ onPrompt: p => all.push(p) });
+    cap.notifyCliStarted();
+    cap.handleInput('@pr-rev');
+    cap.handleInput('\r', snapshot('@pr-rev'));
+    cap.handleInput('read this');
+    cap.handleInput('\r', final);
+    assert.deepStrictEqual(all, ['read this']);
+  }
+});
+
+test('ambiguous query rows cannot establish a completion anchor', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('@pr-rev');
+  cap.handleInput('\r', snapshot('@pr-rev', ['  → @pr-rev']));
+  cap.handleInput('read this');
+  cap.handleInput('\r', snapshot('@ai/pr-review.md read this'));
+  assert.deepStrictEqual(getAll(), ['read this']);
+});
+
+test('edits, cursor movement, and cancellation discard completion evidence', () => {
+  for (const key of ['\x7f', '\x17', '\x15', '\x03', '\x1b', '\x1b[D', '\x1b[3~', '\x01', '\x12']) {
+    const all = [];
+    const cap = createPromptCapture({ onPrompt: p => all.push(p) });
+    cap.notifyCliStarted();
+    cap.handleInput('@pr-rev');
+    cap.handleInput('\r', snapshot('@pr-rev'));
+    cap.handleInput(key);
+    cap.handleInput('read this');
+    cap.handleInput('\r', snapshot('@ai/pr-review.md read this'));
+    assert.deepStrictEqual(all, ['read this']);
+  }
+});
+
+test('CRLF completion acceptance counts as one Enter', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('@pr-rev');
+  cap.handleInput('\r\n', snapshot('@pr-rev'));
+  cap.handleInput('read this');
+  cap.handleInput('\r\n', snapshot('@ai/pr-review.md read this'));
+  assert.deepStrictEqual(getAll(), ['@ai/pr-review.md read this']);
+});
+
+test('a hard-wrapped partial filename is not recovered', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('@pr-rev');
+  cap.handleInput('\r', snapshot('@pr-rev'));
+  cap.handleInput('read this');
+  const wrapped = snapshot('@ai/pr-review.m');
+  wrapped.lines[1].text = '    d read this';
+  cap.handleInput('\r', wrapped);
+  assert.deepStrictEqual(getAll(), ['read this']);
+});
+
+test('renderer snapshot rejoins soft wraps and reads only the live viewport', () => {
+  const data = [
+    ['old scrollback', false], ['> @docs/guide.md ', false], ['read this', true], ['', false],
+  ];
+  const terminal = { rows: 3, buffer: { active: {
+    type: 'normal', baseY: 1, length: data.length,
+    getLine: row => data[row] && {
+      isWrapped: data[row][1],
+      translateToString: trim => trim ? data[row][0].trimEnd() : data[row][0],
+    },
+  } } };
+  assert.deepStrictEqual(readPromptSnapshot(terminal), {
+    type: 'normal', lines: [{ row: 1, text: '> @docs/guide.md read this' }, { row: 3, text: '' }],
+  });
 });
 
 test('selector type-filter ("old proj") is the pick, not a prompt', (cap, get) => {
