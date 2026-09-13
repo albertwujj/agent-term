@@ -16,7 +16,7 @@ You can edit a [rendered plan](plan.md) or a [review's commit message](review.md
 
 ## Send now, or collect and send
 
-Send a note at once, or move on to the next passage without sending: the notes and edits you leave collect and go in the next send.
+Send a note at once, or move on to the next passage without sending: the notes and edits accumulate and go in the next send.
 
 ## Useful details
 
