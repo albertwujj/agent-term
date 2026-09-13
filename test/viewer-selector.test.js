@@ -633,14 +633,33 @@ await test('a file:// row the terminal printed hides its disk copy', () => {
   selector.destroy();
 });
 
-await test('the open viewer still hides its own disk copy', () => {
+await test('a typed name that matches the open viewer lists it, marked open, and it hides its disk copy', () => {
   const spy = diskSpy();
   const doc = { kind: 'md', key: '/Users/u/repo/docs/open.md', viewed: true };
-  const selector = createViewerSelector({ entries: [doc], current: doc, onPick: () => {}, ...spy });
-  input(document.querySelector('.at-vsel-input'), 'open');
+  let picked = null;
+  let closed = 0;
+  let removed = null;
+  const selector = createViewerSelector({
+    entries: [doc], current: doc,
+    onPick: (e) => { picked = e; }, onClose: () => { closed++; }, onRemove: (e) => { removed = e; },
+    ...spy,
+  });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'open');
   progress(selector, spy, { done: true, tier: 'cwd', files: F('/Users/u/repo/docs/open.md', '/Users/u/repo/docs/open-2.md') });
-  const keys = [...document.querySelectorAll('.at-vsel-row .at-vsel-key')].map((k) => k.textContent);
-  assert.deepStrictEqual(keys, ['docs/open-2.md']);
+  const rows = [...document.querySelectorAll('.at-vsel-row')];
+  assert.deepStrictEqual(
+    rows.map((r) => r.querySelector('.at-vsel-key').textContent),
+    ['/Users/u/repo/docs/open.md', 'docs/open-2.md'],
+  );
+  assert.strictEqual(rows[0].querySelector('.at-vsel-age').textContent, 'open');
+  assert.strictEqual(document.querySelector('.at-vsel-divider').textContent, 'Recent viewers — 1 matching open');
+  // Enter on the open viewer closes the selector; Delete leaves it alone.
+  key(el, 'Delete');
+  assert.strictEqual(removed, null);
+  key(el, 'Enter');
+  assert.strictEqual(picked, null);
+  assert.strictEqual(closed, 1);
   selector.destroy();
 });
 

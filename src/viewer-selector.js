@@ -28,7 +28,9 @@
 //     entries: [{ kind: 'md'|'url'|'review', key, viewed }, ...],
 //                       // tiered: viewed first, most recent first, then printed
 //     current: { kind, key } | null,   // the viewer open right now, if any:
-//                       // left out of the rows
+//                       // left out of the switch list; when a typed name
+//                       // matches it, listed last among the viewed rows and
+//                       // marked open (picking it closes the selector)
 //     onPick(entry):    user chose an entry to open; a disk row carries
 //                       source: 'disk' and an absolute path as its key, kind
 //                       'md' for a doc and 'file' for anything else the band
@@ -129,7 +131,7 @@ function createViewerSelector({
     .filter((e) => !sameEntry(e, current))
     .map((e) => ({ kind: e.kind, key: e.key }));
   const viewedIds = new Set(entries.filter((e) => e.viewed).map((e) => `${e.kind}\0${e.key}`));
-  const isViewed = (entry) => viewedIds.has(`${entry.kind}\0${entry.key}`);
+  const isViewed = (entry) => entry.open || viewedIds.has(`${entry.kind}\0${entry.key}`);
   // Known rows plus the open viewer: left out of the rows, still a known file.
   const knownEntries = () => (current ? [...all, current] : all);
   let filterText = '';
@@ -190,9 +192,14 @@ function createViewerSelector({
 
   function filterEntries(text) {
     const terms = parseSearchTerms(text);
-    const list = terms.length === 0
-      ? all
-      : all.filter((entry) => textMatchesSearchTerms(entry.key, terms));
+    if (terms.length === 0) return { list: all, terms };
+    const list = all.filter((entry) => textMatchesSearchTerms(entry.key, terms));
+    // A typed name is a search, and the open viewer is its answer as much as
+    // any other row: listed last among the viewed rows and marked open, so a
+    // name the filter matches is never on screen nowhere.
+    if (current && textMatchesSearchTerms(current.key, terms)) {
+      list.push({ kind: current.kind, key: current.key, open: true });
+    }
     return { list, terms };
   }
 
@@ -231,14 +238,13 @@ function createViewerSelector({
     render();
   }
 
-  // A cover holds only while the covering row is on screen for this filter,
-  // or is the open viewer: a file the filter matches is then always reachable,
-  // as the known row or as its own disk row, never hidden behind a row the
-  // filter dropped.
+  // A cover holds only while the covering row is on screen for this filter
+  // (the open viewer included, which the filter lists like any other): a file
+  // the filter matches is then always reachable, as the known row or as its
+  // own disk row, never hidden behind a row the filter dropped.
   function filterDiskEntries(terms) {
     if (!disk || terms.length === 0) return [];
-    const covering = knownEntries().filter((known) =>
-      known === current || textMatchesSearchTerms(known.key, terms));
+    const covering = knownEntries().filter((known) => textMatchesSearchTerms(known.key, terms));
     return disk.files.filter((entry) =>
       textMatchesSearchTerms(entry.label, terms)
       && !covering.some((known) => knownCoversDiskEntry(known, entry)));
@@ -259,10 +265,10 @@ function createViewerSelector({
     const row = document.createElement('div');
     row.className = 'at-vsel-row';
     const tag = entryTag(entry);
-    // A disk row shows its age: the section is ordered by it.
-    const age = entry.source === 'disk'
-      ? `<span class="at-vsel-age">${escapeHtml(diskAge(entry.modified))}</span>`
-      : '';
+    // A disk row shows its age: the section is ordered by it. The open
+    // viewer's row says it is open.
+    const note = entry.source === 'disk' ? diskAge(entry.modified) : (entry.open ? 'open' : '');
+    const age = note ? `<span class="at-vsel-age">${escapeHtml(note)}</span>` : '';
     row.innerHTML = `
       <span class="at-vsel-stripe" style="background:oklch(60% 0.14 ${TAG_HUES[tag]})"></span>
       <span class="at-vsel-key">${highlightTerms(entry.label || entry.key, terms)}</span>
@@ -349,14 +355,20 @@ function createViewerSelector({
   function activate(index) {
     const entry = visibleRows[index];
     if (!entry) return;
+    // The open viewer is already where a pick would land.
+    if (entry.open) {
+      if (typeof onClose === 'function') onClose();
+      return;
+    }
     if (typeof onPick === 'function') onPick({ ...entry });
   }
 
   function removeSelected() {
     const entry = visibleRows[selectedIndex];
     if (!entry) return;
-    // A disk row is not in any history to forget.
-    if (entry.source === 'disk') return;
+    // A disk row is not in any history to forget; the open viewer is not
+    // forgotten from here.
+    if (entry.source === 'disk' || entry.open) return;
     all = all.filter((candidate) => !sameEntry(candidate, entry));
     if (typeof onRemove === 'function') onRemove({ ...entry });
     render();
