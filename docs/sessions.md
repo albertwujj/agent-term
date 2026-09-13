@@ -2,7 +2,7 @@
 
 Every session is a whole OS window; there are no tabs.
 
-**Starting an agent.** Type the CLI's command (`claude`, `codex`, whichever you run) and press Return. From then on the AI CLI runs in a real shell, as in any other terminal.
+**Starting an agent.** Type the CLI's command (`claude`, `codex`, or another) and press Return. From then on the AI CLI runs in a real shell, as in any other terminal.
 
 **Picking up a session from before this terminal.** Start the CLI as a new session and resume the existing one inside it; the first prompt after the resume becomes the session's initial prompt.
 

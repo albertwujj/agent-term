@@ -1,6 +1,6 @@
 # What a printed name opens
 
-Click a file name or path where the agent prints it, and the terminal finds the file and opens it: markdown, reviews, images, video, and PDFs in the viewer above the prompt, code references in your IDE, everything else through the OS ([what a click does](clicks.md)). This page is how the name becomes a file.
+Click a file name or path the agent printed, and the terminal finds the file and opens it: markdown, reviews, images, video, and PDFs in the viewer above the prompt, code references in your IDE, everything else through the OS ([what a click does](clicks.md)). This page is how the name becomes a file.
 
 **Any form works.** A bare file name (`README.md`), a relative path (`docs/plan.md`, `../agent-lock/README.md`), an absolute path, or one starting with `~`. So the agent's ordinary output is enough; it does not have to print full paths.
 
