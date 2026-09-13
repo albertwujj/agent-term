@@ -16,7 +16,7 @@ English is where the real planning happens: much of a design is settled in words
 
 The same loop is a writing aid in its own right. An essay, notes, research, a post: the working directory organizes your context.
 
-Editing goes beyond changing what is there, to new sections and blocks: Shift+Enter starts a new line on the rendered page, and the agent formats what you typed into headings, paragraphs and bullets.
+Editing supports new sections and blocks: Shift+Enter starts a new line on the rendered page, and the agent formats what you typed into headings, paragraphs and bullets.
 
 <p align="center">
 <img src="assets/change-highlight.png" width="65%" alt="a long changed paragraph: a bar in the margin marks the block, and hovering shows the exact words that changed">
