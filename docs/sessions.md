@@ -4,7 +4,7 @@ Every session is a whole OS window; there are no tabs.
 
 **Starting an agent.** Type the CLI's command (`claude`, `codex`, or another) and press Return. From then on the AI CLI runs in a real shell, as in any other terminal.
 
-**Picking up a session from before this terminal.** Start the CLI as a new session and resume the existing one inside it; the first prompt after the resume becomes the session's initial prompt.
+**Picking up a session from before this terminal.** Start the CLI as a new session and resume the existing one inside it; the first prompt after the resume becomes the terminal session's initial prompt.
 
 <p align="center">
 <img src="assets/taskbar-preview.png" alt="your active agent sessions: each a live taskbar button with a thumbnail preview">
@@ -21,6 +21,8 @@ Every session is a whole OS window; there are no tabs.
 ![filter your sessions and pick the right one](assets/hero-session-picker.gif)
 
 **The sessions you set aside.** Right-click a taskbar button or Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N with an AgentTerm window in front. A new window opens with the picker: your past sessions, filtered as you type by your prompts and the agents' own titles. Resume one, start a new one (with options, if you want them), or drop to a plain shell.
+
+## Bootstrap
 
 **Type `npm run start` (`start:wsl` on WSL) once, from the directory you want the terminal to open in.** Three ways a window comes to be, and where each starts:
 

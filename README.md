@@ -28,9 +28,9 @@ People run coding agents in an IDE, in the terminal, or in the vendor's desktop 
 
 So why do people still run agents in the IDE, and why are the vendors adding their agents to desktop apps? Partly because the standard terminal interface (TUI), although great for text-centric iteration, cannot offer agents and users the essentials and the boosts a richer interface can. One answer is to move the agent out, into an app built around it. The other is to treat the terminal as the core and extend it. This repo is the second path: a full terminal wrapped in a modern extensible window (Electron), retaining everything you already have and raising the ceiling.
 
-Extending it on demand is what keeps it a terminal. What you are working on comes in when you need it and goes when you are done, so the window is a terminal again the moment you finish. An IDE does not do that, as irrelevant things are already there before you type.
+Extending it on demand is what keeps it a terminal. Additions come in only when you need them, and the window is a terminal again the moment you finish. An IDE does not do that, as irrelevant things are already there before you type.
 
-The vendor desktop apps also offer a richer interface, each holding that vendor's agents and only those. This terminal holds one agent per window, of any kind, beside your shell, your repo, and your tests, and it keeps the terminal's focus: only that session in the window, full screen if you like ([native to the OS](#native-to-the-os)).
+The vendor desktop apps also offer a richer interface, each holding all that vendor's agents and only those. This terminal holds one agent per window, of any kind, beside your shell, your repo, and your tests, and it helps you focus: the window holds only that session, shaped by your work in it, full screen if you like ([native to the OS](#native-to-the-os)).
 
 Several terminals have gone the vendors' way and grown an agent of their own, with ways to run many at once, including in the cloud, and to get their environment you take their agent. Here nothing about working with your agent changes.
 
