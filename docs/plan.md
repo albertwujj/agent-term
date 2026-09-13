@@ -4,7 +4,7 @@
 
 Ask your agent to write the plan to a markdown file, then click its name, and the doc opens rendered in the viewer above the prompt ([what a click does](clicks.md)). The viewer turns markdown into a place you write English. A doc opens rendered and shows both your proposals and how the agent applies them: you [comment on any passage](comment.md) or edit the rendered text directly, and the agent processes and polishes. You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
 
-Click anywhere, and the bottom bar tells you which keys comment, which keys edit, and, on a link, how to follow it.
+Click anywhere, and the bottom bar hints at the actions available there.
 
 <p align="center">
 <img src="assets/md-bar-guide.png" width="487" alt="the viewer's bottom bar after a click on a link: letters and digits comment · other keys edit · ⌘click follows, and the copy button reading ⧉ paragraph">
