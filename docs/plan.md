@@ -22,7 +22,7 @@ Editing goes beyond word swaps: start new lines anywhere in the rendered page, a
 <img src="assets/change-highlight.png" width="65%" alt="a long changed paragraph: a bar in the margin marks the block, and hovering shows the exact words that changed">
 </p>
 
-You can also see what the agent changed. A bar in the margin marks each block it edited. Hover one and the exact words show.
+You can also track what the agent changed. A bar in the margin marks each block it edited. Hover one and the exact words show.
 
 When a draft is ready to go out, one button copies it, or just the section under a heading, as plain text for Teams or email, or as markdown for GitHub ([copy a doc into a message](copy.md)).
 
