@@ -10,7 +10,7 @@ Electron terminal for coding agents, on macOS and Windows (on Windows the shell 
 
 ## Rules for this repo
 
-- User docs under `docs/` name capabilities and never narrate the UI (labels, hints, key lists, messages) or state what a reader already expects; the rule and its test are in [docs/dev/development.md](docs/dev/development.md#user-docs).
+- User docs under `docs/` name capabilities and never narrate the UI (labels, hints, key lists, messages) or state what a reader already expects; a key the UI never surfaces is the one exception, named once. The rule and its test are in [docs/dev/development.md](docs/dev/development.md#user-docs).
 - Do not create GitHub releases or tags, and do not bump the version in `package.json`; it is kept as historical build metadata.
 - The Windows installer pipeline (`npm run dist:win`) is frozen and untested; [docs/dev/maintainer/windows-installer.md](docs/dev/maintainer/windows-installer.md) is its record.
 - JetBrains plugin builds and releases belong to [albertwujj/intellij-navigator](https://github.com/albertwujj/intellij-navigator).
