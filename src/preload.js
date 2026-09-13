@@ -102,7 +102,7 @@ contextBridge.exposeInMainWorld('pty', {
   // on picker-reopen.
   onShowPicker: (callback) => ipcRenderer.on('show-picker', (event, payload) => callback(payload)),
   // The picker again in this window, before a CLI has started here (the
-  // chrome bar's Sessions label; Cmd/Ctrl+Shift+S reaches main directly).
+  // chrome bar's start line; Cmd/Ctrl+Shift+S reaches main directly).
   reopenPicker: () => ipcRenderer.send('picker-reopen'),
   // User picked a past session from the picker → main kicks the resume runner.
   pickerPick: (id) => ipcRenderer.send('picker-pick', id),

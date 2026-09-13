@@ -1,5 +1,6 @@
-// node test/chrome-bar-lock.test.js — the padlock markup the chrome bar renders
-// for each lock state (src/lock-status.js → src/chrome-bar.js).
+// node test/chrome-bar-lock.test.js — the chrome bar's markup: the text slot
+// by state, and the padlock for each lock state (src/lock-status.js →
+// src/chrome-bar.js).
 const assert = require('assert');
 const bar = require('../src/chrome-bar');
 
@@ -104,6 +105,17 @@ test('jobs: bar renders the jobs icon beside the lock', () => {
   });
   assert.ok(m.indexOf('at-chrome-jobs') >= 0 && m.indexOf('at-chrome-lock') >= 0);
   assert.ok(m.indexOf('at-chrome-jobs') < m.indexOf('at-chrome-lock'), 'jobs left of lock');
+});
+
+test('text slot: the start line before any CLI, then waiting, then the prompt', () => {
+  const before = bar.renderBarMarkup({});
+  assert.ok(before.includes(bar.START_LINE), 'start line');
+  assert.ok(before.includes('at-chrome-sessions'), 'click target for the picker');
+  assert.ok(before.includes(' dim'), 'dim');
+  const waiting = bar.renderBarMarkup({ cli: 'claude' });
+  assert.ok(waiting.includes('waiting for prompt…') && !waiting.includes('at-chrome-sessions'));
+  const prompt = bar.renderBarMarkup({ cli: 'claude', prompt: 'fix <login>' });
+  assert.ok(prompt.includes('fix &lt;login&gt;') && !prompt.includes(' dim'));
 });
 
 console.log(`\nchrome-bar lock: ${passed} passed, ${failed} failed`);

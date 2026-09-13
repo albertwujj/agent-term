@@ -1750,7 +1750,7 @@ function showSessionsPicker(cwd = null) {
 // went to the shell (Esc, or a command such as cd) and now wants a CLI
 // launched the picker's way, with the line it types. Once a CLI has booted
 // the window is that session's, and a fresh picker belongs in a fresh
-// window (Cmd/Ctrl+Shift+N). Reached from the chrome bar's Sessions label
+// window (Cmd/Ctrl+Shift+N). Reached from the chrome bar's start line
 // and Cmd/Ctrl+Shift+S.
 async function reopenSessionsPicker() {
   if (iconLocked) return;

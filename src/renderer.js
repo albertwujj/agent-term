@@ -56,7 +56,7 @@ const { isReviewPackagePath } = require('./review-package-path');
 // whenever main pushes a chrome-state payload (hue / cli / prompt / isWorking).
 chromeBar.mount({
   onContextMenu: () => { try { window.pty.chromeBarContextMenu(); } catch {} },
-  // Before a CLI: the Sessions label brings the picker back (main gates it).
+  // Before a CLI: the start line brings the picker back (main gates it).
   onSessionsClick: () => { try { window.pty.reopenPicker(); } catch {} },
 });
 

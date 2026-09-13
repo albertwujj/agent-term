@@ -7,7 +7,7 @@
 // What it shows (left to right):
 //   · Prompt text — the verbatim user prompt, full 16px Cascadia Mono
 //     (same font as the terminal body below). Dim italic fallback when
-//     no prompt yet ("waiting for prompt…" / "Sessions").
+//     no prompt yet ("waiting for prompt…"; before any CLI, the start line).
 //   · Jobs icon — a background job of this session is running (a start
 //     record with a live process in the docs/dev/job-events.md spool). Presence
 //     only, no count drawn: the question it answers is "is anything still
@@ -40,10 +40,13 @@
 // Interaction:
 //   · Whole bar is a -webkit-app-region: drag region for window dragging.
 //   · Right-click on the prompt area copies the full captured prompt.
-//   · Before a CLI, the Sessions label is a click target: the picker again
+//   · Before a CLI, the start line is a click target: the picker again
 //     in this window (onSessionsClick; main decides whether it still may).
 
 const BAR_HEIGHT_PX = 42;
+// The text slot before any CLI. The picker is up or was dismissed and the
+// launcher band sits right under the bar, so the line points there.
+const START_LINE = 'Click below to start an AI CLI with any recommended options';
 const BODY_FONT = '16px "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, "Courier New", monospace';
 // 1px hue divider — Windows-native chrome weight. Lives as a separate
 // full-width fixed element BELOW the chrome bar (not as the bar's own
@@ -268,7 +271,7 @@ function ensureMounted({ onContextMenu, onSessionsClick } = {}) {
   const el = document.createElement('div');
   el.className = 'at-chrome';
   el.innerHTML = `
-    <span class="at-chrome-text dim at-chrome-sessions">Sessions</span>
+    <span class="at-chrome-text dim at-chrome-sessions">${escapeHtml(START_LINE)}</span>
   `;
   document.body.appendChild(el);
   el.style.webkitAppRegion = 'drag';
@@ -282,7 +285,7 @@ function ensureMounted({ onContextMenu, onSessionsClick } = {}) {
     ev.stopPropagation();
     if (typeof onContextMenu === 'function') onContextMenu();
   });
-  // Jobs-icon click → detail popover; Sessions label → the picker again.
+  // Jobs-icon click → detail popover; start line → the picker again.
   // Delegated so both survive the innerHTML replacement update() does.
   el.addEventListener('click', (ev) => {
     const closest = (sel) => ev.target && ev.target.closest && ev.target.closest(sel);
@@ -322,7 +325,7 @@ function renderBarMarkup(state) {
     text = 'waiting for prompt…';
     dim = true;
   } else {
-    text = 'Sessions';
+    text = START_LINE;
     dim = true;
     sessions = true;
   }
@@ -369,6 +372,7 @@ function mount(opts) {
 
 module.exports = {
   BAR_HEIGHT_PX,
+  START_LINE,
   BAR_CSS,
   renderBarMarkup,
   renderLockMarkup,
