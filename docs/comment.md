@@ -6,14 +6,7 @@ Select the passage, then write your note: precise feedback, with the exact text 
 
 ## Choose what to comment on
 
-| Where | What you can comment on |
-|---|---|
-| Terminal output | Any selected word, line, or passage. |
-| Markdown viewer | Whole blocks or selected text, including sentences (triple-click in prose) and passages spanning pages. |
-| Review prose, commit message, or in-place rendered markdown diff | Whole blocks or selected text. |
-| Review code or source diff with line numbers | Individual source lines. |
-
-Then type your note.
+Selecting is meant to be intuitive: a whole line or block in one gesture, and drag-select when you need exactly the words you mean. Then type your note.
 
 ![the sent message carries the quoted selection, and the agent acts on it](assets/comment-sent-brainstorm.png)
 
