@@ -14,15 +14,15 @@ Selecting is meant to be intuitive: a whole line or block in one gesture, and dr
 
 You can edit a [rendered plan](plan.md) or a [review's commit message](review.md) directly. The agent takes the edit as your intent; a note, if you attach one, makes the intent clearer.
 
-## Collect and send
+## Send now, or collect and send
 
-Collect notes on several passages and send them as one batch. **To prompt** lets you combine that feedback with an overall instruction before sending it to the agent. In markdown, text edits can travel in the same batch.
-
-Drafts stay attached to what you commented on; documents and reviews keep the agent's replies in the same thread. Before switching documents, see [links and unsent work](viewer.md#links-and-unsent-work) for draft protection and its limits.
+Send a note at once, or move on to the next passage and it waits: the notes and edits you leave collect and go as one batch, with an overall instruction on top if you want one.
 
 ## Useful details
 
 To comment on a terminal link that opens immediately, drag-select its text ([what a click does](clicks.md)).
+
+Unsent notes stay with their document; before switching documents, see [links and unsent work](viewer.md#links-and-unsent-work).
 
 If a CLI's full-screen display prevents selection, hold `Shift` while selecting ([how a CLI draws](dev/cli-rendering.md)).
 
