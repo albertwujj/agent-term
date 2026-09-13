@@ -10,4 +10,4 @@ A [long job](jobs.md) the agent starts, such as CI, takes the lock the same way 
 
 The terminal shows who holds the checkout as a padlock at the top right of each window: green with a check when this terminal window holds it.
 
-The padlock reports one repo, the first the session's shell was in, so a session working across several repos sees the state of only that one ([the lock indicator](dev/lock-indicator.md)).
+The padlock reports the repo the session started in, so start the agent in the repo whose lock you want to watch ([the lock indicator](dev/lock-indicator.md)).
