@@ -1,6 +1,6 @@
 # What a click does
 
-Click a reference in terminal output to open what the agent is talking about—in the window, your IDE, another application, or your browser.
+Click a reference in terminal output to open it: in the window, your IDE, another application, or your browser.
 
 ## In terminal output
 
