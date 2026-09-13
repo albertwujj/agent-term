@@ -6,7 +6,7 @@ Select the passage, then write your note: precise feedback, with the exact text 
 
 ## Choose what to comment on
 
-Selecting is meant to be intuitive: a whole line or block in one gesture, and drag-select when you need exactly the words you mean. Then type your note.
+The quickest way to learn selecting is to try it. A click selects a line in the terminal, or a block in a document; drag-select when you need exactly the words you mean. Then type your note.
 
 ![the sent message carries the quoted selection, and the agent acts on it](assets/comment-sent-brainstorm.png)
 
