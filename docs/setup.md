@@ -18,6 +18,6 @@ npm --prefix ~/agent-term run start
 
 (`run start:wsl` instead, on Windows.) [Sessions](sessions.md) covers how to start an agent, or pick up one from before this terminal.
 
-## Optional loops
+## Optional suite
 
-Each loop can be installed separately; see [the loops](loops.md).
+Each one can be installed separately; see [the loops](loops.md).
