@@ -463,6 +463,7 @@ function splitChromeTopAndOverflow(rest, maxLen) {
 //   · Paths:  /a/b/c/d/file.ext  → file
 //             ~/a/b/file.py      → file
 //             src/file.js        → file
+//             @file.ext          → file
 //             Preserves the filename stem so identity ("I was editing
 //             main") survives without extension noise.
 //
@@ -501,6 +502,10 @@ function extractPathsAndUrls(text) {
     return labels.join('.');
   }
   function compactUrl(url) {
+    // Gerrit appends a patch-set number to a change URL. The change is
+    // the task identity; its last path segment may only be the revision.
+    const change = String(url.pathname || '').match(/\/c\/.+\/\+\/(\d+)(?:\/\d+)?\/?$/);
+    if (change) return change[1];
     const segments = String(url.pathname || '').split('/').filter(Boolean);
     if (segments.length > 0) {
       const last = segments[segments.length - 1];
@@ -547,18 +552,21 @@ function extractPathsAndUrls(text) {
     refs.push({ kind: 'path', full: pathStr });
     return `${lead}${displayName}`;
   });
-  out = out.replace(/(^|[\s`'"])(@[^\s@\/`'"]+\/[^\s`'"]+)(?=$|[\s`'"])/g, (match, lead, mentionStr) => {
-    const segments = mentionStr.slice(1).split('/').filter(s => s.length > 0);
-    if (segments.length < 2) return match;
-    const filename = segments[segments.length - 1];
+  out = out.replace(/(^|[\s`'"])(@[^\s@`'"]+)(?=$|[\s`'"])/g, (match, lead, mentionStr) => {
+    const displayName = compactPath(mentionStr.slice(1));
+    if (!displayName) return match;
     refs.push({ kind: 'mention', full: mentionStr });
-    return `${lead}${stripFileExtension(filename)}`;
+    return `${lead}${displayName}`;
   });
   // A bare workflow reference followed by one URL is an invocation shape,
   // not a prose identity. Prefer the target's compact leaf so prompts such as
   // "@ai/tasks/fix-ticket.md https://.../10427036" become "10427036": the
   // icon can carry "104" and the adjacent title can carry "27036".
-  const invocation = text.match(/^\s*@[^\s@\/`'"]+\/[^\s`'"]+\s+(https?:\/\/[^\s`'"]+)\s*$/i);
+  // Older capture could record the mention-picker query and the URL as
+  // separate prompts. The short-identity fold joins those with " · ".
+  // Recognize that exact two-part shape on display as well, keeping the
+  // recorded prompt and original references intact.
+  const invocation = text.match(/^\s*@[^\s@`'"]+\s+(?:·\s+)?(https?:\/\/[^\s`'"]+)\s*$/i);
   if (invocation) {
     try { out = compactUrl(new URL(invocation[1])); } catch {}
   }

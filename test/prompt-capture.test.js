@@ -60,6 +60,39 @@ test('one-key and one-word answers are skipped, a short prompt is captured', (ca
   assert.deepStrictEqual(getAll(), ['fix bug']);
 });
 
+test('mention-picker Enter does not become the identity before the submitted URL', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('@pr-rev');
+  cap.handleInput('\x1b[B\r');                     // choose the completion
+  assert.deepStrictEqual(getAll(), []);
+  const url = 'https://review.example/c/team/repo/+/10427036/2';
+  cap.handleInput('\x1b[200~' + url + '\x1b[201~\r');
+  assert.deepStrictEqual(getAll(), [url]);
+});
+
+test('bare mention queries are filtered by shape, without raising the prose length floor', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('  @long-workflow-query\r');
+  cap.handleInput('generate more\r');
+  cap.handleInput('@next-query\r');
+  cap.handleInput('fix bug\r');
+  assert.deepStrictEqual(getAll(), ['generate more', 'fix bug']);
+});
+
+test('explicit file mentions and prose containing mentions remain prompts', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  const prompts = ['@review.md', '@ai/review', '@./Makefile', '@.env', 'read @pr-rev', '@pr-rev explain this'];
+  for (const prompt of prompts) cap.handleInput(prompt + '\r');
+  assert.deepStrictEqual(getAll(), prompts);
+});
+
+test('a pasted bare mention is intentional prompt content', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('\x1b[200~@pr-rev\x1b[201~\r');
+  cap.handleInput('next task\r');
+  assert.deepStrictEqual(getAll(), ['@pr-rev', 'next task']);
+});
+
 test('selector type-filter ("old proj") is the pick, not a prompt', (cap, get) => {
   cap.notifyCliStarted();
   cap.handleInput('/resume\r');                    // skipped (slash), opens the dialog

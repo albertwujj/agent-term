@@ -27,6 +27,8 @@
 //      Shift-click on its codex chip types the line, an option is added by
 //      hand, Enter runs it
 //      → the override reached codex, and the named thread is the title
+//   8. mention completion: one Enter picks the @ query, the next submits
+//      the target URL → only the submitted target names the session
 //
 // Run: npm run test:e2e
 
@@ -218,6 +220,23 @@ console.log('7 — Codex after a shell command: the launcher strip types the lin
     session && session.cli === 'codex' && session.prompt === PROMPT, JSON.stringify(session));
   check('Codex unnamed ID never logged', events.filter(e => e.e === 'title').every(e => e.title === CODEX_TOPIC),
     JSON.stringify(events.filter(e => e.e === 'title')));
+}
+
+console.log('8 — mention-picker Enter followed by the actual prompt submission');
+{
+  const target = 'https://review.example/c/team/repo/+/10427036/2';
+  const fake = [
+    osc('Cursor Agent'), 'read -r query',
+    "printf '@ai/review.md '", 'read -r submitted',
+    osc('Review the proposed change'), 'read -r next',
+  ].join('; ') + ';';
+  const { events, session } = await runScenario('mention-completion', fake, ['@pr-rev', target], { cli: 'agent' });
+  const prompts = events.filter(e => e.e === 'prompt');
+  check('completion selection is never logged as a prompt', prompts.length === 1 && prompts[0].prompt === target,
+    JSON.stringify(prompts));
+  check('the first real submission names the session', session && session.prompt === target, JSON.stringify(session));
+  check('the conversation title follows the real submission', session && session.title === 'Review the proposed change',
+    session && session.title);
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

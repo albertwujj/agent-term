@@ -79,6 +79,31 @@ test('workflow invocation uses the target URL number as taskbar identity', () =>
   ]);
 });
 
+test('Gerrit change URLs keep the change number across patch sets', () => {
+  for (const suffix of ['', '/2', '/12/', '/2?usp=submitted-together']) {
+    assert.strictEqual(
+      truncatePathsForTaskbar('Review https://review.example/gerrit/c/team/repo/+/10427036' + suffix),
+      'Review 10427036'
+    );
+  }
+  assert.strictEqual(truncatePathsForTaskbar('Review https://example.com/releases/2026/2'), 'Review 2');
+});
+
+test('bare workflow references use the target, including old joined capture', () => {
+  const url = 'https://review.example/c/team/repo/+/10427036/2';
+  for (const mention of ['@pr-rev', '@review.md', '@ai/review.md']) {
+    for (const separator of [' ', ' · ']) {
+      const result = extractPathsAndUrls(mention + separator + url);
+      assert.strictEqual(result.text, '10427036');
+      assert.deepStrictEqual(result.refs, [
+        { kind: 'url', full: url },
+        { kind: 'mention', full: mention },
+      ]);
+    }
+  }
+  assert.strictEqual(truncatePathsForTaskbar('@pr-rev · discuss this · ' + url), 'pr-rev · discuss this · 10427036');
+});
+
 // ---- truncatePathsForTaskbar — file paths ----
 
 test('Deep unix path → filename stem', () => {
@@ -166,6 +191,19 @@ test('@ file mention drops marker, scope, and extension', () => {
     truncatePathsForTaskbar('Read @ai/build-api-guide.md'),
     'Read build-api-guide'
   );
+});
+
+test('@ mentions compact basenames, absolute paths, and directories too', () => {
+  for (const [mention, compact] of [
+    ['@review.md', 'review'], ['@pr-rev', 'pr-rev'], ['@.env', '.env'],
+    ['@/tmp/work/review.md', 'review'], ['@C:\\work\\review.md', 'review'],
+    ['@ai/tasks/', 'tasks/'],
+  ]) {
+    assert.deepStrictEqual(extractPathsAndUrls('Read ' + mention), {
+      text: 'Read ' + compact, refs: [{ kind: 'mention', full: mention }],
+    });
+  }
+  assert.strictEqual(truncatePathsForTaskbar('Contact dev@example.com about @review.md'), 'Contact dev@example.com about review');
 });
 
 test('extractPathsAndUrls keeps original refs while compacting display', () => {

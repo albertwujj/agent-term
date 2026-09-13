@@ -23,6 +23,11 @@
 //          CLI's resume dialog). Pastes bypass every filter; otherwise
 //          we drop slash-commands (/resume, /help, /clear) and one-key or
 //          one-word answers (y, 1, ok, yes).
+//      A bare typed @name is a mention-picker query, also skipped. Its
+//      acceptance Enter is not the prompt submission. Explicit paths
+//      (@dir/file, @file.md), prose containing mentions, and pastes still
+//      count. The completed path is inserted by the CLI, so it is absent
+//      from the input bytes; we cannot reconstruct it here.
 //      A typed "/resume" opens the CLI's resume dialog, where the user may
 //      type a search filter and then presses Enter to pick. That Enter is
 //      the pick, never a prompt, whatever the filter's length, so it is
@@ -47,6 +52,10 @@
 // dialog's filter strings; it caught "generate more" instead, and the
 // session's identity became the prompt after it. The pick is now
 // recognised by what precedes it (rule 3), not by its length.
+// The old floor also happened to drop short @-completion queries. Keep
+// that filter separate so lowering the floor does not name a session
+// after a query such as "@pr-rev". A bare extensionless mention submitted
+// on its own is ambiguous; paste it or use an explicit path to capture it.
 //
 // State machine outputs are pushed through an onPrompt callback. The machine
 // keeps capturing across prompts so timelines stay current. Call markLocked()
@@ -220,7 +229,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
             i++;
             continue;
           }
-          if (!hadPaste && trimmed.length < MIN_TYPED_PROMPT_LEN) {
+          if (!hadPaste && (trimmed.length < MIN_TYPED_PROMPT_LEN || /^@[\w-]+$/u.test(trimmed))) {
             reset();
             i++;
             continue;
