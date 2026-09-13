@@ -12,7 +12,7 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 A runner icon at the top right of the window shows the running jobs; click it for the list. How soon the icon and the report follow is in [job-events.md](dev/job-events.md). Closing a session and resuming it does not lose a job: one started before still reports to the session that comes back.
 
-If the agent is busy when the job finishes, the terminal does not prompt it. Should the agent then miss the completion, which is rare, ask it to check; the icon tells you whether the job is still running.
+If the agent is busy when the job finishes, the terminal does not prompt it. Should the agent then miss the completion, which is rare, ask it to check; the icon tells you whether the job is still running. A job that is killed outright writes no report, but the terminal sees that it is gone and tells the agent so, under the same idle rule.
 
 ## An example: CI
 
