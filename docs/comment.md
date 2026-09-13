@@ -22,8 +22,4 @@ Send a note at once, or move on to the next passage without sending: the notes a
 
 To comment on a terminal link that opens upon click, drag-select its text ([what a click does](clicks.md)).
 
-Unsent notes stay with their document; before switching documents, see [links and unsent work](viewer.md#links-and-unsent-work).
-
 If a CLI's full-screen display prevents selection, hold `Shift` while selecting ([how a CLI draws](dev/cli-rendering.md)).
-
-See [the curated review](review.md) for the review loop, or [open a viewer](viewer.md) to get to a document or review from the terminal.
