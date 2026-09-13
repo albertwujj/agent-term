@@ -10,8 +10,6 @@ Click a reference in terminal output to open it: in the window, your IDE, anothe
 
 **Web links.** A plain click opens your browser; `Ctrl/Cmd`-click opens the page in the in-window web viewer instead.
 
-You can also [comment on linked text](comment.md) by drag-selecting it. Selection takes priority over delayed jumps.
-
 ## Inside viewers
 
 **Markdown and reviews.** `Ctrl/Cmd`-click follows web links in your browser; in markdown, it also follows file links. Ordinary markdown clicks prepare comments or edits. The review's own navigation links still take plain clicks. See [viewer details](viewer.md#links-and-unsent-work) for unsent-work protection.
