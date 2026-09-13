@@ -6,7 +6,7 @@ Click a reference in terminal output to open it: in the window, your IDE, anothe
 
 **In the window.** Markdown documents, reviews, images, audio, video, PDFs, and local pages open rendered. A diff line on a document jumps to the corresponding passage for commenting or editing.
 
-**Other applications.** Code references (`file:line`, symbols, or code-diff lines) jump to your [IDE](ide.md). Files the viewer cannot display and folders open through the OS. These handoffs wait briefly so you can select instead; `Ctrl/Cmd`-click skips the pause.
+**Other applications.** Code references (`file:line`, symbols, or code-diff lines) jump to your [IDE](ide.md). Files the viewer cannot display and folders open through the OS. These handoffs wait briefly so you can select for comment instead; `Ctrl/Cmd`-click skips the pause.
 
 **Web links.** A plain click opens your browser; `Ctrl/Cmd`-click opens the page in the web viewer instead.
 
