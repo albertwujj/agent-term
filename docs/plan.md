@@ -14,7 +14,7 @@ It reads as a book: two pages side by side, short lines. Pages turn rather than 
 
 English is where the real planning happens: much of a design is settled in words before any code. A plan converges here the way code does: commented, revised in place, settled before anything is final.
 
-The same loop is a writing aid in its own right. An essay, notes, research, a post: the working directory organizes your context, and the [copy button](copy.md) takes the draft out when it is ready.
+The same loop is a writing aid in its own right. An essay, notes, research, a post: the working directory organizes your context.
 
 Editing goes beyond word swaps: start new lines anywhere in the rendered page, and the agent decides what each becomes in the source (a heading, a list item, a paragraph).
 
@@ -24,6 +24,6 @@ Editing goes beyond word swaps: start new lines anywhere in the rendered page, a
 
 You can also track what the agent changed. A bar in the margin marks each block it edited. Hover one and the exact words show.
 
-When a draft is ready to go out, one button copies it, or just the section under a heading, as plain text for Teams or email, or as markdown for GitHub ([copy a doc into a message](copy.md)).
+When a draft is ready to go out, one button copies the whole or any section, as plain text for Teams or email, or as markdown for GitHub ([copy a doc into a message](copy.md)).
 
 The loop runs on [agent-threads](https://github.com/albertwujj/agent-threads)'s instruction docs (`md/user-intent.md` and the shared `contract.md`); the terminal points the agent at them with each send. Where the clone can live: [placement](conventions.md#placement).
