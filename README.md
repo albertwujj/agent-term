@@ -1,4 +1,4 @@
-# Grow your agent terminal
+# Grow your terminal for coding agents
 
 **Use this repo for a head start, and share what you add.**
 
