@@ -1,4 +1,4 @@
-# Grow your agent terminal to fit your work
+# Grow your agent terminal
 
 **Use this repo for a head start, and share what you add.**
 
@@ -44,7 +44,7 @@ This path can look hacky: the host parses text, and reacts to it. But establishe
 
 With a host that understands its agents, and agents that understand the host, a capable agent does more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. This terminal responds to the reference an agent calls out and opens it inside the window, rendered, for you to read, comment on, and edit, and agents can see and update it through their protocol with the host.
 
-### Fit it to your work
+### Make it fit
 
 Use it first as is, a boost for working with your agents; what you need may already be there. When something is missing or falls short, add it with your agents: the symptom is in front of you and the agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. And agents run better here, with the features listed below.
 
