@@ -30,11 +30,11 @@ So why do people still run agents in the IDE, and why are the vendors adding the
 
 Extending it on demand is what keeps it a terminal. Additions come in only when you need them, and the window is a terminal again the moment you finish. An IDE does not do that, as irrelevant things are already there before you type.
 
-The vendor desktop apps also offer a richer interface, each holding all that vendor's agents and only those. This terminal holds one agent per window, of any kind, beside your shell, your repo, and your tests, and it helps you focus: the window holds only that session, shaped by your work in it, full screen if you like ([native to the OS](#native-to-the-os)).
+The vendor desktop apps also offer a richer interface, each holding all that vendor's agents and only those. This terminal holds one agent per window, of any kind, beside your shell, your repo, and your tests, and it helps you focus: the window holds only that session, shaped by your work in it, full screen if you like ([one window per session](#one-window-per-session)).
 
 Several terminals have gone the vendors' way and grown an agent of their own, with ways to run many at once, including in the cloud, and to get their environment you take their agent. Here nothing about working with your agent changes.
 
-### Native to the OS
+### One window per session
 
 Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. An agent and its host grow into one whole, cooperating with the others through shared conventions.
 
@@ -54,7 +54,7 @@ These are the main ones. Follow the links to see an overview of more features om
 
 | In a standard terminal | In this grown terminal |
 |---|---|
-| Several agents running means identical tabs outside, walls of text inside. | Each session gets its own **[unique taskbar button or Dock tile](docs/sessions.md)** (with a preview on Windows, the session title on macOS), so you tell them apart at a glance, and the picker returns you to a running session or revives a closed one, by searching every prompt you typed. |
+| Several agents running means identical tabs outside, walls of text inside. | Each session is its own window, with a **[unique taskbar button or Dock tile](docs/sessions.md)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance, and the picker returns you to a running session or revives a closed one, by searching every prompt you typed. |
 | Everything the agent prints (a diff, a plan, a claim, a link) is words or symbols you cannot click. | **[Select any of it and comment](docs/comment.md)**, precise feedback with the exact text quoted; the agent makes the change. A click opens whatever renders (docs, reviews, images, video, PDFs) inside the window; web links open in your browser ([the click rule](docs/clicks.md)). |
 | Its plans are append-only text. | Ask for the plan as a markdown file and click its name. The doc opens rendered, and the rendered page is where you work: **[comment on any passage, or write in it directly](docs/plan.md)**; the agent takes an edit as intent and applies it in its own words in the source, answers in a thread on the passage, and the margin marks what it changed. |
 | Agents sharing a checkout have no awareness of each other: branches move, files change, test ports collide. | Type one `@` mention (`@proceed-b` completes to the guide doc's path) and the agent **[takes the checkout lock](docs/lock.md)** and cuts a branch before its first edit; a padlock at the top right of each window shows who holds it. |
