@@ -50,7 +50,7 @@ Use it first as is, a boost for working with your agents; what you need may alre
 
 ## What's added so far
 
-These are the main ones, across the work: from handling sessions to self-review before the PR, at your desk or on your phone, all on the same terminal. Follow the links for the rest.
+Below are examples, across the work: from handling sessions to self-review before the PR, at your desk or on your phone, all on the same terminal. Follow the links for more.
 
 | In a plain terminal | In this grown terminal |
 |---|---|
