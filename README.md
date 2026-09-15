@@ -52,7 +52,7 @@ Use it first as is, a boost for working with your agents; what you need may alre
 
 These are the main ones. Follow the links to see an overview of more features omitted here.
 
-| In a standard terminal | In this grown terminal |
+| In a plain terminal | In this grown terminal |
 |---|---|
 | Several agents running means identical tabs outside, walls of text inside. | Each session is its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance, and the picker returns you to a running session or revives a closed one, by searching every prompt you typed. |
 | Everything the agent prints (a diff, a plan, a claim, a link) is words or symbols you cannot click. | **[Select any of it and comment](docs/comment.md)**, precise feedback with the exact text quoted; the agent makes the change. A click opens whatever renders (docs, reviews, images, video, PDFs) inside the window; web links open in your browser ([the click rule](docs/clicks.md)). |
