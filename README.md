@@ -46,7 +46,7 @@ With a host that understands its agents, and agents that understand the host, a 
 
 ### Make it fit
 
-Use it first as is, a boost for working with your agents; what you need may already be there. When something is missing or falls short, add it with your agents: the symptom is in front of you and the agents, who are in a good position to evaluate and build the fix or the addition. With agents at your disposal, you can fit the tool to your work, which you know best. And with the features listed below, agents run better when you build with them.
+Use it first as is, a boost for working with your agents; what you need may already be there. When something falls short, fix it with your agents: the symptom is in front of you and the agents, who are in a good position to evaluate and build the fix. With agents at your disposal, you can fit the tool to your work, which you know best. And with the features listed below, agents run better when you build with them.
 
 ## What's added so far
 
