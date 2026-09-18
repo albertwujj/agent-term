@@ -20,7 +20,7 @@ Once it opens, start or resume your usual agent, select something in its output,
 
 ## Why a terminal, and why this shape
 
-The landscape, and where this repo sits in it. Skip to [what's added so far](#whats-added-so-far) if you are here for the features.
+The landscape this repo came out of. Skip to [what's added so far](#whats-added-so-far) if you are here for the features.
 
 ### The terminal path
 
