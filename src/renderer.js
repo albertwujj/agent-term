@@ -659,10 +659,10 @@ function purgeViewerEntry(entry) {
   if (typeof streamViewerCandidates.remove === 'function') streamViewerCandidates.remove(entry);
 }
 
-// Re-open from the list. Every open records, so the picked viewer moves to the
-// top of the viewed tier, the way a terminal click does through the normal open
-// paths. A row found on disk is recorded the same way: opened once, it is a
-// known row from then on, and the selector is the way back to it without the disk.
+// Re-open from the list with the same destination as a plain terminal click.
+// In-app opens move to the top of the viewed tier; external links leave the
+// current viewer alone. A row found on disk is recorded the same way: opened
+// once, it is a known row from then on.
 async function openViewerFromHistory(entry, openKey) {
   if (!entry) return false;
   if (entry.kind === 'md') {
@@ -673,10 +673,12 @@ async function openViewerFromHistory(entry, openKey) {
     closeMarkdownViewer();
     if (!(await renderAndOpenReview(entry.key))) return false;
   } else {
+    const external = urlClickWantsExternal(entry.key);
     const opened = await Promise.resolve(
-      openUrlFromTerminal(entry.key, 'recent', false, { recordHistory: false })
+      openUrlFromTerminal(entry.key, 'recent', external, { recordHistory: false })
     );
     if (!opened) return false;
+    if (external) return true;
   }
   viewerHistory.record({ kind: entry.kind, key: entry.key });
   return true;
