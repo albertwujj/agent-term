@@ -1,6 +1,6 @@
 # A terminal built for coding agents
 
-**Across your work: from handling sessions to self-review before the PR, at your desk or on your phone.**
+**Across your work with agents, from the first prompt to the PR, at your desk or on your phone.**
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
 
