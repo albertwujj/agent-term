@@ -1,6 +1,6 @@
-# Grow your terminal for coding agents
+# A terminal built for coding agents
 
-**Use this repo for a head start, and share what you add.**
+**Across your work: from handling sessions to self-review before the PR, at your desk or on your phone.**
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
 
@@ -50,7 +50,7 @@ Use it first as is, a boost for working with your agents; what you need may alre
 
 ## What's added so far
 
-Below are examples, across your work: from handling sessions to self-review before the PR, at your desk or on your phone, all on the same terminal. Follow the links for more.
+Below are examples, all on the same terminal. Follow the links for more.
 
 | In a plain terminal | In this grown terminal |
 |---|---|
