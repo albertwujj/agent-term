@@ -1,6 +1,6 @@
 # A terminal built for coding agents
 
-**From telling your agent sessions apart at a glance to every other gap found in eight months of daily use as the only terminal.**
+**From telling your agent sessions apart at a glance to the finish of your project, built from eight months of daily use.**
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
 
