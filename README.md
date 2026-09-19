@@ -2,11 +2,9 @@
 
 **From telling sessions apart to the finished project.**
 
-Your agents can change and extend this terminal, down to its code, to fit your work and your team's.
+You and your agents can change and extend this terminal, down to its code, to fit your work and your team's.
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
-
-On your phone? [Email yourself this repo](mailto:?subject=AgentTerm&body=AgentTerm%3A%20a%20terminal%20built%20for%20coding%20agents.%0D%0A%0D%0Ahttps%3A%2F%2Fgithub.com%2Falbertwujj%2Fagent-term%0D%0A%0D%0AOn%20your%20computer%2C%20ask%20your%20coding%20agent%3A%0D%0A%0D%0AClone%20https%3A%2F%2Fgithub.com%2Falbertwujj%2Fagent-term%20to%20~%2Fagent-term%2C%20then%20set%20it%0D%0Aup%20and%20launch%20it%20for%20my%20current%20project%2C%20following%20the%20basic%20setup%20in%20its%0D%0Adocs%2Fsetup.md.) to try on your computer.
 
 ## Quick start
 
