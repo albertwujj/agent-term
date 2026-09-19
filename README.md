@@ -1,6 +1,6 @@
 # A terminal built for coding agents
 
-**From telling your agent sessions apart at a glance to the finish of your project, built from months of constant and exclusive use.**
+**From telling sessions apart to the finished project.**
 
 Your agents can change and extend this terminal, down to its code, to fit your work and your team's.
 
