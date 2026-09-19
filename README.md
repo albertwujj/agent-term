@@ -2,6 +2,8 @@
 
 **From telling your agent sessions apart at a glance to the finish of your project, built from months of constant and exclusive use.**
 
+Your agents can change this terminal, down to its code, to fit your work and your team's.
+
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
 
 ## Quick start
