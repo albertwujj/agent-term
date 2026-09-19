@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(import.meta.url);
@@ -32,7 +32,7 @@ fs.writeFileSync(path.join(tmp, 'main.cjs'), `
 
 let app;
 try {
-  app = await electron.launch({
+  app = await launchElectron({
     executablePath: require('electron'),
     args: ['--no-sandbox', path.join(tmp, 'main.cjs')],
     timeout: 45_000,

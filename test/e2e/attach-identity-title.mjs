@@ -37,7 +37,7 @@
 //
 // Run: npm run test:e2e
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -71,7 +71,7 @@ const PROMPT = 'please add retry logic to the uploader';
 async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch = false, stripLaunch = false, seed = [] } = {}) {
   const UD = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-attach-e2e-')));
   for (const event of seed) sessionsLog.appendEvent(UD, event);
-  const app = await electron.launch({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR], timeout: 45_000 });
+  const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR], timeout: 45_000 });
   const page = await app.firstWindow();
   await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });
   await sleep(1500);

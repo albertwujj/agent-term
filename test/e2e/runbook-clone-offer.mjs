@@ -12,7 +12,7 @@
 // on the user's behalf is read back exactly. The native dialog is replaced
 // by a recorder only to prove it is never shown on this surface.
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -69,7 +69,7 @@ async function main() {
   const promptLines = () => typedLines().filter((l) => unbracket(l) === AGENT_THREADS_CLONE_PROMPT);
   const pointerLines = () => typedLines().filter((l) => /My comments on markdown document/.test(l));
 
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     args: ['--no-sandbox', `--user-data-dir=${path.join(scratch, 'ud')}`, APP_DIR],
     env: { ...process.env, HOME: home, SHELL: shell, AT_E2E_TYPED: typed, AGENT_TERM_START_CWD: proj },

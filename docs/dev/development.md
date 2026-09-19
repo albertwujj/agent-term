@@ -24,6 +24,8 @@ npm run test:e2e
 
 On Windows these commands use WSL Node.js. The end-to-end suite launches Linux Electron and therefore requires WSLg; the non-E2E suite does not.
 
+On macOS, run E2E tests in a desktop terminal or an approved unsandboxed agent command. Every E2E script uses `test/e2e/electron.mjs` to check native sandbox permissions before spawning Electron, including when run individually. If Launch Services or WindowServer access is denied, the test fails with `EMACOSSANDBOX` before any UI assertions run; rerun the same command outside that sandbox. Electron's `--no-sandbox` flag controls Chromium's sandbox and cannot remove the inherited macOS restriction, which otherwise causes an AppKit abort before AgentTerm's JavaScript starts. A probe failure reports `EGUIACCESSCHECK` and also stops the launch. New E2E tests must use the shared `launchElectron` helper.
+
 ## User docs
 
 The pages under `docs/` are for a person deciding whether to try something and for the moment they first use it. Two rules keep them readable:

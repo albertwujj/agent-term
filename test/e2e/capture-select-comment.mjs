@@ -22,7 +22,7 @@
 //
 // Run: npm run test:e2e   (builds the renderer first, then this)
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -41,7 +41,7 @@ function check(name, cond) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     args: ['--no-sandbox', APP_DIR],
     timeout: 45_000,

@@ -10,7 +10,7 @@
 // IDE/OS targets now accept a delayed plain click. Selection cancels that action
 // before it leaves the app; existing viewer clicks and Ctrl/Cmd stay immediate.
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -30,7 +30,7 @@ function check(name, cond, detail) {
 }
 
 async function main() {
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     // wordTarget below finds its click point by walking text nodes under
     // `.xterm-rows`, and only the DOM renderer puts text there. With WebGL up

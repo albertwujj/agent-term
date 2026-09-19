@@ -8,7 +8,7 @@
 //
 // Run: npm run test:e2e   (builds the renderer first, then this)
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -28,7 +28,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   const shell = process.env.SHELL || '/bin/zsh';
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     // --disable-gpu: only the DOM renderer puts text under `.xterm-rows`,
     // which is how the output is read back (see click-vs-comment.mjs).

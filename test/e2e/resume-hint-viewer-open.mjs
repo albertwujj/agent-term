@@ -2,7 +2,7 @@
 // The picker payload is synthetic so the test does not depend on session history;
 // renderer behavior is otherwise the shipped picker/viewer flow.
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -47,7 +47,7 @@ async function openMostRecentViewer(app, page, selector) {
 }
 
 async function run() {
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     args: ['--no-sandbox', APP_DIR],
     timeout: 45_000,

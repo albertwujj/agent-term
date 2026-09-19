@@ -27,7 +27,7 @@
 //
 // Run: npm run test:e2e   (builds the renderer first, then this)
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -59,7 +59,7 @@ function writeEvent(msg, fakePid) {
 
 async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-e2e-jobs-'));
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     args: ['--no-sandbox', APP_DIR],
     env: {

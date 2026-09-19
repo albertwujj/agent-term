@@ -8,7 +8,7 @@
 // Discard. The count is now the way back, and each unsent comment also leaves a
 // tick in the overview ruler so the scrollbar maps where they sit.
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -27,7 +27,7 @@ function check(name, cond, detail) {
 }
 
 async function main() {
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     // wordAt reads text and measures DOM ranges under .xterm-rows. WebGL
     // paints into a canvas instead, so use the app's DOM fallback here.

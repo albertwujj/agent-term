@@ -14,7 +14,7 @@
 // script prints it (auto-open), waits while the test rolls the band up with a
 // keystroke, rewrites that same row in place, waits, then prints it on a new row.
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -70,7 +70,7 @@ async function run() {
     'sleep 5',
   ].join('\n') + '\n');
 
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     args: ['--no-sandbox', APP_DIR],
     timeout: 45_000,

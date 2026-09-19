@@ -6,7 +6,7 @@
 // review or an md doc, while a plain link on a browsed page keeps navigating in
 // place. shell.openExternal is stubbed in-process, so a run opens no browser.
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -48,7 +48,7 @@ function makeReviewRepo() {
 
 async function run() {
   let reviewRepo = null;
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     args: ['--no-sandbox', APP_DIR],
     timeout: 45_000,

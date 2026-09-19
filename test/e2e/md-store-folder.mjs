@@ -7,7 +7,7 @@
 // (renderer -> main -> fs), so it covers the directory creation that the first
 // comment on a document now depends on.
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -36,7 +36,7 @@ async function main() {
   const expected = path.join(scratch, '.agent-threads', 'launch plan-comments.json');
   const oldSibling = path.join(scratch, '.launch plan-comments.json');
 
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     args: ['--no-sandbox', APP_DIR],
     timeout: 45_000,

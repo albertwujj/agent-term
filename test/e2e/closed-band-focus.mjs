@@ -6,7 +6,7 @@
 // whose key handler ignores a closed band. Drives the real app.
 //
 // Run: npm run test:e2e
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -25,7 +25,7 @@ function check(name, cond, detail) {
   else { failures.push(name + (detail ? ` (${detail})` : '')); console.log(`  FAIL ${name}${detail ? ` (${detail})` : ''}`); }
 }
 
-const app = await electron.launch({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', APP_DIR], timeout: 45_000 });
+const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', APP_DIR], timeout: 45_000 });
 try {
   const page = await app.firstWindow();
   await page.waitForSelector('.xterm-helper-textarea');

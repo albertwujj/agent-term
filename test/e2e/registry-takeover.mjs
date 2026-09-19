@@ -12,7 +12,7 @@
 // The fourth check waits for a real ACTIVITY_REFRESH_MS heartbeat (30s).
 // Run: npm run test:e2e
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -44,7 +44,7 @@ for (const [id, hue, prompt] of [[5, 100, 'live one'], [6, 200, 'resumable one']
 // Session 5 is held by THIS node process: alive, current boot, current compositor.
 sessionsLog.writeActiveFile(UD, 5, { pid: process.pid, bootTime: sessionsLog.currentBootTime(), guiSession: guiSession.currentGuiSession(), token: 'tok5', hue: 100, lastInputAt: Date.now(), lastWorkingAt: 0, lastPromptAt: Date.now(), hiddenAt: null });
 
-const app = await electron.launch({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR], timeout: 45_000 });
+const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR], timeout: 45_000 });
 const exited = new Promise(r => app.process().once('exit', (code) => r(code)));
 const page = await app.firstWindow();
 await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });

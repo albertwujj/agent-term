@@ -2,7 +2,7 @@
 // facing page. Inspect the submitted payload without writing a comment store or
 // sending anything to a user's agent; all viewer/selection code remains real.
 import assert from 'node:assert/strict';
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -23,7 +23,7 @@ function check(name, actual, expected) {
   console.log(`PASS ${name}`);
 }
 
-const app = await electron.launch({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', APP_DIR], timeout: 45_000 });
+const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', APP_DIR], timeout: 45_000 });
 try {
   const page = await app.firstWindow();
   page.on('pageerror', (error) => console.error('renderer:', error));

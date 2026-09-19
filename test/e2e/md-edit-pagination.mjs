@@ -2,7 +2,7 @@
 // Typing below it must not alternately insert/remove its keep-together spacer.
 // jsdom cannot catch the margin collapsing that caused this bounce.
 import assert from 'node:assert/strict';
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -25,7 +25,7 @@ const STORE = {
     ],
   }],
 };
-const app = await electron.launch({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', APP_DIR], timeout: 45_000 });
+const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', APP_DIR], timeout: 45_000 });
 try {
   const page = await app.firstWindow();
   const errors = [];

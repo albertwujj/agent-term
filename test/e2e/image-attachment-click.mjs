@@ -12,7 +12,7 @@
 //
 // Run: npm run test:e2e   (builds the renderer first, then this)
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
@@ -53,7 +53,7 @@ fs.writeFileSync(scriptPath, `printf '%s\\n' ${JSON.stringify(line1)} ${JSON.str
 
 async function main() {
   if (line1.length > 200) throw new Error('head row too long for the test window width');
-  const app = await electron.launch({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', APP_DIR], timeout: 45_000 });
+  const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', APP_DIR], timeout: 45_000 });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });

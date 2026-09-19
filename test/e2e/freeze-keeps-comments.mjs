@@ -11,7 +11,7 @@
 // actively adding to. Queue a few comments and walk away and Enter is nowhere,
 // which left Discard as the only control that still worked on the batch.
 
-import { _electron as electron } from 'playwright-core';
+import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -30,7 +30,7 @@ function check(name, cond, detail) {
 }
 
 async function main() {
-  const app = await electron.launch({
+  const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     // wordAt and screenText need DOM rows; WebGL paints the text into a canvas.
     args: ['--no-sandbox', '--disable-gpu', APP_DIR],
