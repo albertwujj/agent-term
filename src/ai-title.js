@@ -50,8 +50,10 @@ function cleanAiTitleSegments(title, cli) {
   const out = [];
   // Codex's supported ["app-name", "thread"] title is "codex | <name>".
   // Only strip its leading app field: a conversation name may contain '|'.
+  // While working, Codex appends a braille spinner to the thread field.
+  // Strip that suffix before display, semantic deduplication, and UUID checks.
   const text = cli === 'codex'
-    ? String(title || '').replace(/^codex\s+\|\s*/i, '')
+    ? String(title || '').replace(/\s+[\u2800-\u28ff]+\s*$/u, '').replace(/^codex\s+\|\s*/i, '')
     : String(title || '');
   for (const rawPart of text.split(/\s+·\s+/u)) {
     const part = stripStatusPrefix(rawPart);
@@ -73,14 +75,15 @@ function aiTitleDedupeKey(title, cli) {
 }
 
 function isConversationTitle(title, cli) {
+  const subject = cleanAiTitle(title, cli);
   if (cli === 'codex') {
     // The default OSC title is only a project label. Accept the explicit
     // app-name + thread output contract, including on read of old logs.
     // Before Codex has a name its thread field is a UUID, not a subject.
     const match = /^codex\s+\|\s*(.+)$/i.exec(String(title || ''));
-    if (!match || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(match[1].trim())) return false;
+    if (!match || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(subject)) return false;
   }
-  return !!cleanAiTitle(title, cli);
+  return !!subject;
 }
 
 function aiCliLaunchCommand(command) {

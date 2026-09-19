@@ -66,6 +66,18 @@ test('Codex accepts its named thread output, not project or unnamed-thread label
   assert.strictEqual(cleanAiTitle('codex | Investigate A | B', 'codex'), 'Investigate A | B');
 });
 
+test('Codex trailing spinner frames cannot turn a thread UUID into a name', () => {
+  for (const frame of '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏') {
+    assert.strictEqual(isConversationTitle(`codex | 01a0bacf-9f1a-7c22-926f-1a2db761b353 ${frame}`, 'codex'), false);
+    const title = `codex | Check Codex GUID display ${frame}`;
+    assert.strictEqual(isConversationTitle(title, 'codex'), true);
+    assert.strictEqual(cleanAiTitle(title, 'codex'), 'Check Codex GUID display');
+    assert.strictEqual(aiTitleDedupeKey(title, 'codex'), aiTitleDedupeKey('codex | Check Codex GUID display', 'codex'));
+  }
+  assert.strictEqual(cleanAiTitle('codex | Investigate A | B ⠸', 'codex'), 'Investigate A | B');
+  assert.strictEqual(cleanAiTitle('codex | Explain ⠸ notation', 'codex'), 'Explain ⠸ notation');
+});
+
 test('Claude title cleanup and resumed topic acceptance stay unchanged', () => {
   assert.strictEqual(isConversationTitle('✳ Claude Code', 'claude'), false);
   assert.strictEqual(isConversationTitle('✳ Fix window titles', 'claude'), true);

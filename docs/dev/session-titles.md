@@ -33,6 +33,13 @@ codex | 01a072d1-e0bd-72e0-818c-…         thread created, not yet named
 codex | Investigate WSL launch failures   named
 ```
 
+While working, Codex appends a braille spinner to either thread field:
+`codex | 01a072d1-e0bd-72e0-818c-… ⠸` or
+`codex | Investigate WSL launch failures ⠸`. Cleanup removes this suffix
+before checking for a UUID and before display or semantic deduplication.
+Otherwise an unnamed thread's spinner can be saved as its first name,
+even after a real name arrives.
+
 The separator is ` | `, and the app field is what distinguishes this
 output from the default project label. Keeping `app-name` in the list is
 therefore load-bearing, not decoration — it is also what makes an unnamed
@@ -91,7 +98,7 @@ identity.
 
 Codex is the exception, because its rejects are not brand labels — a
 project name looks like ordinary text. There the predicate demands the
-`codex | …` shape, and rejects a thread field that is still a UUID.
+`codex | …` shape, and rejects a cleaned thread field that is still a UUID.
 
 The predicate gates two things:
 
@@ -116,6 +123,15 @@ the picker line, the resume hint, and the macOS window title read the
 conversation's name alone. It strips only the leading field: a name may
 itself contain `|`.
 
+The macOS window title, also used by the Dock's window list, applies
+`isConversationTitle` before displaying a subject. Until a conversation
+name arrives it shows only the CLI name, so Codex's unnamed thread UUID
+and default project label cannot leak into the Dock menu.
+The resume hint also applies the predicate, falling back to the prompt
+when its title is not a conversation name. Saved UUID spinner titles are
+repaired by the log fold, so the picker and hint use the first real name
+already recorded after them.
+
 The fold keeps two titles per session. `title` is the identity — the
 first name that arrived after the first prompt — and `lastTitle` is
 last-wins, what the window most recently ran. They differ when a resume
@@ -134,3 +150,6 @@ fake `codex` refuses to emit a topic unless the override actually reached
 it — so the test fails if the wiring regresses, not merely the helper;
 that includes the launcher strip after a shell command, its Codex chip
 Shift-clicked so the line is typed, and an option added onto it by hand.
+On macOS it also reads the native window title before and after the
+first prompt, including while Codex's thread is still unnamed and after
+the name arrives.

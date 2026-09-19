@@ -96,6 +96,25 @@ test('title-only callers get the chip', () => {
   assert.strictEqual(doc.querySelector('.at-resume-hint-lead'), null);
 });
 
+test('Codex resume hints reject unnamed thread IDs, including saved spinner frames', () => {
+  for (const title of [
+    'codex | 01a0bacf-9f1a-7c22-926f-1a2db761b353',
+    'codex | 01a0bacf-9f1a-7c22-926f-1a2db761b353 ⠸',
+    'agent-term-debug',
+  ]) {
+    const doc = fragment(renderHintMarkup({ cli: 'codex', prompt: 'check screenshot', title }));
+    assert.strictEqual(doc.querySelector('.at-resume-hint-chip'), null, title);
+    assert.strictEqual(doc.querySelector('.at-resume-hint-lead').textContent, 'the prompt above');
+  }
+});
+
+test('Codex resume hints show the conversation name without its trailing spinner', () => {
+  const doc = fragment(renderHintMarkup({
+    cli: 'codex', prompt: 'check screenshot', title: 'codex | Check Codex GUID display ⠸',
+  }));
+  assert.strictEqual(doc.querySelector('.at-resume-hint-chip').textContent, 'Check Codex GUID display');
+});
+
 test('no title and no prompt names the session itself', () => {
   const doc = fragment(renderHintMarkup({}));
   assert.strictEqual(doc.querySelector('.at-resume-hint-tail.at-resume-hint-lead').textContent, 'this session');

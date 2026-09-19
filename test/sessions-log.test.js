@@ -210,13 +210,19 @@ test('listSessions: Codex project and thread-ID labels stay out until a name arr
   log.appendEvent(dir, { e: 'title', id: 152, title: 'agent-term-debug' });
   log.appendEvent(dir, { e: 'title', id: 152, title: '⠙ agent-term-debug' });
   log.appendEvent(dir, { e: 'title', id: 152, title: 'codex | 01a072c1-544f-7153-9da1-a39c29e6e9b9' });
+  for (const frame of '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏') {
+    log.appendEvent(dir, { e: 'title', id: 152, title: `codex | 01a0bacf-9f1a-7c22-926f-1a2db761b353 ${frame}` });
+  }
   assert.strictEqual(log.listSessions(dir)[0].title, null);
   assert.strictEqual(log.listSessions(dir)[0].lastTitle, null);
   log.appendEvent(dir, { e: 'title', id: 152, title: 'codex | Investigate WSL launch failures' });
   log.appendEvent(dir, { e: 'title', id: 152, title: 'codex | A different resumed conversation' });
+  log.appendEvent(dir, { e: 'title', id: 152, title: 'codex | 01a0bacf-9f1a-7c22-926f-1a2db761b353 ⠸' });
+  const before = fs.readFileSync(path.join(dir, 'sessions.jsonl'), 'utf8');
   const s = log.listSessions(dir)[0];
   assert.strictEqual(s.title, 'codex | Investigate WSL launch failures');
   assert.strictEqual(s.lastTitle, 'codex | A different resumed conversation');
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'sessions.jsonl'), 'utf8'), before);
 });
 
 test('listSessions: Claude can use the same topic text that is generic for another CLI', (dir) => {

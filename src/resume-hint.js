@@ -70,7 +70,7 @@
 //                                       next Enter isn't swallowed into a
 //                                       /resume.
 
-const { aiTitleDedupeKey, cleanAiTitle } = require('./ai-title');
+const { aiTitleDedupeKey, cleanAiTitle, isConversationTitle } = require('./ai-title');
 
 const HINT_HEIGHT_PX = 44;
 const COLLAPSED_HEIGHT_PX = 7;
@@ -305,7 +305,7 @@ function hintParts(input) {
   const opts = (input && typeof input === 'object') ? input : { title: input };
   const prompt = String(opts.prompt || '').trim();
   const rawTitle = String(opts.title || '').trim();
-  const title = cleanAiTitle(rawTitle, opts.cli);
+  const title = isConversationTitle(rawTitle, opts.cli) ? cleanAiTitle(rawTitle, opts.cli) : '';
   const hasPrompt = !!prompt;
   const promptKey = aiTitleDedupeKey(prompt, opts.cli) || normalizeHintCompare(prompt);
   const titleKey = aiTitleDedupeKey(title, opts.cli) || normalizeHintCompare(title);

@@ -19,8 +19,11 @@
 //   4. codex picker start-new: the launch carries the supported
 //      tui.terminal_title override, so codex emits "codex | <thread>"
 //      → the pre-name thread UUID is never logged, the named thread is
+//      → the macOS window/Dock title stays "codex" until the thread is named
+//      → trailing spinner frames neither bypass the UUID check nor log churn
 //   5. codex picker resume: the resume launch carries the same override, and
-//      a project label already in the log is repaired by the named thread
+//      saved project/UUID spinner labels are skipped in favor of the named
+//      thread in both the picker and its "Filter for" hint
 //   6. codex typed by hand, so no override: the project label and its
 //      spinner frames never become a conversation title
 //   7. codex after a shell command: the launcher strip stays up, a
@@ -82,8 +85,14 @@ async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch
   await page.keyboard.type(`${cli}() { ${fakeBody} }`);
   await page.keyboard.press('Enter');
   await sleep(400);
+  let pickerTitle = null;
   if (seed.length) {
-    await page.evaluate((id) => window.pty.pickerPick(id), seed[0].id);
+    await page.evaluate(() => window.pty.reopenPicker());
+    const row = page.locator(`.at-picker-row[data-id="${seed[0].id}"]`);
+    await row.waitFor();
+    pickerTitle = await row.locator('.at-picker-title-line').allTextContents();
+    await row.click();
+    await page.waitForSelector('.at-resume-hint');
   } else if (pickerLaunch) {
     await page.evaluate((command) => window.pty.pickerStartNew(command), cli);
   } else if (stripLaunch) {
@@ -104,18 +113,25 @@ async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch
     await page.keyboard.press('Enter');
   }
   await sleep(1000);
+  const nativeWindow = await app.browserWindow(page);
+  const windowTitles = [await nativeWindow.evaluate(win => win.getTitle())];
   for (const line of lines) {
     await page.keyboard.type(line);
     await page.keyboard.press('Enter');
     await sleep(700);
+    windowTitles.push(await nativeWindow.evaluate(win => win.getTitle()));
   }
   await sleep(1500);
+  const resumeHintText = await page.locator('.at-resume-hint-tail').allTextContents();
   await app.close();
   const events = sessionsLog.readLog(UD);
   const ids = [...new Set(events.filter(e => e.e === 'started').map(e => e.id))];
   console.log(`${name}: session ids ${JSON.stringify(ids)}`);
   const id = ids[0];
   return {
+    windowTitles,
+    pickerTitle,
+    resumeHintText,
     events: events.filter(e => e.id === id),
     session: sessionsLog.listSessions(UD).find(s => s.id === id),
   };
@@ -145,13 +161,16 @@ console.log('2 — fresh start: banner, prompt, then the topic');
     osc('Claude Code'), 'read -r a',            // banner; user types the prompt
     osc('Fix window titles'), 'read -r b',      // the CLI names the conversation
   ].join('; ') + ';';
-  const { events, session } = await runScenario('fresh', fake, [PROMPT]);
+  const { events, session, windowTitles } = await runScenario('fresh', fake, [PROMPT]);
   const promptIdx = events.findIndex(e => e.e === 'prompt');
   const titles = events.filter(e => e.e === 'title');
   check('session recorded with the typed prompt', session && session.prompt === PROMPT, JSON.stringify(session));
   check('banner never logged', !titles.some(e => /claude code/i.test(e.title)), JSON.stringify(titles));
   check('no title before the prompt', !events.slice(0, promptIdx).some(e => e.e === 'title'));
   check('identity title is the topic', session && session.title === 'Fix window titles', session && session.title);
+  if (process.platform === 'darwin') {
+    check('Claude window title still follows the topic', windowTitles[1] === 'claude · Fix window titles', JSON.stringify(windowTitles));
+  }
 }
 
 console.log('3 — Cursor fresh start: startup banner, prompt, then the topic');
@@ -173,40 +192,61 @@ console.log('4 — Codex picker launch: unnamed ID, prompt, then named thread');
 {
   const fake = codexWithTitleSetting([
     osc('codex | 01a072c1-544f-7153-9da1-a39c29e6e9b9'), 'read -r a',
-    osc(CODEX_TOPIC), 'read -r b',
+    osc('codex | 01a072c1-544f-7153-9da1-a39c29e6e9b9 ⠸'),
+    osc('codex | 01a072c1-544f-7153-9da1-a39c29e6e9b9 ⠼'), 'read -r b',
+    osc(CODEX_TOPIC), osc(CODEX_TOPIC + ' ⠋'), osc(CODEX_TOPIC + ' ⠙'), 'read -r c',
   ].join('; ') + ';');
-  const { events, session } = await runScenario('codex-fresh', fake, [PROMPT], { cli: 'codex', pickerLaunch: true });
+  const { events, session, windowTitles } = await runScenario('codex-fresh', fake, [PROMPT, 'continue'], { cli: 'codex', pickerLaunch: true });
   check('Codex picker launch supplies the title setting', session && session.title === CODEX_TOPIC, session && session.title);
   check('Codex unnamed ID never logged', events.filter(e => e.e === 'title').every(e => e.title === CODEX_TOPIC),
     JSON.stringify(events.filter(e => e.e === 'title')));
+  check('Codex trailing spinner changes do not add title events', events.filter(e => e.e === 'title').length === 1);
+  if (process.platform === 'darwin') {
+    check('Codex window/Dock title hides the UUID before and after the first prompt',
+      windowTitles[0] === 'codex' && windowTitles[1] === 'codex', JSON.stringify(windowTitles));
+    check('Codex window/Dock title shows the named thread when it arrives',
+      windowTitles[2] === 'codex · Investigate WSL launch failures', JSON.stringify(windowTitles));
+  }
 }
 
-console.log('5 — Codex resume repairs an old project label through actual title output');
+console.log('5 — Codex resume repairs saved spinner UUIDs in the picker and filter hint');
 {
+  const resumedTopic = 'codex | Resumed WSL launch investigation';
   const fake = codexWithTitleSetting([
     osc('codex'), 'read -r a', // intercepted Enter supplies /resume
-    osc(CODEX_TOPIC), 'read -r b',
+    osc(resumedTopic), 'read -r b',
   ].join('; ') + ';');
-  const { session } = await runScenario('codex-resume', fake, [''], {
+  const { session, pickerTitle, resumeHintText } = await runScenario('codex-resume', fake, [''], {
     cli: 'codex',
     seed: [
       { e: 'started', id: 152, hue: 48 },
       { e: 'cli', id: 152, cli: 'codex' },
       { e: 'prompt', id: 152, prompt: PROMPT },
       { e: 'title', id: 152, title: 'agent-term-debug' },
+      { e: 'title', id: 152, title: 'codex | 01a0bacf-9f1a-7c22-926f-1a2db761b353 ⠸' },
+      { e: 'title', id: 152, title: CODEX_TOPIC + ' ⠼' },
     ],
   });
-  check('Codex resume supplies title setting and repairs identity', session && session.title === CODEX_TOPIC, session && session.title);
+  check('Codex resume supplies title setting', session && session.lastTitle === resumedTopic, session && session.lastTitle);
+  check('Codex saved identity skips the spinner UUID', session && session.title === CODEX_TOPIC + ' ⠼', session && session.title);
+  check('Codex picker shows the saved conversation name',
+    JSON.stringify(pickerTitle) === JSON.stringify(['Investigate WSL launch failures']), JSON.stringify(pickerTitle));
+  check('Codex filter hint shows the picked conversation name without its spinner',
+    JSON.stringify(resumeHintText) === JSON.stringify(['Investigate WSL launch failures']), JSON.stringify(resumeHintText));
   check('resuming preserves the first prompt', session && session.prompt === PROMPT, session && session.prompt);
 }
 
 console.log('6 — Codex manually launched with default title never claims a project as the topic');
 {
   const fake = [osc('agent-term-debug'), 'read -r a', osc('⠙ agent-term-debug'), 'read -r b'].join('; ') + ';';
-  const { events, session } = await runScenario('codex-default', fake, [PROMPT], { cli: 'codex' });
+  const { events, session, windowTitles } = await runScenario('codex-default', fake, [PROMPT], { cli: 'codex' });
   check('manual Codex still captures prompts', session && session.prompt === PROMPT, session && session.prompt);
   check('default project title is not recorded', session && session.title === null && !events.some(e => e.e === 'title'),
     JSON.stringify(events.filter(e => e.e === 'title')));
+  if (process.platform === 'darwin') {
+    check('Codex window/Dock title hides default project labels and their spinners',
+      windowTitles.every(title => title === 'codex'), JSON.stringify(windowTitles));
+  }
 }
 
 console.log('7 — Codex after a shell command: the launcher strip types the line, an option added by hand');

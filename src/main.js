@@ -1435,10 +1435,12 @@ function assignSessionIdentity() {
 // instead, see makeDockIconImage). It carries what the band doesn't show:
 // the CLI name plus the CLI's latest distilled OSC task title, drifting as
 // the session progresses ("claude · Fix window titles"). Before the first
-// usable OSC title — or when the title cleans away to nothing (brand-only /
-// spinner-only pushes) — it's the CLI name alone.
+// conversation title — or while the OSC title is a brand, project label,
+// or unnamed Codex thread UUID — it's the CLI name alone. The Dock's
+// window list uses this same title, so apply the session-log predicate here.
 function macWindowTitle() {
-  const subject = cleanAiTitle(lockedTitle || '', detectedCli);
+  const subject = isConversationTitle(lockedTitle, detectedCli)
+    ? cleanAiTitle(lockedTitle, detectedCli) : '';
   if (detectedCli && subject) return `${detectedCli} · ${subject}`;
   return detectedCli || subject;
 }
