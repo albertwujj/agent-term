@@ -152,7 +152,7 @@ function createViewerSelector({
     <div class="at-vsel-modal" role="dialog" aria-modal="true">
       <div class="at-vsel-header">Open a viewer</div>
       <input class="at-vsel-input" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Filter by URL or path…" />
+             placeholder="Filter by URL or path… (${DISK_SEARCH_MIN_CHARS}+ characters to search disk)" />
       <div class="at-vsel-list" role="listbox"></div>
       <div class="at-vsel-footer">
         <span>↑↓ navigate</span>
