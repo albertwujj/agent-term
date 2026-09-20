@@ -14,11 +14,11 @@ Click [docs/setup.md](docs/setup.md) if you want to read it.
 
 Once it opens, start or resume your usual agent, select something in its output, and write a [comment](docs/comment.md).
 
-Explore a section: [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
-
 # AgentTerm: A terminal built for coding agents
 
 **From telling sessions apart to the finished project.**
+
+Explore a section of the GIF below: [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
 
 <a id="demo"></a>
 
