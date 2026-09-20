@@ -1,8 +1,10 @@
+<a name="agentterm"></a>
+
+For macOS and Windows with WSL. [Quick start](#quick-start).
+
 # AgentTerm: A terminal built for coding agents
 
 **From telling sessions apart to the finished project.**
-
-For macOS and Windows with WSL. [Quick start](#quick-start).
 
 Explore a section: [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
 
