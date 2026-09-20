@@ -33,25 +33,16 @@
       width: 100%;
       margin-top: calc(var(--at-chrome-height, 0px) + var(--at-chrome-bottom-gap, 0px) + var(--at-launcher-height, 0px));
     }
-    /* Thin scrollbar like Windows Terminal */
-    .xterm-viewport::-webkit-scrollbar {
-      width: 4px;
-    }
-    .xterm-viewport::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    .xterm-viewport::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.3);
+    /* xterm 6 draws its own scrollbar. Keep the 10px hit area and ruler,
+       with a thin thumb until the terminal is hovered. Colors live in theme. */
+    .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
+      border-left: 6px solid transparent;
+      background-clip: content-box;
       border-radius: 4px;
     }
-    .xterm-viewport:hover::-webkit-scrollbar {
-      width: 10px;
-    }
-    .xterm-viewport:hover::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.4);
-    }
-    .xterm-viewport::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.5);
+    .xterm .xterm-scrollable-element:hover > .scrollbar.vertical > .slider,
+    .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider.active {
+      border-left-width: 0;
     }
     /* Selection over a coloured cell is handled in renderer.js — see
        TERMINAL_MARK_BG. Neither renderer's own selection paint survives a cell

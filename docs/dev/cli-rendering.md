@@ -26,9 +26,9 @@ holds it.
 The trade Claude Code's fullscreen renderer offers is flicker-free
 output and flat memory in exchange for the screen. It is a good trade
 where redraw throughput is the bottleneck — Anthropic name the VS Code
-terminal, tmux and iTerm2 — and a poor one here, because this terminal
-draws through xterm's WebGL renderer and does not flicker. So the trade
-is all cost, and we decline it on the shell's behalf.
+terminal, tmux and iTerm2. AgentTerm supports synchronized redraws (DEC 2026)
+through xterm 6, using DOM rendering on macOS and WebGL on Windows. We keep
+the classic renderer's scrollback for the features above.
 
 `NO_FLICKER=0` rather than `DISABLE_ALTERNATE_SCREEN=1`, deliberately.
 Both outrank a saved `tui` setting, but `/tui` clears `NO_FLICKER` from

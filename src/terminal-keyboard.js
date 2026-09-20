@@ -1,6 +1,18 @@
 const { isFindShortcut } = require('./search-shortcut');
 const { smartCopyText } = require('./smart-copy');
 
+// xterm 6 removed these mappings from its keyboard encoder. Preserve the
+// navigation sequences our shells and agents received with xterm 5: Option
+// left/right move by word on macOS; plain Alt arrows act as Ctrl arrows on
+// Windows/WSL and Linux. Additional modifiers keep xterm's normal encoding.
+function altArrowInput(event, platform) {
+  if (event.type !== 'keydown' || !event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return null;
+  const keys = platform === 'darwin'
+    ? { ArrowLeft: '\x1bb', ArrowRight: '\x1bf' }
+    : { ArrowLeft: '\x1b[1;5D', ArrowRight: '\x1b[1;5C', ArrowUp: '\x1b[1;5A', ArrowDown: '\x1b[1;5B' };
+  return keys[event.key] || null;
+}
+
 // `transform(text, { startColumn })` rewrites the selection before it reaches
 // the clipboard: the copy chord passes the smart copy, the Shift chord passes
 // nothing and keeps the terminal layout. The start column lets the smart copy
@@ -118,6 +130,7 @@ function handleTerminalKeydown({
 }
 
 module.exports = {
+  altArrowInput,
   copySelectionToClipboard,
   handleTerminalKeydown,
 };

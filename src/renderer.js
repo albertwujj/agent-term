@@ -8,7 +8,7 @@ const {
   shouldNavigateSearchResults,
 } = require('./search-ui-state');
 const { extractDroppedPaths, hasSupportedPathDropType } = require('./drag-drop-paths');
-const { handleTerminalKeydown } = require('./terminal-keyboard');
+const { altArrowInput, handleTerminalKeydown } = require('./terminal-keyboard');
 const { createDecorationPressController, decorationPressOptions, DEFAULT_DRAG_THRESHOLD_PX } = require('./terminal-decoration-press');
 const { attachTerminalMouseShortcuts } = require('./terminal-mouse');
 const { NOTICE_DWELL_MS, shouldNoticeAltScreen, altScreenNotice } = require('./alt-screen-notice');
@@ -892,6 +892,9 @@ function reportRendererDiagnostic(message) {
   } catch {}
 }
 
+// xterm 6 honors synchronized output (DEC 2026). Codex's redraws can span PTY
+// chunks; the renderer must hold the previous frame until the cursor has been
+// restored and the update ends. Covered on DOM and WebGL by synchronized-output.mjs.
 const terminal = new Terminal({
   cursorBlink: true,
   // Alt/Option-click is the search-everywhere chooser on decorations; xterm's
@@ -905,7 +908,7 @@ const terminal = new Terminal({
   // scrollbar maps where it sits in the scrollback. Has to be set up front: the
   // width is part of the layout, so changing it later re-wraps the whole buffer.
   // The strip is transparent when nothing has marked it, which is most of the time.
-  overviewRulerWidth: 10,
+  overviewRuler: { width: 10 },
   allowProposedApi: true, // Required for registerDecoration() and registerMarker()
   linkHandler: {
     activate: (_event, text) => {
@@ -921,6 +924,9 @@ const terminal = new Terminal({
     foreground: '#cccccc',
     cursor: '#cccccc',
     cursorAccent: '#0c0c0c',
+    scrollbarSliderBackground: 'rgba(255, 255, 255, 0.3)',
+    scrollbarSliderHoverBackground: 'rgba(255, 255, 255, 0.4)',
+    scrollbarSliderActiveBackground: 'rgba(255, 255, 255, 0.5)',
     // Matches TERMINAL_MARK_BG. xterm paints this the instant the selection
     // changes and our own mark lands on the next frame, so the handover is
     // invisible; it also fills the empty cells past the end of a row's text,
@@ -1484,6 +1490,12 @@ terminal.attachCustomKeyEventHandler((event) => {
   // thaw via onData, so this only closes the arrow-key gap.
   if (proceed && event.type === 'keydown' && terminalOutputFrozen && TERMINAL_NAV_THAW_KEYS.has(event.key)) {
     unfreezeTerminalOutput('navigation-key');
+  }
+  const altArrow = proceed && altArrowInput(event, window.pty.platform);
+  if (altArrow) {
+    event.preventDefault();
+    terminal.input(altArrow, true);
+    return false;
   }
   return proceed;
 });

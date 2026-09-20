@@ -44,6 +44,7 @@ const {
   hasSupportedPathDropType,
 } = require('../src/drag-drop-paths');
 const {
+  altArrowInput,
   copySelectionToClipboard,
   handleTerminalKeydown,
 } = require('../src/terminal-keyboard');
@@ -141,6 +142,23 @@ function writeAndWait(terminal, text) {
 // =============================================================================
 
 console.log('\n--- terminal keyboard shortcuts ---\n');
+
+test('Alt arrows retain their platform navigation sequences after the xterm upgrade', () => {
+  const mappings = {
+    darwin: { ArrowLeft: '\x1bb', ArrowRight: '\x1bf', ArrowUp: null, ArrowDown: null },
+    win32: { ArrowLeft: '\x1b[1;5D', ArrowRight: '\x1b[1;5C', ArrowUp: '\x1b[1;5A', ArrowDown: '\x1b[1;5B' },
+    linux: { ArrowLeft: '\x1b[1;5D', ArrowRight: '\x1b[1;5C', ArrowUp: '\x1b[1;5A', ArrowDown: '\x1b[1;5B' },
+  };
+  for (const [platform, keys] of Object.entries(mappings)) {
+    for (const [key, sequence] of Object.entries(keys)) {
+      assertEqual(altArrowInput(createKeyEvent({ key, altKey: true }), platform), sequence);
+      for (const extra of [{ altKey: false }, { ctrlKey: true }, { shiftKey: true }, { metaKey: true }, { type: 'keyup' }]) {
+        assertEqual(altArrowInput(createKeyEvent({ key, altKey: true, ...extra }), platform), null);
+      }
+    }
+  }
+  assertEqual(altArrowInput(createKeyEvent({ key: 'a', altKey: true }), 'darwin'), null);
+});
 
 test('Ctrl+F opens search on non-mac platforms', () => {
   let openCalls = 0;
@@ -780,24 +798,9 @@ test('xterm keeps the live viewport at the bottom while output streams', async (
   terminal.dispose();
 });
 
-test('xterm preserves manual scrollback while new output arrives', async () => {
-  const terminal = createTestTerminal({ rows: 5 });
-
-  for (let i = 0; i < 20; i++) {
-    await writeAndWait(terminal, `line ${i}\r\n`);
-  }
-
-  terminal.scrollToLine(3);
-  const buffer = terminal.buffer.active;
-  const pinnedViewportY = buffer.viewportY;
-  assertTrue(pinnedViewportY < buffer.baseY, 'Setup should put the viewport into scrollback');
-
-  await writeAndWait(terminal, 'line 20\r\n');
-  await writeAndWait(terminal, 'line 21\r\n');
-
-  assertEqual(buffer.viewportY, pinnedViewportY, 'Native xterm output should not steal the viewport from scrollback');
-  terminal.dispose();
-});
+// Manual scrollback stability lives in e2e/synchronized-output.mjs on both
+// renderers. xterm 6 scrolls through the viewport's measured pixel geometry;
+// jsdom has no layout, so scrollToLine cannot move its zero-height viewport.
 
 // =============================================================================
 // Tests: Alternate screen

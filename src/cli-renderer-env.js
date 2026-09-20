@@ -3,8 +3,8 @@
 //
 // Claude Code's fullscreen renderer draws the conversation on the alternate
 // screen. That is a good trade in a terminal where redraw throughput is the
-// bottleneck, and a poor one here: AgentTerm draws through xterm's WebGL
-// renderer and does not flicker, while the alternate screen puts the
+// bottleneck, and a poor one here: AgentTerm supports synchronized redraws
+// through xterm, while the alternate screen puts the
 // conversation somewhere selecting-to-comment, Ctrl/Cmd+F over the session,
 // and the comment marks on the scrollbar cannot reach — the features this
 // terminal exists for. So a shell we spawn asks for the classic renderer.
