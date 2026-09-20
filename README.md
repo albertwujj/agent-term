@@ -54,7 +54,7 @@ Use it as is first, a boost for working with your agents; what you need may alre
 
 Below are examples, all on the same terminal. Follow the links for more.
 
-| In a plain terminal | In this grown terminal |
+| In a plain terminal | In AgentTerm |
 |---|---|
 | Several agents running means identical tabs outside, walls of text inside. | Each session is its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md#switch-to-the-right-running-session)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. **[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and the agents' own titles to help you return to the session. |
 | Everything the agent prints (a diff, a plan, a claim, a link) is words or symbols you cannot click. | **[Select any of it and comment](docs/comment.md)**, precise feedback with the exact text quoted; the agent makes the change. A click opens whatever renders (docs, reviews, images, video, PDFs) inside the window; web links open in your browser ([the click rule](docs/clicks.md)). |
