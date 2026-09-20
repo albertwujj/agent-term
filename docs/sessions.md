@@ -6,6 +6,8 @@ Every session is a whole OS window; there are no tabs.
 
 **Picking up a session from before this terminal.** Start the CLI as a new session and resume the existing one inside it; the first prompt after the resume becomes the terminal session's initial prompt.
 
+## Switch to the right running session
+
 <p align="center">
 <img src="assets/taskbar-preview.png" alt="your active agent sessions: each a live taskbar button with a thumbnail preview">
 <br><sub>Session content blurred; the taskbar labels are as they render.</sub>
@@ -16,7 +18,7 @@ Every session is a whole OS window; there are no tabs.
 <br><sub>On a Mac: one Dock tile per session, among the other apps.</sub>
 </p>
 
-**The sessions you are juggling.** On Windows each is its own taskbar button, labeled from the session's initial prompt in a color locked to the session, with a working indicator and a live preview of what it is doing. On a Mac each is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent works; right-click a tile for the session's name. A tile like "I'd" looks thin at first, but color and letters become familiar within a few uses, the way an app icon does. Run each session full screen and a Mission Control swipe shows every session at once, its initial prompt pinned at the top.
+On Windows each is its own taskbar button, labeled from the session's initial prompt in a color locked to the session, with a working indicator and a live preview of what it is doing. On a Mac each is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent works; right-click a tile for the session's name. A tile like "I'd" looks thin at first, but color and letters become familiar within a few uses, the way an app icon does. Run each session full screen and a Mission Control swipe shows every session at once, its initial prompt pinned at the top.
 
 ## Find and resume sessions
 
