@@ -48,7 +48,7 @@ With a host that understands its agents, and agents that understand the host, a 
 
 You and your agents can change and extend this terminal, down to its code, to fit your work and your team's.
 
-Use it first as is, a boost for working with your agents; what you need may already be there. When something is missing, add it with your agents: the gap is in front of you and the agents, who are in a good position to evaluate it and build the addition. And with the features listed below, agents run better when you build with them.
+Use it as is first, a boost for working with your agents; what you need may already be there. When something is missing, add it with your agents: the gap is in front of you and the agents, who are in a good position to evaluate it and build the addition. And with the features listed below, agents run better when you build with them.
 
 ## What's added so far
 
@@ -56,7 +56,7 @@ Below are examples, all on the same terminal. Follow the links for more.
 
 | In a plain terminal | In this grown terminal |
 |---|---|
-| Several agents running means identical tabs outside, walls of text inside. | Each session is its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. **[Type a few letters to find and resume a closed session](docs/sessions.md)**; the picker searches your prompts and the agents' own titles to help you return to the session. |
+| Several agents running means identical tabs outside, walls of text inside. | Each session is its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. **[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and the agents' own titles to help you return to the session. |
 | Everything the agent prints (a diff, a plan, a claim, a link) is words or symbols you cannot click. | **[Select any of it and comment](docs/comment.md)**, precise feedback with the exact text quoted; the agent makes the change. A click opens whatever renders (docs, reviews, images, video, PDFs) inside the window; web links open in your browser ([the click rule](docs/clicks.md)). |
 | Its plans are append-only text. | Ask for the plan as a markdown file and click its name. The doc opens rendered, and the rendered page is where you work: **[comment on any passage, or write in it directly](docs/plan.md)**; the agent takes an edit as intent and applies it in its own words in the source, answers in a thread on the passage, and the margin marks what it changed. |
 | Agents sharing a checkout have no awareness of each other: branches move, files change, test ports collide. | Type one `@` mention (`@proceed-b` completes to the guide doc's path) and the agent **[takes the checkout lock](docs/lock.md)** and cuts a branch before its first edit; a padlock at the top right of each window shows who holds it. |
