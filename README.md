@@ -2,15 +2,17 @@
 
 **From telling sessions apart to the finished project.**
 
+For macOS and Windows with WSL. [Quick start](#quick-start).
+
+Explore a section: [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
+
 <a id="demo"></a>
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo.gif)
 
-Explore a section: [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
-
 ## Quick start
 
-For macOS and Windows with WSL. Ask your coding agent:
+Ask your coding agent:
 
 ```text
 Clone https://github.com/albertwujj/agent-term to ~/agent-term, then set it
