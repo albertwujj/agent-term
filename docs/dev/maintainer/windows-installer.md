@@ -25,6 +25,17 @@ git show v0.1.15:scripts/release.sh
 
 Treat a successful build as only the beginning of recovery. The resulting unsigned artifacts must pass the Windows checklist below before the pipeline is considered supported or publishable again.
 
+## Opt-in tooling on current source
+
+Current source installs omit Electron Builder and its packaging dependencies. To experiment with the retained `pack`, `dist`, `dist:win`, `dist:mac`, or `build:launcher` scripts, install the last configured builder version explicitly from the checkout:
+
+```bash
+npm ci
+npm install --no-save electron-builder@26.15.3
+```
+
+The extra install leaves `package.json` and `package-lock.json` unchanged. It can emit deprecation warnings from the frozen packaging tools; running `npm ci` again removes those tools. This setup does not restore installer support or validation. The `v0.1.15` recovery baseline above already declares its own packaging dependencies.
+
 ## What the pipeline produced
 
 The package configuration requested two x64 Windows targets from Electron Builder:

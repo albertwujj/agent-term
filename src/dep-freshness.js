@@ -39,8 +39,8 @@ function writeLockStamp({ fs, crypto, root }) {
 // bundles on a from-source start. `electron` is deliberately not in it — by the
 // time this code runs, Electron is the process.
 //
-// The rest of what is declared (electron-builder, @electron/rebuild, jsdom,
-// playwright-core) belongs to packaging and the test suites, which report
+// The rest of what is declared (@electron/rebuild, jsdom, playwright-core)
+// belongs to native rebuilds and the test suites, which report
 // their own missing packages the moment you run them. A window runs perfectly
 // without them, so nothing here says anything about them: blocking would
 // refuse a working terminal over a test dependency, and warning would repeat
