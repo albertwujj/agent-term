@@ -2,8 +2,6 @@
 
 **From telling sessions apart to the finished project.**
 
-You and your agents can change and extend this terminal, down to its code, to fit your work and your team's.
-
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
 
 ## Quick start
@@ -48,7 +46,9 @@ With a host that understands its agents, and agents that understand the host, a 
 
 ### Make it fit
 
-Use it first as is, a boost for working with your agents; what you need may already be there. When something is missing, add it with your agents: the gap is in front of you and the agents, who are in a good position to evaluate it and build the addition. With agents at your disposal, you can fit the tool to your work and your team's, which you know best. And with the features listed below, agents run better when you build with them.
+You and your agents can change and extend this terminal, down to its code, to fit your work and your team's.
+
+Use it first as is, a boost for working with your agents; what you need may already be there. When something is missing, add it with your agents: the gap is in front of you and the agents, who are in a good position to evaluate it and build the addition. And with the features listed below, agents run better when you build with them.
 
 ## What's added so far
 
