@@ -6,7 +6,7 @@ Every session is a whole OS window; there are no tabs.
 
 <p align="center">
 <img src="assets/hero-session-picker.gif" alt="filter your sessions and pick the right one, or start a new session">
-<br><sub>Find any past session: type a few letters. Or start a new one.</sub>
+<br><strong>Find any past session: type a few letters. Or start a new one.</strong>
 </p>
 
 Right-click a taskbar button or Dock tile and choose Start or resume session, or press Ctrl/Cmd+Shift+N with an AgentTerm window in front. A new window opens with the picker: your past sessions, filtered as you type by your prompts and the agents' own titles. Resume one, start a new one (with options, if you want them), or drop to a plain shell.

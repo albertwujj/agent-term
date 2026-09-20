@@ -2,7 +2,7 @@
 
 <p align="center">
 <img src="assets/comment-brainstorm.png" alt="select a claim in the agent's brainstorm and ask, right on the output">
-<br><sub>Select anything on screen and comment</sub>
+<br><strong>Select anything on screen and comment</strong>
 </p>
 
 Select the passage, then write your note: precise feedback, with the exact text quoted. Commenting works across **terminal output, markdown documents, and curated reviews**: your note goes to the agent tied to the passage or code line you are responding to, without copying it into the prompt yourself.
