@@ -86,7 +86,7 @@ test('Claude title cleanup and resumed topic acceptance stay unchanged', () => {
 });
 
 test('only Codex launches get the supported thread-title override', () => {
-  const prefix = 'codex -c \'tui.terminal_title=["app-name","thread"]\'';
+  const prefix = 'codex -c \'tui.terminal_title=["status","app-name","thread","spinner"]\'';
   assert.strictEqual(aiCliLaunchCommand('codex'), prefix);
   assert.strictEqual(aiCliLaunchCommand('codex --resume abc'), prefix + ' --resume abc');
   for (const command of ['claude', 'claude --resume abc', 'agent', 'copilot',

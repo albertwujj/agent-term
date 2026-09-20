@@ -58,6 +58,8 @@ const {
 } = require('./caret-shortcut');
 const { getViewerShortcutAction } = require('./viewer-shortcut');
 const { createPromptCapture } = require('./prompt-capture');
+const { createTitleActivityTracker, isAgentWorking } = require('./cli-title-status');
+const { createOscTitleWatcher } = require('./osc-title-watch');
 const { identityFromPrompts } = require('./session-identity');
 const promptThumbnail = require('./prompt-thumbnail');
 const dwm = require('./dwm-thumbnail');
@@ -574,6 +576,9 @@ function pasteAgentPing(body, { toPrompt = false } = {}) {
 
 // "AI working" indicator state — drives the taskbar progress bar.
 let lastPtyOutputTime = 0;
+const titleActivity = createTitleActivityTracker({
+  multiplexer: !!(process.env.TMUX || process.env.STY || process.env.ZELLIJ),
+});
 // The "agent active" signal the job-done nudge gates on. Fed by the stream
 // pipeline's screen watcher (renderer-watch.js), not the raw byte clock
 // above: only a SUBSTANTIAL screen change — real content, judged by
@@ -799,14 +804,14 @@ function refreshTooltip() {
 // progress bar, the chrome-bar dot, and the thumbnail header. Requires:
 //   · A CLI is locked (so shell-only output never fires).
 //   · PTY produced output recently (within PROGRESS_IDLE_MS).
+//   · No recognized CLI title explicitly reports idle or waiting for input.
 //   · User isn't at the keyboard (within USER_QUIET_MS of the last
 //     keystroke). Submit-Enter resets lastInputTime to 0 so this check
 //     passes immediately after the user hits Enter.
 function computeIsWorking() {
-  if (!iconLocked) return false;
-  const now = Date.now();
-  return (now - lastPtyOutputTime < PROGRESS_IDLE_MS)
-      && (now - lastTypingTime   > USER_QUIET_MS);
+  return isAgentWorking({ iconLocked, now: Date.now(), lastPtyOutputTime,
+    lastTypingTime, titleWorking: titleActivity.working,
+    idleMs: PROGRESS_IDLE_MS, userQuietMs: USER_QUIET_MS });
 }
 
 // Build the activity-card payload for the thumbnail renderer. Reads recent
@@ -1581,6 +1586,7 @@ function onShellCommandTyped(cmd) {
   const cli = detectCli(cmd);
   if (!cli) return;
   detectedCli = cli;
+  titleActivity.reset();
   syncChromeState();
   try {
     if (mainWindow) {
@@ -1609,6 +1615,7 @@ function resumeFromSession(picked) {
   identityComplete = identityFromPrompts(identityPrompts).complete;
   sessionCwd = picked.cwd || shellStartCwd();
   detectedCli = picked.cli || null;
+  titleActivity.reset(); // a saved title describes the old process, not its new run
   sessionStartTime = Date.now();
   // No boot vocabulary on resume (firstPrompt is inherited, so collection
   // never opens): banner junk in the title log is instead caught by the
@@ -1671,6 +1678,7 @@ function updateProgressBar() {
   // output, AND the user isn't typing (echo would otherwise trigger it on
   // every keystroke). See computeIsWorking() for the full predicate.
   const isWorking = computeIsWorking();
+  if (isWorking !== progressBarOn && streamClient) streamClient.activityChanged();
   if (isWorking && !progressBarOn) {
     try { mainWindow.setProgressBar(2, { mode: 'indeterminate' }); } catch {}
     progressBarOn = true;
@@ -2624,6 +2632,17 @@ function createPty(cols, rows) {
   startLockWatch(); // poll the repo for agent-lock's lock/agent → padlock in the chrome bar
   startJobWatch(); // nudge the agent when a background job ends while it idles
 
+  const watchTitle = createOscTitleWatcher((title) => {
+    const previous = titleActivity.working;
+    titleActivity.update(title, detectedCli);
+    if (titleActivity.working !== previous) {
+      const state = titleActivity.working === null ? 'unknown'
+        : titleActivity.working ? 'working' : 'idle';
+      log(`[activity] title=${state} cli=${detectedCli || 'unknown'} session=${sessionIndex}`);
+    }
+    updateProgressBar();
+  });
+
   // Runs on node-pty's threadsafe-function callback. An exception thrown here
   // cannot be delivered as a JS exception once the environment is unwinding, so
   // N-API rethrows it as C++ and the process aborts — a quit reported as
@@ -2632,15 +2651,14 @@ function createPty(cols, rows) {
   // this path is reachable on any quit while the CLI is still printing.
   ptyProcess.onData((data) => {
    try {
+    // Preserve the raw clock for output recency, submit echoes and window-cap
+    // scoring. Only the activity indicator gains optional title evidence;
+    // the job-watch clock still uses classified screen changes below.
+    lastPtyOutputTime = Date.now();
+    watchTitle(data); // remains live while the renderer is frozen for comments
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('pty-output', data);
     }
-    // Track recent output time for the "AI working" progress bar indicator
-    // and for window-cap eviction scoring (lastWorkingAt in the active-file).
-    // lastAgentOutputTime is deliberately NOT bumped here: raw bytes can't
-    // tell content from status churn — the screen watcher's classified
-    // pushes feed it instead (see the stream:buffer-update handler).
-    lastPtyOutputTime = Date.now();
     // Auto-show: if we're hidden and the AI is producing output (something
     // worth attention happened), pop ourselves back into the taskbar so the
     // user can see/find us. Don't steal focus — they may be in another

@@ -189,7 +189,7 @@ const CODEX_TOPIC = 'codex | Investigate WSL launch failures';
 // Make the fake emit a topic only if the actual launch path supplies the
 // supported setting. This tests wiring through main, not just the helper.
 const codexWithTitleSetting = (body) =>
-  `if [ "$1" != '-c' ] || [ "$2" != 'tui.terminal_title=["app-name","thread"]' ]; then ${osc('agent-term-debug')}; read -r missing; return; fi; ${body}`;
+  `if [ "$1" != '-c' ] || [ "$2" != 'tui.terminal_title=["status","app-name","thread","spinner"]' ]; then ${osc('agent-term-debug')}; read -r missing; return; fi; ${body}`;
 
 console.log('4 — Codex picker launch: unnamed ID, prompt, then named thread');
 {

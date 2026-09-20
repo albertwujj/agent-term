@@ -118,6 +118,15 @@ class StreamClient {
     this._scheduleHeartbeat();
   }
 
+  // A status change may be title-only: no changed screen for the renderer
+  // to send, and an unattended working run can have a 30s timer pending.
+  // Publish the transition now, then select the cadence for the new state.
+  activityChanged() {
+    if (this.stopped || this.disabled || !this.runId) return;
+    this._heartbeat();
+    this._scheduleHeartbeat();
+  }
+
   // Self-rearming heartbeat. Interval is picked per tick:
   //   · isWorking AND nobody watching → HEARTBEAT_IDLE_MS (30s). Agent
   //     is busy and no viewer is engaged; inputs are unlikely.

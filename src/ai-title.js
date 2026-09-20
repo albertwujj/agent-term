@@ -7,6 +7,8 @@
 // semantic keys before taskbar/picker rendering, and decide which of them
 // name the conversation at all.
 
+const { cliTitleStatus } = require('./cli-title-status');
+
 const BRAND_LABELS = {
   claude: ['claude', 'claude code'],
   codex: ['codex'],
@@ -26,7 +28,7 @@ function stripStatusPrefix(text) {
   let s = collapseWhitespace(text);
   // Braille spinner frames are U+2800..U+28FF. Claude also uses symbols such
   // as ✳/✻, and some terminals render the current marker as a leading "*".
-  s = s.replace(/^[\u2800-\u28ff✳✻✢✶✽✦✧*•●○◐◓◒◑]+\s*/u, '');
+  s = s.replace(/^[\u2800-\u28ff✳✱✻✢✶✽✦✧*•●○◐◓◒◑]+\s*/u, '');
   return collapseWhitespace(s);
 }
 
@@ -48,13 +50,14 @@ function cleanAiTitleSegments(title, cli) {
   const ignored = ignoredKeysForCli(cli);
   const seen = new Set();
   const out = [];
-  // Codex's supported ["app-name", "thread"] title is "codex | <name>".
+  // Normalize vendor status to Codex's original "codex | <name>" form.
   // Only strip its leading app field: a conversation name may contain '|'.
-  // While working, Codex appends a braille spinner to the thread field.
-  // Strip that suffix before display, semantic deduplication, and UUID checks.
+  // Title generation and activity can each append a braille spinner.
+  // Strip those suffixes before display, semantic deduplication, and UUID checks.
+  const subject = cliTitleStatus(title, cli).title;
   const text = cli === 'codex'
-    ? String(title || '').replace(/\s+[\u2800-\u28ff]+\s*$/u, '').replace(/^codex\s+\|\s*/i, '')
-    : String(title || '');
+    ? subject.replace(/(?:\s+[\u2800-\u28ff]+)+\s*$/u, '').replace(/^codex\s+\|\s*/i, '')
+    : subject;
   for (const rawPart of text.split(/\s+·\s+/u)) {
     const part = stripStatusPrefix(rawPart);
     if (!part) continue;
@@ -80,7 +83,7 @@ function isConversationTitle(title, cli) {
     // The default OSC title is only a project label. Accept the explicit
     // app-name + thread output contract, including on read of old logs.
     // Before Codex has a name its thread field is a UUID, not a subject.
-    const match = /^codex\s+\|\s*(.+)$/i.exec(String(title || ''));
+    const match = /^codex\s+\|\s*(.+)$/i.exec(cliTitleStatus(title, cli).title);
     if (!match || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(subject)) return false;
   }
   return !!subject;
@@ -89,10 +92,12 @@ function isConversationTitle(title, cli) {
 function aiCliLaunchCommand(command) {
   // A supported per-invocation override, scoped to Codex launches we own
   // (docs/dev/session-titles.md, "Asking Codex for the name").
-  // Keep app-name so even an unnamed new thread emits an OSC readiness title.
+  // Status distinguishes idle animations from work; spinner also enables the
+  // explicit Action Required title on approval/input waits. Put status first
+  // so old thread names cannot be mistaken for this field.
   // No shell wrappers, input rewriting, config writes, or metadata guessing.
   return String(command || '').replace(/^codex(?=\s|$)/i,
-    'codex -c \'tui.terminal_title=["app-name","thread"]\'');
+    'codex -c \'tui.terminal_title=["status","app-name","thread","spinner"]\'');
 }
 
 module.exports = {

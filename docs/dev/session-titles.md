@@ -13,39 +13,42 @@ conversation. The rules below decide what is.
 
 ## What each CLI emits
 
-**Claude Code** pushes the conversation's topic, prefixed with a spinner
-glyph while it works (`✳ Fix window titles`), and its brand banner
-(`Claude Code`) before the topic exists. It may also push several
-dot-separated segments at once, repeating one of them.
+**Claude Code** pushes the conversation's topic, with `◐`/`◑` while busy
+and `✳` when idle in 2.1.278. Older versions use braille busy frames. It
+pushes its brand banner (`Claude Code`) before the topic exists. It may
+also push several dot-separated segments at once, repeating one of them.
 
 **Cursor** (`agent`) pushes the literal banner `Cursor Agent` at startup,
-then the task title once it has one.
+then the task title once it has one. Its optional status indicators append
+an emoji and status, such as ` - ⏳ Working ...` or ` - ✅ Ready`.
 
 **Codex** pushes, by default, the project directory's name and then
 spinner frames of it — `agent-term-debug`, `⠋ agent-term-debug`. That is
 never a conversation name. Codex can name the thread in the title
 instead, through its `tui.terminal_title` setting, which takes a list of
-item identifiers. With `["app-name", "thread"]` it emits:
+item identifiers. With AgentTerm’s
+`["status", "app-name", "thread", "spinner"]` selection it emits:
 
 ```
-codex                                     before a thread exists
-codex | 01a072d1-e0bd-72e0-818c-…         thread created, not yet named
-codex | Investigate WSL launch failures   named
+Ready | codex                                     before a thread exists
+Ready | codex | 01a072d1-e0bd-72e0-818c-…          thread created, not yet named
+Ready | codex | Investigate WSL launch failures    named
 ```
 
-While working, Codex appends a braille spinner to either thread field:
-`codex | 01a072d1-e0bd-72e0-818c-… ⠸` or
-`codex | Investigate WSL launch failures ⠸`. Cleanup removes this suffix
+The status field is `Ready`, `Starting`, `Thinking`, `Working`, or `Waiting`.
+`Waiting` means a background terminal is still running, not a request for
+user input. The spinner item enables a distinct `[ ! ] Action Required`
+(or its blinking `[ . ]` variant) prefix for approval and input waits.
+Thread-title generation can append its own braille spinner independently
+of whether a turn is running, so that suffix alone is not activity evidence.
+
+The separator is ` | `, except next to the spinner item, which uses a space.
+Status comes first so an old title such as `codex | Working` still means a
+conversation named Working. Cleanup removes status and spinner decorations
 before checking for a UUID and before display or semantic deduplication.
-Otherwise an unnamed thread's spinner can be saved as its first name,
-even after a real name arrives.
-
-The separator is ` | `, and the app field is what distinguishes this
-output from the default project label. Keeping `app-name` in the list is
-therefore load-bearing, not decoration — it is also what makes an unnamed
-new thread still emit a readiness title. Verified against codex-cli
-0.153.4; `codex doctor` reports the setting resolving to items
-`app-name, thread-title`, and warns on identifiers it does not know.
+The app field still provides readiness and identifies the thread-title
+format. Verified against codex-cli 0.155.1 and its matching source:
+[status surfaces](https://github.com/openai/codex/blob/rust-v0.155.1/codex-rs/tui/src/chatwidget/status_surfaces.rs).
 
 ## Asking Codex for the name
 
@@ -53,7 +56,7 @@ The picker's own launches — start-new and resume alike — prepend the
 setting as a per-invocation override, in `aiCliLaunchCommand`:
 
 ```
-codex -c 'tui.terminal_title=["app-name","thread"]'
+codex -c 'tui.terminal_title=["status","app-name","thread","spinner"]'
 ```
 
 `-c` overrides one key for that process only, so it wins over the user's
@@ -83,7 +86,7 @@ from a hand-typed `codex`, the user adds it to their own configuration:
 
 ```toml
 [tui]
-terminal_title = ["app-name", "thread"]
+terminal_title = ["status", "app-name", "thread", "spinner"]
 ```
 
 ## The predicate
@@ -139,6 +142,49 @@ picked a different conversation in the CLI's own dialog, which is
 possible precisely because AgentTerm does not pass a thread id; the
 picker shows that as a drift line.
 
+## Activity as additional evidence
+
+`cli-title-status.js` adds an explicit-idle veto to `computeIsWorking`.
+A recognized ready/input-wait title suppresses the raw-output signal even
+while an idle prompt animation keeps emitting bytes. Busy and unknown
+states retain the existing five-second output-recency and typing rules.
+The title does not latch "working" after a process falls silent. This is
+still a heuristic: a completely silent long-running turn can become idle
+under the existing timeout.
+
+The main process observes OSC 0/2 directly through `osc-title-watch.js`,
+including split sequences and BEL/ST endings, so pausing the renderer for
+comments cannot pause status. Unrecognized titles and title restoration
+withdraw the veto; new launches and resumes reset the evidence. This uses
+the same PTY stream on macOS and Windows/WSL, without reading vendor
+session files or adding a network connection. The hub payload is unchanged.
+Activity transitions send an immediate heartbeat, even without changed screen
+text or an active viewer; they do not wait for the working-state 30-second
+heartbeat. The viewer retains its existing eight-second idle debounce.
+The main log records title-state transitions (`working`, `idle`, `unknown`)
+with CLI and session id, without recording the title or prompt contents.
+
+Vendor adapters are conservative:
+
+- **Codex:** AgentTerm launches enable the explicit status and approval
+  fields above. Hand-typed launches need that configuration to get the
+  additional evidence; legacy title formats keep the fallback.
+- **Claude Code:** require an observed half-circle or braille busy marker
+  before trusting an idle asterisk. Older star-only spinners retain the
+  fallback. Multiplexer launches also keep the fallback because Claude
+  can deliberately use a static idle-looking title there.
+- **Cursor:** recognize its emoji-marked suffixes, including ready and
+  user/confirmation waits. Enable them with `/status-indicators`, or
+  `display.showStatusIndicators: true` in Cursor’s global CLI config.
+  Disabled or emoji-free titles retain the fallback; a conversation name
+  ending in ` - Ready` is not sufficient evidence. Verified in the installed
+  2026.08.11-e8db854 bundle and [Cursor’s configuration reference](https://cursor.com/docs/cli/reference/configuration).
+- **Copilot:** 1.0.83 emits a session name and/or arbitrary current intent
+  ending in ` - GitHub Copilot`. Those fields cannot reliably distinguish
+  activity, so they retain the fallback. Even the bare `GitHub Copilot`
+  title can appear at turn start before the intent arrives. No keywords
+  from intent text are interpreted as status.
+
 ## Tests
 
 `test/ai-title.test.js` covers the predicate and the launch rewrite,
@@ -153,3 +199,10 @@ Shift-clicked so the line is typed, and an option added onto it by hand.
 On macOS it also reads the native window title before and after the
 first prompt, including while Codex's thread is still unnamed and after
 the name arrives.
+
+`test/cli-title-status.test.js` covers vendor formats, fallback timing, and
+identity cleanup. `test/osc-title-watch.test.js` covers split and unrelated
+control sequences. `test/e2e/activity-title.mjs` replays the vendor formats
+through a real PTY and records snapshots/heartbeats at a local fake hub,
+including prompt delivery of a Codex status change while the renderer is
+paused for comments and no viewer is active.
