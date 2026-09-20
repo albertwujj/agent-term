@@ -7,7 +7,7 @@
 //
 // Capture rules:
 //   1. Bracketed paste (\x1b[200~ ... \x1b[201~) -> the inner content is
-//      appended to the typed buffer and flagged as `hadPaste`. Capture
+//      inserted at the caret and flagged as `hadPaste`. Capture
 //      still waits for Enter, so erases / continued typing after the
 //      paste are reflected in the captured prompt. `hadPaste` lets the
 //      Enter path bypass the slash-prefix and MIN_TYPED_PROMPT_LEN
@@ -40,12 +40,12 @@
 //      prompt, which may well be short ("generate more").
 //      An Enter that fails the predicate is silently skipped, the next
 //      real input is still capturable.
-//   4. Editing: Backspace/DEL drop the last byte. Ctrl+U clears the
-//      whole buffer (covers Cmd+Backspace on macOS, which most CLIs
-//      map to Ctrl+U). Ctrl+W deletes the trailing word. Arrow/function
-//      keys and other escape sequences are stripped — without cursor
-//      tracking we can't mirror caret-relative inserts, so the buffer
-//      stays append-only between erases.
+//   4. Editing: track the caret for Left/Right, Home/End, word movement,
+//      and their readline control-key equivalents. Typing, paste,
+//      Backspace/Delete and Ctrl+U/W/K edit at that caret, so a prefix
+//      inserted after the rest of a prompt still appears first. Other
+//      escape sequences are stripped; history and vertical navigation
+//      cannot reconstruct text that never passed through this capture.
 //
 // Tradeoff of MIN_TYPED_PROMPT_LEN: a typed line this short is taken for a
 // dialog answer, so a two- or three-letter prompt ("why", "go") is skipped
@@ -89,6 +89,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
   let cliStarted = false;
   let locked = false;
   let buf = '';
+  let cursor = 0; // UTF-16 offset in buf; movement respects surrogate pairs
   let inPaste = false;
   let pasteBuf = '';
   // True when buf contains content from a bracketed paste. Lets the
@@ -111,19 +112,82 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
 
   function reset() {
     buf = '';
+    cursor = 0;
     hadPaste = false;
     mentionCompletion = null;
+  }
+
+  function insert(text) {
+    buf = buf.slice(0, cursor) + text + buf.slice(cursor);
+    cursor += text.length;
+  }
+
+  function erase(start, end) {
+    buf = buf.slice(0, start) + buf.slice(end);
+    cursor = start;
+    mentionCompletion = null;
+    if (!buf.length) hadPaste = false;
+  }
+
+  function previousChar(at) {
+    if (at === 0) return 0;
+    return at > 1 && /[\uDC00-\uDFFF]/.test(buf[at - 1]) && /[\uD800-\uDBFF]/.test(buf[at - 2])
+      ? at - 2 : at - 1;
+  }
+
+  function nextChar(at) {
+    return Math.min(buf.length, at + (buf.codePointAt(at) > 0xffff ? 2 : 1));
+  }
+
+  function previousWord(at) {
+    while (at > 0 && /\s/.test(buf[at - 1])) at = previousChar(at);
+    while (at > 0 && !/\s/.test(buf[at - 1])) at = previousChar(at);
+    return at;
+  }
+
+  function nextWord(at) {
+    while (at < buf.length && /\s/.test(buf[at])) at = nextChar(at);
+    while (at < buf.length && !/\s/.test(buf[at])) at = nextChar(at);
+    return at;
+  }
+
+  function lineStart() { return cursor > 0 ? buf.lastIndexOf('\n', cursor - 1) + 1 : 0; }
+  function lineEnd() {
+    const end = buf.indexOf('\n', cursor);
+    return end < 0 ? buf.length : end;
+  }
+
+  function move(direction, count = 1, byWord = false) {
+    const step = direction < 0
+      ? (byWord ? previousWord : previousChar) : (byWord ? nextWord : nextChar);
+    // Clamp counts from escape parameters to the largest useful movement.
+    for (let n = 0; n < Math.min(count, buf.length); n++) cursor = step(cursor);
+  }
+
+  function editEscape(sequence) {
+    const csi = /^\x1b\[([0-9;]*)([CDHF~])$/.exec(sequence);
+    const ss3 = /^\x1bO([CDHF])$/.exec(sequence);
+    if (sequence === '\x1bb') cursor = previousWord(cursor);
+    else if (sequence === '\x1bf') cursor = nextWord(cursor);
+    else if (csi || ss3) {
+      const params = csi ? csi[1].split(';').map(Number) : [];
+      const key = csi ? csi[2] : ss3[1];
+      const byWord = params[1] === 3 || params[1] === 5; // Alt / Ctrl
+      if (key === 'D') move(-1, params[0] || 1, byWord);
+      else if (key === 'C') move(1, params[0] || 1, byWord);
+      else if (key === 'H' || (key === '~' && [1, 7].includes(params[0]))) cursor = lineStart();
+      else if (key === 'F' || (key === '~' && [4, 8].includes(params[0]))) cursor = lineEnd();
+      else if (key === '~' && params[0] === 3) erase(cursor, nextChar(cursor));
+    }
   }
 
   function emit(text) {
     if (locked) return;
     const trimmed = text.replace(/\r/g, '').trimEnd();
     if (trimmed.length === 0) return;
-    buf = '';
+    reset();
     pasteBuf = '';
     inPaste = false;
-    hadPaste = false;
-    mentionCompletion = null;
     if (typeof onPrompt === 'function') onPrompt(trimmed);
   }
 
@@ -150,6 +214,8 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       }
       return data.length;
     }
+    // Application-mode arrows/Home/End use SS3 (ESC O final-byte).
+    if (next === 0x4f /* O */) return Math.min(i + 3, data.length);
     // OSC: ESC ] ... ST (BEL or ESC \). Drop entire OSC.
     if (next === 0x5d /* ] */) {
       let j = i + 2;
@@ -181,7 +247,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
         const content = pasteBuf;
         pasteBuf = '';
         i += PASTE_END.length;
-        // Append paste into the typed buffer and wait for Enter. This is
+        // Insert paste into the typed buffer and wait for Enter. This is
         // what lets continued editing after the paste (erase + retype,
         // Ctrl+U, append more text) take effect — otherwise we'd capture
         // a snapshot the user later modifies. hadPaste flags the buffer
@@ -189,7 +255,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
         // slash-prefix filters: paste content is intentional prompt
         // material regardless of length or leading character.
         if (content.length > 0) {
-          buf += content;
+          insert(content);
           hadPaste = true;
         }
         continue;
@@ -207,8 +273,8 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       // in the chunk) closes whatever dialog is up; the next Enter is back
       // at the input line.
       if (ch === ESC) {
-        // Moving the caret invalidates the append-only position of the
-        // remembered completion. Resume-dialog navigation is unchanged.
+        // Moving the caret invalidates the remembered completion's position.
+        // Resume-dialog navigation is unchanged.
         if (/^\x1b(?:\[[0-9;]*[ABCDHF]|\[(?:1|3|4|7|8)(?:;[0-9]+)?~|O[ABCDHF]|[bf])/.test(data.slice(i))) {
           mentionCompletion = null;
         }
@@ -216,7 +282,9 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
           inResumeDialog = false;
           mentionCompletion = null;
         }
-        i = skipEscapeSequence(data, i);
+        const end = skipEscapeSequence(data, i);
+        editEscape(data.slice(i, end));
+        i = end;
         continue;
       }
 
@@ -227,7 +295,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
         const tabCompletedQuery = mentionCompletion?.typedPrefix === buf && buf.length > 0;
         const recovered = cliStarted && !inResumeDialog
           ? recoverMentionCompletion(buf, mentionCompletion, promptSnapshot) : null;
-        if (recovered !== null) buf = recovered;
+        if (recovered !== null) { buf = recovered; cursor = buf.length; }
         const trimmed = buf.trim();
         // The Enter after a typed /resume is the pick in the resume dialog,
         // with the search filter (of any length) in the buffer, or nothing
@@ -276,37 +344,44 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
         continue;
       }
 
-      // Backspace / DEL: remove last char from buffer. Once the buffer
+      // Backspace / DEL: remove the character before the caret. Once the buffer
       // is fully erased the hadPaste flag is cleared too — anything the
       // user types from here on is "typed", subject to the normal
       // length/slash filters.
       if (code === 0x08 || code === 0x7f) {
+        erase(previousChar(cursor), cursor);
+        i++;
+        continue;
+      }
+
+      // Readline movement: Ctrl+A/E (line start/end), Ctrl+B/F (left/right).
+      if ([0x01, 0x05, 0x02, 0x06].includes(code)) {
         mentionCompletion = null;
-        buf = buf.slice(0, -1);
-        if (buf.length === 0) hadPaste = false;
+        if (code === 0x01) cursor = lineStart();
+        else if (code === 0x05) cursor = lineEnd();
+        else move(code === 0x02 ? -1 : 1);
         i++;
         continue;
       }
 
-      // Ctrl+U: clear from cursor to start of line. In line-editing
-      // CLIs this is the canonical "clear the whole prompt" key, and
-      // macOS Cmd+Backspace is commonly bound to it. We don't track
-      // cursor position, so clear the entire buffer.
+      // Ctrl+D deletes forward; Ctrl+K kills from the caret to line end.
+      if (code === 0x04 || code === 0x0b) {
+        erase(cursor, code === 0x04 ? nextChar(cursor) : lineEnd());
+        i++;
+        continue;
+      }
+
+      // Ctrl+U: clear from cursor to start of line (also Cmd+Backspace).
       if (code === 0x15) {
-        reset();
+        erase(lineStart(), cursor);
         i++;
         continue;
       }
 
-      // Ctrl+W: delete the previous word + any preceding whitespace.
+      // Ctrl+W: delete the previous word + any trailing whitespace.
       // macOS Option+Backspace maps to this in many CLIs.
       if (code === 0x17) {
-        mentionCompletion = null;
-        let end = buf.length;
-        while (end > 0 && /\s/.test(buf[end - 1])) end--;
-        while (end > 0 && !/\s/.test(buf[end - 1])) end--;
-        buf = buf.slice(0, end);
-        if (buf.length === 0) hadPaste = false;
+        erase(previousWord(cursor), cursor);
         i++;
         continue;
       }
@@ -315,7 +390,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       // row, keeping the raw bytes intact until a later Enter confirms
       // the expanded token in that prompt.
       if (code === 0x09) {
-        if (cliStarted && !inResumeDialog) {
+        if (cliStarted && !inResumeDialog && cursor === buf.length) {
           const recovered = recoverMentionCompletion(buf, mentionCompletion, promptSnapshot);
           mentionCompletion = beginMentionCompletion(recovered || buf, promptSnapshot, true);
           if (mentionCompletion) mentionCompletion.typedPrefix = buf;
@@ -343,7 +418,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
       }
 
       if (isPrintable(code)) {
-        buf += ch;
+        insert(ch);
       }
       i++;
     }
@@ -352,12 +427,10 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
   // Force the capture into the "locked" state without firing onPrompt.
   function markLocked() {
     locked = true;
-    buf = '';
+    reset();
     pasteBuf = '';
     inPaste = false;
-    hadPaste = false;
     inResumeDialog = false;
-    mentionCompletion = null;
   }
 
   return {

@@ -441,12 +441,87 @@ test('Ctrl+W deletes the trailing word (preceding space kept, matching bash/zsh)
   assert.strictEqual(get(), 'Investigate the timeout issue please');
 });
 
-test('arrow key escape sequences are stripped', (cap, get) => {
+test('inserting a prefix after a CLI resume preserves the submitted order', (cap, _get, _shell, getAll) => {
+  cap.handleInput('codex\r');
   cap.notifyCliStarted();
-  // Append-only: arrow-keys produce escape sequences which we strip; the
-  // typed chars accumulate in input order regardless of caret position.
-  cap.handleInput('abcdefghijklmnop\x1b[DX\r');     // 17 chars after escape strip, captured
-  assert.strictEqual(get(), 'abcdefghijklmnopX');
+  cap.handleInput('/resume\r');
+  cap.handleInput('Fix xterm npm vulnerability\r');
+  cap.handleInput('push using github data api');
+  cap.handleInput('\x01');                         // Ctrl+A: back to the start
+  cap.handleInput('commit and \r');
+  cap.handleInput('check the result\r');
+  assert.deepStrictEqual(getAll(), ['commit and push using github data api', 'check the result']);
+});
+
+test('left arrow inserts at the caret', (cap, get) => {
+  cap.notifyCliStarted();
+  cap.handleInput('abcdefghijklmnop\x1b[DX\r');
+  assert.strictEqual(get(), 'abcdefghijklmnoXp');
+});
+
+test('Home/End variants preserve typed and pasted edits', () => {
+  for (const [home, end] of [['\x1b[H', '\x1b[F'], ['\x1bOH', '\x1bOF'],
+    ['\x1b[1~', '\x1b[4~'], ['\x1b[7~', '\x1b[8~'], ['\x01', '\x05']]) {
+    const prompts = [];
+    const cap = createPromptCapture({ onPrompt: p => prompts.push(p) });
+    cap.notifyCliStarted();
+    cap.handleInput('push using github data api' + home);
+    cap.handleInput('\x1b[200~commit and \x1b[201~');
+    cap.handleInput(end + ' please\r');
+    assert.deepStrictEqual(prompts, ['commit and push using github data api please']);
+  }
+});
+
+test('backspace and forward delete edit at the caret', (cap, get) => {
+  cap.notifyCliStarted();
+  cap.handleInput('fix teh bug\x1b[5D\x7f\x1b[3~he\r');
+  assert.strictEqual(get(), 'fix the bug');
+});
+
+test('Ctrl+B/F/D and application arrows edit at the caret', (cap, get) => {
+  cap.notifyCliStarted();
+  cap.handleInput('fix tXhe bug\x01\x1b[6C\x02\x06\x1bOD\x04\x1bOC');
+  cap.handleInput('\x05 now\r');
+  assert.strictEqual(get(), 'fix the bug now');
+});
+
+test('word navigation keeps insertions in place', () => {
+  for (const [back, forward] of [['\x1bb', '\x1bf'], ['\x1b[1;5D', '\x1b[1;5C'],
+    ['\x1b[1;3D', '\x1b[1;3C']]) {
+    const prompts = [];
+    const cap = createPromptCapture({ onPrompt: p => prompts.push(p) });
+    cap.notifyCliStarted();
+    cap.handleInput('fix bug' + back + 'the ' + forward + ' now\r');
+    assert.deepStrictEqual(prompts, ['fix the bug now']);
+  }
+});
+
+test('Ctrl+W, Ctrl+U, and Ctrl+K preserve text on the other side of the caret', (cap, _get, _s, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('fix wrong bug\x1b[4D\x17the\r');
+  cap.handleInput('wrong suffix\x01\x1b[6C\x15correct \r');
+  cap.handleInput('keep this wrong\x1b[5D\x0bcorrect\r');
+  assert.deepStrictEqual(getAll(), ['fix the bug', 'correct suffix', 'keep this correct']);
+});
+
+test('navigation and erases keep Unicode characters intact', (cap, get) => {
+  cap.notifyCliStarted();
+  cap.handleInput('fix 😀 bug\x1b[5D\x1b[C\x7f🚀\r');
+  assert.strictEqual(get(), 'fix 🚀 bug');
+});
+
+test('Home and End address the current line in a multiline paste', (cap, get) => {
+  cap.notifyCliStarted();
+  cap.handleInput('\x1b[200~first line\nsecond line\x1b[201~');
+  cap.handleInput('\x1b[Hnew \x1b[F end\r');
+  assert.strictEqual(get(), 'first line\nnew second line end');
+});
+
+test('caret movement is clamped at the buffer edges and reset after cancellation', (cap, get) => {
+  cap.notifyCliStarted();
+  cap.handleInput('old prompt\x1b[99D\x03');
+  cap.handleInput('real prompt\x1b[99D\x1b[99C here\r');
+  assert.strictEqual(get(), 'real prompt here');
 });
 
 test('OSC sequences embedded in input are stripped', (cap, get) => {

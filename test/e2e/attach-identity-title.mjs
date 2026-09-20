@@ -34,6 +34,8 @@
 //      the target URL → only the submitted target names the session
 //   9. a rendered composer recovers only the picked prompt references,
 //      which feed the preview and deep search through the same saved text
+//  10. a new Codex window resumes inside the CLI, then the user inserts a
+//      prefix: the identity must match the submitted line, not typing order
 //
 // Run: npm run test:e2e
 
@@ -116,7 +118,8 @@ async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch
   const nativeWindow = await app.browserWindow(page);
   const windowTitles = [await nativeWindow.evaluate(win => win.getTitle())];
   for (const line of lines) {
-    await page.keyboard.type(line);
+    if (typeof line === 'function') await line(page);
+    else await page.keyboard.type(line);
     await page.keyboard.press('Enter');
     await sleep(700);
     windowTitles.push(await nativeWindow.evaluate(win => win.getTitle()));
@@ -304,6 +307,36 @@ console.log('9 — only selected prompt references reach preview and deep search
     check(excluded + ' never enters saved prompts or deep search',
       !prompts.some(p => p.prompt.includes(excluded)) &&
       !sessionsLog.searchHiddenPromptMatchesForSession(session, prompts, excluded));
+  }
+}
+
+console.log('10 — Codex start-new, resume inside, then insert a prefix before submitting');
+{
+  const fixture = path.join(APP_DIR, 'test/fixtures/prompt-edit-cli.py');
+  const submittedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-prompt-edit-e2e-'));
+  const submittedFile = path.join(submittedDir, 'submitted.json');
+  const quote = value => `'${value.replace(/'/g, "'\\''")}'`;
+  const fake = codexWithTitleSetting(`python3 ${quote(fixture)} ${quote(submittedFile)};`);
+  const expected = 'commit and push using github data api';
+  try {
+    const { events, session } = await runScenario('codex-resume-edit', fake, [
+      '/resume', 'Fix xterm npm vulnerability',
+      async page => {
+        await page.keyboard.type('push using github data api');
+        await page.keyboard.press('Control+a');
+        await page.keyboard.type('commit and ');
+      },
+      'check the result',
+    ], { cli: 'codex', pickerLaunch: true });
+    const submitted = JSON.parse(fs.readFileSync(submittedFile, 'utf8'));
+    check('the CLI actually received the edited prompt', submitted[0] === expected, JSON.stringify(submitted));
+    check('saved prompts agree with what the CLI received, in order',
+      JSON.stringify(events.filter(e => e.e === 'prompt').map(e => e.prompt)) === JSON.stringify(submitted),
+      JSON.stringify(events));
+    check('the session identity starts with the inserted prefix', session?.prompt === expected, session?.prompt);
+    check('the resumed topic remains the identity title', session?.title === 'codex | Fix xterm npm vulnerability', session?.title);
+  } finally {
+    fs.rmSync(submittedDir, { recursive: true, force: true });
   }
 }
 
