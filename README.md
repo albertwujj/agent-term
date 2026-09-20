@@ -2,6 +2,8 @@
 
 **From telling sessions apart to the finished project.**
 
+<a id="demo"></a>
+
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo.gif)
 
 Explore a section: [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
@@ -54,7 +56,7 @@ Use it as is first, a boost for working with your agents; what you need may alre
 
 ## What's added so far
 
-Below are examples, all on the same terminal. Follow the links to revisit the demos and explore features not shown in the GIF.
+Below are examples, all on the same terminal. Follow the links to revisit the demos and explore features not shown in the [GIF](#demo).
 
 | In a plain terminal | In AgentTerm |
 |---|---|
