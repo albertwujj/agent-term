@@ -2,7 +2,9 @@
 
 **From telling sessions apart to the finished project.**
 
-![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and the phone view](docs/assets/hero-walk.gif)
+![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-walk.gif)
+
+Explore a section: [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Docs](docs/plan.md).
 
 ## Quick start
 
@@ -52,17 +54,17 @@ Use it as is first, a boost for working with your agents; what you need may alre
 
 ## What's added so far
 
-Below are examples, all on the same terminal. Follow the links for more.
+Below are examples, all on the same terminal. Follow the links to revisit the demos and explore features not shown above.
 
 | In a plain terminal | In AgentTerm |
 |---|---|
 | Several agents running means identical tabs outside, walls of text inside. | Each session is its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md#switch-to-the-right-running-session)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. **[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and the agents' own titles to help you return to the session. |
 | Everything the agent prints (a diff, a plan, a claim, a link) is words or symbols you cannot click. | **[Select any of it and comment](docs/comment.md)**, precise feedback with the exact text quoted; the agent makes the change. A click opens whatever renders (docs, reviews, images, video, PDFs) inside the window; web links open in your browser ([the click rule](docs/clicks.md)). |
-| Its plans are append-only text. | Ask for the plan as a markdown file and click its name. The doc opens rendered, and the rendered page is where you work: **[comment on any passage, or write in it directly](docs/plan.md)**; the agent takes an edit as intent and applies it in its own words in the source, answers in a thread on the passage, and the margin marks what it changed. |
+| Its plans are append-only text. | Ask for the plan as a markdown file and click its name. The doc opens rendered, and the rendered page is where you work: **[comment on any passage, or write in it directly](docs/plan.md)**; the agent takes an edit as intent and applies it in its own words in the source, and answers in a thread on the passage. You can follow what you proposed and what the agent changed. |
 | Agents sharing a checkout have no awareness of each other: branches move, files change, test ports collide. | Type one `@` mention (`@proceed-b` completes to the guide doc's path) and the agent **[takes the checkout lock](docs/lock.md)** and cuts a branch before its first edit; a padlock at the top right of each window shows who holds it. |
 | The agent finishes a change and you get a wall of diff. | It hands you a **[curated review, rendered](docs/review.md)**, with a narrative you can follow and the parts that need your attention called out; you comment inline, it fixes and replies in place. |
 | A long CI run either blocks the session, or outlives the agent's turn and finishes unnoticed. | The agent starts the job and hands the terminal back; **[the job reports its own completion](docs/jobs.md)** through the terminal and the idle agent is prompted to pick it up, even across a session restart; a runner icon at the top right shows what is running. |
-| It sits blocked on a question until you're back at your desk. | **[Your phone shows the same terminal](docs/phone.md)**, same layout, so you recognize at once what you left behind; unblock it by voice. |
+| You keep checking sessions to see which agent needs you. | **[See which agents need you across your machines](docs/phone.md)**. Open the same terminal on your phone, with the same layout so you recognize at once what you left behind; reply by voice. |
 | The agent cites file:line and symbols; checking a claim means finding it by hand. | Click any reference and **[your IDE jumps to that exact line](docs/ide.md)** after a brief pause for selection; Ctrl/Cmd-click jumps immediately. The editor stays read-only so a stray key changes nothing. |
 
 ## Where to go next
