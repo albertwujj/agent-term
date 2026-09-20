@@ -54,7 +54,7 @@ foreach ($name in @(
   'dependencies', 'devDependencies', 'optionalDependencies',
   'peerDependencies', 'peerDependenciesMeta', 'bundledDependencies',
   'bundleDependencies', 'overrides', 'workspaces', 'os', 'cpu', 'libc',
-  'engines', 'packageManager'
+  'engines', 'packageManager', 'allowScripts'
 )) {
   $installManifest[$name] = Get-JsonProperty $manifest $name
 }

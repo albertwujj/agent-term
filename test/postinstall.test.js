@@ -1,4 +1,6 @@
 const assert = require('assert');
+const { spawnSync } = require('child_process');
+const path = require('path');
 const { runPostinstall } = require('../scripts/postinstall');
 
 let testsPassed = 0;
@@ -17,6 +19,35 @@ function test(name, fn) {
 }
 
 console.log('postinstall');
+
+test('locked dependency install scripts have explicit version approvals', () => {
+  const manifest = require('../package.json');
+  const lock = require('../package-lock.json');
+  const scripted = Object.entries(lock.packages)
+    .filter(([name, pkg]) => name && pkg.hasInstallScript)
+    .map(([name, pkg]) => `${name.split('node_modules/').pop()}@${pkg.version}`)
+    .sort();
+  const approvals = manifest.allowScripts || {};
+  assert.deepStrictEqual(Object.keys(approvals).sort(), scripted,
+    'review changed dependency install scripts and update their version approvals');
+  for (const name of scripted) assert.strictEqual(approvals[name], true, name);
+});
+
+test('Windows postinstall skips POSIX permissions and still stamps dependencies', () => {
+  const entry = JSON.stringify(path.join(__dirname, '..', 'scripts', 'postinstall.js'));
+  const install = spawnSync(process.execPath, ['-e', `
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    require('fs').chmodSync = () => { throw new Error('Windows must not chmod'); };
+    require(${entry}).runPostinstall({
+      resolve: () => 'electron-install-test.js',
+      spawn: () => ({ status: 0 }),
+      stamp: () => console.log('stamped'),
+    });
+  `], { encoding: 'utf8' });
+  assert.strictEqual(install.status, 0, install.stderr);
+  assert.strictEqual(install.stdout.trim(), 'stamped');
+  assert.strictEqual(install.stderr, '');
+});
 
 test('installs Electron before applying the node-pty permission fix', () => {
   const calls = [];

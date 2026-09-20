@@ -81,5 +81,10 @@
     "esbuild": "^0.28.2",
     "jsdom": "^27.0.1",
     "playwright-core": "^1.61.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "koffi@2.16.3": true,
+    "node-pty@1.1.0": true
   }
 }

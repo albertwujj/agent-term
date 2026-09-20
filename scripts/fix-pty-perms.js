@@ -3,6 +3,9 @@
 // to a prebuild instead of compiling from source, nothing restores +x, so the
 // pty fails at runtime with `posix_spawnp failed`. This runs on postinstall to
 // chmod any spawn-helper prebuild back to executable. No-op on Windows.
+// Return to postinstall so it can finish stamping the dependency tree.
+if (process.platform === 'win32') return;
+
 const fs = require('fs');
 const path = require('path');
 

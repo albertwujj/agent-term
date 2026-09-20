@@ -168,6 +168,7 @@ test('Windows dependencies use install-specific generations safe from live Elect
   assert.ok(generationAt >= 0, 'dependency cache generation is missing');
   assert.ok(generationAt < installAt, 'the generation must be selected before npm ci');
   assert.match(launcher, /'dependencies', 'devDependencies', 'optionalDependencies'/);
+  assert.match(launcher, /'engines', 'packageManager', 'allowScripts'/);
   assert.match(launcher, /'preinstall', 'install', 'postinstall', 'prepublish'/);
   assert.doesNotMatch(launcher, /Get-FileHash[^\r\n]+\$sourcePackage/);
 });
