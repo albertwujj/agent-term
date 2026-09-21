@@ -9,7 +9,7 @@ Ask your agent to write the plan to a markdown file, then click its name, and th
 
 <p align="center">
 <img src="assets/viewer-window.png" alt="AgentTerm window with an illustrated two-page document, an agent reply beside the revised heading, and the terminal conversation below">
-<br><strong>Work on documents with your agent, in the same terminal window.</strong>
+<br><strong>Work on a document right in the terminal.</strong>
 </p>
 
 Click anywhere, and the bottom bar hints at the actions available there.
