@@ -1,8 +1,10 @@
 <a name="agentterm"></a>
 
-## Quick start
+<a name="quick-start"></a>
 
-For macOS and Windows with WSL. Ask your coding agent:
+**Quick start — ask your agent**
+
+For macOS and Windows with WSL. Copy this prompt:
 
 ```text
 Clone https://github.com/albertwujj/agent-term to ~/agent-term, then set it
@@ -18,15 +20,15 @@ Once it opens, start or resume your usual agent, select something in its output,
 
 **From telling sessions apart to the finished project.**
 
-Explore a section of the GIF below: [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
-
 <a id="demo"></a>
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo.gif)
 
+*Drill down into an example from the frames above:* [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
+
 ## Why a terminal, and why this shape
 
-The landscape this repo is in. Skip to [what's added so far](#whats-added-so-far) if you want to get straight to it.
+The landscape this repo is in. Skip to [what's added so far](#whats-added-so-far) if you want to get straight to AgentTerm.
 
 ### The terminal path
 
@@ -58,7 +60,7 @@ Use it as is first, a boost for working with your agents; what you need may alre
 
 ## What's added so far
 
-Below are examples, all on the same terminal. Follow the links to revisit the demos and explore features not shown in the [GIF](#demo).
+Below are just examples. Follow the links to explore more features.
 
 | In a plain terminal | In AgentTerm |
 |---|---|
