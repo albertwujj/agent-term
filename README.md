@@ -24,11 +24,11 @@ Once it opens, start or resume your usual agent, select something in its output,
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo.gif)
 
-*Drill down into an example from the frames above:* [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
+*Drill down into an example shown in the frames above:* [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
 
 ## Why a terminal, and why this shape
 
-The landscape this repo is in. Skip to [what's added so far](#whats-added-so-far) if you want to get straight to AgentTerm.
+The landscape this repo is in. You can skip ahead to [what AgentTerm adds](#whats-added-so-far).
 
 ### The terminal path
 
