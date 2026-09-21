@@ -1,5 +1,17 @@
 <a name="agentterm"></a>
 
+# AgentTerm: A terminal built for coding agents
+
+**From telling sessions apart to the finished project.**
+
+<a id="demo"></a>
+
+*The demo plays automatically; the first frame may take a moment.*
+
+![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo.gif)
+
+*Drill down into an example shown in the frames above:* [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
+
 <a name="quick-start"></a>
 
 **Quick start:** ask your agent
@@ -15,18 +27,6 @@ docs/setup.md.
 Click [docs/setup.md](docs/setup.md) if you want to read it.
 
 Once it opens, start or resume your usual agent, select something in its output, and write a [comment](docs/comment.md).
-
-# AgentTerm: A terminal built for coding agents
-
-**From telling sessions apart to the finished project.**
-
-<a id="demo"></a>
-
-*The demo plays automatically; the first frame may take a moment.*
-
-![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo.gif)
-
-*Drill down into an example shown in the frames above:* [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
 
 ## Why a terminal, and why this shape
 
