@@ -77,7 +77,7 @@ Below are just examples. Follow the links to explore more features.
 
 ## Where to go next
 
-The first start gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
+The [first start](#quick-start) gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
 
 The rest are the [optional suite](docs/suite.md): [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
 
