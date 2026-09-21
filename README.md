@@ -28,7 +28,7 @@ docs/setup.md.
 
 Read [docs/setup.md](docs/setup.md), the guide referenced in the prompt above.
 
-Once it opens, [start or resume](docs/sessions.md#start-or-resume-a-session) your usual agent, select something in its output, and write a [comment](docs/comment.md).
+Once it opens, [start your usual agent](docs/sessions.md#start-an-agent) or [resume an existing CLI session](docs/sessions.md#resume-an-existing-cli-session), then select something in its output and write a [comment](docs/comment.md).
 
 ## Why a terminal, and why this shape
 
