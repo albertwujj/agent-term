@@ -2,9 +2,9 @@
 
 <a name="quick-start"></a>
 
-**Quick start — ask your agent**
+**Quick start:** ask your agent
 
-For macOS and Windows with WSL. Copy this prompt:
+Copy this prompt:
 
 ```text
 Clone https://github.com/albertwujj/agent-term to ~/agent-term, then set it
