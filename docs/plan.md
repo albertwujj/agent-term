@@ -7,6 +7,11 @@
 
 Ask your agent to write the plan to a markdown file, then click its name, and the doc opens rendered in the viewer above the prompt ([what a click does](clicks.md)). The viewer turns markdown into a place you write English. A doc opens rendered and shows both your proposals and how the agent applies them: you [comment on any passage](comment.md) or edit the rendered text directly, and the agent processes and polishes. You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
 
+<p align="center">
+<img src="assets/viewer-window.png" alt="AgentTerm window with an illustrated two-page document, an agent reply beside the revised heading, and the terminal conversation below">
+<br><strong>Work on documents with your agent, in the same terminal window.</strong>
+</p>
+
 Click anywhere, and the bottom bar hints at the actions available there.
 
 <p align="center">

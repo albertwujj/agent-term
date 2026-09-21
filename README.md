@@ -42,6 +42,11 @@ So why do people still run agents in the IDE, and why are the vendors adding the
 
 Extending it on demand is what keeps it a terminal. Additions come in only when you need them, and the window is a terminal again the moment you finish. An IDE or a vendor's desktop app has its panels up before you type, which can distract. Here the window is your session alone, shaped only by the work you do in it, and full screen if you like, with nothing else in view ([one OS window per session](#one-os-window-per-session)).
 
+<p align="center">
+<img src="docs/assets/viewer-window.png" alt="AgentTerm window with an illustrated two-page document, an agent reply beside the revised heading, and the terminal conversation below">
+<br><strong>Work on documents with your agent, in the same terminal window.</strong>
+</p>
+
 A vendor's desktop app holds that vendor's agents and only those, and pulls you away from your shell. Here the agent can be of any kind, right in your shell, like a plain terminal.
 
 Some other terminals have gone the vendors' way and grown an agent of their own, with ways to run many at once, including in the cloud; to get their environment, you take their agent. In this one, nothing about working with your agent changes.
