@@ -1,6 +1,7 @@
 <a name="agentterm"></a>
+<a name="agentterm-a-terminal-built-for-coding-agents"></a>
 
-# AgentTerm: A terminal built for coding agents
+# AgentTerm: A super terminal for coding agents
 
 **From telling sessions apart to the finished project.**
 
@@ -10,7 +11,7 @@
 
 ![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo.gif)
 
-*Drill down into an example shown in the frames above:* [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
+*Drill into an example shown in the frames above:* [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
 
 <a name="quick-start"></a>
 
