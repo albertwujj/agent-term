@@ -1,4 +1,5 @@
 const { smartCopyText, stripLine, displayWidth } = require('../src/smart-copy');
+const quotedCopy = require('./fixtures/quoted-copy.json');
 
 let passed = 0;
 let failed = 0;
@@ -63,6 +64,38 @@ test('codex bullets mark paragraphs; › marks the prompt', () => {
     '• Kept the example.',
   ].join('\n');
   assertEqual(smartCopyText(raw), 'make it shorter\n\nTrimmed the intro to two sentences.\nKept the example.');
+});
+
+test('the quoted stream-hub reply copies as two paragraphs without viewport breaks', () => {
+  assertEqual(smartCopyText(quotedCopy.lines.join('\n'), { cols: quotedCopy.cols }),
+    quotedCopy.paragraphs.join('\n\n'));
+});
+
+test('a quote selection can begin after its first prefix or in the middle of a row', () => {
+  for (const startColumn of [3, 4, 45]) {
+    const lines = [...quotedCopy.lines];
+    lines[0] = lines[0].slice(startColumn);
+    assertEqual(smartCopyText(lines.join('\n'), { cols: quotedCopy.cols, startColumn }),
+      quotedCopy.paragraphs.join('\n\n').slice(Math.max(0, startColumn - 4)));
+  }
+});
+
+test('short quoted lines keep deliberate breaks', () => {
+  assertEqual(smartCopyText('  > Done.\n  > Next: run tests.', { cols: 80 }), 'Done.\nNext: run tests.');
+});
+
+test('a new quote or a change in quote depth starts its own line', () => {
+  const text = 'word '.repeat(14) + 'end';
+  for (const [before, after] of [['  ', '  > '], ['  > ', '  > > '], ['  >> ', '  > ']]) {
+    assertEqual(smartCopyText(`${before}${text}\n${after}next`, { cols: 80 }), `${text}\nnext`);
+  }
+  assertEqual(smartCopyText(`  >> ${text}\n  > > next`, { cols: 80 }), `${text} next`);
+});
+
+test('quoted list items and message markers keep their breaks; wrapped items rejoin', () => {
+  const text = 'word '.repeat(14) + 'end';
+  const raw = `  > - ${text}\n  >   continued\n  > - next item\n  > • next message`;
+  assertEqual(smartCopyText(raw, { cols: 80 }), `- ${text} continued\n- next item\nnext message`);
 });
 
 test('box borders strip without breaking the line; edges vanish', () => {

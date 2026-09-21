@@ -14,8 +14,8 @@
 //
 // Glyphs. Only what a CLI draws as gutter goes, and only at a line's edges:
 // the marks before a message or a tool result (⏺ ⎿ • ◦ ● ▪ ▸ › ❯ ✻ ✦ and
-// spinner frames), the > before an echoed prompt, box borders, and a trailing
-// key hint such as "(ctrl+o to expand)". Symbols in the text stay: a leading
+// spinner frames), the > before a quote or echoed prompt, box borders, and a
+// trailing key hint such as "(ctrl+o to expand)". Symbols in the text stay: a leading
 // ✅ or → or ⚠ is the agent's, a │ between table cells is the table's. ASCII
 // | and + are text: a markdown or psql table pasted whole is still a table,
 // stripped on one side it is nothing.
@@ -41,8 +41,10 @@
 // line, whose left edge is wherever the selection began. Whitespace inside a
 // line is untouched. A line that starts with a gutter mark or a list marker
 // (- * 1.) starts its own line whatever the line before it did: that is how
-// each CLI begins a message, a tool result or an item. A blank line stays a
-// blank line; a rule or a box edge on its own becomes one; a table rule
+// each CLI begins a message, a tool result or an item. Repeated > prefixes at
+// the same quote depth can continue a wrapped line; a new quote or a change
+// in depth starts a line. A blank line stays a blank line; a rule or a box
+// edge on its own becomes one; a table rule
 // (a line of rule glyphs with a junction in it) vanishes, so the rows of a
 // table stay together.
 
@@ -56,7 +58,8 @@ const MARK = '\\u23FA\\u23BF\\u2022\\u203A\\u2726\\u25CF\\u25E6\\u25AA\\u25B8\\u
 
 const LEADING_SPACE = /^[ \t]+/;
 const LEADING_BORDER = new RegExp(`^[${BORDER}]+`, 'u');
-const LEADING_MARK = new RegExp(`^[${MARK}>]+`, 'u');
+const LEADING_MARK = new RegExp(`^[${MARK}]+`, 'u');
+const LEADING_QUOTE = /^>+/;
 const TRAILING_BORDER = new RegExp(`[${BORDER}]+$`, 'u');
 // A box-drawn table rule: nothing but rule glyphs, with a junction (├ ┤ ┬ ┴
 // ┼ and their double-line forms) among them.
@@ -92,20 +95,24 @@ function displayWidth(s) {
 //   indent      the column its content begins at
 //   edge        the column it ends at (trailing border and padding excluded)
 //   marked      it began with a gutter mark
-//   startsLine  it begins a line of its own in the output (a mark or a list item)
+//   quoteDepth  the number of > prefixes, which can repeat on wrapped rows
+//   startsLine  it begins a line of its own (a message mark or a list item)
 //   firstWord   the width of its first word, for the join test
 //   lastWord    its last word, for the mid-path test
 function stripLine(line) {
   let rest = String(line);
   let indent = 0;
-  let marked = false;
+  let startsMessage = false;
+  let quoteDepth = 0;
   for (;;) {
     let m = LEADING_SPACE.exec(rest);
     if (m) { indent += m[0].length; rest = rest.slice(m[0].length); continue; }
     m = LEADING_BORDER.exec(rest);
     if (m) { indent += displayWidth(m[0]); rest = rest.slice(m[0].length); continue; }
     m = LEADING_MARK.exec(rest);
-    if (m) { indent += displayWidth(m[0]); rest = rest.slice(m[0].length); marked = true; continue; }
+    if (m) { indent += displayWidth(m[0]); rest = rest.slice(m[0].length); startsMessage = true; continue; }
+    m = LEADING_QUOTE.exec(rest);
+    if (m) { indent += m[0].length; rest = rest.slice(m[0].length); quoteDepth += m[0].length; continue; }
     break;
   }
   const text = rest.replace(/\s+$/, '').replace(TRAILING_BORDER, '').replace(/\s+$/, '').replace(KEY_HINT, '');
@@ -117,8 +124,9 @@ function stripLine(line) {
     kind,
     indent,
     edge: indent + displayWidth(text),
-    marked,
-    startsLine: marked || LIST_ITEM.test(text),
+    marked: startsMessage || quoteDepth > 0,
+    quoteDepth,
+    startsLine: startsMessage || LIST_ITEM.test(text),
     firstWord: displayWidth(words[0]),
     lastWord: words[words.length - 1],
   };
@@ -164,7 +172,12 @@ function smartCopyText(raw, { cols, startColumn = 0 } = {}) {
     // its first word against.
     let last = null;
     block.forEach((row, n) => {
-      const joins = last && !row.startsLine && wrapped && last.edge + 1 + row.firstWord > wrapColumn;
+      // A quote repeats its prefix on wrapped rows. The selection may start
+      // after the first prefix (including its padding), leaving no visible >.
+      const continuesQuote = last && row.quoteDepth > 0 && (row.quoteDepth === last.quoteDepth
+        || (first && n === 1 && !last.marked && startColumn > 0 && last.indent >= row.indent));
+      const startsLine = row.startsLine || (row.quoteDepth > 0 && !continuesQuote);
+      const joins = last && !startsLine && wrapped && last.edge + 1 + row.firstWord > wrapColumn;
       if (joins) {
         // Filled to the last column and ending mid-path: broken by character.
         const glue = last.edge === wrapColumn && /\//.test(last.lastWord) ? '' : ' ';

@@ -1,0 +1,15 @@
+{
+  "cols": 132,
+  "lines": [
+    "  > I’ve thought about adding a messaging channel through the stream hub—the relay behind the phone viewer—for this. I haven’t",
+    "  > built it yet. So far, I mostly copy or rephrase things between agents myself. For example, if I hit an AgentTerm bug during",
+    "  > other work, I take it to a separate session so the original conversation stays focused.",
+    "  >",
+    "  > What kinds of work do you have Codex and Claude hand off to each other? A concrete example would help me think through what",
+    "  > that channel should support."
+  ],
+  "paragraphs": [
+    "I’ve thought about adding a messaging channel through the stream hub—the relay behind the phone viewer—for this. I haven’t built it yet. So far, I mostly copy or rephrase things between agents myself. For example, if I hit an AgentTerm bug during other work, I take it to a separate session so the original conversation stays focused.",
+    "What kinds of work do you have Codex and Claude hand off to each other? A concrete example would help me think through what that channel should support."
+  ]
+}
