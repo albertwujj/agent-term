@@ -4390,7 +4390,7 @@ function createMarkdownViewer({
     card.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      openQueuedMarkdownCommentForEdit(comment);
+      openQueuedMarkdownCommentForEdit(comment, card);
     });
     card.addEventListener('dblclick', (event) => event.stopPropagation());
     return card;
@@ -6897,8 +6897,17 @@ function createMarkdownViewer({
     return true;
   }
 
-  function openQueuedMarkdownCommentForEdit(comment) {
+  function openQueuedMarkdownCommentForEdit(comment, mark) {
     if (!comment || !comment.target) return false;
+
+    // Resizing or paging can reveal the mark in the other article copy. Seat
+    // the composer in the clicked copy, not the saved authoring pane (which
+    // may now clip it entirely and leave only its blank spacer in view).
+    // Capture the pane before removing the marks detaches the clicked one.
+    const pane = isInSecondaryPane(mark) ? 'right' : 'left';
+    const article = pane === 'right' ? state.secondaryArticle : state.article;
+    const target = getArticleAnchorById(article, comment.anchorId);
+    if (!target) return false;
 
     if (getActiveMarkdownCommentText()) {
       queueActiveMarkdownCommentDraft();
@@ -6912,12 +6921,16 @@ function createMarkdownViewer({
 
     state.queuedComments.splice(queueIndex, 1);
     removeQueuedMarkdownCommentCard(comment);
+    // Keep the selection's seating pane and later requeue/Escape restoration
+    // consistent with the new target; its text and anchor offsets stay intact.
+    comment.target = target;
+    comment.pane = pane;
 
     clearActiveTarget();
     clearLandingTarget();
     comment.target.classList.add('md-comment-target-active');
     state.activeTarget = comment.target;
-    state.activeTargetPane = comment.pane || (isInSecondaryPane(comment.target) ? 'right' : 'left');
+    state.activeTargetPane = pane;
     state.activeSelection = isMarkdownSelectionKind(comment.targetKind) ? comment : null;
     syncCopyLabel();
     return openCommentCard(comment.comment, {
