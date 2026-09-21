@@ -26,7 +26,7 @@ up and launch it for my current project, following the basic setup in its
 docs/setup.md.
 ```
 
-Click [docs/setup.md](docs/setup.md) if you want to read it.
+Read [docs/setup.md](docs/setup.md), the guide referenced in the prompt above.
 
 Once it opens, start or resume your usual agent, select something in its output, and write a [comment](docs/comment.md).
 
