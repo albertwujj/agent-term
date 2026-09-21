@@ -1,7 +1,8 @@
 <a name="agentterm"></a>
 <a name="agentterm-a-terminal-built-for-coding-agents"></a>
+<a name="agentterm-a-super-terminal-for-coding-agents"></a>
 
-# AgentTerm: A super terminal for coding agents
+# AgentTerm: A super terminal for you and your coding agents
 
 **From telling sessions apart to the finished project.**
 
