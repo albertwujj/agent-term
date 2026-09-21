@@ -4,7 +4,7 @@
 
 # AgentTerm: A super terminal for you and your coding agents
 
-**From telling sessions apart to the finished project.**
+**From telling sessions apart to finishing projects.**
 
 <a id="demo"></a>
 
