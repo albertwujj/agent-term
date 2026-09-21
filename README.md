@@ -56,7 +56,9 @@ This path can look hacky: the host parses text, and reacts to it. But establishe
 
 With a host that understands its agents, and agents that understand the host, a capable agent does more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. This terminal responds to the reference an agent calls out and opens it inside the window, rendered, for you to read, comment on, and edit, and agents can see and update it through their protocol with the host.
 
-### Make it fit
+<a name="make-it-fit"></a>
+
+### Extend it
 
 You and your agents can change and extend this terminal, down to its code, to fit your work and your team's.
 
