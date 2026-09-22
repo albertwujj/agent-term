@@ -44,7 +44,7 @@ Extending it on demand is what keeps it a terminal. Additions come in only when 
 
 <p align="center">
 <img src="docs/assets/viewer-window.png" alt="AgentTerm window with an illustrated two-page document, an agent reply beside the revised heading, and the terminal conversation below">
-<br><strong>Work on a document right in the terminal.</strong>
+<br><strong>Work on a document right in the terminal.</strong> It expands when you need it and shrinks when you are done.
 </p>
 
 A vendor's desktop app holds that vendor's agents and only those, and pulls you away from your shell. Here the agent can be of any kind, right in your shell, like a plain terminal.
