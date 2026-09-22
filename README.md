@@ -16,7 +16,7 @@
 
 <a name="quick-start"></a>
 
-**Quick start:** ask your agent
+**Quick start:** ask your agent. macOS, or Windows through WSL.
 
 Copy this prompt:
 
