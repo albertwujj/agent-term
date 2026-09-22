@@ -69,7 +69,7 @@ You and your agents can change and extend this terminal, down to its code, to fi
 
 Use it and explore first; what you need may already be there. When you find something is indeed missing while you work, you are best placed to evaluate and fill the gap, with the scenario right in front of you.
 
-This terminal makes that quick: it is already a better tool for working with your agents, especially for fixing itself. [Change its source](docs/dev/development.md), and the next window you open has your improvement in it.
+This terminal makes that quick: it is already a better tool for working with your agents, including the work to fix itself. [Change its source](docs/dev/development.md), and the next window you open has your improvement in it.
 
 ## What's added so far
 
