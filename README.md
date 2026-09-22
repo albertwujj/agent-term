@@ -30,7 +30,7 @@ Read [docs/setup.md](docs/setup.md), the reference in the prompt above.
 
 Once it opens, [start your usual agent](docs/sessions.md#start-an-agent) or [resume an existing CLI session](docs/sessions.md#resume-an-existing-cli-session), then double-click to select a word and enter a [comment](docs/comment.md).
 
-## Why keep the terminal at the center
+## Why the terminal
 
 If you are a terminal fan and want to get straight to it, skip ahead to [what AgentTerm adds](#whats-added-so-far).
 
