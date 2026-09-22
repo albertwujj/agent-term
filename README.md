@@ -67,7 +67,7 @@ With a host that understands its agents, and agents that understand the host, a 
 
 You and your agents can change and extend this terminal, down to its code, to fit your work and your team's.
 
-Use it as is first, a boost for working with your agents; what you need may already be there. When something is missing, add it with your agents: the gap is in front of you and the agents, who are in a good position to evaluate it and build the addition. And with the features listed below, agents run better when you build with them.
+Use it as is first; what you need may already be there. When something is missing, you are best placed to add it, since the gap shows up in your own work. This terminal makes that quick: it is already a better tool for working with your agents, including work on itself, and it [runs from source](docs/dev/development.md) on your machine, so the next window you open runs your change.
 
 ## What's added so far
 
