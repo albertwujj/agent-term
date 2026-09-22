@@ -61,7 +61,7 @@ With a host that understands its agents, and agents that understand the host, a 
 
 <a name="make-it-fit"></a>
 
-### Extend it
+### Extend it further
 
 You and your agents can change and extend this terminal, down to its code, to fit your work and your team's.
 
