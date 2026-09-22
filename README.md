@@ -32,7 +32,7 @@ Once it opens, [start your usual agent](docs/sessions.md#start-an-agent) or [res
 
 ## Why keep the terminal at the center
 
-The landscape this repo is in. You can skip ahead to [what AgentTerm adds](#whats-added-so-far).
+If you are a terminal fan and want to get straight to it, skip ahead to [what AgentTerm adds](#whats-added-so-far).
 
 ### The terminal path
 
