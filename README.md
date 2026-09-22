@@ -30,7 +30,7 @@ Read [docs/setup.md](docs/setup.md), the guide referenced in the prompt above.
 
 Once it opens, [start your usual agent](docs/sessions.md#start-an-agent) or [resume an existing CLI session](docs/sessions.md#resume-an-existing-cli-session), then select something in the terminal and enter a [comment](docs/comment.md).
 
-## Why build on a terminal
+## Why keep the terminal at the center
 
 The landscape this repo is in. You can skip ahead to [what AgentTerm adds](#whats-added-so-far).
 
