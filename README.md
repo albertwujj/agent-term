@@ -47,7 +47,7 @@ Extending it on demand is what keeps it a terminal. Additions come in only when 
 <br><strong>Work on a document right in the terminal.</strong> The document area expands and closes with the work.
 </p>
 
-A vendor's desktop app holds that vendor's agents and only those, and pulls you away from your shell. Here the agent can be of any kind, right in your shell, like a plain terminal.
+A vendor's desktop app supports that vendor's agents and only those, and pulls you away from your shell. Here the agent can be of any kind, right in your shell, like a plain terminal.
 
 Some other terminals have gone the vendors' way and built in an agent of their own, with ways to run many at once, including in the cloud; to get their environment, you take their agent. In this one, nothing about working with your agent changes.
 
@@ -57,7 +57,7 @@ Why not tmux, or one manager app over every session? This terminal takes the opp
 
 ### A stable interface between agent and terminal
 
-This path can look hacky: the host parses text, and reacts to it. But established text patterns are a stable interface, and a helpful output style sticks around. An agent's intentions arrive in those patterns through every turn, so the parsers keep working. It holds from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles the agents use intuitively. Extending it is quick when something new shows up, and none of it is tied to a vendor SDK or API.
+This path can look hacky: the host parses text, and reacts to it. But established text patterns are a stable interface, and a helpful output style sticks around. An agent's intentions arrive in those patterns through every turn, so the parsers keep working. It works from both sides: guide files instruct the agents to print what the host understands, and the parser tracks the natural output styles the agents use intuitively. Extending it is quick when something new shows up, and none of it is tied to a vendor SDK or API.
 
 With a host that understands its agents, and agents that understand the host, a capable agent does more than its CLI can alone. A CLI does not own the window, so when Claude Code publishes a design mock it can only print the URL and go around the terminal, opening your browser on it. This terminal responds to the reference an agent calls out and opens it inside the window, rendered, for you to read, comment on, and edit, and agents can see and update it through their protocol with the host.
 
