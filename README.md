@@ -26,9 +26,9 @@ up and launch it for my current project, following the basic setup in its
 docs/setup.md.
 ```
 
-Read [docs/setup.md](docs/setup.md), the guide referenced in the prompt above.
+Read [docs/setup.md](docs/setup.md), the reference in the prompt above.
 
-Once it opens, [start your usual agent](docs/sessions.md#start-an-agent) or [resume an existing CLI session](docs/sessions.md#resume-an-existing-cli-session), then select something in the terminal and enter a [comment](docs/comment.md).
+Once it opens, [start your usual agent](docs/sessions.md#start-an-agent) or [resume an existing CLI session](docs/sessions.md#resume-an-existing-cli-session), then double-click to select a word and enter a [comment](docs/comment.md).
 
 ## Why keep the terminal at the center
 
