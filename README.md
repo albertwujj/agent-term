@@ -34,7 +34,7 @@ Once it opens, [start your usual agent](docs/sessions.md#start-an-agent) or [res
 
 If you are a terminal fan and want to get straight to it, skip ahead to [what AgentTerm adds](#whats-added-so-far).
 
-### The terminal path
+### Choosing the terminal
 
 People run coding agents in an IDE, in the terminal, or in the vendor's desktop app. The terminal keeps pulling them in: Claude Code and Codex shipped as terminal programs, and Cursor and Copilot, born in the IDE, added CLIs of their own. A form from decades ago turned out to have what an agent needs: text in, text out, and your shell, git, and every other tool one command away.
 
