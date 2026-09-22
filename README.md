@@ -30,7 +30,7 @@ Read [docs/setup.md](docs/setup.md), the guide referenced in the prompt above.
 
 Once it opens, [start your usual agent](docs/sessions.md#start-an-agent) or [resume an existing CLI session](docs/sessions.md#resume-an-existing-cli-session), then select something in the terminal and enter a [comment](docs/comment.md).
 
-## Why a terminal, and why this shape
+## Why build on a terminal
 
 The landscape this repo is in. You can skip ahead to [what AgentTerm adds](#whats-added-so-far).
 
@@ -44,7 +44,7 @@ Extending it on demand is what keeps it a terminal. Additions come in only when 
 
 <p align="center">
 <img src="docs/assets/viewer-window.png" alt="AgentTerm window with an illustrated two-page document, an agent reply beside the revised heading, and the terminal conversation below">
-<br><strong>Work on a document right in the terminal.</strong> The document area expands and closes with the work.
+<br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts.
 </p>
 
 A vendor's desktop app supports that vendor's agents and only those, and pulls you away from your shell. Here the agent can be of any kind, right in your shell, like a plain terminal.
