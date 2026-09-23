@@ -28,7 +28,7 @@ docs/setup.md.
 
 Read [docs/setup.md](docs/setup.md), the reference in the prompt above.
 
-Once it opens, [resume an existing CLI session](docs/sessions.md#resume-an-existing-cli-session) or [start your usual agent](docs/sessions.md#start-an-agent), and let it work a turn; then double-click a word it printed and enter a [comment](docs/comment.md).
+Once it opens, [resume an existing session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual. When you want to give precise feedback or ask a question, double-click a word, triple-click a line, or drag over exactly what you mean, and enter a [comment](docs/comment.md).
 
 ## Why extend the terminal
 
