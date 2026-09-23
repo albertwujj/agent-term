@@ -38,6 +38,17 @@ class DirectiveGrammar(unittest.TestCase):
         self.assertIsNone(review._DIRECTIVE_HEAD.match("::: code a.py L1-2"))
 
 
+class SplitDiffLayout(unittest.TestCase):
+    def test_hunk_header_spans_both_diff_sides(self):
+        rendered = review.render_split(
+            "@@ -1 +1 @@ example", [("ctx", 1, 1, "line")])
+
+        self.assertIn(
+            '<tr class="hh"><td class="code" colspan="4">@@ -1 +1 @@ example</td></tr>',
+            rendered)
+        self.assertNotIn('<tr class="hh"><td class="ln">', rendered)
+
+
 class DirectiveErrors(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -87,6 +98,22 @@ class DirectiveErrors(unittest.TestCase):
         self.assertNotIn('class="rv-banner rv-errors"', page)
         self.assertNotIn('data-rv-regen="errors"', page)
         self.assertFalse(self.errors_file.exists())
+        self.assertEqual(err.strip(), "")
+
+    def test_ranged_diff_does_not_repeat_path_and_range_inside_table(self):
+        page, err = self.render(":::diff a.py L8-8\n")
+
+        self.assertIn('<span class="stat">L8-8</span>', page)
+        self.assertNotIn("a.py @ L8-8", page)
+        self.assertNotIn('<tr class="hh">', page)
+        self.assertEqual(err.strip(), "")
+
+    def test_whole_file_diff_hunk_header_uses_full_table_width(self):
+        page, err = self.render(":::diff a.py\n")
+
+        self.assertRegex(
+            page,
+            r'<tr class="hh"><td class="code" colspan="4">@@ [^<]+</td></tr>')
         self.assertEqual(err.strip(), "")
 
 

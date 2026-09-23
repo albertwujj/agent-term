@@ -307,8 +307,10 @@ def _side(rec, side):
 
 
 def render_split(header, recs):
-    rows = [f'<tr class="hh"><td class="ln"></td><td class="code">{html.escape(header)}</td>'
-            f'<td class="ln"></td><td class="code">&nbsp;</td></tr>']
+    rows = []
+    if header:
+        rows.append(
+            f'<tr class="hh"><td class="code" colspan="4">{html.escape(header)}</td></tr>')
     i, n = 0, len(recs)
     while i < n:
         kind, old, new, code = recs[i]
@@ -621,7 +623,9 @@ def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
             out.append(f'<div class="why muted">(no changed lines in L{lo}-{hi})</div></section>')
             return "\n".join(out)
         _index_recs(index, path, recs)
-        out.append(f'<div class="diff">{render_split(f"{path} @ L{lo}-{hi}", recs)}</div>')
+        # The card heading already identifies this exact path and range. Repeating
+        # that label inside the diff adds no information and consumes a row.
+        out.append(f'<div class="diff">{render_split(None, recs)}</div>')
     else:
         for h in hunks:
             header, recs = parse_hunk(h, lang, seeds)
