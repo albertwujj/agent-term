@@ -28,7 +28,7 @@ docs/setup.md.
 
 Read [docs/setup.md](docs/setup.md), the reference in the prompt above.
 
-Once it opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual. When you want to give precise feedback or ask a question, select what you mean and enter a [comment](docs/comment.md).
+Once it opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual. When you want to give precise feedback or ask a question, select and enter a [comment](docs/comment.md).
 
 ## Why extend the terminal
 
