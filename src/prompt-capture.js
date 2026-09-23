@@ -28,8 +28,12 @@
 //      (@dir/file, @file.md), prose containing mentions, and pastes still
 //      count. A renderer snapshot can recover the completed @ token on
 //      the later submission, but only on the same prompt row as its
-//      typed query (prompt-completion.js). Suggestions/output never seed
-//      a separate collection of session files.
+//      typed query (prompt-completion.js). A Tab accepts a completion
+//      without clearing the line, so the query it handed over stays in
+//      these bytes: when the snapshot cannot name what replaced it, that
+//      query is dropped rather than submitted fused to the word typed
+//      after it. Suggestions/output never seed a separate collection of
+//      session files.
 //      A typed "/resume" opens the CLI's resume dialog, where the user may
 //      type a search filter and then presses Enter to pick. That Enter is
 //      the pick, never a prompt, whatever the filter's length, so it is
@@ -70,7 +74,9 @@ const ESC = '\x1b';
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
 const MIN_TYPED_PROMPT_LEN = 4;   // chars; below this a typed line is a dialog answer, not a prompt
-const { beginMentionCompletion, recoverMentionCompletion } = require('./prompt-completion');
+const {
+  beginMentionCompletion, recoverMentionCompletion, mentionTokenAt, dropUnrecoveredMentions,
+} = require('./prompt-completion');
 
 function isPrintable(charCode) {
   // printable ASCII + extended (Latin-1, common for AI CLI prompts).
@@ -101,6 +107,11 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
   // is a prompt: it is the dialog's search filter.
   let inResumeDialog = false;
   let mentionCompletion = null;
+  // The @ queries a Tab handed to the picker, oldest first. A Tab accepts a
+  // completion without clearing the line, so these bytes stay in the buffer
+  // while the CLI shows the path it put in their place. Kept even when no
+  // anchor row could be read, since the expansion happens either way.
+  let tabbedMentions = [];
 
   function emitShellCommand(text) {
     if (typeof onShellCommand !== 'function') return;
@@ -115,6 +126,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
     cursor = 0;
     hadPaste = false;
     mentionCompletion = null;
+    tabbedMentions = [];
   }
 
   function insert(text) {
@@ -181,14 +193,16 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
     }
   }
 
-  function emit(text) {
+  // `mentions` reports what the @-completion path did with this prompt, for
+  // the log: null unless a Tab handed a query to the picker.
+  function emit(text, mentions = null) {
     if (locked) return;
     const trimmed = text.replace(/\r/g, '').trimEnd();
     if (trimmed.length === 0) return;
     reset();
     pasteBuf = '';
     inPaste = false;
-    if (typeof onPrompt === 'function') onPrompt(trimmed);
+    if (typeof onPrompt === 'function') onPrompt(trimmed, mentions);
   }
 
   function notifyCliStarted() {
@@ -295,7 +309,16 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
         const tabCompletedQuery = mentionCompletion?.typedPrefix === buf && buf.length > 0;
         const recovered = cliStarted && !inResumeDialog
           ? recoverMentionCompletion(buf, mentionCompletion, promptSnapshot) : null;
+        let mentions = tabbedMentions.length ? { recovered: recovered !== null, dropped: [] } : null;
         if (recovered !== null) { buf = recovered; cursor = buf.length; }
+        else if (cliStarted && !inResumeDialog) {
+          // No path to put in their place: drop the queries a Tab left behind
+          // rather than submit them fused to the words typed after them.
+          const cleaned = dropUnrecoveredMentions(buf, tabbedMentions, promptSnapshot);
+          buf = cleaned.text;
+          cursor = Math.min(cursor, buf.length);
+          if (mentions) mentions.dropped = cleaned.dropped;
+        }
         const trimmed = buf.trim();
         // The Enter after a typed /resume is the pick in the resume dialog,
         // with the search filter (of any length) in the buffer, or nothing
@@ -330,7 +353,7 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
             i++;
             continue;
           }
-          emit(buf);
+          emit(buf, mentions);
           return;
         }
         // Pre-cliStarted Enter with content = a shell command. Surface it so
@@ -394,6 +417,8 @@ function createPromptCapture({ onPrompt, onShellCommand } = {}) {
           const recovered = recoverMentionCompletion(buf, mentionCompletion, promptSnapshot);
           mentionCompletion = beginMentionCompletion(recovered || buf, promptSnapshot, true);
           if (mentionCompletion) mentionCompletion.typedPrefix = buf;
+          const token = mentionTokenAt(buf);
+          if (token) tabbedMentions.push(token);
         }
         i++;
         continue;

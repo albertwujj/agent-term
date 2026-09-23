@@ -51,9 +51,18 @@ function promptRows(snapshot) {
   return rows;
 }
 
-function beginMentionCompletion(typed, snapshot, retainedQuery = false) {
+// The @ token a Tab or an Enter hands to the picker: the text in front of it,
+// and the query itself. The CLI expands the token in place, so from that key
+// on the bytes held for it are the query, not what the user submitted.
+function mentionTokenAt(typed) {
   const query = /(^|\s)@([^\s@]+)$/.exec(typed);
   if (!query) return null;
+  return { before: typed.slice(0, query.index + query[1].length), query: query[2] };
+}
+
+function beginMentionCompletion(typed, snapshot, retainedQuery = false) {
+  const token = mentionTokenAt(typed);
+  if (!token) return null;
   const rows = promptRows(snapshot);
   const matches = rows.filter(row => normalize(row.text) === normalize(typed));
   if (matches.length !== 1) return null;
@@ -63,8 +72,8 @@ function beginMentionCompletion(typed, snapshot, retainedQuery = false) {
   if (rows.filter(row => row.prefix === anchor.prefix).at(-1) !== anchor) return null;
   return {
     type: snapshot.type, row: anchor.row, prefix: anchor.prefix,
-    before: typed.slice(0, query.index + query[1].length),
-    query: query[2], typedPrefix: retainedQuery ? typed : '',
+    before: token.before, query: token.query,
+    typedPrefix: retainedQuery ? typed : '',
   };
 }
 
@@ -106,4 +115,35 @@ function recoverMentionCompletion(typed, completion, snapshot) {
     (after && !/^\s/.test(after) ? ' ' : '') + after;
 }
 
-module.exports = { readPromptSnapshot, beginMentionCompletion, recoverMentionCompletion };
+// The fallback for a Tab whose completion recoverMentionCompletion could not
+// read: no snapshot to sample, a composer that moved, evidence an edit
+// dropped. Only the query reached these bytes, and the CLI has since replaced
+// it, so it is removed instead of being left glued to the word typed after
+// it — those words are the user's and stand on their own. Held bytes the
+// composer still shows are kept whole: a Tab that completed nothing changed
+// neither the screen nor the prompt. Returns the text to submit and the
+// queries taken out of it, which the log names so the rate this path runs at
+// is visible.
+function dropUnrecoveredMentions(typed, tokens, snapshot) {
+  const dropped = [];
+  if (!Array.isArray(tokens) || tokens.length === 0) return { text: typed, dropped };
+  const shown = promptRows(snapshot).map(row => normalize(row.text)).filter(Boolean);
+  if (shown.some(text => normalize(typed).startsWith(text))) return { text: typed, dropped };
+  let text = typed;
+  for (const token of [...tokens].reverse()) {
+    const held = token.before + '@' + token.query;
+    if (!text.startsWith(held)) continue;
+    const rest = text.slice(held.length);
+    // Nothing followed the token: it is the whole prompt, which the bare-query
+    // path already declines to name a session after.
+    if (!rest.trim()) continue;
+    text = token.before + rest.replace(/^[ \t]+/, '');
+    dropped.unshift('@' + token.query);
+  }
+  return { text, dropped };
+}
+
+module.exports = {
+  readPromptSnapshot, beginMentionCompletion, recoverMentionCompletion,
+  mentionTokenAt, dropUnrecoveredMentions,
+};

@@ -1503,7 +1503,7 @@ function renderIdentityIconAndTitle() {
   }
 }
 
-function onPromptCaptured(promptText) {
+function onPromptCaptured(promptText, mentions = null) {
   if (typeof promptText !== 'string' || !promptText) return;
   const isFirst = !firstPrompt;
   lastPromptTime = Date.now();
@@ -1514,6 +1514,17 @@ function onPromptCaptured(promptText) {
     sessionsLog.appendEvent(app.getPath('userData'), {
       e: 'prompt', id: sessionIndex, prompt: promptText,
     });
+  }
+
+  // How often a Tab-completed @ mention survives into the prompt. A dropped
+  // query is a reference this prompt cannot carry — to the live preview's ref
+  // rows, or to the log line above — so the rate it happens at decides whether
+  // recovery is worth hardening against edits and a composer that moved.
+  // Only the query is named: the path that replaced it is what we could not read.
+  if (mentions) {
+    log('[prompt-capture] tab mention:', mentions.recovered ? 'recovered from the composer'
+      : mentions.dropped.length ? 'dropped ' + mentions.dropped.join(' ')
+        : 'kept as typed');
   }
 
   // The identity takes this prompt while it is still short (session-

@@ -140,6 +140,57 @@ test('Tab then Enter records a completed extensionless filename', (cap, _get, _s
   assert.deepStrictEqual(getAll(), ['@Makefile']);
 });
 
+// The reported case: a Tab accepted the completion, but by the submission the
+// composer had moved a row, so nothing on screen could name the path. The
+// query the Tab handed over used to reach the log fused to the next word
+// ("@pr-reviereview this file only").
+test('a Tab completion the screen cannot confirm drops its query instead of fusing it', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('@pr-revie');
+  cap.handleInput('\t', snapshot('@pr-revie'));
+  cap.handleInput('review this file only');
+  cap.handleInput('\r', snapshot('@ai/gerrit/pr-review.md review this file only', [], { row: 12 }));
+  assert.deepStrictEqual(getAll(), ['review this file only']);
+});
+
+test('a Tab taken with no snapshot to sample drops its query too', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('read @pr-rev');
+  cap.handleInput('\t');                           // a queued redraw: no snapshot
+  cap.handleInput('then explain the risks');
+  cap.handleInput('\r');
+  assert.deepStrictEqual(getAll(), ['read then explain the risks']);
+});
+
+test('a Tab that completed nothing keeps the bytes the composer still shows', (cap, _get, _shell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('@pr-rev');
+  cap.handleInput('\t', snapshot('@pr-rev'));      // nothing matched; the line is unchanged
+  cap.handleInput('iew.md and the diff');
+  cap.handleInput('\r', snapshot('@pr-review.md and the diff'));
+  assert.deepStrictEqual(getAll(), ['@pr-review.md and the diff']);
+});
+
+test('what became of a Tab query is reported with the prompt', () => {
+  const seen = [];
+  const cap = createPromptCapture({ onPrompt: (p, mentions) => seen.push([p, mentions]) });
+  cap.notifyCliStarted();
+  cap.handleInput('@pr-rev');
+  cap.handleInput('\t', snapshot('@pr-rev'));
+  cap.handleInput('read this');
+  cap.handleInput('\r', snapshot('@ai/pr-review.md read this'));
+  cap.handleInput('@guide');
+  cap.handleInput('\t', snapshot('@guide'));
+  cap.handleInput('and this');
+  cap.handleInput('\r', snapshot('@docs/guide.md and this', [], { row: 12 }));
+  cap.handleInput('plain follow-up\r');
+  assert.deepStrictEqual(seen, [
+    ['@ai/pr-review.md read this', { recovered: true, dropped: [] }],
+    ['and this', { recovered: false, dropped: ['@guide'] }],
+    ['plain follow-up', null],
+  ]);
+});
+
 test('two Enter-selected references stay in the same prompt', (cap, _get, _shell, getAll) => {
   cap.notifyCliStarted();
   cap.handleInput('@pr-rev');
