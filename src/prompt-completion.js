@@ -60,13 +60,34 @@ function mentionTokenAt(typed) {
   return { before: typed.slice(0, query.index + query[1].length), query: query[2] };
 }
 
-function beginMentionCompletion(typed, snapshot, retainedQuery = false) {
+function beginMentionCompletion(typed, snapshot, retainedQuery = false, opts = {}) {
   const token = mentionTokenAt(typed);
   if (!token) return null;
   const rows = promptRows(snapshot);
-  const matches = rows.filter(row => normalize(row.text) === normalize(typed));
+  const normalizedTyped = normalize(typed);
+  const matches = [];
+  for (const row of rows) {
+    const rowText = normalize(row.text);
+    if (rowText === normalizedTyped) {
+      matches.push({ row, leadingText: '' });
+      continue;
+    }
+    // A clipboard image is transported to the CLI as a path, but the CLI may
+    // render that path as an attachment chip. Prompt capture deliberately
+    // excludes the transport path from its text. When it tells us an
+    // attachment precedes this query, anchor the exact textual tail while
+    // retaining all the usual row/type/gutter checks below. Never enable this
+    // for ordinary prompts: a suffix match without known attachment provenance
+    // would let output or a picker suggestion masquerade as the composer.
+    if (opts.allowLeadingContent && normalizedTyped && rowText.endsWith(normalizedTyped)) {
+      matches.push({
+        row,
+        leadingText: rowText.slice(0, rowText.length - normalizedTyped.length),
+      });
+    }
+  }
   if (matches.length !== 1) return null;
-  const anchor = matches[0];
+  const { row: anchor, leadingText } = matches[0];
   // The latest row with this exact prompt gutter must be the composer.
   // This also declines menus that use the same gutter as the input.
   if (rows.filter(row => row.prefix === anchor.prefix).at(-1) !== anchor) return null;
@@ -74,6 +95,7 @@ function beginMentionCompletion(typed, snapshot, retainedQuery = false) {
     type: snapshot.type, row: anchor.row, prefix: anchor.prefix,
     before: token.before, query: token.query,
     typedPrefix: retainedQuery ? typed : '',
+    leadingText,
   };
 }
 
@@ -96,7 +118,11 @@ function recoverMentionCompletion(typed, completion, snapshot) {
   if (!row || row.row !== completion.row) return null;
 
   const before = normalize(completion.before);
-  const text = normalize(row.text);
+  let text = normalize(row.text);
+  if (completion.leadingText) {
+    if (!text.startsWith(completion.leadingText)) return null;
+    text = text.slice(completion.leadingText.length).trimStart();
+  }
   if (before && !text.startsWith(before + ' ')) return null;
   const rest = before ? text.slice(before.length + 1) : text;
   const match = /^@([^\s@`'"]+)(?:\s+(.*))?$/.exec(rest);
@@ -124,10 +150,16 @@ function recoverMentionCompletion(typed, completion, snapshot) {
 // neither the screen nor the prompt. Returns the text to submit and the
 // queries taken out of it, which the log names so the rate this path runs at
 // is visible.
-function dropUnrecoveredMentions(typed, tokens, snapshot) {
+function dropUnrecoveredMentions(typed, tokens, snapshot, completion = null) {
   const dropped = [];
   if (!Array.isArray(tokens) || tokens.length === 0) return { text: typed, dropped };
-  const shown = promptRows(snapshot).map(row => normalize(row.text)).filter(Boolean);
+  const shown = promptRows(snapshot).map(row => {
+    let text = normalize(row.text);
+    if (completion && completion.leadingText && text.startsWith(completion.leadingText)) {
+      text = text.slice(completion.leadingText.length).trimStart();
+    }
+    return text;
+  }).filter(Boolean);
   if (shown.some(text => normalize(typed).startsWith(text))) return { text: typed, dropped };
   let text = typed;
   for (const token of [...tokens].reverse()) {

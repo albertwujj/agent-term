@@ -612,6 +612,24 @@ test('getRecentPromptsForSession returns chronological prompt events for a sessi
   ]);
 });
 
+test('getRecentPromptsForSession preserves new attachments and leaves legacy events text-only', (dir) => {
+  const imagePath = '/tmp/clipboard-123.png';
+  log.appendEvent(dir, {
+    e: 'prompt', id: 1, prompt: 'Review this screenshot',
+    attachments: [{ kind: 'image', path: imagePath }],
+  });
+  log.appendEvent(dir, {
+    e: 'prompt', id: 1, prompt: '/tmp/clipboard-old.pngLegacy prompt',
+  });
+  const before = fs.readFileSync(path.join(dir, 'sessions.jsonl'), 'utf8');
+
+  const prompts = log.getRecentPromptsForSession(dir, 1);
+  assert.deepStrictEqual(prompts[0].attachments, [{ kind: 'image', path: imagePath }]);
+  assert.ok(!Object.hasOwn(prompts[1], 'attachments'));
+  assert.strictEqual(prompts[1].prompt, '/tmp/clipboard-old.pngLegacy prompt');
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'sessions.jsonl'), 'utf8'), before);
+});
+
 test('getRecentPromptsForSession caps by total chars, dropping oldest', (dir) => {
   log.appendEvent(dir, { e: 'prompt', id: 1, prompt: 'a'.repeat(100) });
   log.appendEvent(dir, { e: 'prompt', id: 1, prompt: 'b'.repeat(100) });

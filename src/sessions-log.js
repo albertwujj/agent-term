@@ -7,7 +7,10 @@
 //       { e:"started",  id, hue,    t }
 //       { e:"cli",      id, cli,    t }
 //       { e:"title",    id, title,  t }
-//       { e:"prompt",   id, prompt, t }
+//       { e:"prompt",   id, prompt, attachments?, t }
+//         attachments: [{ kind:"image", path }] for newly captured clipboard
+//         images. Legacy prompt events simply omit it; readers do not infer or
+//         rewrite attachments from old prompt text.
 //       { e:"cwd",      id, cwd,    t }   // POSIX dir the CLI was launched from
 //       { e:"branches", id, repo, branch, t }   // git branch captured from a review://
 //       { e:"closed",   id,         t }   // the user closed the window or exited the shell
@@ -537,7 +540,7 @@ function getRecentTitlesForSession(userDataDir, id, opts = {}) {
 // order. Caps the returned list by total chars (`maxChars`, default 600) by
 // dropping oldest entries — the activity-timeline thumbnail prefers showing
 // the most recent prompts, and an old long paste should not crowd out a
-// newer short one. Each entry is `{ prompt, t }`.
+// newer short one. Each entry is `{ prompt, attachments?, t }`.
 function getRecentPromptsForSession(userDataDir, id, opts = {}) {
   const maxChars = opts.maxChars || 600;
   const events = readLog(userDataDir);
@@ -546,7 +549,11 @@ function getRecentPromptsForSession(userDataDir, id, opts = {}) {
     if (ev.id !== id) continue;
     if (ev.e !== 'prompt') continue;
     if (typeof ev.prompt !== 'string' || ev.prompt.length === 0) continue;
-    prompts.push({ prompt: ev.prompt, t: ev.t || 0 });
+    const prompt = { prompt: ev.prompt, t: ev.t || 0 };
+    if (Array.isArray(ev.attachments) && ev.attachments.length > 0) {
+      prompt.attachments = ev.attachments;
+    }
+    prompts.push(prompt);
   }
   let total = prompts.reduce((acc, p) => acc + p.prompt.length, 0);
   while (total > maxChars && prompts.length > 1) {

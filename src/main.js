@@ -424,6 +424,10 @@ const bootTitleKeys = new Set();
 // appends on the semantic key keeps the log one-event-per-subject-change.
 let lastTitleEventKey = null;
 let promptCapture = null;
+// Paths created by save-clipboard-image and not yet observed in a bracketed
+// paste. Exact registration keeps attachment classification provenance-based:
+// an ordinary pasted path — even one named clipboard-*.png — remains text.
+const pendingClipboardImagePaths = new Set();
 let streamClient = null;
 let streamState = null;
 const hiddenPromptSearches = new Map();
@@ -936,6 +940,11 @@ function thumbnailPayload() {
     // char-count estimate.
     firstPromptOverflow = split.midWord ? '…' + split.overflow : split.overflow;
   }
+  // Clipboard images are transport attachments, not prompt prose. New prompt
+  // events carry them separately, and only the roomy live-preview reference
+  // block surfaces their paths. Legacy events have no attachments field and
+  // retain their old text-only rendering without any runtime inference.
+  refs.push(...promptThumbnail.imageAttachmentRefs(allPrompts));
   return {
     cli: detectedCli || '',
     isWorking,
@@ -1045,6 +1054,7 @@ function payloadHash(p) {
   return JSON.stringify({
     cli: p.cli, isWorking: p.isWorking, firstPrompt: p.firstPrompt,
     events: (p.events || []).map(e => ({ type: e.type, text: e.text, t: e.t })),
+    refs: p.refs || [],
     lockedTitle: p.lockedTitle,
   });
 }
@@ -1503,7 +1513,7 @@ function renderIdentityIconAndTitle() {
   }
 }
 
-function onPromptCaptured(promptText, mentions = null) {
+function onPromptCaptured(promptText, mentions = null, attachments = []) {
   if (typeof promptText !== 'string' || !promptText) return;
   const isFirst = !firstPrompt;
   lastPromptTime = Date.now();
@@ -1511,9 +1521,11 @@ function onPromptCaptured(promptText, mentions = null) {
   if (isFirst) assignSessionIdentity();
 
   if (sessionIndex !== null) {
-    sessionsLog.appendEvent(app.getPath('userData'), {
-      e: 'prompt', id: sessionIndex, prompt: promptText,
-    });
+    const event = { e: 'prompt', id: sessionIndex, prompt: promptText };
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      event.attachments = attachments;
+    }
+    sessionsLog.appendEvent(app.getPath('userData'), event);
   }
 
   // How often a Tab-completed @ mention survives into the prompt. A dropped
@@ -2212,6 +2224,10 @@ function createWindow() {
   promptCapture = createPromptCapture({
     onPrompt: onPromptCaptured,
     onShellCommand: onShellCommandTyped,
+    classifyPaste: (content) => {
+      if (!pendingClipboardImagePaths.delete(content)) return null;
+      return { kind: 'image', path: content };
+    },
   });
 
   // Streaming pipeline: client handles HTTP to the hub asynchronously;
@@ -3312,13 +3328,21 @@ ipcMain.handle('save-clipboard-image', () => {
   const filename = `clipboard-${Date.now()}.png`;
   const filePath = path.join(os.tmpdir(), filename);
   fs.writeFileSync(filePath, png);
+  let terminalPath = filePath;
   if (process.platform === 'win32') {
     // Convert C:\Users\...\file.png → /mnt/c/Users/.../file.png
-    return filePath
+    terminalPath = filePath
       .replace(/^([A-Z]):\\/i, (_, drive) => `/mnt/${drive.toLowerCase()}/`)
       .replace(/\\/g, '/');
   }
-  return filePath;
+  pendingClipboardImagePaths.add(terminalPath);
+  // A failed renderer paste should not retain unbounded provenance entries.
+  // Clipboard filenames are unique, so dropping the oldest only affects an
+  // abandoned paste, never one already present in the composer.
+  while (pendingClipboardImagePaths.size > 16) {
+    pendingClipboardImagePaths.delete(pendingClipboardImagePaths.values().next().value);
+  }
+  return terminalPath;
 });
 
 // Generic helper to send navigation requests to the IDE navigator plugin via TCP.

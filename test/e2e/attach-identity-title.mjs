@@ -36,6 +36,8 @@
 //      which feed the preview and deep search through the same saved text
 //  10. a new Codex window resumes inside the CLI, then the user inserts a
 //      prefix: the identity must match the submitted line, not typing order
+//  11. a real clipboard-image paste crosses renderer/main IPC as structured
+//      attachment metadata, while adjacent prose alone names the session
 //
 // Run: npm run test:e2e
 
@@ -118,7 +120,7 @@ async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch
   const nativeWindow = await app.browserWindow(page);
   const windowTitles = [await nativeWindow.evaluate(win => win.getTitle())];
   for (const line of lines) {
-    if (typeof line === 'function') await line(page);
+    if (typeof line === 'function') await line(page, app);
     else await page.keyboard.type(line);
     await page.keyboard.press('Enter');
     await sleep(700);
@@ -338,6 +340,48 @@ console.log('10 — Codex start-new, resume inside, then insert a prefix before 
   } finally {
     fs.rmSync(submittedDir, { recursive: true, force: true });
   }
+}
+
+console.log('11 — clipboard image path is attachment metadata, not identity text');
+{
+  const fake = [osc('Cursor Agent'), 'read -r submitted', osc('Review screenshot layout'), 'read -r next'].join('; ') + ';';
+  const instruction = 'Review screenshot layout';
+  let savedImagePath = null;
+  const { events, session } = await runScenario('clipboard-image', fake, [
+    async (page, electronApp) => {
+      await electronApp.evaluate(({ clipboard, nativeImage }) => {
+        // A raw 1x1 BGRA pixel avoids image-decoder differences in headless
+        // Electron. Writing only the image exercises save-clipboard-image
+        // instead of the ordinary text-paste path.
+        const image = nativeImage.createFromBitmap(Buffer.from([0, 0, 255, 255]), {
+          width: 1, height: 1, scaleFactor: 1,
+        });
+        clipboard.clear();
+        clipboard.writeImage(image);
+      });
+      // The E2E Electron binary reports Linux, where AgentTerm deliberately
+      // owns neither Windows Ctrl+V nor macOS Cmd+V. Cross the same production
+      // renderer/main IPC boundary explicitly, then send the returned path
+      // through the same pty-input channel terminal.paste() uses on Windows.
+      savedImagePath = await page.evaluate(async () => {
+        const imagePath = await window.pty.saveClipboardImage();
+        if (imagePath) window.pty.write(imagePath);
+        return imagePath;
+      });
+      await page.keyboard.type(instruction);
+    },
+  ], { cli: 'agent' });
+  const prompts = events.filter(e => e.e === 'prompt');
+  const first = prompts[0];
+  check('clipboard image is saved through renderer/main IPC',
+    typeof savedImagePath === 'string' && /clipboard-\d+\.png$/.test(savedImagePath),
+    JSON.stringify(savedImagePath));
+  check('clipboard image leaves only adjacent prose in the identity',
+    session && session.prompt === instruction, JSON.stringify(session));
+  check('prompt event carries one generated image attachment',
+    first && first.prompt === instruction && first.attachments?.length === 1 &&
+      first.attachments[0].kind === 'image' && /clipboard-\d+\.png$/.test(first.attachments[0].path),
+    JSON.stringify(first));
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

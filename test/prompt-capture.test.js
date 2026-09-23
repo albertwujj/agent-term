@@ -101,6 +101,100 @@ test('a pasted bare mention is intentional prompt content', (cap, _get, _shell, 
   assert.deepStrictEqual(getAll(), ['@pr-rev', 'next task']);
 });
 
+test('a registered clipboard image is attachment metadata, not prompt text', () => {
+  const seen = [];
+  const imagePath = '/mnt/c/Users/me/AppData/Local/Temp/clipboard-123.png';
+  const cap = createPromptCapture({
+    classifyPaste: text => text === imagePath ? { kind: 'image', path: text } : null,
+    onPrompt: (prompt, mentions, attachments) => seen.push({ prompt, mentions, attachments }),
+  });
+  cap.notifyCliStarted();
+  cap.handleInput(`\x1b[200~${imagePath}\x1b[201~`);
+  cap.handleInput('Review this layout\r');
+  assert.deepStrictEqual(seen, [{
+    prompt: 'Review this layout',
+    mentions: null,
+    attachments: [{ kind: 'image', path: imagePath }],
+  }]);
+});
+
+test('a registered image is classified when the CLI has not enabled bracketed paste', () => {
+  const seen = [];
+  const imagePath = '/tmp/clipboard-raw.png';
+  let pending = true;
+  const cap = createPromptCapture({
+    classifyPaste: text => pending && text === imagePath
+      ? (pending = false, { kind: 'image', path: text }) : null,
+    onPrompt: (prompt, _mentions, attachments) => seen.push({ prompt, attachments }),
+  });
+  cap.notifyCliStarted();
+  cap.handleInput(imagePath);
+  cap.handleInput('Review the raw paste\r');
+  assert.deepStrictEqual(seen, [{
+    prompt: 'Review the raw paste',
+    attachments: [{ kind: 'image', path: imagePath }],
+  }]);
+});
+
+test('ordinary pasted text remains semantic prompt text', () => {
+  const seen = [];
+  const cap = createPromptCapture({
+    classifyPaste: () => null,
+    onPrompt: (prompt, _mentions, attachments) => seen.push({ prompt, attachments }),
+  });
+  cap.notifyCliStarted();
+  const url = 'https://review.example/c/repo/+/42';
+  cap.handleInput(`\x1b[200~${url}\x1b[201~ review it\r`);
+  assert.deepStrictEqual(seen, [{ prompt: url + ' review it', attachments: [] }]);
+});
+
+test('an image-only submission gets a short identity and keeps its attachment', () => {
+  const seen = [];
+  const imagePath = '/tmp/clipboard-456.png';
+  const cap = createPromptCapture({
+    classifyPaste: text => text === imagePath ? { kind: 'image', path: text } : null,
+    onPrompt: (prompt, _mentions, attachments) => seen.push({ prompt, attachments }),
+  });
+  cap.notifyCliStarted();
+  cap.handleInput(`\x1b[200~${imagePath}\x1b[201~\r`);
+  assert.deepStrictEqual(seen, [{
+    prompt: 'Image', attachments: [{ kind: 'image', path: imagePath }],
+  }]);
+});
+
+test('backspace removes an image attachment before a replacement prompt', () => {
+  const seen = [];
+  const imagePath = '/tmp/clipboard-789.png';
+  const cap = createPromptCapture({
+    classifyPaste: text => text === imagePath ? { kind: 'image', path: text } : null,
+    onPrompt: (prompt, _mentions, attachments) => seen.push({ prompt, attachments }),
+  });
+  cap.notifyCliStarted();
+  cap.handleInput(`\x1b[200~${imagePath}\x1b[201~`);
+  cap.handleInput('\x7f');
+  cap.handleInput('Use the replacement prompt\r');
+  assert.deepStrictEqual(seen, [{ prompt: 'Use the replacement prompt', attachments: [] }]);
+});
+
+test('an image before an @ completion stays separate from the recovered reference', () => {
+  const seen = [];
+  const imagePath = '/tmp/clipboard-987.png';
+  const cap = createPromptCapture({
+    classifyPaste: text => text === imagePath ? { kind: 'image', path: text } : null,
+    onPrompt: (prompt, _mentions, attachments) => seen.push({ prompt, attachments }),
+  });
+  cap.notifyCliStarted();
+  cap.handleInput(`\x1b[200~${imagePath}\x1b[201~`);
+  cap.handleInput('@guide');
+  cap.handleInput('\r', snapshot('[Image #1] @guide'));
+  cap.handleInput('compare this');
+  cap.handleInput('\r', snapshot('[Image #1] @docs/guide.md compare this'));
+  assert.deepStrictEqual(seen, [{
+    prompt: '@docs/guide.md compare this',
+    attachments: [{ kind: 'image', path: imagePath }],
+  }]);
+});
+
 test('selected filename is recovered only into the submitted prompt, excluding suggestions', (cap, _get, _shell, getAll) => {
   cap.notifyCliStarted();
   cap.handleInput('@pr-rev');

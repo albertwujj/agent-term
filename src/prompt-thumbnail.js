@@ -537,6 +537,25 @@ const LIVE_ELIDE_CSS_PX = 13;
 // area instead of anchoring it to the bitmap's physical bottom edge.
 const LIVE_TASKBAR_OVERLAY_SAFE_CSS_PX = 180;
 
+// Convert structured clipboard-image attachments into the reference rows used
+// only by the full live preview. Legacy prompt events omit `attachments` and
+// naturally contribute nothing; this helper deliberately performs no text
+// inference or migration.
+function imageAttachmentRefs(prompts) {
+  const refs = [];
+  const seen = new Set();
+  for (const entry of prompts || []) {
+    for (const attachment of entry && Array.isArray(entry.attachments) ? entry.attachments : []) {
+      if (!attachment || attachment.kind !== 'image' || !attachment.path || seen.has(attachment.path)) {
+        continue;
+      }
+      seen.add(attachment.path);
+      refs.push({ kind: 'image', full: `image · ${attachment.path}` });
+    }
+  }
+  return refs;
+}
+
 function buildLivePreviewScript(opts) {
   const {
     width = 1280,
@@ -1068,4 +1087,4 @@ function buildLivePreviewScript(opts) {
   })()`;
 }
 
-module.exports = { buildScript, buildLivePreviewScript };
+module.exports = { buildScript, buildLivePreviewScript, imageAttachmentRefs };
