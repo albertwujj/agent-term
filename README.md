@@ -75,7 +75,7 @@ This terminal makes that quick: it is already a better tool for working with you
 
 Below are just examples. Follow the links to explore more features.
 
-| Gap in a plain terminal | In AgentTerm |
+| In a plain terminal | In AgentTerm |
 |---|---|
 | **Sessions**<br>hard to tell apart, or find and resume | Each session is its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md#switch-to-the-right-running-session)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. **[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and the agents' own titles to help you return to the session. |
 | **Comment**<br>no way to reference past output | **[Select anything the agent prints and comment](docs/comment.md)**, precise feedback with the exact text quoted; the agent makes the change. A click opens whatever renders (docs, reviews, images, video, PDFs) inside the window; web links open in your browser ([the click rule](docs/clicks.md)). |
