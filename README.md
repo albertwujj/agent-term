@@ -95,8 +95,9 @@ The [first start](#quick-start) gives you sessions as windows with their taskbar
 The rest are the [optional suite](docs/suite.md): [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
 
 ```text
-Clone https://github.com/yunxin/agent-lock into ai/ in this project,
-and leave ai/ out of .gitignore.
+Clone the repository below into ai/ in this project, and leave ai/ out
+of .gitignore.
+https://github.com/yunxin/agent-lock
 ```
 
 Then start a task with `@proceed-b`, which completes to the lock's [guide doc](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) in the [agent-lock](https://github.com/yunxin/agent-lock) clone, and the agent takes the [checkout lock](docs/lock.md) before it works. For the other pieces, see [their guides](docs/suite.md).
