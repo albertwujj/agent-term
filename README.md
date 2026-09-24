@@ -14,6 +14,8 @@
 
 *Drill into an example shown in the frames above:* [Switch sessions](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
 
+*Each frame at full size:* Sessions [1](docs/assets/frames/sessions-1.png) [2](docs/assets/frames/sessions-2.png) · [Resume](docs/assets/frames/resume.png) · [Comment](docs/assets/frames/comment.png) · Docs [1](docs/assets/frames/docs-1.png) [2](docs/assets/frames/docs-2.png) [3](docs/assets/frames/docs-3.png) · Code [1](docs/assets/frames/code-1.png) [2](docs/assets/frames/code-2.png) [3](docs/assets/frames/code-3.png) · Phone [1](docs/assets/frames/phone-1.png) [2](docs/assets/frames/phone-2.png).
+
 <a name="quick-start"></a>
 
 **Quick start:** ask your agent. macOS, or Windows through WSL.
