@@ -846,7 +846,7 @@ function refreshTooltip() {
 //   · PTY produced output recently (within PROGRESS_IDLE_MS).
 //   · No recognized CLI title explicitly reports idle or waiting for input.
 //   · User isn't at the keyboard (within USER_QUIET_MS of the last
-//     keystroke). Submit-Enter resets lastInputTime to 0 so this check
+//     keystroke). Submit-Enter resets lastTypingTime to 0 so this check
 //     passes immediately after the user hits Enter.
 function computeIsWorking() {
   return isAgentWorking({ iconLocked, now: Date.now(), lastPtyOutputTime,
@@ -2965,11 +2965,10 @@ ipcMain.on('pty-input', (event, data, promptSnapshot) => {
   //
   // Treating these as user input has two bad consequences:
   //   1. The resume intercept disarms before the user gets a chance to
-  //      press Enter (legacy concern).
-  //   2. The resume auto-fire state machine sees its lastInputTime jump
-  //      past resumeArmedAt and cancels itself — so auto-fire never
-  //      fires for any CLI that does terminal queries on startup
-  //      (which is basically all of them).
+  //      press Enter.
+  //   2. lastInputTime and lastTypingTime move, so a CLI probing the
+  //      terminal reads as the user typing: host notices hold as if a
+  //      prompt were being composed, and the progress bar stays off.
   // Both must be gated on this flag.
   //
   // Rule: any multi-byte ESC-prefixed control sequence is treated as
