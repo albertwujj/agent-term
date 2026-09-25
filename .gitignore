@@ -13,5 +13,6 @@ scripts/installer/launcher.exe
 # it isn't published in this public repo, where a committed permission allowlist
 # is both personal-workflow clutter and a needless auto-run trust surface.
 .claude/settings.json
+.agent-threads/
 src/build-info.json
 icon-preview/
