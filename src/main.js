@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Menu, dialog, clipboard, shell, nativeImage, screen, globalShortcut, session } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Menu, dialog, clipboard, shell, nativeImage, screen, globalShortcut, session, powerMonitor } = require('electron');
 const { execFile, spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
@@ -127,6 +127,7 @@ const {
 } = require('./wsl-launch');
 const { WslCommandRunner, helperBootstrap } = require('./wsl-command-runner');
 const { requireSourceStartCwd } = require('./source-start-cwd');
+const { createTaskbarIconRestorer } = require('./taskbar-icon');
 
 // Anchor for the very first session ever (when there are no other live
 // sessions to space against). 210° = sky/cyan at the L=65 / C=0.27 ring,
@@ -351,6 +352,27 @@ let mainWindow;
 let ptyProcess;
 let userClosed = false;
 let relaunchStarted = false;
+const taskbarIconRestorer = createTaskbarIconRestorer({
+  platform: process.platform,
+  getWindow: () => mainWindow,
+  log,
+});
+
+// Preserve Linux's ordinary BrowserWindow icon path while letting Windows
+// remember the last successfully applied image for power/session restoration.
+function setWindowIcon(img) {
+  if (!img || !mainWindow) return false;
+  if (process.platform === 'win32') return taskbarIconRestorer.apply(img);
+  mainWindow.setIcon(img);
+  return true;
+}
+
+function restoreTaskbarIconAfter(source) {
+  taskbarIconRestorer.scheduleRestore(source);
+}
+
+function onPowerResume() { restoreTaskbarIconAfter('resume'); }
+function onPowerUnlockScreen() { restoreTaskbarIconAfter('unlock-screen'); }
 // The real OS color scheme, captured before we force the app's UI dark. The
 // embedded web viewer emulates this for guest pages so they render the way they
 // do in a normal browser instead of inheriting our dark.
@@ -1349,7 +1371,7 @@ async function tryLockIcon(title) {
           if (result) setDockIcon(result.img);
         } else {
           const result = await makeBrandIconImage(detectedCli);
-          if (result && mainWindow) mainWindow.setIcon(result.img);
+          if (result) setWindowIcon(result.img);
         }
       } catch {}
     })();
@@ -1494,7 +1516,7 @@ function renderIdentityIconAndTitle() {
       try {
         const result = await makeIconImage(lockedHue, displayText);
         if (result && mainWindow) {
-          mainWindow.setIcon(result.img);
+          if (!setWindowIcon(result.img)) return;
           const { rest } = firstLettersAndRest(displayText, result.n);
           // Match the split used by thumbnailPayload so chrome top and
           // card overflow line up exactly — one cut, two surfaces.
@@ -2368,7 +2390,7 @@ function createWindow() {
       (async () => {
         try {
           const result = await makePickerIconImage();
-          if (result && mainWindow) mainWindow.setIcon(result.img);
+          if (result) setWindowIcon(result.img);
         } catch {}
       })();
     }
@@ -5599,6 +5621,15 @@ app.whenReady().then(async () => {
   createWindow();
   startMainLoopDelayDiagnostics();
 
+  // Dynamic per-window icons occasionally fall back to electron.exe after
+  // Windows Modern Standby / hibernate. The renderer may still be waking, so
+  // reapply the cached NativeImage rather than asking canvas to render again.
+  // The restorer coalesces resume + unlock-screen when they arrive together.
+  if (process.platform === 'win32') {
+    powerMonitor.on('resume', onPowerResume);
+    powerMonitor.on('unlock-screen', onPowerUnlockScreen);
+  }
+
   // Debug shortcut for pixel-picking DWM's fallback/transition surface.
   // Toggles forceFallbackForScreenshot — when ON, both iconic hooks return
   // without pushing a bitmap, so DWM displays its generic preview surface
@@ -5675,6 +5706,11 @@ app.on('before-quit', (event) => {
 
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll(); } catch {}
+  if (process.platform === 'win32') {
+    powerMonitor.removeListener('resume', onPowerResume);
+    powerMonitor.removeListener('unlock-screen', onPowerUnlockScreen);
+  }
+  taskbarIconRestorer.dispose();
   if (wslCommandRunner) {
     wslCommandRunner.close();
     wslCommandRunner = null;

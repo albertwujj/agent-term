@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const { truncatePathsForTaskbar, extractPathsAndUrls, dockIconScript, dockLetterCandidates, letterCandidates, pickerIconScript } = require('../src/icon-render');
+const { createTaskbarIconRestorer } = require('../src/taskbar-icon');
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -270,6 +271,54 @@ test('dock tile with a brand glyph uses the neutral fill and embeds the svg', ()
   assert.ok(script.includes('oklch(40% 0.012 260)'));
   assert.ok(script.includes('<svg id=\\"brand\\"/>'));
   assert.ok(!script.includes('oklch(69%'));
+});
+
+// ---- Windows taskbar icon restoration ----
+
+test('taskbar icon restorer remembers and reapplies the last successful icon', () => {
+  const applied = [];
+  const logs = [];
+  const timers = [];
+  const icon = { id: 'Ch' };
+  const restorer = createTaskbarIconRestorer({
+    platform: 'win32',
+    getWindow: () => ({ setIcon: value => applied.push(value), isDestroyed: () => false }),
+    log: line => logs.push(line),
+    setTimeoutFn: fn => { timers.push(fn); return { unref() {} }; },
+  });
+
+  assert.strictEqual(restorer.apply(icon), true);
+  assert.strictEqual(restorer.scheduleRestore('resume'), true);
+  assert.strictEqual(restorer.scheduleRestore('unlock-screen'), true);
+  assert.strictEqual(timers.length, 1);
+  timers[0]();
+
+  assert.deepStrictEqual(applied, [icon, icon]);
+  assert.ok(logs.includes('[taskbar-icon] reapplied source=resume+unlock-screen'));
+});
+
+test('taskbar icon restorer does not remember a failed apply', () => {
+  let scheduled = 0;
+  const restorer = createTaskbarIconRestorer({
+    platform: 'win32',
+    getWindow: () => ({ setIcon() { throw new Error('gone'); } }),
+    setTimeoutFn: () => { scheduled++; return {}; },
+  });
+
+  assert.strictEqual(restorer.apply({ id: 'Ch' }), false);
+  assert.strictEqual(restorer.scheduleRestore('resume'), false);
+  assert.strictEqual(scheduled, 0);
+});
+
+test('taskbar icon restorer is inert off Windows', () => {
+  let calls = 0;
+  const restorer = createTaskbarIconRestorer({
+    platform: 'linux',
+    getWindow: () => ({ setIcon() { calls++; } }),
+  });
+  assert.strictEqual(restorer.apply({ id: 'Ch' }), false);
+  assert.strictEqual(restorer.scheduleRestore('resume'), false);
+  assert.strictEqual(calls, 0);
 });
 
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
