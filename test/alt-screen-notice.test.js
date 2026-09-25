@@ -10,8 +10,10 @@ function test(name, fn) {
 
 console.log('alt-screen-notice');
 
-test('an alt-screen Claude Code is worth saying once', () => {
-  assert.strictEqual(shouldNoticeAltScreen({ cli: 'claude', bufferType: 'alternate' }), true);
+test('an alt-screen Claude Code or Codex is worth saying once', () => {
+  for (const cli of ['claude', 'codex']) {
+    assert.strictEqual(shouldNoticeAltScreen({ cli, bufferType: 'alternate' }), true);
+  }
 });
 
 test('the normal buffer is the case this terminal is built for', () => {
@@ -31,10 +33,9 @@ test('a shell with no AI CLI is left alone', () => {
   }
 });
 
-// The other CLIs lose the same reach and have no /tui to offer, so a notice
-// would be a complaint rather than help.
-test('only the CLI with somewhere to send the user is noticed', () => {
-  for (const cli of ['codex', 'copilot', 'agent']) {
+// The other CLIs lose the same reach and have no known way back to offer.
+test('only CLIs with somewhere to send the user are noticed', () => {
+  for (const cli of ['copilot', 'agent']) {
     assert.strictEqual(shouldNoticeAltScreen({ cli, bufferType: 'alternate' }), false, cli);
   }
 });
@@ -45,9 +46,12 @@ test('missing arguments never throw', () => {
 });
 
 test('the notice names the loss and the way back', () => {
-  const text = altScreenNotice();
-  assert.ok(/\/tui default/.test(text), text);
-  assert.ok(/comment/i.test(text), text);
+  const claudeText = altScreenNotice('claude');
+  const codexText = altScreenNotice('codex');
+  assert.ok(/\/tui default/.test(claudeText), claudeText);
+  assert.ok(/codex --no-alt-screen/.test(codexText), codexText);
+  assert.ok(/comment/i.test(claudeText), claudeText);
+  assert.ok(/comment/i.test(codexText), codexText);
   assert.ok(NOTICE_DWELL_MS >= 5000, 'dwell must outlast a glance at less');
 });
 

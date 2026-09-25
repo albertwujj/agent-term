@@ -2946,7 +2946,7 @@ terminal.buffer.onBufferChange(() => {
       alreadyNoticed: altScreenNoticed,
     })) return;
     altScreenNoticed = true;
-    showToast(altScreenNotice(), { variant: 'warn', sticky: true });
+    showToast(altScreenNotice(currentCli), { variant: 'warn', sticky: true });
   }, NOTICE_DWELL_MS);
 });
 

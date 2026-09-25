@@ -23,6 +23,13 @@ A shell this terminal spawns carries `CLAUDE_CODE_NO_FLICKER=0`, listed
 in `WSLENV` so it crosses into WSL on Windows. `src/cli-renderer-env.js`
 holds it.
 
+Codex 0.157.0 made fullscreen transcripts the default. AgentTerm's own
+Codex launches (new and resumed sessions from the picker) add
+`--no-alt-screen` in `src/ai-title.js`, preserving scrollback for the same
+features. The flag overrides `tui.alternate_screen` for that invocation
+without changing the user's Codex config. A hand-typed `codex` bypasses
+AgentTerm's launch options; `codex --no-alt-screen` keeps it inline.
+
 The trade Claude Code's fullscreen renderer offers is flicker-free
 output and flat memory in exchange for the screen. It is a good trade
 where redraw throughput is the bottleneck — Anthropic name the VS Code
@@ -67,9 +74,9 @@ Three things about that notice are load-bearing:
   the dwell it has. Asking late absorbs that race, so the delay is not
   only about pagers.
 
-Only Claude Code is noticed, because only it has somewhere to send the
-user. The others lose the same reach and have no equivalent setting, and
-a notice you cannot act on is a nag.
+Claude Code and Codex are noticed because both have a concrete way back
+to scrollback. The other CLIs lose the same reach without an equivalent
+setting, and a notice you cannot act on is a nag.
 
 ## The wheel, when a drawing CLI ignores the mouse
 
@@ -111,3 +118,7 @@ alternate-screen sequence (`ESC[?1049h`), no prompt ever sent:
 The last two rows are the precedence: an environment variable outranks
 the saved setting, in both directions. There is no command-line flag for
 the renderer; `--settings` carries the same key the file does.
+
+Against `codex` 0.157.0 in an isolated pty, the default startup emitted
+`ESC[?1049h` and mouse-reporting modes 1000, 1002, 1003 and 1006.
+`codex --no-alt-screen` emitted neither during startup.

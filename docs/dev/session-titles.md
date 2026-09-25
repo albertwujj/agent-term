@@ -52,17 +52,19 @@ format. Verified against codex-cli 0.155.1 and its matching source:
 
 ## Asking Codex for the name
 
-The picker's own launches — start-new and resume alike — prepend the
-setting as a per-invocation override, in `aiCliLaunchCommand`:
+The picker's own launches — start-new and resume alike — prepend
+per-invocation options in `aiCliLaunchCommand`:
 
 ```
-codex -c 'tui.terminal_title=["status","app-name","thread","spinner"]'
+codex --no-alt-screen -c 'tui.terminal_title=["status","app-name","thread","spinner"]'
 ```
 
-`-c` overrides one key for that process only, so it wins over the user's
-config file and leaves it untouched. The override is scoped to launches
-AgentTerm issues and to Codex: no shell wrappers, no rewriting what the
-user typed, no config writes, no guessing at metadata.
+`--no-alt-screen` keeps the transcript in scrollback for AgentTerm's
+selection, search and comments. `-c` overrides one key for that process
+only, so it wins over the user's config file and leaves it untouched.
+Both options are scoped to launches AgentTerm issues and to Codex: no
+shell wrappers, no rewriting what the user typed, no config writes, no
+guessing at metadata.
 
 A start-new pick runs the line. Taken with Shift+Enter it is typed into
 the shell and left at the prompt instead, so the override is in view and
@@ -77,8 +79,10 @@ in Codex's own `/resume` dialog — but the process outlives that dialog,
 so the setting still governs the resumed thread's title.
 
 A `codex` the user types in the shell is not ours to rewrite, so it keeps
-the default project title. Once the picker hands a window to the shell
-(Esc, or a shell command such as `cd` from its Run row) the launcher strip
+the default project title and Codex's screen setting. A user who types
+the command can use `codex --no-alt-screen` for scrollback. Once the picker
+hands a window to the shell (Esc, or a shell command such as `cd` from its
+Run row), the launcher strip
 (`launcher-band.js`) keeps the CLIs on offer, and a chip starts Codex
 through the same launch, setting included; the picker itself is one step
 away too (Sessions in the chrome bar, Cmd/Ctrl+Shift+S). To get names

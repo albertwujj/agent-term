@@ -6,10 +6,9 @@
 // scrollbar all work on a scrollback, and the alternate screen has none.
 //
 // A shell we spawn already asks Claude Code for its classic renderer
-// (cli-renderer-env.js), so this only fires when that request lost: the user
-// chose fullscreen themselves, or the environment never arrived — over SSH,
-// inside a container, through a shell that reset it. Those are exactly the
-// cases the environment cannot cover, which is why the notice exists at all.
+// (cli-renderer-env.js), and picker launches ask Codex to stay inline
+// (ai-title.js). This fires when those requests did not reach the CLI, or the
+// user started it manually with its fullscreen default.
 //
 // Detection is the state, never the command. `/tui fullscreen` is one way in
 // among several, and reading what the user typed is not something this
@@ -20,18 +19,22 @@
 // them without having to guess at what is running.
 const NOTICE_DWELL_MS = 8000;
 
-// Only Claude Code, because only it has somewhere to send the user. The
-// other CLIs lose the same reach, but a notice you cannot act on is a nag.
+// These two CLIs have a concrete way back to scrollback. The other CLIs do
+// not, so a notice for them would be a nag.
 function shouldNoticeAltScreen({ cli, bufferType, alreadyNoticed } = {}) {
   if (alreadyNoticed) return false;
-  if (cli !== 'claude') return false;
+  if (cli !== 'claude' && cli !== 'codex') return false;
   return bufferType === 'alternate';
 }
 
-function altScreenNotice() {
-  return 'Claude Code is drawing on the alternate screen, so commenting, '
+function altScreenNotice(cli) {
+  const subject = cli === 'codex' ? 'Codex' : 'Claude Code';
+  const remedy = cli === 'codex'
+    ? 'Next time, run codex --no-alt-screen to keep the conversation in this terminal.'
+    : 'Run /tui default to put it back in this terminal.';
+  return subject + ' is drawing on the alternate screen, so commenting, '
     + 'Ctrl/Cmd+F and the scrollbar marks cannot reach the conversation.\n'
-    + 'Run /tui default to put it back in this terminal.';
+    + remedy;
 }
 
 module.exports = { NOTICE_DWELL_MS, shouldNoticeAltScreen, altScreenNotice };

@@ -13,7 +13,7 @@ Right-click a taskbar button or Dock tile and choose Start or resume session, or
 
 <a name="start-an-agent"></a>
 
-**Starting an agent.** Type the CLI's command (`claude`, `codex`, or another) and press Return. From then on the AI CLI runs in a real shell, as in any other terminal.
+**Starting an agent.** Type the CLI's command (`claude`, `codex`, or another) and press Return. From then on the AI CLI runs in a real shell, as in any other terminal. AgentTerm starts Codex from its session picker with scrollback; when starting it by typing in the shell, use `codex --no-alt-screen` for the same behavior.
 
 <a name="resume-an-existing-cli-session"></a>
 

@@ -90,14 +90,16 @@ function isConversationTitle(title, cli) {
 }
 
 function aiCliLaunchCommand(command) {
-  // A supported per-invocation override, scoped to Codex launches we own
-  // (docs/dev/session-titles.md, "Asking Codex for the name").
+  // Supported per-invocation options, scoped to Codex launches we own.
+  // Keep the conversation in scrollback for AgentTerm's selection, search,
+  // and comment marks, even when Codex defaults to a fullscreen transcript.
+  // See docs/dev/cli-rendering.md and docs/dev/session-titles.md.
   // Status distinguishes idle animations from work; spinner also enables the
   // explicit Action Required title on approval/input waits. Put status first
   // so old thread names cannot be mistaken for this field.
   // No shell wrappers, input rewriting, config writes, or metadata guessing.
   return String(command || '').replace(/^codex(?=\s|$)/i,
-    'codex -c \'tui.terminal_title=["status","app-name","thread","spinner"]\'');
+    'codex --no-alt-screen -c \'tui.terminal_title=["status","app-name","thread","spinner"]\'');
 }
 
 module.exports = {
