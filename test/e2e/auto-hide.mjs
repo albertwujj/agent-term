@@ -51,7 +51,7 @@ const control = (id, action) => {
   fs.writeFileSync(path.join(UD, 'cap-control', `${id}.json`), JSON.stringify({ action, t: Date.now() }));
 };
 const readControl = (id) => { try { return JSON.parse(fs.readFileSync(path.join(UD, 'cap-control', `${id}.json`), 'utf8')); } catch { return null; } };
-const heldHere = (fields) => ({ pid: process.pid, bootTime: sessionsLog.currentBootTime(), guiSession: guiSession.currentGuiSession(), lastInputAt: 0, lastPromptAt: 0, ...fields });
+const heldHere = (fields) => ({ pid: process.pid, bootTime: sessionsLog.currentBootTime(), guiSession: guiSession.currentGuiSession(), ...fields });
 
 fs.writeFileSync(CLOCK_FILE, JSON.stringify({ minutes: 500, minute: 0 }));
 for (const [id, prompt] of [[5, 'stale one'], [6, 'resumable one'], [7, 'working one'], [8, 'older build']]) {

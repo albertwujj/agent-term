@@ -590,8 +590,9 @@ function pasteCommentMessage(body, { toPrompt = false } = {}) {
 // One finisher for every user-initiated agent ping (inline comment, review
 // send, review banner nudge, md pointer): paste, then the bookkeeping the
 // paste implies — the prompt went to a live CLI, so a still-armed resume
-// intercept is stale; the click was real engagement (window cap); and the
-// typing suppression releases so the progress bar can show the pickup.
+// intercept is stale; the click was the user's input (the job-watch and
+// stall checks read it); and the typing suppression releases so the progress
+// bar can show the pickup.
 function pasteAgentPing(body, { toPrompt = false } = {}) {
   if (!pasteCommentMessage(body, { toPrompt })) return false;
   pendingResumeIntercept = false;
@@ -636,11 +637,9 @@ const PROGRESS_POLL_MS = 500;
 // thinking pauses. Submit (plain Enter, not preceded by `\`) explicitly
 // resets the timer so the bar fires the moment the AI starts responding.
 //
-// Tracked separately from `lastInputTime` (which the window-cap uses to
-// score this window as "active here"): on submit-Enter we want the cap
-// to consider the user MORE engaged (they just did something purposeful)
-// while wanting the progress-bar to consider them LESS engaged (they're
-// now watching AI, not typing). Same keystroke, opposite semantics.
+// Tracked separately from `lastInputTime`, which every real keystroke bumps:
+// a submit-Enter is input like any other, but it ends the typing, and the
+// user is now watching the AI.
 const USER_QUIET_MS = 5000;
 let lastTypingTime = 0;
 // The prompt box belongs to the user from their first composing keystroke
@@ -1448,9 +1447,7 @@ function assignSessionIdentity() {
       guiSession: getOwnGuiSession(),
       token: agentSessionId,
       hue,
-      lastInputAt: lastInputTime,
       lastWorkingAt: lastPtyOutputTime,
-      lastPromptAt: lastPromptTime,
       touchedClock,
       touchedAt,
       hiddenAt: null,
@@ -1695,9 +1692,7 @@ function resumeFromSession(picked) {
       bootTime: sessionsLog.currentBootTime(),
       guiSession: getOwnGuiSession(),
       token: agentSessionId,
-      lastInputAt: lastInputTime,
       lastWorkingAt: lastPtyOutputTime,
-      lastPromptAt: lastPromptTime,
       touchedClock,
       touchedAt,
       hiddenAt: null,
@@ -1846,10 +1841,10 @@ function copyChromeBarPrompt() {
 
 // ---- Window-cap helpers ----
 
-// Refresh our active-file timestamps so other windows can score us correctly
-// for eviction. Called periodically (throttled to ACTIVITY_REFRESH_MS) and
-// on hide/show transitions.
-function refreshActivityTimestamps(extra = {}) {
+// Refresh our active-file record so other windows judge us from current
+// state: whether we are stale or hidden, and where we stand in the close
+// order. Called periodically (ACTIVITY_REFRESH_MS) and on hide/show.
+function refreshActivityTimestamps() {
   if (sessionIndex === null || !activeFileWritten) return;
   // No window means there is no live session to advertise to the cap or the
   // picker; keeping the record warm would only make it look reachable.
@@ -1857,13 +1852,13 @@ function refreshActivityTimestamps(extra = {}) {
   // A heartbeat is background work: a registry error is logged, never left to
   // surface as an uncaught-exception dialog.
   try {
-    heartbeat(extra);
+    heartbeat();
   } catch (err) {
     log('[main] activity heartbeat failed: ' + (err && err.message));
   }
 }
 
-function heartbeat(extra) {
+function heartbeat() {
   const userDataDir = app.getPath('userData');
   const beat = {
     // Restamp the boot time. It is a derived value that drifts against the wall
@@ -1873,13 +1868,10 @@ function heartbeat(extra) {
     // never certify a record from an earlier boot. Deliberately unlike
     // guiSession, which stays frozen so a ghost cannot re-certify itself.
     bootTime: sessionsLog.currentBootTime(),
-    lastInputAt: lastInputTime,
     lastWorkingAt: lastPtyOutputTime,
-    lastPromptAt: lastPromptTime,
     touchedClock,
     touchedAt,
     hiddenAt,
-    ...extra,
   };
   const state = sessionsLog.updateActiveFile(userDataDir, sessionIndex, beat, process.pid);
   if (state === 'merged') return;

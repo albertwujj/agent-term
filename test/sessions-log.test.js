@@ -734,22 +734,22 @@ test('findActiveByToken returns the active record carrying the token', (dir) => 
 // ---- record ownership ----
 
 test('updateActiveFile merges only into the caller\'s own record', (dir) => {
-  log.writeActiveFile(dir, 7, { pid: process.pid, bootTime: FROZEN_BOOT, lastInputAt: 1 });
-  assert.strictEqual(log.updateActiveFile(dir, 7, { lastInputAt: 2 }, process.pid), 'merged');
-  assert.strictEqual(log.readActiveFile(dir, 7).lastInputAt, 2);
+  log.writeActiveFile(dir, 7, { pid: process.pid, bootTime: FROZEN_BOOT, lastWorkingAt: 1 });
+  assert.strictEqual(log.updateActiveFile(dir, 7, { lastWorkingAt: 2 }, process.pid), 'merged');
+  assert.strictEqual(log.readActiveFile(dir, 7).lastWorkingAt, 2);
 });
 
 test('updateActiveFile: a record held by another live pid is taken, and left untouched', (dir) => {
-  log.writeActiveFile(dir, 7, { pid: process.pid, bootTime: FROZEN_BOOT, lastInputAt: 1 });
-  assert.strictEqual(log.updateActiveFile(dir, 7, { lastInputAt: 2 }, 424242), 'taken');
-  assert.strictEqual(log.readActiveFile(dir, 7).lastInputAt, 1);
+  log.writeActiveFile(dir, 7, { pid: process.pid, bootTime: FROZEN_BOOT, lastWorkingAt: 1 });
+  assert.strictEqual(log.updateActiveFile(dir, 7, { lastWorkingAt: 2 }, 424242), 'taken');
+  assert.strictEqual(log.readActiveFile(dir, 7).lastWorkingAt, 1);
 });
 
 test('updateActiveFile: no record, or a dead holder\'s record, is unowned', (dir) => {
-  assert.strictEqual(log.updateActiveFile(dir, 7, { lastInputAt: 2 }, process.pid), 'unowned');
-  log.writeActiveFile(dir, 7, { pid: 999999, bootTime: FROZEN_BOOT, lastInputAt: 1 });
-  assert.strictEqual(log.updateActiveFile(dir, 7, { lastInputAt: 2 }, process.pid), 'unowned');
-  assert.strictEqual(log.readActiveFile(dir, 7).lastInputAt, 1);
+  assert.strictEqual(log.updateActiveFile(dir, 7, { lastWorkingAt: 2 }, process.pid), 'unowned');
+  log.writeActiveFile(dir, 7, { pid: 999999, bootTime: FROZEN_BOOT, lastWorkingAt: 1 });
+  assert.strictEqual(log.updateActiveFile(dir, 7, { lastWorkingAt: 2 }, process.pid), 'unowned');
+  assert.strictEqual(log.readActiveFile(dir, 7).lastWorkingAt, 1);
 });
 
 test('releaseActiveFile deletes only the caller\'s own record', (dir) => {

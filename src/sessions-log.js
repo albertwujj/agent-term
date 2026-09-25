@@ -267,9 +267,7 @@ function activeFilePath(userDataDir, id) {
 //   bootTime      OS boot time when this record was written (cross-boot pid reuse guard)
 //   guiSession    compositor-session stamp (macOS only; see src/gui-session.js)
 //   hiddenAt      timestamp when auto-hide hid the window, or null/missing
-//   lastInputAt   timestamp of the most recent user keystroke into this window
 //   lastWorkingAt timestamp of the most recent PTY output (proxy for "AI working")
-//   lastPromptAt  timestamp of the most recent captured prompt event
 //   touchedClock  the input clock's reading when the window's timer last
 //                 restarted (src/input-clock.js)
 //   touchedAt     wall-clock time of that restart
@@ -289,7 +287,7 @@ function heldByAnotherLivePid(record, pid) {
 }
 
 // Merge a partial update into the caller's own active file. Used by windows to
-// refresh their lastInputAt / lastWorkingAt / hiddenAt without rewriting the
+// refresh their lastWorkingAt / touchedClock / hiddenAt without rewriting the
 // whole record. Returns:
 //   'merged'   the record is ours and was updated
 //   'taken'    the record names another live pid: that window was handed this

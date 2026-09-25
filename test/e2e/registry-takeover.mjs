@@ -44,7 +44,7 @@ for (const [id, hue, prompt] of [[5, 100, 'live one'], [6, 200, 'resumable one']
 }
 // Session 5 is held by THIS node process: alive, current boot, current compositor.
 // Hidden, and nothing here acts on its control messages, so it never comes back.
-sessionsLog.writeActiveFile(UD, 5, { pid: process.pid, bootTime: sessionsLog.currentBootTime(), guiSession: guiSession.currentGuiSession(), token: 'tok5', hue: 100, lastInputAt: Date.now(), lastWorkingAt: 0, lastPromptAt: Date.now(), hiddenAt: Date.now() });
+sessionsLog.writeActiveFile(UD, 5, { pid: process.pid, bootTime: sessionsLog.currentBootTime(), guiSession: guiSession.currentGuiSession(), token: 'tok5', hue: 100, lastWorkingAt: 0, hiddenAt: Date.now() });
 
 const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR], timeout: 45_000 });
 const exited = new Promise(r => app.process().once('exit', (code) => r(code)));
