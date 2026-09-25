@@ -84,6 +84,7 @@ const {
   splitChromeTopAndOverflow,
 } = require('./icon-render');
 const windowCap = require('./window-cap');
+const { createInputClock } = require('./input-clock');
 const cliIcons = require('./cli-icons');
 const { pickNextHue } = require('./hue-assign');
 const {
@@ -676,8 +677,19 @@ let lastInputByte = '';
 // Window-cap state: hidden flag, last user input time (any keystroke from
 // the renderer), the periodic refresh timer for active-file timestamps,
 // the cap-control file watcher teardown function, and the once-a-minute
-// health timer (ghost check + idle close).
+// health timer (ghost check + live cap).
 let windowHidden = false;
+let hiddenAt = null;
+// This window's timer on the input clock (src/input-clock.js): the clock's
+// reading when the user last focused or used it, or its agent last finished a
+// turn, and the wall-clock time of that restart, which breaks ties in the
+// close order. Auto-hide judges staleness by it (docs/dev/auto-hide.md).
+let inputClock = null;
+let touchedClock = null;
+let touchedAt = 0;
+const turnTracker = windowCap.createTurnTracker();
+// Overridable so an end-to-end test can outwait it.
+const WORKING_GRACE_MS = Number(process.env.AGENT_TERM_WORKING_GRACE_MS) || windowCap.WORKING_GRACE_MS;
 let lastInputTime = Date.now();
 let lastPromptTime = 0;
 let activityRefreshInterval = null;
@@ -798,8 +810,11 @@ async function makeDockIconImage({ hue = null, prompt = '', cli = null } = {}) {
   return { img };
 }
 
+// The last icon set, drawn again when a hidden window's Dock tile returns.
+let lastDockIcon = null;
 function setDockIcon(img) {
   if (process.platform !== 'darwin' || !app.dock || !img) return;
+  lastDockIcon = img;
   try { app.dock.setIcon(img); } catch {}
 }
 
@@ -1436,6 +1451,8 @@ function assignSessionIdentity() {
       lastInputAt: lastInputTime,
       lastWorkingAt: lastPtyOutputTime,
       lastPromptAt: lastPromptTime,
+      touchedClock,
+      touchedAt,
       hiddenAt: null,
     });
     activeFileWritten = true;
@@ -1454,7 +1471,6 @@ function assignSessionIdentity() {
         sessionsLog.appendEvent(userDataDir, { e: 'cwd', id: cwdSessionId, cwd });
       }
     }).catch(() => {});
-    enforceVisibleCap();
     startCapControlWatcher();
     startCapTimers();
   }
@@ -1682,13 +1698,14 @@ function resumeFromSession(picked) {
       lastInputAt: lastInputTime,
       lastWorkingAt: lastPtyOutputTime,
       lastPromptAt: lastPromptTime,
+      touchedClock,
+      touchedAt,
       hiddenAt: null,
     });
   } catch (err) {
     console.warn('[main] resumeFromSession: writeActiveFile failed:', err && err.message);
   }
   // Same cap machinery as a fresh session.
-  enforceVisibleCap();
   startCapControlWatcher();
   startCapTimers();
 
@@ -1723,6 +1740,7 @@ function updateProgressBar() {
   // output, AND the user isn't typing (echo would otherwise trigger it on
   // every keystroke). See computeIsWorking() for the full predicate.
   const isWorking = computeIsWorking();
+  if (turnTracker.update(isWorking, titleActivity.working, Date.now())) onTurnEnded();
   if (isWorking !== progressBarOn && streamClient) streamClient.activityChanged();
   if (isWorking && !progressBarOn) {
     try { mainWindow.setProgressBar(2, { mode: 'indeterminate' }); } catch {}
@@ -1858,7 +1876,9 @@ function heartbeat(extra) {
     lastInputAt: lastInputTime,
     lastWorkingAt: lastPtyOutputTime,
     lastPromptAt: lastPromptTime,
-    hiddenAt: windowHidden ? (extra.hiddenAt || Date.now()) : null,
+    touchedClock,
+    touchedAt,
+    hiddenAt,
     ...extra,
   };
   const state = sessionsLog.updateActiveFile(userDataDir, sessionIndex, beat, process.pid);
@@ -1883,44 +1903,171 @@ function heartbeat(extra) {
   });
 }
 
-function setHidden(hidden) {
-  if (!mainWindow) return;
+// ---- Auto-hide (docs/dev/auto-hide.md) ----
+
+function getInputClock() {
+  if (!inputClock) inputClock = createInputClock(app.getPath('userData'));
+  return inputClock;
+}
+
+// Input the user gives a web contents of this window: its page, or the
+// embedded viewer's.
+function watchUserInput(contents) {
+  contents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') noteUserInput();
+  });
+  contents.on('before-mouse-event', (event, mouse) => {
+    if (mouse.type === 'mouseDown' || mouse.type === 'mouseWheel') noteUserInput();
+  });
+}
+
+// The user acted in this window: count the minute on the shared input clock
+// and restart this window's timer at the new reading.
+function noteUserInput() {
+  try {
+    touchedClock = getInputClock().note();
+    touchedAt = Date.now();
+  } catch (err) {
+    log('[auto-hide] input clock update failed: ' + (err && err.message));
+  }
+}
+
+// Something here wants the user's eye without their acting in this window (it
+// opened, it was chosen in a picker, its agent finished a turn): restart the
+// timer at the current reading and leave the clock alone.
+function restartWindowTimer() {
+  try {
+    touchedClock = getInputClock().read();
+    touchedAt = Date.now();
+  } catch (err) {
+    log('[auto-hide] input clock read failed: ' + (err && err.message));
+  }
+}
+
+// Hidden is gone from every surface a click or keystroke could reach: the
+// screen, the taskbar or Dock, and Cmd/Alt+Tab. Each session is its own
+// process, so on macOS the Dock tile and the Cmd+Tab entry are the app's and
+// go with app.dock.hide(). `focus` is for the user bringing a window back; one
+// returning on its own (a finished turn) comes back without taking focus.
+function setHidden(hidden, { focus = false } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   if (windowHidden === hidden) return;
   windowHidden = hidden;
-  try { mainWindow.setSkipTaskbar(hidden); } catch {}
-  refreshActivityTimestamps(hidden ? { hiddenAt: Date.now() } : {});
+  hiddenAt = hidden ? Date.now() : null;
+  if (hidden) {
+    try { mainWindow.hide(); } catch {}
+    if (process.platform === 'darwin' && app.dock) {
+      try { app.dock.hide(); } catch {}
+    }
+  } else if (process.platform === 'darwin' && app.dock) {
+    Promise.resolve()
+      .then(() => app.dock.show())
+      .catch((err) => log('[auto-hide] dock show failed: ' + (err && err.message)))
+      .then(() => showWindow(focus));
+  } else {
+    showWindow(focus);
+  }
+  refreshActivityTimestamps();
 }
 
-// If we're over the visible cap, find the stalest non-working visible
-// window (other than us) and ask it to hide. Called on tryLockIcon when a
-// new agent-term window has just become an active AI session.
-function enforceVisibleCap() {
-  if (sessionIndex === null) return;
-  const userDataDir = app.getPath('userData');
-  const records = windowCap.listLiveRecords(userDataDir);
-  if (windowCap.countVisible(records) <= windowCap.MAX_VISIBLE) return;
-  const victimId = windowCap.pickEvictionVictim(records, { ignoreId: sessionIndex });
-  if (victimId === null) return;        // every visible window is working — leave them alone
+function showWindow(focus) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (focus) {
+    try { mainWindow.show(); } catch {}
+    // Another process (the picker's window) is in front; take activation
+    // from it, which a plain focus() does not do across apps on macOS.
+    if (process.platform === 'darwin') {
+      try { app.focus({ steal: true }); } catch {}
+    }
+    try { mainWindow.focus(); } catch {}
+  } else {
+    try { mainWindow.showInactive(); } catch {}
+  }
+  // The taskbar button or Dock tile is a new one: draw on it again what this
+  // window had drawn on the old.
+  setDockIcon(lastDockIcon);
+  if (progressBarOn) {
+    try { mainWindow.setProgressBar(2, { mode: 'indeterminate' }); } catch {}
+  }
+}
+
+// Why this window stays when asked to hide, or null when it may hide. The
+// asking window judged the registry, which is up to a heartbeat old; this
+// re-judges from live state.
+function hideRefusal() {
+  if (!mainWindow || mainWindow.isDestroyed()) return 'no window';
+  if (mainWindow.isFocused()) return 'focused';
+  // A full-screen window has to leave full screen to hide, which may switch
+  // the user to its Space; it stays until a prototype settles that.
+  if (process.platform === 'darwin' && mainWindow.isFullScreen()) return 'full screen';
+  if (computeIsWorking()) return 'working';
+  const self = { touchedClock, lastWorkingAt: lastPtyOutputTime };
+  const judged = { clock: getInputClock().read(), now: Date.now(), workingGraceMs: WORKING_GRACE_MS };
+  if (!windowCap.isHideCandidate(self, judged)) {
+    return 'not stale';
+  }
+  return null;
+}
+
+function hideIfStale() {
+  const refusal = hideRefusal();
+  if (refusal) {
+    log('[auto-hide] asked to hide session ' + sessionIndex + '; staying: ' + refusal);
+    return;
+  }
+  log('[auto-hide] hiding session ' + sessionIndex + ' (timer ' + touchedClock + ')');
+  setHidden(true);
+}
+
+// An opening: this window just joined the taskbar or Dock by the user's hand,
+// as a new window or one brought back from a picker. The number of windows
+// only grows here and the taskbar is already changing, so this is when stale
+// windows are asked to step aside. Each re-checks itself before it hides.
+function tidyStaleWindows() {
   try {
-    windowCap.sendControl(userDataDir, victimId, 'hide');
+    const userDataDir = app.getPath('userData');
+    const records = windowCap.listLiveRecords(userDataDir);
+    const ids = windowCap.pickStaleWindows(records, {
+      clock: getInputClock().read(),
+      now: Date.now(),
+      ignoreId: sessionIndex,
+      workingGraceMs: WORKING_GRACE_MS,
+    });
+    for (const id of ids) windowCap.sendControl(userDataDir, id, 'hide');
+    if (ids.length) log('[auto-hide] asked stale sessions to hide: ' + ids.join(', '));
   } catch (err) {
-    console.warn('[main] sendControl(hide) failed:', err && err.message);
+    log('[auto-hide] tidy failed: ' + (err && err.message));
   }
 }
 
-// Auto-close ourselves if we've been hidden + idle for IDLE_CLOSE_MS.
-// "Idle" = no user input AND no AI working since we were hidden. Resource
-// bound for the Tier-2 hidden cache; the session record stays in the log
-// so the user can still resume from the picker.
-function checkIdleClose() {
+// The user chose this session in a picker ('show' control message).
+function bringForward() {
+  restartWindowTimer();
+  if (windowHidden) setHidden(false, { focus: true });
+  else showWindow(true);
+  tidyStaleWindows();
+}
+
+// The agent finished a turn: the window gets a full interval from now, and a
+// hidden one returns to the taskbar or Dock, without focus, with the result.
+function onTurnEnded() {
+  restartWindowTimer();
   if (!windowHidden) return;
-  const now = Date.now();
-  const sinceInput = now - lastInputTime;
-  const sinceWorking = now - lastPtyOutputTime;
-  if (sinceInput >= windowCap.IDLE_CLOSE_MS && sinceWorking >= windowCap.IDLE_CLOSE_MS) {
-    console.log('[main] auto-closing — hidden + idle for', Math.round(sinceInput / 60_000), 'min');
-    app.quit();
-  }
+  log('[auto-hide] turn ended while hidden; bringing session ' + sessionIndex + ' back');
+  setHidden(false);
+}
+
+// Past MAX_LIVE live sessions, the hidden ones whose timers restarted longest
+// ago close. Each hidden window checks for itself once a minute, so no window
+// closes another. The session is recorded as closed and resumes through its
+// CLI, like any closed session.
+function checkLiveCap() {
+  if (!windowHidden || sessionIndex === null) return;
+  const records = windowCap.listLiveRecords(app.getPath('userData'));
+  if (!windowCap.capVictims(records).includes(sessionIndex)) return;
+  log('[auto-hide] closing hidden session ' + sessionIndex + ': more than ' +
+      windowCap.MAX_LIVE + ' sessions are live');
+  app.quit();
 }
 
 // The window is gone while the process lives. Two ways in:
@@ -2010,10 +2157,10 @@ function startCapTimers() {
     activityRefreshInterval = setInterval(refreshActivityTimestamps, windowCap.ACTIVITY_REFRESH_MS);
   }
   if (!healthCheckInterval) {
-    // Once a minute: ghost check (exit immediately), idle close (at 4h).
+    // Once a minute: ghost check (exit immediately), live cap.
     healthCheckInterval = setInterval(() => {
       checkGuiSessionAlive();
-      checkIdleClose();
+      checkLiveCap();
     }, 60 * 1000);
   }
 }
@@ -2024,12 +2171,8 @@ function startCapControlWatcher() {
     app.getPath('userData'),
     sessionIndex,
     {
-      hide: () => setHidden(true),
-      show: () => {
-        setHidden(false);
-        try { if (mainWindow) mainWindow.focus(); } catch {}
-      },
-      close: () => app.quit(),
+      hide: hideIfStale,
+      show: bringForward,
     },
   );
 }
@@ -2430,9 +2573,16 @@ function createWindow() {
     }
   });
 
+  // A new window is touched, and its opening is when stale windows step
+  // aside (docs/dev/auto-hide.md). Keys, clicks, scrolls, and focus count as
+  // using the window; pointer motion alone does not.
+  restartWindowTimer();
+  watchUserInput(mainWindow.webContents);
+  mainWindow.on('focus', noteUserInput);
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     showSessionsPicker();
+    tidyStaleWindows();
   });
 
   // DevTools accelerators. Cmd/Ctrl+Shift+I shrinks the viewer band, so DevTools
@@ -2708,11 +2858,6 @@ function createPty(cols, rows) {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('pty-output', data);
     }
-    // Auto-show: if we're hidden and the AI is producing output (something
-    // worth attention happened), pop ourselves back into the taskbar so the
-    // user can see/find us. Don't steal focus — they may be in another
-    // window working on something else.
-    if (windowHidden) setHidden(false);
    } catch (err) {
     try { log('[main] pty data handler failed: ' + (err && err.message)); } catch {}
    }
@@ -3208,22 +3353,47 @@ ipcMain.on('viewer-disk-search-cancel', (event, payload = {}) => {
   cancelViewerDiskSearch(String(payload.requestId || ''));
 });
 
-ipcMain.on('picker-pick', (event, id) => {
+// A session chosen in the picker that is live in another window is brought
+// forward; this window was opened to find it and, holding no session of its
+// own, closes once that window is back. The hand-over is confirmed through the
+// registry first, so a window that failed to come back leaves this one open.
+// Returns whether the session was live.
+const HANDOFF_CONFIRM_MS = 3000;
+const HANDOFF_POLL_MS = 100;
+function bringForwardFromPicker(id) {
   const userDataDir = app.getPath('userData');
+  if (!sessionsLog.isSessionActive(sessionsLog.readActiveFile(userDataDir, id))) return false;
+  log('[resume] session ' + id + ' is live in another window; bringing it forward');
+  try { windowCap.sendControl(userDataDir, id, 'show'); } catch (err) {
+    log('[resume] bring-forward failed: ' + (err && err.message));
+    return true;
+  }
+  if (sessionIndex !== null || iconLocked) return true;
+  const deadline = Date.now() + HANDOFF_CONFIRM_MS;
+  const poll = setInterval(() => {
+    const rec = sessionsLog.readActiveFile(userDataDir, id);
+    if (rec && !rec.hiddenAt) {
+      clearInterval(poll);
+      log('[resume] session ' + id + ' is back; closing the picker window');
+      app.quit();
+    } else if (Date.now() > deadline || !sessionsLog.isSessionActive(rec)) {
+      clearInterval(poll);
+      log('[resume] session ' + id + ' did not come back; keeping this window');
+    }
+  }, HANDOFF_POLL_MS);
+  return true;
+}
+
+function pickSession(id) {
+  const userDataDir = app.getPath('userData');
+  // The picker's list is computed when it opens and can be hours old by the
+  // time a row is chosen. Judge liveness now: a session another window holds
+  // is brought forward, hidden or not. Taking its id here would give two
+  // windows one identity.
+  if (bringForwardFromPicker(id)) return;
   const sessions = sessionsLog.listSessions(userDataDir);
   const picked = sessions.find(s => s.id === id);
   if (!picked || !picked.cli) return;
-  // The picker's list is computed when it opens and can be hours old by the
-  // time a row is chosen. Judge liveness now: a session another window holds
-  // is brought forward, the way the picker treats a row it knew to be active.
-  // Taking its id here would give two windows one identity.
-  if (sessionsLog.isSessionActive(sessionsLog.readActiveFile(userDataDir, id))) {
-    log('[resume] session ' + id + ' is live in another window; bringing it forward');
-    try { windowCap.sendControl(userDataDir, id, 'show'); } catch (err) {
-      log('[resume] bring-forward failed: ' + (err && err.message));
-    }
-    return;
-  }
   // Inherit the picked session's identity (id, hue, prompt, active-file) so
   // this window IS that session, not a new one. Other windows then see it
   // as currently active.
@@ -3250,7 +3420,9 @@ ipcMain.on('picker-pick', (event, id) => {
     log('[resume] armed intercept after picker-pick id=' + id +
         ' cli=' + picked.cli);
   }
-});
+}
+
+ipcMain.on('picker-pick', (event, id) => pickSession(id));
 
 // Written as keystrokes: the pty gets the bytes, and prompt-capture sees
 // them the way it sees the user's own, so the shell line and the capture
@@ -3330,16 +3502,11 @@ ipcMain.on('cancel-resume-intercept', () => {
   pendingResumeIntercept = false;
 });
 
-// Picker → bring a hidden active session back to the taskbar. Sends a
-// 'show' control file addressed to the target window; the target's
-// cap-control watcher flips setSkipTaskbar(false) and focuses itself.
+// Picker → a hidden session's row. Brought forward while it lives; one that
+// closed since the picker opened resumes here like any past session.
 ipcMain.on('picker-bring-forward', (event, id) => {
   if (typeof id !== 'number') return;
-  try {
-    windowCap.sendControl(app.getPath('userData'), id, 'show');
-  } catch (err) {
-    console.warn('[main] picker-bring-forward failed:', err && err.message);
-  }
+  pickSession(id);
 });
 
 // Save clipboard image to temp file, return path (WSL-converted on Windows)
@@ -5480,6 +5647,8 @@ function normalizeViewerContentType() {
 
 app.on('web-contents-created', (event, contents) => {
   if (contents.getType() !== 'webview') return;
+  // Using the embedded viewer is using this window.
+  watchUserInput(contents);
   let guestUnresponsiveAt = null;
   contents.on('unresponsive', () => {
     guestUnresponsiveAt = monotonicMs();

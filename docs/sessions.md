@@ -25,6 +25,8 @@ Right-click a taskbar button or Dock tile and choose Start or resume session, or
 
 On Windows each is its own taskbar button, labeled from the session's initial prompt in a color locked to the session, with a working indicator and a live preview of what it is doing. On a Mac each is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent works; right-click a tile for the session's name. A tile like "I'd" looks thin at first, but color and letters become familiar within a few uses, the way an app icon does. Run each session full screen and a Mission Control swipe shows every session at once, its initial prompt pinned at the top.
 
+A session you have not touched through an hour of work in your other sessions leaves the taskbar and Dock the next time you open a window, and keeps running: the picker brings it back instantly, as you left it, and it comes back by itself when its agent finishes a turn. Up to 8 sessions stay alive this way; past that, the one you used longest ago closes and resumes like any closed session.
+
 ## Find and resume sessions
 
 ![Find any past session: type a few letters. The same picker frame shown in the README demo.](assets/hero-session-resume.png)

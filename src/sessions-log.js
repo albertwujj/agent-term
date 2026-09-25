@@ -266,14 +266,17 @@ function activeFilePath(userDataDir, id) {
 //   pid           process id of the window (required for liveness check)
 //   bootTime      OS boot time when this record was written (cross-boot pid reuse guard)
 //   guiSession    compositor-session stamp (macOS only; see src/gui-session.js)
-//   hiddenAt      timestamp when the window was setSkipTaskbar(true), or null/missing
+//   hiddenAt      timestamp when auto-hide hid the window, or null/missing
 //   lastInputAt   timestamp of the most recent user keystroke into this window
 //   lastWorkingAt timestamp of the most recent PTY output (proxy for "AI working")
 //   lastPromptAt  timestamp of the most recent captured prompt event
+//   touchedClock  the input clock's reading when the window's timer last
+//                 restarted (src/input-clock.js)
+//   touchedAt     wall-clock time of that restart
 //   token         the window's AGENT_SESSION_ID; lets a window find the holder of
 //                 agent-lock's lock/agent (its owner record stores the token)
-// The window-cap module uses the last three to score visible windows for
-// eviction when a new window pushes over the cap.
+// The window-cap module hides stale windows and caps live sessions by
+// touchedClock, touchedAt, lastWorkingAt, and hiddenAt.
 
 function writeActiveFile(userDataDir, id, payload) {
   ensureDirs(userDataDir);

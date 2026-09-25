@@ -4,7 +4,8 @@
 //
 //   1. startup compaction is skipped while another window's record is live
 //   2. picking a session another window holds brings that window forward
-//      instead of taking its id (the picker's list may be hours old)
+//      instead of taking its id (the picker's list may be hours old); the
+//      holder here never answers, so this window stays
 //   3. a resume writes the record under this process's pid
 //   4. when another live window is handed the id, the next heartbeat exits
 //      this window as superseded: no closed/lost event, successor's record kept
@@ -42,7 +43,8 @@ for (const [id, hue, prompt] of [[5, 100, 'live one'], [6, 200, 'resumable one']
   sessionsLog.appendEvent(UD, { e: 'cwd', id, cwd: UD });
 }
 // Session 5 is held by THIS node process: alive, current boot, current compositor.
-sessionsLog.writeActiveFile(UD, 5, { pid: process.pid, bootTime: sessionsLog.currentBootTime(), guiSession: guiSession.currentGuiSession(), token: 'tok5', hue: 100, lastInputAt: Date.now(), lastWorkingAt: 0, lastPromptAt: Date.now(), hiddenAt: null });
+// Hidden, and nothing here acts on its control messages, so it never comes back.
+sessionsLog.writeActiveFile(UD, 5, { pid: process.pid, bootTime: sessionsLog.currentBootTime(), guiSession: guiSession.currentGuiSession(), token: 'tok5', hue: 100, lastInputAt: Date.now(), lastWorkingAt: 0, lastPromptAt: Date.now(), hiddenAt: Date.now() });
 
 const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR], timeout: 45_000 });
 const exited = new Promise(r => app.process().once('exit', (code) => r(code)));
@@ -64,6 +66,9 @@ await sleep(800);
 let ctl = null; try { ctl = JSON.parse(fs.readFileSync(path.join(UD, 'cap-control', '5.json'), 'utf8')); } catch {}
 check('live session picked -> show control sent to its holder', ctl && ctl.action === 'show', JSON.stringify(ctl));
 check('live session picked -> its record untouched', sessionsLog.readActiveFile(UD, 5).pid === process.pid);
+await sleep(3000);
+check('holder never came back -> this window stays',
+  /session 5 did not come back; keeping this window/.test(fs.readFileSync(path.join(UD, 'logs', `main-${appPid}.log`), 'utf8')));
 
 // Resume a session nobody holds: this window takes the id and writes the record.
 await app.evaluate(({ ipcMain }) => { ipcMain.emit('picker-pick', {}, 6); });

@@ -597,9 +597,9 @@ function createPicker({
         row.addEventListener('click', () => activate(activationIndex));
       } else if (isHidden) {
         row.addEventListener('click', () => {
-          // Bring-forward action (different from resume): tell the target
-          // window via IPC to setSkipTaskbar(false) + focus, then close
-          // the picker without spawning anything in this window.
+          // Bring-forward action (different from resume): main asks the
+          // target window to show and focus itself, then closes this
+          // picker's window without spawning anything in it.
           cancelActiveHiddenSearch();
           try { window.pty.pickerBringForward(s.id); } catch {}
           if (typeof onClose === 'function') onClose();

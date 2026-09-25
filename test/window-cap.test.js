@@ -1,10 +1,18 @@
-// Tests for src/window-cap.js — pure-function pickEvictionVictim selector.
+// Tests for src/window-cap.js — auto-hide selection, the live cap's close
+// order, turn detection, and the last-window relaunch threshold.
 
 const assert = require('assert');
 const {
+  MAX_LIVE,
+  STALE_AFTER_MINUTES,
   MIN_VISIBLE_FOR_RELAUNCH,
   WORKING_GRACE_MS,
-  pickEvictionVictim,
+  TURN_MIN_MS,
+  isHideCandidate,
+  pickStaleWindows,
+  closeOrder,
+  capVictims,
+  createTurnTracker,
   shouldRelaunchAfterUserClose,
 } = require('../src/window-cap');
 
@@ -25,99 +33,112 @@ function test(name, fn) {
 console.log('window-cap');
 
 const NOW = 1_700_000_000_000;
+const CLOCK = 1000;
+const judged = { clock: CLOCK, now: NOW };
 
 function rec(id, fields) {
   return { id, file: { ...fields } };
 }
 
-test('picks the stalest non-working visible session', () => {
-  const records = [
-    rec(1, { lastInputAt: NOW - 10 * 60_000, lastWorkingAt: NOW - 10 * 60_000 }),  // 10m ago
-    rec(2, { lastInputAt: NOW - 60 * 60_000, lastWorkingAt: NOW - 60 * 60_000 }),  // 60m ago — stalest
-    rec(3, { lastInputAt: NOW - 30 * 60_000, lastWorkingAt: NOW - 30 * 60_000 }),  // 30m ago
-  ];
-  const victim = pickEvictionVictim(records, { now: NOW });
-  assert.strictEqual(victim, 2);
+// ---- hiding ----
+
+test('a window untouched for STALE_AFTER_MINUTES of the input clock is stale', () => {
+  assert.strictEqual(isHideCandidate({ touchedClock: CLOCK - STALE_AFTER_MINUTES }, judged), true);
+  assert.strictEqual(isHideCandidate({ touchedClock: CLOCK - STALE_AFTER_MINUTES + 1 }, judged), false);
 });
 
-test('skips currently-working sessions even if they are stalest by input', () => {
-  const records = [
-    // Stale by input but worked very recently → skip.
-    rec(1, { lastInputAt: NOW - 60 * 60_000, lastWorkingAt: NOW - 30_000 }),
-    rec(2, { lastInputAt: NOW - 20 * 60_000, lastWorkingAt: NOW - 20 * 60_000 }),  // candidate
-    rec(3, { lastInputAt: NOW - 5  * 60_000, lastWorkingAt: NOW - 5  * 60_000 }),
-  ];
-  const victim = pickEvictionVictim(records, { now: NOW });
-  assert.strictEqual(victim, 2);
+test('staleness is on the input clock: wall-clock age alone never makes a window stale', () => {
+  // Touched a day ago by the wall clock, but the input clock has not moved since.
+  const file = { touchedClock: CLOCK, touchedAt: NOW - 86_400_000 };
+  assert.strictEqual(isHideCandidate(file, judged), false);
 });
 
-test('returns null when every visible session is currently working', () => {
-  const records = [
-    rec(1, { lastInputAt: NOW - 60 * 60_000, lastWorkingAt: NOW - 30_000 }),
-    rec(2, { lastInputAt: NOW - 20 * 60_000, lastWorkingAt: NOW - 60_000 }),
-  ];
-  const victim = pickEvictionVictim(records, { now: NOW });
-  assert.strictEqual(victim, null);
+test('a working window stays through the grace period after its output stops', () => {
+  const stale = CLOCK - 5 * STALE_AFTER_MINUTES;
+  assert.strictEqual(isHideCandidate({ touchedClock: stale, lastWorkingAt: NOW - WORKING_GRACE_MS + 1 }, judged), false);
+  assert.strictEqual(isHideCandidate({ touchedClock: stale, lastWorkingAt: NOW - WORKING_GRACE_MS }, judged), true);
+  assert.strictEqual(isHideCandidate({ touchedClock: stale, lastWorkingAt: NOW - 2000 }, { ...judged, workingGraceMs: 1000 }), true);
 });
 
-test('hidden sessions do not count for eviction', () => {
-  const records = [
-    rec(1, { lastInputAt: NOW - 60 * 60_000, lastWorkingAt: NOW - 60 * 60_000, hiddenAt: NOW - 50 * 60_000 }),
-    rec(2, { lastInputAt: NOW - 20 * 60_000, lastWorkingAt: NOW - 20 * 60_000 }),
-  ];
-  // Hidden 1 is older, but it's already hidden — visible 2 is the only candidate.
-  const victim = pickEvictionVictim(records, { now: NOW });
-  assert.strictEqual(victim, 2);
+test('a hidden window, or one written without a timer (an older build), is no candidate', () => {
+  assert.strictEqual(isHideCandidate({ touchedClock: 0, hiddenAt: NOW - 1000 }, judged), false);
+  assert.strictEqual(isHideCandidate({ lastInputAt: 0, lastWorkingAt: 0 }, judged), false);
+  assert.strictEqual(isHideCandidate(null, judged), false);
 });
 
-test('ignoreId excludes the spawning window from its own eviction', () => {
+test('pickStaleWindows returns every stale window except the asker', () => {
   const records = [
-    rec(1, { lastInputAt: NOW - 60 * 60_000, lastWorkingAt: NOW - 60 * 60_000 }),
-    rec(2, { lastInputAt: NOW - 30 * 60_000, lastWorkingAt: NOW - 30 * 60_000 }),
+    rec(1, { touchedClock: CLOCK - 200 }),                        // stale
+    rec(2, { touchedClock: CLOCK - 5 }),                          // fresh
+    rec(3, { touchedClock: CLOCK - 200, lastWorkingAt: NOW }),    // working
+    rec(4, { touchedClock: CLOCK - 200 }),                        // stale, but asking
+    rec(5, { touchedClock: CLOCK - 200, hiddenAt: NOW - 1 }),     // already hidden
+    { id: 6, file: null },
   ];
-  // Without ignoreId, 1 is stalest. With ignoreId=1, only 2 is left.
-  const victim = pickEvictionVictim(records, { now: NOW, ignoreId: 1 });
-  assert.strictEqual(victim, 2);
+  assert.deepStrictEqual(pickStaleWindows(records, { ...judged, ignoreId: 4 }), [1]);
 });
 
-test('lastPromptAt counts as activity (a recent prompt-only session is not stale)', () => {
+// ---- the live cap ----
+
+test('close order: oldest timer first, wall clock breaking ties, hidden windows only', () => {
   const records = [
-    // Old input, but a prompt event came through more recently → not the stalest.
-    rec(1, { lastInputAt: NOW - 60 * 60_000, lastPromptAt: NOW - 2 * 60_000, lastWorkingAt: NOW - 60 * 60_000 }),
-    rec(2, { lastInputAt: NOW - 30 * 60_000, lastPromptAt: NOW - 30 * 60_000, lastWorkingAt: NOW - 30 * 60_000 }),
+    rec(1, { touchedClock: 50, touchedAt: 300, hiddenAt: 1 }),
+    rec(2, { touchedClock: 40, touchedAt: 900, hiddenAt: 1 }),
+    rec(3, { touchedClock: 50, touchedAt: 100, hiddenAt: 1 }),    // ties 1 on the clock, touched earlier
+    rec(4, { touchedClock: 10, touchedAt: 100 }),                 // visible: never in the order
   ];
-  const victim = pickEvictionVictim(records, { now: NOW });
-  assert.strictEqual(victim, 2);
+  assert.deepStrictEqual(closeOrder(records).map(r => r.id), [2, 3, 1]);
 });
 
-test('records with missing file (null) are skipped silently', () => {
-  const records = [
-    { id: 1, file: null },
-    rec(2, { lastInputAt: NOW - 20 * 60_000, lastWorkingAt: NOW - 20 * 60_000 }),
-  ];
-  const victim = pickEvictionVictim(records, { now: NOW });
-  assert.strictEqual(victim, 2);
+test('no victims at or under MAX_LIVE', () => {
+  const records = [];
+  for (let i = 0; i < MAX_LIVE; i++) records.push(rec(i, { touchedClock: i, hiddenAt: 1 }));
+  assert.deepStrictEqual(capVictims(records), []);
 });
 
-test('sessions with no activity timestamps at all are treated as fully stale (lastActivity = 0)', () => {
-  // A window that has never typed/worked/prompted is treated as the most
-  // disposable thing — fine to hide first.
-  const records = [
-    rec(1, {}),  // no timestamps at all
-    rec(2, { lastInputAt: NOW - 30 * 60_000, lastWorkingAt: NOW - 30 * 60_000 }),
-  ];
-  const victim = pickEvictionVictim(records, { now: NOW });
-  assert.strictEqual(victim, 1);
+test('past MAX_LIVE, the oldest hidden sessions close, one per session over', () => {
+  const records = [];
+  for (let i = 0; i < MAX_LIVE + 2; i++) records.push(rec(i, { touchedClock: 100 - i, hiddenAt: 1 }));
+  assert.deepStrictEqual(capVictims(records), [MAX_LIVE + 1, MAX_LIVE]);
 });
 
-test('grace boundary: a session that worked exactly WORKING_GRACE_MS ago is still working', () => {
-  const records = [
-    rec(1, { lastInputAt: NOW - 60 * 60_000, lastWorkingAt: NOW - WORKING_GRACE_MS + 1 }),  // grace, skip
-    rec(2, { lastInputAt: NOW - 10 * 60_000, lastWorkingAt: NOW - 10 * 60_000 }),
-  ];
-  const victim = pickEvictionVictim(records, { now: NOW });
-  assert.strictEqual(victim, 2);
+test('visible windows never close: with too few hidden, only the hidden ones go', () => {
+  const records = [];
+  for (let i = 0; i < MAX_LIVE + 3; i++) records.push(rec(i, { touchedClock: i }));
+  records[5].file.hiddenAt = 1;
+  assert.deepStrictEqual(capVictims(records), [5]);
 });
+
+test('MAX_LIVE is 8', () => {
+  assert.strictEqual(MAX_LIVE, 8);
+});
+
+// ---- turns ----
+
+test('a span the title called working ends a turn, however short', () => {
+  const t = createTurnTracker();
+  assert.strictEqual(t.update(true, true, 0), false);
+  assert.strictEqual(t.update(false, false, 1000), true);
+});
+
+test('an untitled span ends a turn only when it lasted TURN_MIN_MS', () => {
+  const t = createTurnTracker();
+  t.update(true, null, 0);
+  assert.strictEqual(t.update(false, null, TURN_MIN_MS - 1), false, 'short span is churn');
+  t.update(true, null, 100_000);
+  t.update(true, null, 100_000 + TURN_MIN_MS);
+  assert.strictEqual(t.update(false, null, 100_000 + TURN_MIN_MS + 1), true);
+});
+
+test('only the sample that ends the turn reports it', () => {
+  const t = createTurnTracker();
+  t.update(true, true, 0);
+  assert.strictEqual(t.update(false, false, 500), true);
+  assert.strictEqual(t.update(false, false, 1000), false);
+  assert.strictEqual(t.update(false, null, 1500), false);
+});
+
+// ---- relaunch threshold ----
 
 test('relaunch fires only when no visible session remains; hidden ones do not count', () => {
   assert.strictEqual(MIN_VISIBLE_FOR_RELAUNCH, 1);
