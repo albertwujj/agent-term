@@ -387,7 +387,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
         });
       },
       updateEditThread: function (item) {
-        return ipcRenderer.invoke('rv-update-edit-thread', {
+        return ipcRenderer.invoke('rv-update-thread', {
           commentsUrl: commentsUrl, threadId: item.threadId, body: item.body, note: item.note,
         }).then(function (res) {
           if (!res || !res.success) return res;
@@ -963,9 +963,13 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     // follow-up is the vehicle. A pending commit-message edit is the same
     // thread in the same window, worded for the marks up in the commit block.
     const discardable = threadWhollyUnsent(t);
+    // Before the first send this is still a draft, even though click-away has
+    // parked it in the store. Reopen that draft for revision; after send, the
+    // same action becomes a follow-up because conversation is append-only.
+    const editable = discardable && !editParsed;
     div.innerHTML = badge + lost + moved + quote + msgs
       + '<div class="rv-thread-actions">'
-      + '<button class="rv-link" data-act="comment">Comment</button>'
+      + '<button class="rv-link" data-act="' + (editable ? 'edit' : 'comment') + '">' + (editable ? 'Edit' : 'Comment') + '</button>'
       + (needsSend ? '<button class="rv-link" data-act="send">' + esc(sendLabel(0)) + '</button>' : '')
       + (needsSend ? '<button class="rv-link" data-act="toprompt" title="' + esc(toPromptAction(function(){}).title) + '">To prompt</button>' : '')
       + (discardable ? '<button class="rv-link" data-act="discard">' + (editParsed ? 'Discard edit' : 'Discard') + '</button>' : '')
@@ -982,7 +986,10 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
         slot.appendChild(buildEnvelopeDiffNode(editParsed));
       }
     }
-    div.querySelector('[data-act=comment]').onclick = function () { openReply(div, t.id); };
+    const commentBtn = div.querySelector('[data-act=comment]');
+    if (commentBtn) commentBtn.onclick = function () { openReply(div, t.id); };
+    const editBtn = div.querySelector('[data-act=edit]');
+    if (editBtn) editBtn.onclick = function () { openPendingEdit(div, t); };
     const sendBtn = div.querySelector('[data-act=send]');
     if (sendBtn) sendBtn.onclick = function () { sendThread('Sent to agent'); };
     const toPromptBtn = div.querySelector('[data-act=toprompt]');
@@ -1019,6 +1026,62 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       else box.remove();
     } };
     c.focus();
+  }
+
+  // Click-away stores a new comment without sending it. Until the first send,
+  // that parked thread is still a draft: Edit reopens all of its user-written
+  // pieces as one coherent comment and replaces them atomically. This also
+  // repairs drafts made by the old UI, where "Comment" could append a second
+  // unsent message because there was no edit path.
+  function openPendingEdit(div, thread) {
+    const existing = div.querySelector('.rv-replybox');
+    if (existing) { existing.querySelector('textarea').focus(); return; }
+    const box = document.createElement('div');
+    box.className = 'rv-replybox';
+    const seed = (thread.messages || [])
+      .filter(function (m) { return (m.author || 'user') === 'user'; })
+      .map(function (m) { return String(m.body || '').trim(); })
+      .filter(Boolean)
+      .join('\n\n');
+    function cancel() { box.remove(); activeComposer = null; }
+    const c = createComposer({
+      placeholder: 'Edit comment…',
+      seed: seed,
+      rows: 2,
+      onCancel: cancel,
+      actions: [
+        { label: sendLabel(0), primary: true, title: 'Enter', onClick: function (ctx) { updatePendingComment(thread.id, ctx.textarea, ctx.root, true); } },
+        toPromptAction(function (ctx) { updatePendingComment(thread.id, ctx.textarea, ctx.root, true, { toPrompt: true }); }),
+        { label: 'Cancel', onClick: cancel },
+      ],
+    });
+    box.appendChild(c.root);
+    div.appendChild(box);
+    activeComposer = { root: box, commit: function () {
+      if (c.textarea.value.trim()) updatePendingComment(thread.id, c.textarea, c.root, false);
+      else cancel();
+    } };
+    c.focus();
+  }
+
+  function updatePendingComment(threadId, ta, box, alsoSend, opts) {
+    const body = ta.value.trim();
+    if (!body) { ta.focus(); return; }
+    const currentComposer = activeComposer;
+    activeComposer = null;
+    box.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    ipcRenderer.invoke('rv-update-thread', { commentsUrl: commentsUrl, threadId: threadId, body: body })
+      .then(function (res) {
+        if (!res || !res.success) {
+          toast((res && res.error) || 'Could not update comment');
+          box.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+          activeComposer = currentComposer;
+          return;
+        }
+        store = res.data;
+        renderAndTrack(false);
+        if (alsoSend) sendThread('Comment sent to agent', opts);
+      });
   }
 
   function sendReply(threadId, ta, box, alsoSend, opts) {

@@ -332,7 +332,13 @@ def render_split(header, recs):
         else:
             rows.append(f'<tr class="meta"><td class="ln empty"></td><td class="code" colspan="3">{code}</td></tr>')
             i += 1
-    return '<table class="d-split">' + "".join(rows) + "</table>"
+    # The header is the first row and spans all four cells. Under fixed table
+    # layout Chromium would otherwise divide that row into four equal columns,
+    # turning each 48px line-number gutter into a quarter of the viewport. The
+    # colgroup makes the invariant explicit: gutter + code | gutter + code.
+    cols = ('<colgroup><col class="gutter"><col class="source">'
+            '<col class="gutter"><col class="source"></colgroup>')
+    return '<table class="d-split">' + cols + "".join(rows) + "</table>"
 
 
 # ------------------------------- content blocks -------------------------------
@@ -730,7 +736,8 @@ def render_code_embed(git, diff_args, repo, tip, path, lo, hi, text_html, note_n
     left = (f'<section class="cv-text prose-region" data-path="(note {note_n})">'
             f'<div class="md-render">{text_html}</div></section>'
             if text_html else '<div class="cv-text cv-empty"></div>')
-    body = (f'<div class="cv">{left}<div class="cv-code"><table class="d-code">'
+    cols = '<colgroup><col class="gutter"><col class="source"></colgroup>'
+    body = (f'<div class="cv">{left}<div class="cv-code"><table class="d-code">{cols}'
             f'{"".join(rows)}</table></div></div>')
     return finish(pill, body)
 
@@ -1466,6 +1473,7 @@ font-size:12.5px;color:#0a3069;columns:2 44ch;column-gap:32px}
 .diff{border:1px solid var(--border);border-radius:6px;overflow:hidden;margin:6px 0 2px;background:#fff}
 .diff table,.cv-code table{width:100%;border-collapse:collapse;table-layout:fixed;
 font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.diff col.gutter,.cv-code col.gutter{width:48px}
 .diff td,.cv-code td{vertical-align:top}
 .diff .ln,.cv-code .ln{width:48px;min-width:48px;text-align:right;padding:0 8px;color:var(--muted);
 user-select:none;background:var(--canvas);border-right:1px solid var(--border)}

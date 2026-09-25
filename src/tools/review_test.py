@@ -48,6 +48,44 @@ class SplitDiffLayout(unittest.TestCase):
             rendered)
         self.assertNotIn('<tr class="hh"><td class="ln">', rendered)
 
+    def test_added_file_keeps_new_code_on_right(self):
+        rendered = review.render_split(
+            "@@ -0,0 +1,2 @@", [
+                ("add", None, 1, "first"),
+                ("add", None, 2, "second"),
+            ])
+
+        self.assertIn('<table class="d-split"><colgroup>', rendered)
+        self.assertEqual(rendered.count('<col class="gutter">'), 2)
+        self.assertIn('colspan="4">@@ -0,0 +1,2 @@', rendered)
+        self.assertIn('data-side="new" data-line="1"', rendered)
+        self.assertIn('class="ln empty"', rendered)
+        self.assertNotIn('data-side="old"', rendered)
+
+    def test_deleted_file_keeps_old_code_on_left(self):
+        rendered = review.render_split(
+            "@@ -1,2 +0,0 @@", [
+                ("del", 1, None, "first"),
+                ("del", 2, None, "second"),
+            ])
+
+        self.assertIn('<table class="d-split"><colgroup>', rendered)
+        self.assertIn('data-side="old" data-line="1"', rendered)
+        self.assertIn('class="ln empty"', rendered)
+        self.assertNotIn('data-side="new"', rendered)
+
+    def test_real_comparison_stays_split(self):
+        rendered = review.render_split(
+            "@@ -1 +1 @@", [
+                ("del", 1, None, "before"),
+                ("add", None, 1, "after"),
+            ])
+
+        self.assertIn('<table class="d-split">', rendered)
+        self.assertEqual(rendered.count('<col class="gutter">'), 2)
+        self.assertIn('data-side="old" data-line="1"', rendered)
+        self.assertIn('data-side="new" data-line="1"', rendered)
+
 
 class DirectiveErrors(unittest.TestCase):
     def setUp(self):

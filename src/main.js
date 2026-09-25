@@ -4717,8 +4717,14 @@ function validCommentsPath(p) { return /-comments\.json$/i.test(p); }
 // can't delete words the agent has. Returns the refusal, or null when the
 // thread is still retractable.
 function threadRetractError(t, events) {
+  if ((t.status || 'open') !== 'open') {
+    return 'the agent has this thread — reply instead';
+  }
   if ((t.messages || []).some((m) => Number.isFinite(m.turn))) {
     return 'already sent to the agent — reply instead';
+  }
+  if ((t.messages || []).some((m) => (m.author || 'user') !== 'user')) {
+    return 'the agent has this thread — reply instead';
   }
   if (threadHasAgentEvents(events, t.id)) {
     return 'the agent has this thread — reply instead';
@@ -4774,15 +4780,16 @@ ipcMain.handle('rv-add-thread', async (event, { commentsUrl, anchor, body, note 
   });
 });
 
-// Revision of a pending commit-message edit (the user re-entered the block):
-// replace the envelope, and the note in the envelope+note shape, while the
-// thread is still wholly the user's — the same guard as discard below. The
-// fresh ts keeps the thread ahead of the sent boundary (needs-send).
-ipcMain.handle('rv-update-edit-thread', async (event, { commentsUrl, threadId, body, note } = {}) => {
+// Revision of a pending comment or commit-message edit while the thread is
+// still wholly the user's. Plain comments replace their accumulated draft with
+// one message; edits use the envelope + optional note shape. The same guard as
+// discard below keeps already-sent conversation immutable. A fresh ts keeps the
+// revision ahead of the sent boundary (needs-send).
+ipcMain.handle('rv-update-thread', async (event, { commentsUrl, threadId, body, note } = {}) => {
   const p = commentsPathFromUrl(commentsUrl);
   if (!validCommentsPath(p)) return { success: false, error: 'not a comments store' };
   const text = String(body == null ? '' : body).trim();
-  if (!text) return { success: false, error: 'Empty edit' };
+  if (!text) return { success: false, error: 'Empty comment' };
   const noteText = String(note == null ? '' : note).trim();
   return withCommentsLock(p, async () => {
     try {
@@ -4793,11 +4800,10 @@ ipcMain.handle('rv-update-edit-thread', async (event, { commentsUrl, threadId, b
       const sealed = threadRetractError(t, events);
       if (sealed) return { success: false, error: sealed };
       const ts = Date.now();
-      t.messages[0] = { author: 'user', body: text, ts };
-      if (t.messages.length <= 2) {
-        if (noteText) t.messages[1] = { author: 'user', body: noteText, ts };
-        else t.messages.length = 1;
-      }
+      t.messages = [
+        { author: 'user', body: text, ts },
+        ...(noteText ? [{ author: 'user', body: noteText, ts }] : []),
+      ];
       await saveCommentStore(p, store);
       return { success: true, data: mergeStoreWithJournal(store, events) };
     } catch (e) { return { success: false, error: e.message }; }
