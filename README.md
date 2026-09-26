@@ -49,7 +49,7 @@ Extending it on demand is what keeps it a terminal. Additions come in only when 
 
 A vendor's desktop app supports that vendor's agents and only those, and pulls you away from your shell. Here the agent can be of any kind, right in your shell, like a plain terminal.
 
-Some other terminals have gone the vendors' way and built in their own agent to manage proprietary local or cloud environments; you must use their agent. Here, the agent you have been using works as before and only gains new capabilities.
+Some other terminals have gone the vendors' way and built their own agent to manage proprietary local or cloud environments; you must use their agent. Here, the agent you have been using works as before and only gains new capabilities.
 
 ### One OS window per session
 
