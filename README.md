@@ -53,7 +53,7 @@ Some other terminals have gone the vendors' way and built in an agent of their o
 
 ### One OS window per session
 
-Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable. Windows you stop using hide on their own while their sessions keep running, and the picker brings any of them back.
+Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, the way each agent stands on its own. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable.
 
 ### A stable interface between agent and terminal
 
