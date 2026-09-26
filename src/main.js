@@ -89,8 +89,6 @@ const cliIcons = require('./cli-icons');
 const { pickNextHue } = require('./hue-assign');
 const {
   chooseSuccessorStartCwd,
-  relaunchAndExit,
-  relaunchPortableAndExit,
   resolveLatestRelaunchTarget,
   spawnNewInstance,
 } = require('./relaunch');
@@ -183,11 +181,7 @@ let lastSlowDiskWriteAt = 0;
 // but does not exist yet — the parent has to open the file to hand over the
 // descriptor — so the name carries the spawning pid and a counter, which
 // cannot collide within a process, alongside a clock stamp that sorts and
-// separates pid reuse across runs. A relaunch chain started from one of these
-// does inherit the descriptor, since app.relaunch takes no stdio option: that
-// keeps a window's output together across its own restarts, which is the same
-// lineage rather than a mix, and never interleaves because the predecessor has
-// exited before its successor writes.
+// separates pid reuse across runs.
 let consoleLogCounter = 0;
 function newConsoleLogPath() {
   try {
@@ -352,7 +346,9 @@ function startMainLoopDelayDiagnostics() {
 let mainWindow;
 let ptyProcess;
 let userClosed = false;
-let relaunchStarted = false;
+// Set once the app is on its way out (a typed exit, the live cap, a logout or
+// shutdown): from then on a window's close is a real one, never a hide.
+let quitting = false;
 const taskbarIconRestorer = createTaskbarIconRestorer({
   platform: process.platform,
   getWindow: () => mainWindow,
@@ -2169,20 +2165,41 @@ function startCapControlWatcher() {
   );
 }
 
-function shouldAutoRelaunchAfterUserClose() {
+// Closing the last visible window never leaves the user with nothing: a
+// fresh window opens on the picker. One rule whether the closed window hid (a
+// session, which keeps running) or exited (a window with no session); hidden
+// sessions do not count as visible. A typed exit is the way out without a
+// fresh window and never comes here.
+function openFreshWindowIfNoneVisible() {
+  let noneVisible = true;
   try {
     const userDataDir = app.getPath('userData');
     sessionsLog.gcActiveFiles(userDataDir);
-    const records = windowCap.listLiveRecords(userDataDir);
-    return windowCap.shouldRelaunchAfterUserClose(records);
+    noneVisible = windowCap.shouldRelaunchAfterUserClose(windowCap.listLiveRecords(userDataDir));
   } catch (err) {
-    console.warn('[main] relaunch threshold check failed:', err && err.message);
-    return true;
+    log('[main] visible-window check failed: ' + (err && err.message));
   }
+  if (!noneVisible) return;
+  log('[main] no visible window left; opening a fresh one');
+  launchNewInstance({ announce: false });
 }
 
-// One policy for every successor route (last-window replacement, dev reload,
-// portable restart, and Cmd/Ctrl+Shift+N): an established session carries the
+// Closing a session's window hides it, as auto-hide would, whatever its
+// agent is doing: the session keeps running and the picker brings it back
+// (docs/dev/auto-hide.md). A window with no session has nothing to come back
+// as, so it closes.
+function hidesOnClose() {
+  return sessionIndex !== null && activeFileWritten && !headlessExitStarted;
+}
+
+function closeToHidden() {
+  log('[auto-hide] window closed; hiding session ' + sessionIndex);
+  setHidden(true);
+  openFreshWindowIfNoneVisible();
+}
+
+// One policy for every new window (Cmd/Ctrl+Shift+N, and the fresh window
+// that replaces the last one closed): an established session carries the
 // directory its agent was launched from; a launcher/shell with no captured
 // initial prompt carries the immutable AgentTerm launch directory.
 function successorStartCwd() {
@@ -2193,49 +2210,21 @@ function successorStartCwd() {
   });
 }
 
-function relaunchLatestAndExit() {
-  if (relaunchStarted) return;
-  relaunchStarted = true;
-  let target = { mode: 'electron', execPath: null };
-  if (app.isPackaged && process.platform === 'win32') {
-    try {
-      target = resolveLatestRelaunchTarget(process.execPath, {
-        version: app.getVersion(),
-      });
-    } catch (err) {
-      // This is an installed versioned build, but its stable latest-version
-      // route is broken. Do not knowingly restart the old executable.
-      log('[relaunch] refusing old-code fallback: ' + (err && err.message));
-      app.exit(1);
-      return;
-    }
-  }
-  if (target.execPath) log('[relaunch] routing successor through the stable latest-code launcher');
-  const startCwd = successorStartCwd();
-  try {
-    if (target.mode === 'portable-spawn') {
-      relaunchPortableAndExit(app, process.argv, target.execPath, { startCwd });
-    } else {
-      relaunchAndExit(app, process.argv, { execPath: target.execPath || successorExecPath, startCwd });
-    }
-  } catch (err) {
-    log('[relaunch] successor launch failed: ' + (err && err.message));
-    app.exit(1);
-  }
-}
-
-// Cmd/Ctrl+Shift+N: a deliberate extra window. Resolves the same latest-code
-// target as the auto-relaunch path, but the current instance keeps running.
-// The child is a whole separate Electron process, so nothing paints anywhere
-// until it reaches ready-to-show (a couple of seconds, longer on WSL). The
-// renderer bridges that gap with a launch pill; every failure path reports
-// back so the pill is replaced by an error instead of dying silently.
+// A new window: Cmd/Ctrl+Shift+N, or the fresh one that replaces the last
+// window closed. Resolves the latest-code target; the current instance keeps
+// running. The child is a whole separate Electron process, so nothing paints
+// anywhere until it reaches ready-to-show (a couple of seconds, longer on
+// WSL). The renderer bridges that gap with a launch pill; every failure path
+// reports back so the pill is replaced by an error instead of dying silently.
+// A window leaving the screen has nothing to announce to (`announce: false`):
+// its failures go to the log.
 //
 // The child follows successorStartCwd(): an established agent session carries
 // its recorded cwd; a pre-session launcher/shell carries the original launch
 // directory even if someone manually cd'd in that shell.
-function launchNewInstance() {
+function launchNewInstance({ announce: announceToWindow = true } = {}) {
   const announce = (channel, message) => {
+    if (!announceToWindow) return;
     try { if (mainWindow) mainWindow.webContents.send(channel, message); } catch {}
   };
   const fail = (message) => {
@@ -2266,6 +2255,7 @@ function launchNewInstance() {
     fail('launch failed: ' + (err && err.message));
     return;
   }
+  log('[new-instance] spawned pid ' + child.pid);
   // Boot watch: a spawn can succeed and still die before its window shows (a
   // bad execPath arrives as an async 'error', a boot crash as an early exit).
   // Only an unclean exit inside the watch window is a failure — exit 0 is the
@@ -2571,6 +2561,13 @@ function createWindow() {
   restartWindowTimer();
   watchUserInput(mainWindow.webContents);
   mainWindow.on('focus', noteUserInput);
+  mainWindow.on('close', (event) => {
+    if (quitting || !hidesOnClose()) return;
+    event.preventDefault();
+    closeToHidden();
+  });
+  // Windows ends the session by closing windows; those closes are real.
+  mainWindow.on('session-end', () => { quitting = true; });
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     showSessionsPicker();
@@ -2621,9 +2618,6 @@ function createWindow() {
     // window you would have closed anyway and costs the one that was already
     // working — a successor that aborts on a bad build leaves nothing behind,
     // and a bad build is exactly what you have just after editing.
-    //
-    // relaunchLatestAndExit stays: window-all-closed still uses it to replace
-    // the last window, where exiting first is the whole point.
   });
 
   // Iconic-thumbnail focus suppression: while the window is focused we defer
@@ -2691,13 +2685,14 @@ function createWindow() {
       clearInterval(progressInterval);
       progressInterval = null;
     }
-    // Graceful close (X button): record session end before tearing down PTY.
+    // The window is gone for good: a window with no session closed, or the app
+    // is quitting. Record the session's end before tearing down the PTY.
     writeClosedSessionEvent();
     if (ptyProcess) {
-      // A headless exit is no user close. The last-window relaunch must not
-      // run from it: a successor spawned by a process whose GUI session died
+      // A headless exit is no user close. The last-window replacement must not
+      // run from it: a window opened by a process whose GUI session died
       // inherits that dead session, and several ghosts exiting together would
-      // each spawn one.
+      // each open one.
       if (!headlessExitStarted) userClosed = true;
       try { ptyProcess.kill(); }
       catch (err) { log('[main] PTY kill during close failed: ' + (err && err.message)); }
@@ -5852,6 +5847,7 @@ function finishQuitAfterPty() {
 }
 
 app.on('before-quit', (event) => {
+  quitting = true;
   if (!ptyProcess || ptyQuitDrain) return; // nothing live, or already draining
   event.preventDefault();
   const p = ptyProcess;
@@ -5897,10 +5893,7 @@ app.on('child-process-gone', (event, details) => {
 });
 
 app.on('window-all-closed', () => {
-  if (userClosed && shouldAutoRelaunchAfterUserClose()) {
-    relaunchLatestAndExit();
-    return;
-  }
+  if (userClosed) openFreshWindowIfNoneVisible();
   app.quit();
 });
 

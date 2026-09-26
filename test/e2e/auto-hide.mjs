@@ -11,6 +11,9 @@
 //      oldest closes itself and is recorded as closed
 //   6. a fresh window whose picker brings a live session forward closes once
 //      that session's window is back
+//   7. closing a session's window hides it, even while its agent works; a
+//      window with no session closes, and closing the last visible window
+//      opens a fresh one
 //
 // The input clock is advanced by rewriting its file; the working grace is
 // shortened through AGENT_TERM_WORKING_GRACE_MS. The cap check runs on the
@@ -172,6 +175,23 @@ try {
   hid = await hideNow();
   check('a working window stays when asked to hide', hid && hid[0] === 'staying: working', hid && hid[0]);
 
+  // 7a. Closing it hides it all the same. Sessions 7 and 8 read as visible,
+  //     so no fresh window opens.
+  {
+    const from = mainLog.length;
+    await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].close(); });
+    await sleep(800);
+    state = await windowState();
+    rec6 = sessionsLog.readActiveFile(UD, 6);
+    check('closing a session window hides it', /window closed; hiding session 6/.test(mainLog.slice(from)));
+    check('the closed window is off screen, its session alive', state.visible === false && rec6 && rec6.hiddenAt, JSON.stringify(state));
+    check('with other windows visible, no fresh window opens', !/no visible window left/.test(mainLog.slice(from)));
+    control(6, 'show');
+    await sleep(1500);
+    state = await windowState();
+    check('the picker brings the closed session back', state.visible === true, JSON.stringify(state));
+  }
+
   // 5. The live cap. Session 6 hides again; the fake session 5 is hidden with
   //    an older timer. Two sessions over the cap: 5 and 6 are the victims,
   //    and 6 closes itself at its next health check.
@@ -214,6 +234,36 @@ try {
     check('the log says so', /session 7 is back; closing the picker window/.test(bLog));
   } finally {
     try { await b.close(); } catch {}
+  }
+}
+
+// 7b. A window with no session closes for real, and with every other session
+//     hidden it is replaced by a fresh window.
+{
+  for (const id of sessionsLog.listActiveIds(UD)) {
+    const rec = sessionsLog.readActiveFile(UD, id);
+    if (rec && rec.pid === process.pid) sessionsLog.writeActiveFile(UD, id, { ...rec, hiddenAt: Date.now() });
+  }
+  const c = await launchElectron({
+    executablePath: ELECTRON_BIN,
+    args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR],
+    timeout: 45_000,
+  });
+  let cLog = '';
+  c.process().stdout.on('data', (d) => { cLog += d.toString(); });
+  const cExited = new Promise(r => c.process().once('exit', (code) => r(code)));
+  try {
+    const page = await c.firstWindow();
+    await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });
+    await c.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].close(); }).catch(() => {});
+    const code = await Promise.race([cExited, sleep(10_000).then(() => 'timeout')]);
+    check('a window with no session closes for real', code !== 'timeout', String(code));
+    check('the last visible window is replaced by a fresh one', /no visible window left; opening a fresh one/.test(cLog), cLog.slice(-400));
+    const spawned = cLog.match(/\[new-instance\] spawned pid (\d+)/);
+    check('the fresh window was spawned', !!spawned);
+    if (spawned) { try { process.kill(Number(spawned[1]), 'SIGTERM'); } catch {} }
+  } finally {
+    try { await c.close(); } catch {}
   }
 }
 

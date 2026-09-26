@@ -3,11 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   INSTALLED_RELAUNCHER_PREFIX,
-  RELAUNCHED_ARG,
-  buildRelaunchArgs,
   chooseSuccessorStartCwd,
-  relaunchAndExit,
-  relaunchPortableAndExit,
   resolveLatestRelaunchTarget,
   spawnNewInstance,
 } = require('../src/relaunch');
@@ -59,53 +55,6 @@ test('old session without a recorded cwd falls back to its window launch cwd', (
     }),
     '/home/me/launcher-repo',
   );
-});
-
-test('relaunch adds one marker', () => {
-  assert.deepStrictEqual(
-    buildRelaunchArgs(['/path/to/electron', '/path/to/app']),
-    ['/path/to/app', RELAUNCHED_ARG],
-  );
-});
-
-test('relaunch heals a stack of inherited markers', () => {
-  const argv = [
-    '/path/to/electron',
-    '/path/to/app',
-    RELAUNCHED_ARG,
-    '--inspect=9229',
-    RELAUNCHED_ARG,
-    'session-name',
-    RELAUNCHED_ARG,
-  ];
-  const original = argv.slice();
-
-  assert.deepStrictEqual(
-    buildRelaunchArgs(argv),
-    ['/path/to/app', '--inspect=9229', 'session-name', RELAUNCHED_ARG],
-  );
-  assert.deepStrictEqual(argv, original);
-});
-
-test('relaunch preserves unrelated marker-like and separator arguments', () => {
-  assert.deepStrictEqual(
-    buildRelaunchArgs([
-      '/path/to/electron',
-      '/path/to/app',
-      '--relaunched=later',
-      '--',
-      'session-name',
-    ]),
-    ['/path/to/app', '--relaunched=later', '--', 'session-name', RELAUNCHED_ARG],
-  );
-});
-
-test('relaunch stays bounded to one marker across generations', () => {
-  let argv = ['/path/to/electron', '/path/to/app'];
-  for (let generation = 0; generation < 25; generation++) {
-    argv = ['/path/to/electron', ...buildRelaunchArgs(argv)];
-    assert.strictEqual(argv.filter((arg) => arg === RELAUNCHED_ARG).length, 1);
-  }
 });
 
 test('installed relaunch routes through the stable latest-version selector', () => {
@@ -186,134 +135,7 @@ test('installed relaunch refuses to fall back when the latest-version route is m
   );
 });
 
-test('relaunch schedules the successor before exiting the predecessor immediately', () => {
-  const calls = [];
-  const fakeApp = {
-    relaunch(options) { calls.push(['relaunch', options]); },
-    exit(code) { calls.push(['exit', code]); },
-    quit() { calls.push(['quit']); },
-  };
-
-  relaunchAndExit(
-    fakeApp,
-    ['/path/to/electron', '/path/to/app', RELAUNCHED_ARG, RELAUNCHED_ARG],
-    { execPath: '/installed/AgentTerm.exe' },
-  );
-
-  assert.deepStrictEqual(calls, [
-    ['relaunch', {
-      args: ['/path/to/app', RELAUNCHED_ARG],
-      execPath: '/installed/AgentTerm.exe',
-    }],
-    ['exit', 0],
-  ]);
-});
-
-test('Electron relaunch hands the selected cwd to the inherited environment', () => {
-  const env = { AGENT_TERM_START_CWD: '/home/me/launcher-repo' };
-  const calls = [];
-  const fakeApp = {
-    relaunch(options) { calls.push(['relaunch', options, env.AGENT_TERM_START_CWD]); },
-    exit(code) { calls.push(['exit', code]); },
-  };
-
-  relaunchAndExit(fakeApp, ['/path/to/electron', '/path/to/app'], {
-    env,
-    startCwd: '/home/me/session-repo',
-  });
-
-  assert.deepStrictEqual(calls, [
-    ['relaunch', {
-      args: ['/path/to/app', RELAUNCHED_ARG],
-    }, '/home/me/session-repo'],
-    ['exit', 0],
-  ]);
-});
-
-test('packaged relaunch with no target override passes only the normalized marker', () => {
-  const calls = [];
-  const fakeApp = {
-    relaunch(options) { calls.push(['relaunch', options]); },
-    exit(code) { calls.push(['exit', code]); },
-  };
-
-  relaunchAndExit(fakeApp, ['C:\\Standalone\\AgentTerm.exe']);
-
-  assert.deepStrictEqual(calls, [
-    ['relaunch', { args: [RELAUNCHED_ARG] }],
-    ['exit', 0],
-  ]);
-});
-
-test('portable relaunch starts an independent outer wrapper then exits', () => {
-  const calls = [];
-  const fakeApp = {
-    relaunch() { calls.push(['unexpected-relaunch']); },
-    exit(code) { calls.push(['exit', code]); },
-  };
-  const fakeChild = { unref() { calls.push(['unref']); } };
-  const spawn = (execPath, args, options) => {
-    calls.push(['spawn', execPath, args, options]);
-    return fakeChild;
-  };
-
-  relaunchPortableAndExit(
-    fakeApp,
-    ['C:\\Temp\\extract\\AgentTerm.exe', RELAUNCHED_ARG, RELAUNCHED_ARG],
-    'D:\\Tools\\AgentTerm.exe',
-    { spawn, path: path.win32 },
-  );
-
-  assert.deepStrictEqual(calls, [
-    ['spawn', 'D:\\Tools\\AgentTerm.exe', [RELAUNCHED_ARG], {
-      cwd: 'D:\\Tools',
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    }],
-    ['unref'],
-    ['exit', 0],
-  ]);
-});
-
-test('portable relaunch passes the selected cwd in the child environment', () => {
-  const calls = [];
-  const fakeApp = { exit(code) { calls.push(['exit', code]); } };
-  const fakeChild = { unref() { calls.push(['unref']); } };
-  const spawn = (execPath, args, options) => {
-    calls.push(['spawn', execPath, args, options]);
-    return fakeChild;
-  };
-
-  relaunchPortableAndExit(
-    fakeApp,
-    ['C:\\Temp\\extract\\AgentTerm.exe'],
-    'D:\\Tools\\AgentTerm.exe',
-    {
-      spawn,
-      path: path.win32,
-      env: { PATH: 'C:\\Windows' },
-      startCwd: '/home/me/session-repo',
-    },
-  );
-
-  assert.deepStrictEqual(calls, [
-    ['spawn', 'D:\\Tools\\AgentTerm.exe', [RELAUNCHED_ARG], {
-      cwd: 'D:\\Tools',
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-      env: {
-        PATH: 'C:\\Windows',
-        AGENT_TERM_START_CWD: '/home/me/session-repo',
-      },
-    }],
-    ['unref'],
-    ['exit', 0],
-  ]);
-});
-
-test('new-instance spawn is detached and carries no relaunch marker', () => {
+test('new-instance spawn is detached and passes the app arguments through', () => {
   const calls = [];
   const fakeChild = { unref() { calls.push(['unref']); } };
   const spawn = (execPath, args, options) => {
@@ -322,13 +144,13 @@ test('new-instance spawn is detached and carries no relaunch marker', () => {
   };
 
   spawnNewInstance(
-    ['/path/to/electron', '/path/to/app', RELAUNCHED_ARG],
+    ['/path/to/electron', '/path/to/app', '--user-data-dir=/tmp/ud'],
     '/path/to/electron',
     { spawn },
   );
 
   assert.deepStrictEqual(calls, [
-    ['spawn', '/path/to/electron', ['/path/to/app'], {
+    ['spawn', '/path/to/electron', ['/path/to/app', '--user-data-dir=/tmp/ud'], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
@@ -346,7 +168,7 @@ test('new-instance spawn pins cwd for packaged launcher targets', () => {
   };
 
   spawnNewInstance(
-    ['C:\\Temp\\extract\\AgentTerm.exe', RELAUNCHED_ARG],
+    ['C:\\Temp\\extract\\AgentTerm.exe'],
     'D:\\Tools\\AgentTerm.exe',
     { spawn, cwd: 'D:\\Tools' },
   );

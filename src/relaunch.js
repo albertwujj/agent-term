@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const RELAUNCHED_ARG = '--relaunched';
 const INSTALLED_RELAUNCHER_PREFIX = '.agent-term-launcher-';
 
 function nonEmptyCwd(value) {
@@ -18,19 +17,6 @@ function chooseSuccessorStartCwd({ hasCapturedPrompt = false, sessionCwd, launch
   const launch = nonEmptyCwd(launchCwd);
   if (!hasCapturedPrompt) return launch;
   return nonEmptyCwd(sessionCwd) || launch;
-}
-
-// Electron expects relaunch args without argv[0] (the executable). Always
-// remove inherited markers first, then add exactly one marker for the fresh
-// process. Both automatic and shortcut-driven relaunches use this path.
-// Nothing reads the marker at runtime; it exists so a successor is
-// identifiable in Task Manager's command line when debugging respawns.
-function buildRelaunchArgs(argv) {
-  const args = (Array.isArray(argv) ? argv : [])
-    .slice(1)
-    .filter((arg) => arg !== RELAUNCHED_ARG);
-  args.push(RELAUNCHED_ARG);
-  return args;
 }
 
 function escapeRegExp(text) {
@@ -76,61 +62,9 @@ function resolveLatestRelaunchTarget(execPath, dependencies = {}) {
   return { mode: 'electron', execPath: null };
 }
 
-// app.quit() is graceful and can leave a windowless predecessor alive while
-// asynchronous PTY teardown drains. Once a replacement is scheduled, exit the
-// old app immediately so relaunch predecessors cannot accumulate. The automatic
-// user-close caller reaches this only after the window's `closed` cleanup.
-function relaunchAndExit(app, argv, options = {}) {
-  const relaunchOptions = { args: buildRelaunchArgs(argv) };
-  if (options.execPath) relaunchOptions.execPath = options.execPath;
-  // Electron's app.relaunch has no env option; the scheduled child inherits
-  // this process's environment. Update only the workspace handoff variable
-  // immediately before scheduling the successor.
-  if (options.startCwd) {
-    const env = options.env || process.env;
-    env.AGENT_TERM_START_CWD = options.startCwd;
-  }
-  app.relaunch(relaunchOptions);
-  app.exit(0);
-}
-
-// UNSUPPORTED PATH. Reached only by a packaged portable Windows build, which no
-// current workflow produces: the installer pipeline is frozen (CLAUDE.md, and
-// docs/dev/maintainer/windows-installer.md), and `npm run dist:win` is neither
-// tested nor used. Kept because deleting it would also delete the record of how
-// the wrapper has to be restarted, not because anything runs it.
-//
-// It is deliberately left with `stdio: 'ignore'` while spawnNewInstance now
-// redirects to a console file. Wiring capture into a path nobody can reach
-// would be untestable code justified by a build that is not made.
-//
-// The stock portable wrapper waits for its inner app, then deletes the inner
-// extraction. Start a new OUTER wrapper directly and let the old wrapper clean
-// its own unique directory after app.exit(). This avoids an Electron relauncher
-// process locking old code in that directory.
-function relaunchPortableAndExit(app, argv, execPath, dependencies = {}) {
-  const spawnImpl = dependencies.spawn || spawn;
-  const pathApi = dependencies.path || path;
-  const options = {
-    cwd: pathApi.dirname(execPath),
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  };
-  if (dependencies.startCwd) {
-    options.env = {
-      ...(dependencies.env || process.env),
-      AGENT_TERM_START_CWD: dependencies.startCwd,
-    };
-  }
-  const child = spawnImpl(execPath, buildRelaunchArgs(argv), options);
-  child.unref();
-  app.exit(0);
-}
-
-// Start a fresh AgentTerm alongside the running one (Cmd/Ctrl+Shift+N). The
-// child is a new launch, not a successor, so the relaunch marker is dropped
-// rather than added. Detached spawn keeps its lifetime independent of ours.
+// Start a fresh AgentTerm alongside the running one: Cmd/Ctrl+Shift+N, or
+// the fresh window that replaces the last one closed. Detached spawn keeps
+// its lifetime independent of ours.
 // `env` replaces the inherited environment: the caller carries the cwd chosen
 // by chooseSuccessorStartCwd across as AGENT_TERM_START_CWD. Returns the child
 // so the caller can watch for boot failures (an invalid execPath surfaces as
@@ -149,9 +83,8 @@ function spawnNewInstance(argv, execPath, dependencies = {}) {
   // window opened from inside the app had no such terminal and discarded them,
   // Node's warnings and uncaught traces included. Redirecting the descriptors
   // captures the bytes rather than classifying them, so nothing has to be kept
-  // in step with what Node or Electron decide to print. `app.relaunch` takes no
-  // stdio option, so relaunch chains inherit whatever is set here — which is
-  // why this is the only place that needs it.
+  // in step with what Node or Electron decide to print. Every window opened
+  // from inside the app starts here, so this is the only place that needs it.
   //
   // A failure to open the file must never cost the user a window: fall through
   // to today's behaviour and lose the output, as before.
@@ -167,9 +100,7 @@ function spawnNewInstance(argv, execPath, dependencies = {}) {
       consoleFd = null;
     }
   }
-  const args = (Array.isArray(argv) ? argv : [])
-    .slice(1)
-    .filter((arg) => arg !== RELAUNCHED_ARG);
+  const args = (Array.isArray(argv) ? argv : []).slice(1);
   const child = spawnImpl(execPath, args, options);
   // The child owns the descriptors now; this process keeps no handle open.
   if (consoleFd !== null) {
@@ -181,11 +112,7 @@ function spawnNewInstance(argv, execPath, dependencies = {}) {
 
 module.exports = {
   INSTALLED_RELAUNCHER_PREFIX,
-  RELAUNCHED_ARG,
-  buildRelaunchArgs,
   chooseSuccessorStartCwd,
-  relaunchAndExit,
-  relaunchPortableAndExit,
   resolveLatestRelaunchTarget,
   spawnNewInstance,
 };

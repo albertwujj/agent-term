@@ -33,7 +33,7 @@ Then launch from the directory you want the terminal to open in, which is your p
 npm --prefix ~/agent-term run start
 ```
 
-That is the only command needed to launch from source, and the directory npm runs in is the one the window opens on. `Cmd+Shift+N` opens another AgentTerm window in the established agent session's directory; before the first prompt is captured it keeps the original launch directory. Closing the last window starts a fresh one under the same rule. Type `exit` in the shell to quit for good.
+That is the only command needed to launch from source, and the directory npm runs in is the one the window opens on. `Cmd+Shift+N` opens another AgentTerm window in the established agent session's directory; before the first prompt is captured it keeps the original launch directory. Closing the last window starts a fresh one under the same rule. Type `exit` in the shell to end the session without one.
 
 ## Windows with WSL
 

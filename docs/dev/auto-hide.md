@@ -2,7 +2,7 @@
 
 This page sets the UX auto-hide delivers; `src/window-cap.js` and `src/input-clock.js` answer to it, and `test/e2e/auto-hide.mjs` checks it in the running app.
 
-Every session is its own window, and a working day leaves several open that you are not using: a fix waiting to be validated, an investigation waiting on a reply. Each is a taskbar button or Dock tile to scan past and a window to type into by mistake. Closing it clears the clutter and costs the session. Auto-hide takes a window you have stopped using out of view and keeps its session running, so it comes back instantly.
+Every session is its own window, and a working day leaves several open that you are not using: a fix waiting to be validated, an investigation waiting on a reply. Each is a taskbar button or Dock tile to scan past and a window to type into by mistake. Closing one used to clear the clutter and cost the session. Auto-hide takes a window you have stopped using out of view, and closing a window does the same at once; either way the session keeps running and comes back instantly.
 
 ## Goals
 
@@ -11,7 +11,7 @@ Every session is its own window, and a working day leaves several open that you 
 3. **Time away changes nothing.** Leaving the desk, sleep, a locked screen, or an afternoon in other apps hides no window. You return to the windows you left.
 4. **Nothing moves on its own.** The taskbar and Dock rearrange when you open a window, a change you are already making, and otherwise only to bring back finished work (goal 5). The window you are using and one whose agent is working stay.
 5. **Finished work surfaces.** A hidden session whose agent finishes a turn comes back into view.
-6. **Close keeps meaning closed.** Hiding is its own state; closing a window still ends its session.
+6. **Closing puts a session away; exit ends it.** Closing a session's window hides it at once, whatever its agent is doing. A session ends when you stop its agent and type `exit`, the one deliberate act that means done.
 7. **Bounded cost.** A hidden session costs what a visible one does, so a fixed number of live sessions holds the total to what that many open windows cost today.
 
 ## The clock
@@ -36,6 +36,8 @@ These windows stay:
 - the focused window;
 - a window whose agent is working, through the grace period after it stops.
 
+Closing a session's window hides it at once, with none of these exceptions: the close is your hand. A window with no session, such as a picker nobody used, has nothing to come back as, so it closes. Either way, closing the last visible window opens a fresh one on the picker, as closing the last window always has; typing `exit` is the way out without one.
+
 Hidden means gone from every surface a click or keystroke could reach: the screen, the taskbar or Dock, and Cmd/Alt+Tab.
 
 ## Coming back
@@ -45,7 +47,7 @@ Hidden means gone from every surface a click or keystroke could reach: the scree
 
 ## Cost
 
-Hidden sessions stay alive, and with auto-hide handling clutter you close fewer windows. At most 8 sessions stay alive, hidden and visible together: the most you would want as windows if none were hidden. Past that, the hidden session whose timer restarted longest ago closes: the same timer that hid it, with wall-clock time breaking ties among restarts while you were away. Visible windows are yours, so if you open more than 8 and use them, nothing closes until some hide. A closed session resumes through its CLI, as any closed session does.
+Hidden sessions stay alive, including every closed one. At most 8 sessions stay alive, hidden and visible together: the most you would want as windows if none were hidden. Past that, the hidden session whose timer restarted longest ago closes: the same timer that hid it, with wall-clock time breaking ties among restarts while you were away. Visible windows are yours, so if you open more than 8 and use them, nothing closes until some hide. A closed session resumes through its CLI, as any closed session does.
 
 The limit is a constant. Screen space and attention set it, and neither grows with RAM; a machine that runs 8 windows today already pays for 8 live sessions. No age limit applies: a session can wait days on a reply, and a wall-clock limit would end every hidden session overnight (goal 3).
 
