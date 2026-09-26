@@ -25,7 +25,7 @@ Right-click a taskbar button or Dock tile and choose Start or resume session, or
 
 On Windows each is its own taskbar button, labeled from the session's initial prompt in a color locked to the session, with a working indicator and a live preview of what it is doing. On a Mac each is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent works; right-click a tile for the session's name. A tile like "I'd" looks thin at first, but color and letters become familiar within a few uses, the way an app icon does. Run each session full screen and a Mission Control swipe shows every session at once, its initial prompt pinned at the top.
 
-A session you have not touched through an hour of work in your other sessions leaves the taskbar and Dock the next time you open a window, and keeps running: the picker brings it back instantly, as you left it, and it comes back by itself when its agent finishes a turn. Up to 8 sessions stay alive this way; past that, the one you used longest ago closes and resumes like any closed session.
+To keep the taskbar and Dock uncluttered, AgentTerm automatically hides sessions you have stopped using, based on your activity; the picker brings them back.
 
 ## Find and resume sessions
 
@@ -45,4 +45,4 @@ See the [full picker demo](#start-or-resume-a-session).
 
 - Every new window picks up the latest source from your agent-term clone; a build that fails stops that launch rather than running stale bundles.
 - If the picker's directory is not the one you want, `cd` there, then start the CLI.
-- To quit for good instead of getting a fresh window, type `exit`. Like `cd` and the CLI's name, it is just a shell command.
+- To close the last window without getting a fresh one, type `exit`. Like `cd` and the CLI's name, it is just a shell command.
