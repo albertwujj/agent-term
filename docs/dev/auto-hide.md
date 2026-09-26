@@ -43,6 +43,7 @@ Hidden means gone from every surface a click or keystroke could reach: the scree
 ## Coming back
 
 - **From the picker, instantly.** The picker lists hidden sessions as hidden; choosing one brings its window back in front. The window the picker opened in closes, since it was opened only to find that session.
+- **From the shortcut, pressed twice.** Cmd/Ctrl+Shift+N opens the picker; pressed again with the picker in front, it brings back the hidden session used most recently in the picker's place, as if chosen from the list. With nothing hidden, the picker says so and stays.
 - **On its own, when its agent finishes a turn.** A hidden window takes no prompts, so any turn it runs was started without you: a job-watch nudge, a scheduled wakeup, a background task ending. The window returns to the taskbar or Dock without taking focus, with its timer restarted. It returns at the turn's end, when there is a result to read; at the start there is nothing to see yet.
 
 ## Cost

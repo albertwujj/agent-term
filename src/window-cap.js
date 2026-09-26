@@ -54,11 +54,9 @@ function ensureControlDir(userDataDir) {
 
 // Whether the window behind an active-file record may hide: visible, idle
 // through the working grace, and untouched for STALE_AFTER_MINUTES of the
-// input clock. A record without a timer was written by a build that predates
-// auto-hide and is left alone. `clock` is the input clock's reading.
+// input clock. `clock` is the input clock's reading.
 function isHideCandidate(file, { clock, now, workingGraceMs = WORKING_GRACE_MS }) {
   if (!file || file.hiddenAt) return false;
-  if (typeof file.touchedClock !== 'number') return false;
   if (now - (file.lastWorkingAt || 0) < workingGraceMs) return false;
   return clock - file.touchedClock >= STALE_AFTER_MINUTES;
 }
@@ -82,11 +80,17 @@ function pickStaleWindows(records, { clock, now, ignoreId, workingGraceMs } = {}
 // away (the input clock stands still then), and the id as a last resort so
 // every window computes the same order.
 function closeOrder(records) {
-  const timer = (r) => (typeof r.file.touchedClock === 'number' ? r.file.touchedClock : 0);
-  const at = (r) => (typeof r.file.touchedAt === 'number' ? r.file.touchedAt : 0);
   return records
     .filter((r) => r && r.file && r.file.hiddenAt)
-    .sort((a, b) => (timer(a) - timer(b)) || (at(a) - at(b)) || (a.id - b.id));
+    .sort((a, b) => (a.file.touchedClock - b.file.touchedClock)
+      || (a.file.touchedAt - b.file.touchedAt) || (a.id - b.id));
+}
+
+// The hidden session used most recently, or null: the last in the close
+// order. Pressing Cmd/Ctrl+Shift+N in the picker brings it back.
+function lastHiddenSession(records) {
+  const order = closeOrder(records);
+  return order.length ? order[order.length - 1].id : null;
 }
 
 // Ids of the hidden sessions to close so that at most MAX_LIVE stay alive.
@@ -212,6 +216,7 @@ module.exports = {
   isHideCandidate,
   pickStaleWindows,
   closeOrder,
+  lastHiddenSession,
   capVictims,
   createTurnTracker,
   listLiveRecords,

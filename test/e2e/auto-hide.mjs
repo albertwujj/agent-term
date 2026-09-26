@@ -3,7 +3,7 @@
 // held by this node process, so they read as live without being windows.
 //
 //   1. opening a window asks stale windows to hide, and only those: a working
-//      one and one written by an older build are left alone
+//      one and a recently used one are left alone
 //   2. a stale window asked to hide leaves the screen (and, on macOS, the Dock)
 //   3. a picker's 'show' brings it back in front with its timer restarted
 //   4. a turn its agent finishes while hidden brings it back without focus
@@ -14,6 +14,8 @@
 //   7. closing a session's window hides it, even while its agent works; a
 //      window with no session closes, and closing the last visible window
 //      opens a fresh one
+//   8. Cmd/Ctrl+Shift+N pressed in a picker brings back the hidden session
+//      used most recently in its place; with none hidden, the picker stays
 //
 // The input clock is advanced by rewriting its file; the working grace is
 // shortened through AGENT_TERM_WORKING_GRACE_MS. The cap check runs on the
@@ -57,7 +59,7 @@ const readControl = (id) => { try { return JSON.parse(fs.readFileSync(path.join(
 const heldHere = (fields) => ({ pid: process.pid, bootTime: sessionsLog.currentBootTime(), guiSession: guiSession.currentGuiSession(), ...fields });
 
 fs.writeFileSync(CLOCK_FILE, JSON.stringify({ minutes: 500, minute: 0 }));
-for (const [id, prompt] of [[5, 'stale one'], [6, 'resumable one'], [7, 'working one'], [8, 'older build']]) {
+for (const [id, prompt] of [[5, 'stale one'], [6, 'resumable one'], [7, 'working one'], [8, 'fresh one']]) {
   sessionsLog.appendEvent(UD, { e: 'started', id, hue: id * 30, token: 'tok' + id });
   sessionsLog.appendEvent(UD, { e: 'cli', id, cli: 'true' });
   sessionsLog.appendEvent(UD, { e: 'prompt', id, prompt });
@@ -65,7 +67,7 @@ for (const [id, prompt] of [[5, 'stale one'], [6, 'resumable one'], [7, 'working
 }
 sessionsLog.writeActiveFile(UD, 5, heldHere({ token: 'tok5', touchedClock: 100, touchedAt: Date.now(), lastWorkingAt: 0, hiddenAt: null }));
 sessionsLog.writeActiveFile(UD, 7, heldHere({ token: 'tok7', touchedClock: 100, touchedAt: Date.now(), lastWorkingAt: Date.now() + 3600e3, hiddenAt: null }));
-sessionsLog.writeActiveFile(UD, 8, heldHere({ token: 'tok8', lastWorkingAt: 0, hiddenAt: null }));
+sessionsLog.writeActiveFile(UD, 8, heldHere({ token: 'tok8', touchedClock: 500, touchedAt: Date.now(), lastWorkingAt: 0, hiddenAt: null }));
 
 const app = await launchElectron({
   executablePath: ELECTRON_BIN,
@@ -103,7 +105,7 @@ try {
   check('opening asks the stale window to hide', !!(await waitForLog(/asked stale sessions to hide: 5\b/, 10_000)));
   check('stale window got a hide message', (readControl(5) || {}).action === 'hide');
   check('working window left alone', readControl(7) === null);
-  check('older-build window left alone', readControl(8) === null);
+  check('recently used window left alone', readControl(8) === null);
 
   // This window becomes session 6.
   await app.evaluate(({ ipcMain }) => { ipcMain.emit('picker-pick', {}, 6); });
@@ -264,6 +266,59 @@ try {
     if (spawned) { try { process.kill(Number(spawned[1]), 'SIGTERM'); } catch {} }
   } finally {
     try { await c.close(); } catch {}
+  }
+}
+
+// 8. The second Cmd/Ctrl+Shift+N, pressed with the picker in front.
+const pressNewWindowKey = (a) => a.evaluate(({ BrowserWindow }) => {
+  const mac = process.platform === 'darwin';
+  BrowserWindow.getAllWindows()[0].webContents.emit('before-input-event', { preventDefault() {} },
+    { type: 'keyDown', key: 'N', shift: true, meta: mac, control: !mac, alt: false });
+});
+const launchPicker = async () => {
+  const a = await launchElectron({
+    executablePath: ELECTRON_BIN,
+    args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR],
+    timeout: 45_000,
+  });
+  const out = { app: a, log: '' };
+  a.process().stdout.on('data', (d) => { out.log += d.toString(); });
+  out.exited = new Promise(r => a.process().once('exit', (code) => r(code)));
+  out.page = await a.firstWindow();
+  await out.page.waitForSelector('.at-picker-input', { timeout: 30_000 });
+  return out;
+};
+{
+  // Every fake session is hidden since 7b; 30 is the one used most recently.
+  sessionsLog.writeActiveFile(UD, 30, heldHere({ touchedClock: 900_000, touchedAt: Date.now(), lastWorkingAt: 0, hiddenAt: Date.now() }));
+  try { fs.unlinkSync(path.join(UD, 'cap-control', '30.json')); } catch {}
+  const d = await launchPicker();
+  try {
+    await pressNewWindowKey(d.app);
+    await sleep(500);
+    check('the second press asks the most recent hidden session to show', (readControl(30) || {}).action === 'show', JSON.stringify(readControl(30)));
+    check('the picker says which one it brings back', /bringing back session 30, the hidden one used most recently/.test(d.log));
+    const rec30 = sessionsLog.readActiveFile(UD, 30);
+    sessionsLog.writeActiveFile(UD, 30, { ...rec30, hiddenAt: null });   // its window is back
+    const code = await Promise.race([d.exited, sleep(10_000).then(() => 'timeout')]);
+    check('the picker closes once that session is back', code !== 'timeout', String(code));
+  } finally {
+    try { await d.app.close(); } catch {}
+  }
+
+  for (const id of sessionsLog.listActiveIds(UD)) {
+    const rec = sessionsLog.readActiveFile(UD, id);
+    if (rec && rec.pid === process.pid) sessionsLog.writeActiveFile(UD, id, { ...rec, hiddenAt: null });
+  }
+  const e = await launchPicker();
+  try {
+    await pressNewWindowKey(e.app);
+    await e.page.waitForFunction(() => document.body.innerText.includes('No hidden sessions'), null, { timeout: 5000 }).catch(() => {});
+    check('with nothing hidden, the picker says so', await e.page.evaluate(() => document.body.innerText.includes('No hidden sessions')));
+    const still = await Promise.race([e.exited, sleep(1500).then(() => 'running')]);
+    check('and stays', still === 'running', String(still));
+  } finally {
+    try { await e.app.close(); } catch {}
   }
 }
 

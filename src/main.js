@@ -675,6 +675,9 @@ let lastInputByte = '';
 // health timer (ghost check + live cap).
 let windowHidden = false;
 let hiddenAt = null;
+// Whether this window's picker is showing: it is the picker in front that a
+// second Cmd/Ctrl+Shift+N turns into the hidden session used most recently.
+let pickerOpen = false;
 // This window's timer on the input clock (src/input-clock.js): the clock's
 // reading when the user last focused or used it, or its agent last finished a
 // turn, and the wall-clock time of that restart, which breaks ties in the
@@ -1806,6 +1809,7 @@ function showSessionsPicker(cwd = null) {
     // read synchronously rather than probing the live process. A reopen
     // passes the live cwd, which a cd in between has moved.
     mainWindow.webContents.send('show-picker', { sessions, activeIds, cwd: cwd || shellStartCwd() });
+    pickerOpen = true;
   } catch (err) {
     console.warn('[main] showSessionsPicker failed:', err && err.message);
   }
@@ -2597,9 +2601,12 @@ function createWindow() {
     // Cmd/Ctrl+Shift+N: launch a fresh AgentTerm instance alongside this one.
     // It opens on the sessions picker + launcher, like any fresh start.
     const cmdShiftN = (input.control || input.meta) && input.shift && (k === 'N' || k === 'n');
+    // Pressed again with this window's picker in front, it brings back the
+    // hidden session used most recently in place of the picker.
     if (cmdShiftN) {
       event.preventDefault();
-      launchNewInstance();
+      if (pickerOpen && sessionIndex === null && !iconLocked) bringBackLastHidden();
+      else launchNewInstance();
       return;
     }
     // Cmd/Ctrl+Shift+S: the sessions picker again in this window, while no
@@ -3370,6 +3377,24 @@ function bringForwardFromPicker(id) {
   return true;
 }
 
+// The second Cmd/Ctrl+Shift+N: the picker becomes the hidden session used most
+// recently. It comes back in front and the picker's window closes, as if that
+// session had been chosen from the list.
+function bringBackLastHidden() {
+  let id = null;
+  try {
+    id = windowCap.lastHiddenSession(windowCap.listLiveRecords(app.getPath('userData')));
+  } catch (err) {
+    log('[picker] hidden-session lookup failed: ' + (err && err.message));
+  }
+  if (id === null) {
+    try { mainWindow.webContents.send('notice', 'No hidden sessions'); } catch {}
+    return;
+  }
+  log('[picker] bringing back session ' + id + ', the hidden one used most recently');
+  pickSession(id);
+}
+
 function pickSession(id) {
   const userDataDir = app.getPath('userData');
   // The picker's list is computed when it opens and can be hours old by the
@@ -3408,7 +3433,11 @@ function pickSession(id) {
   }
 }
 
-ipcMain.on('picker-pick', (event, id) => pickSession(id));
+// The renderer's picker closes itself on a pick.
+ipcMain.on('picker-pick', (event, id) => {
+  pickerOpen = false;
+  pickSession(id);
+});
 
 // Written as keystrokes: the pty gets the bytes, and prompt-capture sees
 // them the way it sees the user's own, so the shell line and the capture
@@ -3449,6 +3478,7 @@ ipcMain.on('picker-start-new', (event, command, { typeOnly = false } = {}) => {
   // "claude --resume") or an arbitrary shell command literal.
   // No resume intercept on fresh starts — only on resumes from past sessions.
   pendingResumeIntercept = false;
+  pickerOpen = false;
   if (!command || !ptyProcess) return;
   // An AI CLI launch carries the options we add (Codex's title setting); a
   // shell command is written as typed.
@@ -3473,7 +3503,8 @@ ipcMain.on('picker-reopen', () => {
 });
 
 ipcMain.on('picker-close', () => {
-  // Nothing to do — picker dismissed, user gets a fresh shell.
+  // Picker dismissed; the user gets a fresh shell.
+  pickerOpen = false;
 });
 
 // Right-click on the chrome bar copies the full captured prompt.
@@ -3492,6 +3523,7 @@ ipcMain.on('cancel-resume-intercept', () => {
 // closed since the picker opened resumes here like any past session.
 ipcMain.on('picker-bring-forward', (event, id) => {
   if (typeof id !== 'number') return;
+  pickerOpen = false;
   pickSession(id);
 });
 

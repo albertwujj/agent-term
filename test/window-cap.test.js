@@ -11,6 +11,7 @@ const {
   isHideCandidate,
   pickStaleWindows,
   closeOrder,
+  lastHiddenSession,
   capVictims,
   createTurnTracker,
   shouldRelaunchAfterUserClose,
@@ -60,9 +61,8 @@ test('a working window stays through the grace period after its output stops', (
   assert.strictEqual(isHideCandidate({ touchedClock: stale, lastWorkingAt: NOW - 2000 }, { ...judged, workingGraceMs: 1000 }), true);
 });
 
-test('a hidden window, or one written without a timer (an older build), is no candidate', () => {
+test('a hidden window is no candidate', () => {
   assert.strictEqual(isHideCandidate({ touchedClock: 0, hiddenAt: NOW - 1000 }, judged), false);
-  assert.strictEqual(isHideCandidate({ lastInputAt: 0, lastWorkingAt: 0 }, judged), false);
   assert.strictEqual(isHideCandidate(null, judged), false);
 });
 
@@ -88,6 +88,17 @@ test('close order: oldest timer first, wall clock breaking ties, hidden windows 
     rec(4, { touchedClock: 10, touchedAt: 100 }),                 // visible: never in the order
   ];
   assert.deepStrictEqual(closeOrder(records).map(r => r.id), [2, 3, 1]);
+});
+
+test('the hidden session used most recently is the last in the close order', () => {
+  const records = [
+    rec(1, { touchedClock: 50, touchedAt: 300, hiddenAt: 1 }),
+    rec(2, { touchedClock: 60, touchedAt: 100, hiddenAt: 1 }),    // most recent timer
+    rec(3, { touchedClock: 60, touchedAt: 50, hiddenAt: 1 }),     // same clock, touched earlier
+    rec(4, { touchedClock: 90, touchedAt: 900 }),                 // visible: not a candidate
+  ];
+  assert.strictEqual(lastHiddenSession(records), 2);
+  assert.strictEqual(lastHiddenSession([rec(4, { touchedClock: 90 })]), null);
 });
 
 test('no victims at or under MAX_LIVE', () => {

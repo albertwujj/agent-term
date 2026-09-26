@@ -847,6 +847,9 @@ if (typeof window.pty.onNewInstanceLaunchFailed === 'function') {
     showToast('New AgentTerm failed to start: ' + (message || 'unknown error'), { variant: 'error' });
   });
 }
+if (typeof window.pty.onNotice === 'function') {
+  window.pty.onNotice((message) => { if (message) showToast(message); });
+}
 
 // Auto-refresh: main re-rendered the open review (its package .md changed) →
 // reload the viewer so the update shows, with comments re-anchored across it.
