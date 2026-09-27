@@ -97,6 +97,12 @@ const { launchEnvFile, writeLaunchEnv, taskbarTask } = require('./windows-launch
 // Successors (Cmd/Ctrl+Shift+N, relaunch) start from the path that carries the
 // app's name; on macOS that is the AgentTerm.app link the build makes.
 const successorExecPath = namedLaunchPath(process.execPath, { fs });
+// When this process started, which dates the code it runs: a source launch
+// loads its modules and rebuilds its bundles right after, and on Windows the
+// bootstrap stages its copy of src/ in this same process. A hidden window that
+// started before the checkout last changed resumes on the new code when
+// brought back (latestSourceChange).
+const PROCESS_STARTED_AT = Date.now() - Math.round(process.uptime() * 1000);
 const { rebuildRuntimeBundles } = require('./runtime-build');
 const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
@@ -1444,6 +1450,7 @@ function assignSessionIdentity() {
       pid: process.pid,
       bootTime: sessionsLog.currentBootTime(),
       guiSession: getOwnGuiSession(),
+      processStartedAt: PROCESS_STARTED_AT,
       token: agentSessionId,
       hue,
       lastWorkingAt: lastPtyOutputTime,
@@ -1690,6 +1697,7 @@ function resumeFromSession(picked) {
       pid: process.pid,
       bootTime: sessionsLog.currentBootTime(),
       guiSession: getOwnGuiSession(),
+      processStartedAt: PROCESS_STARTED_AT,
       token: agentSessionId,
       lastWorkingAt: lastPtyOutputTime,
       touchedClock,
@@ -1889,6 +1897,7 @@ function heartbeat() {
   sessionsLog.writeActiveFile(userDataDir, sessionIndex, {
     pid: process.pid,
     guiSession: getOwnGuiSession(),
+    processStartedAt: PROCESS_STARTED_AT,
     token: agentSessionId,
     ...(lockedHue !== null ? { hue: lockedHue } : {}),
     ...beat,
@@ -2040,6 +2049,22 @@ function bringForward() {
   tidyStaleWindows();
 }
 
+// A picker is bringing this hidden session back, and the checkout has changed
+// since this window started: end here so the session resumes there on the
+// current code. A window already back in view, or whose agent is working, comes
+// back as it is instead, with its turn intact.
+function retireForCurrentCode() {
+  if (!windowHidden || computeIsWorking() || titleActivity.working === true) {
+    log('[auto-hide] session ' + sessionIndex + ' runs older code but stays: ' +
+        (windowHidden ? 'its agent is working' : 'it is in view'));
+    bringForward();
+    return;
+  }
+  log('[auto-hide] session ' + sessionIndex + ' started before the code changed; ' +
+      'closing so it resumes on the current code');
+  app.quit();
+}
+
 // The agent finished a turn: the window gets a full interval from now, and a
 // hidden one returns to the taskbar or Dock, without focus, with the result.
 function onTurnEnded() {
@@ -2165,6 +2190,7 @@ function startCapControlWatcher() {
     {
       hide: hideIfStale,
       show: bringForward,
+      retire: retireForCurrentCode,
     },
   );
 }
@@ -3346,22 +3372,39 @@ ipcMain.on('viewer-disk-search-cancel', (event, payload = {}) => {
   cancelViewerDiskSearch(String(payload.requestId || ''));
 });
 
-// A session chosen in the picker that is live in another window is brought
-// forward; this window was opened to find it and, holding no session of its
-// own, closes once that window is back. The hand-over is confirmed through the
+// When the checkout this app runs from last changed: the newest mtime under
+// src/ and of the package manifests. A window whose process started before it
+// runs older code. On Windows the source is the WSL checkout the bootstrap
+// stages from, not this process's staged copy. A packaged build has no checkout.
+async function latestSourceChange() {
+  if (app.isPackaged) return 0;
+  const root = process.env.AGENT_TERM_DEV_SOURCE_WIN || app.getAppPath();
+  const newestUnder = async (dir) => {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    const times = await Promise.all(entries.map((ent) => {
+      const p = path.join(dir, ent.name);
+      return ent.isDirectory() ? newestUnder(p) : fs.promises.stat(p).then((st) => st.mtimeMs);
+    }));
+    return Math.max(0, ...times);
+  };
+  const manifests = await Promise.all(['package.json', 'package-lock.json'].map((f) =>
+    fs.promises.stat(path.join(root, f)).then((st) => st.mtimeMs, () => 0)));
+  return Math.max(await newestUnder(path.join(root, 'src')), ...manifests);
+}
+
+// This window was opened to find a session another window holds; once that
+// window is back in front, it closes. The hand-over is confirmed through the
 // registry first, so a window that failed to come back leaves this one open.
-// Returns whether the session was live.
 const HANDOFF_CONFIRM_MS = 3000;
 const HANDOFF_POLL_MS = 100;
 function bringForwardFromPicker(id) {
   const userDataDir = app.getPath('userData');
-  if (!sessionsLog.isSessionActive(sessionsLog.readActiveFile(userDataDir, id))) return false;
   log('[resume] session ' + id + ' is live in another window; bringing it forward');
   try { windowCap.sendControl(userDataDir, id, 'show'); } catch (err) {
     log('[resume] bring-forward failed: ' + (err && err.message));
-    return true;
+    return;
   }
-  if (sessionIndex !== null || iconLocked) return true;
+  if (sessionIndex !== null || iconLocked) return;
   const deadline = Date.now() + HANDOFF_CONFIRM_MS;
   const poll = setInterval(() => {
     const rec = sessionsLog.readActiveFile(userDataDir, id);
@@ -3374,7 +3417,35 @@ function bringForwardFromPicker(id) {
       log('[resume] session ' + id + ' did not come back; keeping this window');
     }
   }, HANDOFF_POLL_MS);
-  return true;
+}
+
+// The hidden window runs older code: ask it to end, then resume the session
+// here, on the current code, through its CLI. It stays instead when its agent
+// is working, and then comes back as it is and this picker closes, as for any
+// bring-forward. The close waits out the PTY drain (PTY_QUIT_DRAIN_MS).
+const RETIRE_CONFIRM_MS = 5000;
+function retireThenResumeHere(id) {
+  const userDataDir = app.getPath('userData');
+  log('[resume] session ' + id + ' runs older code; asking it to close so it resumes here');
+  try { windowCap.sendControl(userDataDir, id, 'retire'); } catch (err) {
+    log('[resume] retire request failed: ' + (err && err.message));
+    return;
+  }
+  const deadline = Date.now() + RETIRE_CONFIRM_MS;
+  const poll = setInterval(() => {
+    const rec = sessionsLog.readActiveFile(userDataDir, id);
+    if (!sessionsLog.isSessionActive(rec)) {
+      clearInterval(poll);
+      resumeHere(id, { onCurrentCode: true });
+    } else if (!rec.hiddenAt) {
+      clearInterval(poll);
+      log('[resume] session ' + id + ' came back as it is; closing the picker window');
+      if (sessionIndex === null && !iconLocked) app.quit();
+    } else if (Date.now() > deadline) {
+      clearInterval(poll);
+      log('[resume] session ' + id + ' did not answer; keeping this window');
+    }
+  }, HANDOFF_POLL_MS);
 }
 
 // The second Cmd/Ctrl+Shift+N: the picker becomes the hidden session used most
@@ -3395,16 +3466,41 @@ function bringBackLastHidden() {
   pickSession(id);
 }
 
-function pickSession(id) {
+// A session chosen in the picker: a row, or the second Cmd/Ctrl+Shift+N. The
+// list can be hours old by then, so liveness is judged now; taking an id
+// another window holds would give two windows one identity. A held session is
+// brought forward as it is, unless its window is hidden and started before the
+// checkout last changed: every window brought back runs the current code
+// (docs/dev/auto-hide.md). A session nobody holds resumes here.
+async function pickSession(id) {
+  const rec = sessionsLog.readActiveFile(app.getPath('userData'), id);
+  if (!sessionsLog.isSessionActive(rec)) {
+    resumeHere(id);
+    return;
+  }
+  let changedAt = 0;
+  if (rec.hiddenAt) {
+    try { changedAt = await latestSourceChange(); } catch (err) {
+      log('[resume] source check failed, bringing the window back as it is: ' + (err && err.message));
+    }
+  }
+  if (rec.processStartedAt < changedAt) retireThenResumeHere(id);
+  else bringForwardFromPicker(id);
+}
+
+// Resume a session nobody holds in this window, through its CLI. `onCurrentCode`
+// marks a hidden window that just closed for older code: the renderer did not
+// start this resume, so it is told to close its picker and show the resume band.
+function resumeHere(id, { onCurrentCode = false } = {}) {
   const userDataDir = app.getPath('userData');
-  // The picker's list is computed when it opens and can be hours old by the
-  // time a row is chosen. Judge liveness now: a session another window holds
-  // is brought forward, hidden or not. Taking its id here would give two
-  // windows one identity.
-  if (bringForwardFromPicker(id)) return;
   const sessions = sessionsLog.listSessions(userDataDir);
   const picked = sessions.find(s => s.id === id);
   if (!picked || !picked.cli) return;
+  pickerOpen = false;
+  if (onCurrentCode) {
+    sendHint('resume-started', { cli: picked.cli, prompt: picked.prompt, title: picked.title });
+    sendHint('notice', 'Resuming on the current code');
+  }
   // Inherit the picked session's identity (id, hue, prompt, active-file) so
   // this window IS that session, not a new one. Other windows then see it
   // as currently active.

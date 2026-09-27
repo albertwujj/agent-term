@@ -165,6 +165,13 @@ window.pty.onViewerDiskSearchProgress((payload) => {
 window.pty.onResumeHintSubmit(() => {
   resumeHint.recordSubmit();
 });
+// Main started a resume here itself: a hidden session brought back after the
+// code changed resumes through its CLI on the current code, as a picked row does.
+window.pty.onResumeStarted((picked) => {
+  launcherBand.destroy();
+  if (picked) resumeHint.show({ cli: picked.cli, prompt: picked.prompt, title: picked.title });
+  closeActivePicker();
+});
 window.pty.onResumeHintInterceptOff(() => {
   resumeHint.recordInterceptOff();
 });

@@ -4,7 +4,7 @@ The app runs from a source checkout, and every window it opens takes the current
 
 ## The edit loop
 
-Edit in the source checkout, then press `Ctrl/Cmd+Shift+N` in AgentTerm. The new window takes a fresh source snapshot and rebuilds every generated bundle before it opens, so it runs your edit. Closing the old window only hides it, on its old code; to carry a session over, stop its agent, type `exit`, and resume it from the new window's picker. A build that fails stops that launch and says so, leaving the window you were working in untouched.
+Edit in the source checkout, then press `Ctrl/Cmd+Shift+N` in AgentTerm. The new window takes a fresh source snapshot and rebuilds every generated bundle before it opens, so it runs your edit. Closing the old window hides it; bring it back from the new window's picker and it resumes there on the new code. A build that fails stops that launch and says so, leaving the window you were working in untouched.
 
 If `package.json` or `package-lock.json` changes, no relaunch is enough: run `npm ci`, then the platform's start command again, so the dependency tree matches the lockfile. AgentTerm says so itself: a drifted lockfile prints an `[agent-term warn EDEPSTALE]` line into the terminal the window opens, and a package the launch path loads, meaning anything in `dependencies` plus `esbuild`, stops the launch with a window of its own. A missing rebuild or test dependency (`@electron/rebuild`, `jsdom`, `playwright-core`) is not checked at all: the window runs without them, and the tools report their own. `npm run start` builds first, so a package the build itself needs fails there, in the shell you typed it in, before any window exists.
 

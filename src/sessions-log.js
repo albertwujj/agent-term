@@ -271,6 +271,9 @@ function activeFilePath(userDataDir, id) {
 //   touchedClock  the input clock's reading when the window's timer last
 //                 restarted (src/input-clock.js)
 //   touchedAt     wall-clock time of that restart
+//   processStartedAt when the window's process started, which dates the code
+//                 it runs; a hidden window older than the checkout's last
+//                 change resumes on the current code when brought back
 //   token         the window's AGENT_SESSION_ID; lets a window find the holder of
 //                 agent-lock's lock/agent (its owner record stores the token)
 // The window-cap module hides stale windows and caps live sessions by

@@ -146,6 +146,7 @@ contextBridge.exposeInMainWorld('pty', {
   // Renderer uses this to age out the resume hint; picker navigation itself
   // never sends this event.
   onResumeHintSubmit: (callback) => ipcRenderer.on('resume-hint-submit', () => callback()),
+  onResumeStarted: (callback) => ipcRenderer.on('resume-started', (_event, picked) => callback(picked)),
   // Main cancelled the resume intercept on non-Enter input (a startup
   // dialog answered, or the user typing their own command). The next Enter
   // is plain; the hint switches to its manual /resume wording.
