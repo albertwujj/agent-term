@@ -861,8 +861,11 @@ if (typeof window.pty.onNotice === 'function') {
 // it can arrive while the user is looking elsewhere.
 if (typeof window.pty.onOlderCodeNotice === 'function') {
   window.pty.onOlderCodeNotice(() => {
-    showToast('This window started before your latest code changes. Close it and bring it back '
-      + 'from the picker when its agent is idle to resume on the current code.', { variant: 'warn', sticky: true });
+    const keys = window.pty.platform === 'darwin' ? '⌘⇧N' : 'Ctrl+Shift+N';
+    showToast('This window started before your latest code changes. '
+      + `To update it, close it and press ${keys} twice. It comes back on the current code. `
+      + 'If its agent is busy, it comes back unchanged. Try again once the agent is idle.',
+    { variant: 'warn', sticky: true });
   });
 }
 
