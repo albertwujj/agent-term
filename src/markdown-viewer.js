@@ -296,6 +296,13 @@ function ensureStyles() {
       max-width: 100%;
       height: auto;
     }
+    /* A press that moves a pixel or two would start the browser's own image or
+       link drag, which fires no click (so no comment, no ctrl/cmd/alt follow)
+       and takes over a drag-select that starts on a link. */
+    .md-viewer-body img,
+    .md-viewer-body a {
+      -webkit-user-drag: none;
+    }
     /* A <p align="center"> wrapper in the source (see recognizeHtmlTags):
        the GitHub idiom for an image with its caption beneath it. */
     .md-viewer-body p.md-center {

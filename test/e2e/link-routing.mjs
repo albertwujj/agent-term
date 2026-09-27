@@ -195,6 +195,31 @@ async function run() {
     check('md viewer http link goes to the system browser on a modified click',
       (await drainExternal()).includes('https://example.com/md-ext'));
 
+    // A real press moves a pixel or two, which would start the browser's own
+    // image drag; that fires no click, so the follow was lost. Synthetic click
+    // events can't show this, so this one is a real, slightly moving press.
+    const image = await page.evaluate(() => {
+      for (const img of document.querySelectorAll('.md-viewer-body a[href] > img')) {
+        const r = img.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        if (r.width > 0 && document.elementFromPoint(x, y) === img) return { x, y };
+      }
+      return null;
+    });
+    check('the linked image is on screen', !!image);
+    if (image) {
+      await page.mouse.move(image.x, image.y);
+      await page.keyboard.down('Meta');
+      await page.mouse.down();
+      await page.mouse.move(image.x + 3, image.y + 1, { steps: 3 });
+      await page.mouse.up();
+      await page.keyboard.up('Meta');
+      await sleep(700);
+      check('a modified press that moves a little still follows a linked image',
+        (await drainExternal()).includes('https://example.com/md-image'));
+    }
+
     await clickDocLink('a[href="./e2e-md-link-target.md"]', true);
     await page.waitForFunction(
       () => /md link target/i.test(document.querySelector('.md-viewer-body h1')?.textContent || ''),
