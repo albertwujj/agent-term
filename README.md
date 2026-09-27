@@ -53,7 +53,7 @@ Some other terminals have gone the vendors' way and built their own agent to man
 
 ### One OS window per session
 
-Why not tmux, or one manager app over every session? This terminal takes the opposite shape: each session is its own OS window and process, with the agent running in it. The OS is the manager you already know, so the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable by its unique visual signature.
+Why not tmux, or one manager app over every session? Because the opposite shape has a key benefit. Each session is its own OS window and process, with the agent running in it, so the OS is the manager you already know: the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable by its unique visual signature.
 
 ### A stable interface between agent and terminal
 
