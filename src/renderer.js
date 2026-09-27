@@ -857,6 +857,14 @@ if (typeof window.pty.onNewInstanceLaunchFailed === 'function') {
 if (typeof window.pty.onNotice === 'function') {
   window.pty.onNotice((message) => { if (message) showToast(message); });
 }
+// This window came back from hiding on code older than the checkout. Sticky:
+// it can arrive while the user is looking elsewhere.
+if (typeof window.pty.onOlderCodeNotice === 'function') {
+  window.pty.onOlderCodeNotice(() => {
+    showToast('This window started before your latest code changes. Close it and bring it back '
+      + 'from the picker when its agent is idle to resume on the current code.', { variant: 'warn', sticky: true });
+  });
+}
 
 // Auto-refresh: main re-rendered the open review (its package .md changed) →
 // reload the viewer so the update shows, with comments re-anchored across it.

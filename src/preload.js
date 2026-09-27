@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('pty', {
   onNewInstanceLaunching: (callback) => ipcRenderer.on('new-instance-launching', (_event, cwd) => callback(cwd)),
   onNewInstanceLaunchFailed: (callback) => ipcRenderer.on('new-instance-launch-failed', (_event, message) => callback(message)),
   onNotice: (callback) => ipcRenderer.on('notice', (_event, message) => callback(message)),
+  onOlderCodeNotice: (callback) => ipcRenderer.on('older-code-notice', () => callback()),
   // Open a URL in the default browser
   openURL: (url) => ipcRenderer.invoke('open-url', url),
   // Open a resource file with the OS default handler. `context.folders` on

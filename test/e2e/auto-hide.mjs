@@ -168,6 +168,8 @@ try {
   check('it is on screen again', state.visible === true, JSON.stringify(state));
   check('it came back without taking focus', state.focused === false, JSON.stringify(state));
   check('registry marks it visible again', rec6 && !rec6.hiddenAt, JSON.stringify(rec6));
+  check('a window on the current code comes back without the older-code notice',
+    !(await page.evaluate(() => document.body.innerText.includes('started before your latest code changes'))));
 
   // A working window stays, however stale.
   await page.evaluate(() => { const ta = document.querySelector('.xterm-helper-textarea'); if (ta) ta.focus(); });

@@ -1968,7 +1968,31 @@ function setHidden(hidden, { focus = false } = {}) {
   } else {
     showWindow(focus);
   }
+  if (!hidden) checkOlderCodeOnReturn();
   refreshActivityTimestamps();
+}
+
+// A window that comes back from hiding on older code says so: it returned as it
+// was (its agent was working, it was picked back within seconds of output, or
+// its turn ended) though the checkout changed after it started. The notice
+// waits for the window to be in front and stays until dismissed, since a
+// window returning on its own comes back without focus.
+let olderCodeNoticePending = false;
+async function checkOlderCodeOnReturn() {
+  let changedAt = 0;
+  try { changedAt = await latestSourceChange(); } catch (err) {
+    log('[auto-hide] source check failed: ' + (err && err.message));
+  }
+  if (PROCESS_STARTED_AT >= changedAt) return;
+  log('[auto-hide] session ' + sessionIndex + ' came back on older code');
+  olderCodeNoticePending = true;
+  deliverOlderCodeNotice();
+}
+
+function deliverOlderCodeNotice() {
+  if (!olderCodeNoticePending || !mainWindow || mainWindow.isDestroyed() || !mainWindow.isFocused()) return;
+  olderCodeNoticePending = false;
+  try { mainWindow.webContents.send('older-code-notice'); } catch {}
 }
 
 function showWindow(focus) {
@@ -2057,7 +2081,9 @@ function retireForCurrentCode() {
   if (!windowHidden || computeIsWorking() || titleActivity.working === true) {
     log('[auto-hide] session ' + sessionIndex + ' runs older code but stays: ' +
         (windowHidden ? 'its agent is working' : 'it is in view'));
+    olderCodeNoticePending = true;
     bringForward();
+    deliverOlderCodeNotice();
     return;
   }
   log('[auto-hide] session ' + sessionIndex + ' started before the code changed; ' +
@@ -2591,6 +2617,7 @@ function createWindow() {
   restartWindowTimer();
   watchUserInput(mainWindow.webContents);
   mainWindow.on('focus', noteUserInput);
+  mainWindow.on('focus', deliverOlderCodeNotice);
   mainWindow.on('close', (event) => {
     if (quitting || !hidesOnClose()) return;
     event.preventDefault();

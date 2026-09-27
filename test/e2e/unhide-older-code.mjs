@@ -4,7 +4,8 @@
 //
 //   1. a hidden window whose process started before the checkout last changed
 //      closes when picked, and its session resumes in the picker's window
-//   2. one whose agent is working comes back as it is, and the picker closes
+//   2. one whose agent is working comes back as it is, says it runs older
+//      code, and the picker closes
 //
 // "Started before the change" is set by hand: the test backfills the window's
 // processStartedAt to 0 in its active record.
@@ -109,6 +110,8 @@ try {
   check('a working window stays', /session 8 runs older code but stays: its agent is working/.test(b.log), b.log.split('\n').filter(l => /auto-hide/.test(l)).join(' | '));
   check('and comes back as it is', await b.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()));
   check('the picker closes once it is back', qCode !== 'timeout', String(qCode));
+  const banner = await waitFor(() => b.page.evaluate(() => document.body.innerText.includes('started before your latest code changes')), 5000);
+  check('it says it runs older code', !!banner);
 } finally {
   if (failures.length) for (const w of cleanup) console.log('--- log\n' + w.log.split('\n').filter(l => /resume|auto-hide|picker/.test(l)).join('\n'));
   for (const w of cleanup) { try { await w.app.close(); } catch {} }
