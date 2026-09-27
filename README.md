@@ -4,7 +4,7 @@
 
 # AgentTerm: A super terminal for you and your coding agents
 
-**From telling sessions apart to finishing projects.**
+**What your IDE becomes when you put agents to work.**
 
 <a id="demo"></a>
 
