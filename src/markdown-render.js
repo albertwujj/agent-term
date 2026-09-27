@@ -125,6 +125,9 @@ function resolveImageSrc(src, { rootUrl, docDir, version, versionByPath }) {
 //                  that crosses, and one markdown-it would refuse (javascript:
 //                  and the like) leaves the tag literal. It is how a doc wraps
 //                  an image in a link of its own choosing.
+//   <a name …></a> a marker for GitHub's in-page links (name or id, no
+//                  href) renders as nothing, its content kept; a paragraph of
+//                  markers alone is hidden. The viewer follows no fragment.
 //   <p …>…</p>     a wrapper around the whole run is dropped, and its
 //                  align="center" becomes the md-center class on the paragraph
 //                  (the GitHub idiom for a centered image with a caption). A
@@ -178,7 +181,9 @@ function classifyTag(match, md) {
       return { tag: name, close, raw };
     case 'a': {
       if (close) return { tag: 'a', close, raw };
-      const href = md.normalizeLink(String(parseTagAttrs(raw, md).href || '').trim());
+      const attrs = parseTagAttrs(raw, md);
+      if (attrs.href === undefined) return attrs.name || attrs.id ? { tag: 'a', close, marker: true, raw } : null;
+      const href = md.normalizeLink(attrs.href.trim());
       return href && md.validateLink(href) ? { tag: 'a', close, href, raw } : null;
     }
     case 'p':
@@ -293,6 +298,7 @@ function pairTags(items) {
       stack.pop();
       top.paired = true;
       item.paired = true;
+      item.marker = top.marker;
     }
   }
 }
@@ -327,6 +333,15 @@ function relevel(children) {
   }
 }
 
+// A hidden paragraph renders nothing and takes no anchor (isAnchorableToken).
+function hideParagraph(tokens, inlineIndex) {
+  const open = tokens[inlineIndex - 1];
+  const close = tokens[inlineIndex + 1];
+  if (open && open.type === 'paragraph_open') open.hidden = true;
+  if (close && close.type === 'paragraph_close') close.hidden = true;
+  tokens[inlineIndex].children = [];
+}
+
 function recognizeHtmlTags(tokens, md) {
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
@@ -340,7 +355,12 @@ function recognizeHtmlTags(tokens, md) {
       if (open && open.type === 'paragraph_open') open.attrJoin('class', 'md-center');
     }
     pairTags(items);
-    token.children = dropNestedLinks(items.map((item) => {
+    const kept = items.filter((item) => !(item.paired && item.marker));
+    if (kept.length < items.length && kept.every(isBlankItem)) {
+      hideParagraph(tokens, i);
+      continue;
+    }
+    token.children = dropNestedLinks(kept.map((item) => {
       if (item.child) return item.child;
       if (item.tag === 'img') return buildImageToken(TokenCtor, item.attrs, item.level);
       if (item.tag === 'br') return buildTagToken(TokenCtor, 'hardbreak', 'br', 0, item.level);

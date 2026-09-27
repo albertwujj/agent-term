@@ -332,14 +332,28 @@ test('an image wrapped in an HTML link keeps its href, and the caption can be st
 
 test('an HTML link refuses what markdown-it would, and never nests another link', () => {
   const doc = renderMarkdownDocument(
-    '<a href="javascript:alert(1)">bad</a>, <a name="spot"></a>, '
+    '<a href="javascript:alert(1)">bad</a>, '
     + '<a href="https://e.com">see https://f.com and [m](https://m.com)</a>, then https://g.com.',
   );
 
   assert(doc.html.includes('&lt;a href=&quot;javascript:alert(1)&quot;&gt;bad&lt;/a&gt;'), `javascript: stays literal, got: ${doc.html}`);
-  assert(doc.html.includes('&lt;a name=&quot;spot&quot;&gt;&lt;/a&gt;'), `an href-less a stays literal, got: ${doc.html}`);
   assert(doc.html.includes('<a href="https://e.com">see https://f.com and m</a>'), `links inside keep only text, got: ${doc.html}`);
   assert(doc.html.includes('<a href="https://g.com">https://g.com</a>'), `linkify still works outside, got: ${doc.html}`);
+});
+
+test('a GitHub in-page marker renders as nothing, and a paragraph of markers alone is hidden', () => {
+  const doc = renderMarkdownDocument([
+    'Before.',
+    '',
+    '<a name="start-an-agent"></a>',
+    '',
+    '**Starting.** Text <a id="mid"></a>here, <a name="w">wrapped</a>, <a>bare</a>.',
+  ].join('\n'));
+
+  assert(!doc.html.includes('start-an-agent'), `the marker paragraph should render nothing, got: ${doc.html}`);
+  assert(doc.anchors.map((a) => a.startLine).join() === '1,5', `the hidden paragraph takes no anchor, got: ${JSON.stringify(doc.anchors)}`);
+  assert(doc.html.includes('Text here, wrapped, '), `an inline marker drops and keeps its content, got: ${doc.html}`);
+  assert(doc.html.includes('&lt;a&gt;bare&lt;/a&gt;'), `an a with neither href nor name stays literal, got: ${doc.html}`);
 });
 
 test('every anchor names an element the renderer actually emits', () => {
