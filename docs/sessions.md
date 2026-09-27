@@ -23,7 +23,7 @@ Right-click a taskbar button or Dock tile and choose Start or resume session, or
 
 ![A button or tile per session: pick the one you meant. Enlarged Mac Dock tiles and Windows taskbar buttons; background session content is blurred.](assets/hero-session-switching.gif)
 
-On Windows each is its own taskbar button, labeled from the session's initial prompt in a color locked to the session, with a working indicator and a live preview of what it is doing. On a Mac each is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent works; right-click a tile for the session's name. A tile like "I'd" looks thin at first, but color and letters become familiar within a few uses, the way an app icon does. Run each session full screen and a Mission Control swipe shows every session at once, its initial prompt pinned at the top.
+On Windows each is its own taskbar button, labeled from the session's initial prompt in a color locked to the session, with a working indicator and a live preview of what it is doing. On a Mac each is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent works; right-click a tile for the session's name. A tile like "[I'd](assets/dock-tile.png)" looks thin at first, but color and letters become familiar within a few uses, the way an app icon does. Run each session full screen and a Mission Control swipe shows every session at once, its initial prompt pinned at the top.
 
 To keep the taskbar and Dock uncluttered, AgentTerm automatically hides sessions you have stopped using, based on your activity; the picker brings them back.
 
