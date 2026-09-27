@@ -25,7 +25,7 @@ Right-click a taskbar button or Dock tile and choose Start or resume session, or
 
 On Windows each is its own taskbar button, labeled from the session's initial prompt in a color locked to the session, with a working indicator and a live preview of what it is doing. On a Mac each is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent works; right-click a tile for the session's name. Run each session full screen and a Mission Control swipe shows every session at once, its initial prompt pinned at the top.
 
-**Tiles and taskbar buttons are effective visual signatures.** A tile like "[I'd](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/dock-tile.png)" looks thin at first, but its color and letters become familiar within a few uses.
+**Tiles and taskbar buttons are effective visual signatures.** A tile like "[I'd](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/dock-tile.png)" looks thin at first, but its color and the first letters of your own prompt become familiar within a few uses.
 
 To keep the taskbar and Dock uncluttered, AgentTerm automatically hides sessions you have stopped using, based on your activity; the picker brings them back.
 
