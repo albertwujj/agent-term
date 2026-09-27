@@ -6,9 +6,9 @@ A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard
 
 [agent-jobs](https://github.com/yunxin/agent-jobs) is a small convention that adds the option that was missing. The agent starts the job under its `agent-job` wrapper, ends its turn without stopping the work, and hands the terminal back to you. The job reports its own completion, per agent-term's [job-events.md](dev/job-events.md) contract, and when it finishes, the terminal prompts the agent to pick the result up:
 
-![the report the terminal hands the idle agent when the job finishes](assets/jobs-nudge.png)
+[![the report the terminal hands the idle agent when the job finishes](assets/jobs-nudge.png)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/jobs-nudge.png)
 
-![a long run wrapped in agent-job: the runner icon at the top right, its popover listing the job](assets/jobs-runner.png)
+[![a long run wrapped in agent-job: the runner icon at the top right, its popover listing the job](assets/jobs-runner.png)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/jobs-runner.png)
 
 A runner icon at the top right of the window shows the running jobs; click it for the list. How soon the icon and the report follow is in [job-events.md](dev/job-events.md). Closing a session and resuming it does not lose a job: one started before still reports to the session that comes back.
 

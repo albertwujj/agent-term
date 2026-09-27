@@ -1,7 +1,7 @@
 # The curated review
 
 <p align="center">
-<img src="assets/review-loop.gif" alt="the review loop: comment on a line, the agent fixes it and replies, the review re-renders in place">
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/review-loop.gif"><img src="assets/review-loop.gif" alt="the review loop: comment on a line, the agent fixes it and replies, the review re-renders in place"></a>
 <br><strong>Code: what you propose and what the agent changes</strong>
 </p>
 

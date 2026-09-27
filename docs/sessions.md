@@ -5,7 +5,7 @@ Every session is a whole OS window; there are no tabs.
 ## Start or resume a session
 
 <p align="center">
-<img src="assets/hero-session-picker.gif" alt="filter your sessions and pick the right one, or start a new session">
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-session-picker.gif"><img src="assets/hero-session-picker.gif" alt="filter your sessions and pick the right one, or start a new session"></a>
 <br><strong>Find any past session: type a few letters. Or start a new one.</strong>
 </p>
 
@@ -21,7 +21,7 @@ Right-click a taskbar button or Dock tile and choose Start or resume session, or
 
 ## Switch to the right running session
 
-![A button or tile per session: pick the one you meant. Enlarged Mac Dock tiles and Windows taskbar buttons; background session content is blurred.](assets/hero-session-switching.gif)
+[![A button or tile per session: pick the one you meant. Enlarged Mac Dock tiles and Windows taskbar buttons; background session content is blurred.](assets/hero-session-switching.gif)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-session-switching.gif)
 
 On Windows each is its own taskbar button, labeled from the session's initial prompt in a color locked to the session, with a working indicator and a live preview of what it is doing. On a Mac each is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent works; right-click a tile for the session's name. A tile like "[I'd](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/dock-tile.png)" looks thin at first, but color and letters become familiar within a few uses, the way an app icon does. Run each session full screen and a Mission Control swipe shows every session at once, its initial prompt pinned at the top.
 
@@ -29,7 +29,7 @@ To keep the taskbar and Dock uncluttered, AgentTerm automatically hides sessions
 
 ## Find and resume sessions
 
-![Find any past session: type a few letters. The same picker frame shown in the README demo.](assets/hero-session-resume.png)
+[![Find any past session: type a few letters. The same picker frame shown in the README demo.](assets/hero-session-resume.png)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-session-resume.png)
 
 See the [full picker demo](#start-or-resume-a-session).
 

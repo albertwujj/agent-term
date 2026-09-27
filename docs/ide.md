@@ -1,6 +1,6 @@
 # Confirm with your IDE
 
-![click a reference and your IDE jumps to that exact line](assets/click-to-ide.gif)
+[![click a reference and your IDE jumps to that exact line](assets/click-to-ide.gif)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/click-to-ide.gif)
 
 Agents explain by quoting file:line and symbols. Click any reference the agent mentions and your IDE jumps to that exact line after a brief pause for selection gestures; `Ctrl/Cmd`-click jumps immediately ([click behavior](clicks.md)). It works in reverse too: wherever you are in the IDE, `Ctrl/Cmd+K` quotes that file and line into the prompt.
 

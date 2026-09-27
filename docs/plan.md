@@ -1,21 +1,21 @@
 # Plan with it
 
 <p align="center">
-<img src="assets/doc-edit-loop.gif" alt="the plan loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list">
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/doc-edit-loop.gif"><img src="assets/doc-edit-loop.gif" alt="the plan loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list"></a>
 <br><strong>Docs: what you propose and what the agent changes</strong>
 </p>
 
 Ask your agent to write the plan to a markdown file, then click its name, and the doc opens rendered in the viewer above the prompt ([what a click does](clicks.md)). The viewer turns markdown into a place you write English. A doc opens rendered and shows both your proposals and how the agent applies them: you [comment on any passage](comment.md) or edit the rendered text directly, and the agent processes and polishes. You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
 
 <p align="center">
-<img src="assets/viewer-window.png" alt="AgentTerm window with an illustrated two-page document, an agent reply beside the revised heading, and the terminal conversation below">
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window.png"><img src="assets/viewer-window.png" alt="AgentTerm window with an illustrated two-page document, an agent reply beside the revised heading, and the terminal conversation below"></a>
 <br><strong>Work on a document right in the terminal.</strong>
 </p>
 
 Click anywhere, and the bottom bar hints at the actions available there.
 
 <p align="center">
-<img src="assets/md-bar-guide.png" width="487" alt="the viewer's bottom bar after a click on a link: letters and digits comment · other keys edit · ⌘click follows, and the copy button reading ⧉ paragraph">
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/md-bar-guide.png"><img src="assets/md-bar-guide.png" width="487" alt="the viewer's bottom bar after a click on a link: letters and digits comment · other keys edit · ⌘click follows, and the copy button reading ⧉ paragraph"></a>
 </p>
 
 It reads as a book: two pages side by side, short lines. Pages turn rather than scroll.
@@ -27,7 +27,7 @@ The same loop is a writing aid in its own right. An essay, notes, research, a po
 Editing supports new sections and blocks: Shift+Enter starts a new line on the rendered page, and the agent formats what you typed into headings, paragraphs and bullets.
 
 <p align="center">
-<img src="assets/change-highlight.png" width="65%" alt="a long changed paragraph: a bar in the margin marks the block, and hovering shows the exact words that changed">
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/change-highlight.png"><img src="assets/change-highlight.png" width="65%" alt="a long changed paragraph: a bar in the margin marks the block, and hovering shows the exact words that changed"></a>
 </p>
 
 You can also track what the agent changed. A bar in the margin marks each block it edited. Hover one and the exact words show.

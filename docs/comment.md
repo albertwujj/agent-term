@@ -1,13 +1,13 @@
 # Comment on the agent's output
 
 <p align="center">
-<img src="assets/comment-brainstorm.png" alt="select a claim in the agent's brainstorm and ask, right on the output">
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/comment-brainstorm.png"><img src="assets/comment-brainstorm.png" alt="select a claim in the agent's brainstorm and ask, right on the output"></a>
 <br><strong>Select anything on screen and comment</strong>
 </p>
 
 Select the passage, then write your note: precise feedback, with the exact text quoted. Commenting works across **terminal output, markdown documents, and curated reviews**: your note goes to the agent tied to the passage or code line you are responding to, without copying it into the prompt yourself.
 
-![the sent message carries the quoted selection, and the agent acts on it](assets/comment-sent-brainstorm.png)
+[![the sent message carries the quoted selection, and the agent acts on it](assets/comment-sent-brainstorm.png)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/comment-sent-brainstorm.png)
 
 ## Choose what to comment on
 

@@ -7,7 +7,7 @@ A plan or a draft written in the viewer often ends up as a message: a Teams post
 **Copy takes what you have clicked.** With nothing clicked, the whole doc. With a heading clicked, the section under it, up to the next heading of the same level. With a paragraph, a list, or a code block clicked, that block. The button's label says which before you click.
 
 <p align="center">
-<img src="assets/copy-states.png" width="136" alt="the copy button's four states: ⧉ text with nothing clicked, ⧉ section with a heading clicked, ⧉ paragraph with a paragraph clicked, and ✓ md after a markdown copy">
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/copy-states.png"><img src="assets/copy-states.png" width="136" alt="the copy button's four states: ⧉ text with nothing clicked, ⧉ section with a heading clicked, ⧉ paragraph with a paragraph clicked, and ✓ md after a markdown copy"></a>
 </p>
 
 **Markdown, for GitHub or Reddit.** `Ctrl/Cmd`-click the button to copy the markdown source of the same scope, for a surface that renders markdown itself.
