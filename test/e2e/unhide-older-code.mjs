@@ -6,9 +6,13 @@
 //      closes when picked, and its session resumes in the picker's window
 //   2. one whose agent is working comes back as it is, says it runs older
 //      code, and the picker closes
+//   3. one that comes back on its own after its agent's turn, on older code,
+//      says so once it is in front, and not before
 //
-// "Started before the change" is set by hand: the test backfills the window's
-// processStartedAt to 0 in its active record.
+// The checkout changes for real: after each window under test starts, the
+// test moves the mtime of src/build-info.json (a file nothing reads) to now,
+// and restores it at the end. Other AgentTerm windows running from this
+// checkout see the change while the test runs.
 // Run: node test/e2e/unhide-older-code.mjs
 
 import { launchElectron } from './electron.mjs';
@@ -31,7 +35,11 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 let passed = 0; const failures = [];
 const check = (name, cond, extra = '') => { if (cond) { passed++; console.log(`  ✓ ${name}`); } else { failures.push(name); console.log(`  ✗ ${name} ${extra}`); } };
 
-for (const [id, prompt] of [[6, 'idle one'], [8, 'working one']]) {
+const MARKER = path.join(APP_DIR, 'src', 'build-info.json');
+const markerStat = fs.statSync(MARKER);
+const sourceChangesNow = () => { const now = new Date(); fs.utimesSync(MARKER, now, now); };
+
+for (const [id, prompt] of [[6, 'idle one'], [8, 'working one'], [9, 'returning one']]) {
   sessionsLog.appendEvent(UD, { e: 'started', id, hue: id * 30, token: 'tok' + id });
   sessionsLog.appendEvent(UD, { e: 'cli', id, cli: 'true' });
   sessionsLog.appendEvent(UD, { e: 'prompt', id, prompt });
@@ -63,7 +71,8 @@ async function waitFor(fn, timeoutMs) {
     await sleep(200);
   }
 }
-// Resume `id` in window `w`, then close its window: the session hides.
+// Resume `id` in window `w`, then close its window: the session hides. The
+// checkout then changes, so the window runs older code.
 async function hiddenSession(w, id, command) {
   await w.app.evaluate(({ ipcMain }, id) => { ipcMain.emit('picker-pick', {}, id); }, id);
   await sleep(2000);
@@ -76,7 +85,8 @@ async function hiddenSession(w, id, command) {
   }
   await w.app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].close(); });
   const rec = await waitFor(() => { const r = sessionsLog.readActiveFile(UD, id); return r && r.hiddenAt ? r : null; }, 5000);
-  sessionsLog.writeActiveFile(UD, id, { ...rec, processStartedAt: 0 });   // started before the checkout changed
+  await sleep(50);
+  sourceChangesNow();
   return rec;
 }
 const cleanup = [];
@@ -112,7 +122,24 @@ try {
   check('the picker closes once it is back', qCode !== 'timeout', String(qCode));
   const banner = await waitFor(() => b.page.evaluate(() => document.body.innerText.includes('started before your latest code changes')), 5000);
   check('it says it runs older code', !!banner);
+
+  // 3. Its turn ends while hidden: it comes back on its own, without focus,
+  //    and the notice waits until it is in front.
+  const c = await launch(); cleanup.push(c);
+  await hiddenSession(c, 9, 'sleep 3; for i in $(seq 18); do echo tick $i; sleep 1; done');
+  const back = await waitFor(() => /turn ended while hidden; bringing session 9 back/.test(c.log), 45_000);
+  check('the returning window comes back after its turn', !!back);
+  check('it knows it runs older code', !!(await waitFor(() => /session 9 came back on older code/.test(c.log), 5000)));
+  const noticeShown = () => c.page.evaluate(() => document.body.innerText.includes('started before your latest code changes'));
+  await sleep(1000);
+  check('no notice while it is not in front', !(await noticeShown()));
+  await c.app.evaluate(({ app, BrowserWindow }) => {
+    if (process.platform === 'darwin') app.focus({ steal: true });
+    BrowserWindow.getAllWindows()[0].focus();
+  });
+  check('the notice shows once it is in front', !!(await waitFor(noticeShown, 5000)));
 } finally {
+  fs.utimesSync(MARKER, markerStat.atime, markerStat.mtime);
   if (failures.length) for (const w of cleanup) console.log('--- log\n' + w.log.split('\n').filter(l => /resume|auto-hide|picker/.test(l)).join('\n'));
   for (const w of cleanup) { try { await w.app.close(); } catch {} }
 }
