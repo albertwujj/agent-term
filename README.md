@@ -8,7 +8,7 @@
 
 <a id="demo"></a>
 
-*The demo plays automatically; the first frame may take a moment.*
+From telling sessions apart to finishing projects. *The demo plays automatically; the first frame may take a moment.*
 
 [![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo.gif)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-demo.gif)
 
