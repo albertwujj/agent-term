@@ -32,6 +32,11 @@ function createMarkdownIt() {
 
   md.renderer.rules.fence = renderFence;
   md.renderer.rules.code_block = renderCodeBlock;
+  // A recognized tag is taken whole as text, and turned into tokens, before
+  // either linkify runs, so the URL in an <a href> stays in its tag rather
+  // than becoming a link of its own.
+  md.inline.ruler.before('linkify', 'raw_tag_text', rawTagText);
+  md.core.ruler.before('linkify', 'html_tags', (state) => recognizeHtmlTags(state.tokens, state.md));
   return md;
 }
 
@@ -113,27 +118,48 @@ function resolveImageSrc(src, { rootUrl, docDir, version, versionByPath }) {
 //                  src rewriting and image anchoring treat it like any
 //                  authored image. A src-less tag stays literal text.
 //   <br>           a hard break.
-//   <sub>…</sub>   the sub/sup tokens, when the pair is balanced within the
-//   <sup>…</sup>   run; a stray open or close stays literal text.
+//   <sub>…</sub>   the sub, sup and strong tokens, when the pair is balanced
+//   <sup>…</sup>   within the run; a stray open or close stays literal text.
+//   <strong>…</strong>
+//   <a href …>…</a>  a link, paired the same way; href is the only attribute
+//                  that crosses, and one markdown-it would refuse (javascript:
+//                  and the like) leaves the tag literal. It is how a doc wraps
+//                  an image in a link of its own choosing.
 //   <p …>…</p>     a wrapper around the whole run is dropped, and its
 //                  align="center" becomes the md-center class on the paragraph
 //                  (the GitHub idiom for a centered image with a caption). A
 //                  <p> anywhere else in a run stays literal text.
 // Every other tag renders as the literal text the author typed.
 const HTML_TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)(\s[^<>]*)?\/?>/g;
+const HTML_TAG_AT = new RegExp(HTML_TAG.source, 'y');
 
-function parseTagAttrs(tag) {
+// With html off, markdown-it reads a tag as ordinary text, and its inline
+// rules reach inside: linkify takes the URL out of an href. So a tag
+// recognized below is consumed whole, as plain text, where it starts.
+function rawTagText(state, silent) {
+  if (state.src.charCodeAt(state.pos) !== 0x3C /* < */) return false;
+  HTML_TAG_AT.lastIndex = state.pos;
+  const match = HTML_TAG_AT.exec(state.src);
+  if (!match || !classifyTag(match, state.md)) return false;
+  if (!silent) state.pending += match[0];
+  state.pos += match[0].length;
+  return true;
+}
+
+// Values come raw from the source (rawTagText keeps the entity and escape
+// rules out of a tag), so they are unescaped here: alt="a &amp; b" is "a & b".
+function parseTagAttrs(tag, md) {
   const attrs = {};
   const attrPattern = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>]+))/g;
   let match;
   while ((match = attrPattern.exec(tag))) {
-    attrs[match[1].toLowerCase()] = match[2] ?? match[3] ?? match[4] ?? '';
+    attrs[match[1].toLowerCase()] = md.utils.unescapeAll(match[2] ?? match[3] ?? match[4] ?? '');
   }
   return attrs;
 }
 
 // A recognized tag as an item, or null for one that stays literal text.
-function classifyTag(match) {
+function classifyTag(match, md) {
   const [raw, slash, rawName, rawAttrs] = match;
   const name = rawName.toLowerCase();
   const close = slash === '/';
@@ -141,16 +167,22 @@ function classifyTag(match) {
   switch (name) {
     case 'img': {
       if (close) return null;
-      const attrs = parseTagAttrs(raw);
+      const attrs = parseTagAttrs(raw, md);
       return attrs.src ? { tag: 'img', attrs, raw } : null;
     }
     case 'br':
       return close ? null : { tag: 'br', raw };
     case 'sub':
     case 'sup':
+    case 'strong':
       return { tag: name, close, raw };
+    case 'a': {
+      if (close) return { tag: 'a', close, raw };
+      const href = md.normalizeLink(String(parseTagAttrs(raw, md).href || '').trim());
+      return href && md.validateLink(href) ? { tag: 'a', close, href, raw } : null;
+    }
     case 'p':
-      return { tag: 'p', close, attrs: close ? {} : parseTagAttrs(raw), raw };
+      return { tag: 'p', close, attrs: close ? {} : parseTagAttrs(raw, md), raw };
     default:
       return null;
   }
@@ -190,7 +222,7 @@ function buildTagToken(TokenCtor, type, tag, nesting, level) {
 // Split an inline run's text children around the recognized tags. Items are
 // { child } for a token kept as is, { text } for a text slice, or a classified
 // tag; each carries the level of the child it came from.
-function splitRunAroundTags(children) {
+function splitRunAroundTags(children, md) {
   const items = [];
   let anyTag = false;
   for (const child of children) {
@@ -202,7 +234,7 @@ function splitRunAroundTags(children) {
     let match;
     HTML_TAG.lastIndex = 0;
     while ((match = HTML_TAG.exec(child.content))) {
-      const tag = classifyTag(match);
+      const tag = classifyTag(match, md);
       if (!tag) continue;
       if (match.index > last) items.push({ text: child.content.slice(last, match.index), level: child.level });
       items.push({ ...tag, level: child.level });
@@ -244,11 +276,14 @@ function unwrapParagraphTags(items) {
   return open.attrs;
 }
 
-// Mark the sub/sup opens and closes that pair up in order; the rest stay text.
-function pairSubSup(items) {
+// The paired tags, by the token type each renders as.
+const PAIRED_TAG_TYPE = { sub: 'sub', sup: 'sup', strong: 'strong', a: 'link' };
+
+// Mark the paired opens and closes that pair up in order; the rest stay text.
+function pairTags(items) {
   const stack = [];
   for (const item of items) {
-    if (item.tag !== 'sub' && item.tag !== 'sup') continue;
+    if (!Object.prototype.hasOwnProperty.call(PAIRED_TAG_TYPE, item.tag)) continue;
     if (!item.close) {
       stack.push(item);
       continue;
@@ -262,11 +297,41 @@ function pairSubSup(items) {
   }
 }
 
-function recognizeHtmlTags(tokens) {
+function buildPairedToken(TokenCtor, item) {
+  const type = PAIRED_TAG_TYPE[item.tag];
+  if (item.close) return buildTagToken(TokenCtor, `${type}_close`, item.tag, -1, item.level);
+  const token = buildTagToken(TokenCtor, `${type}_open`, item.tag, 1, item.level);
+  if (item.href) token.attrs = [['href', item.href]];
+  return token;
+}
+
+// A link inside a raw <a> keeps only its text: linkify ran before the <a> was
+// a link, and HTML forbids an anchor inside an anchor.
+function dropNestedLinks(children) {
+  let depth = 0;
+  return children.filter((child) => {
+    if (child.type === 'link_open') return ++depth === 1;
+    if (child.type === 'link_close') return --depth === 0;
+    return true;
+  });
+}
+
+// Levels as markdown-it assigns them, so a rule after this one (linkify skips
+// a link's content by level) reads the new pairs as nesting.
+function relevel(children) {
+  let level = 0;
+  for (const child of children) {
+    if (child.nesting < 0) level--;
+    child.level = level;
+    if (child.nesting > 0) level++;
+  }
+}
+
+function recognizeHtmlTags(tokens, md) {
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     if (token.type !== 'inline' || !Array.isArray(token.children)) continue;
-    const items = splitRunAroundTags(token.children);
+    const items = splitRunAroundTags(token.children, md);
     if (!items) continue;
     const TokenCtor = token.constructor;
     const wrapper = unwrapParagraphTags(items);
@@ -274,18 +339,15 @@ function recognizeHtmlTags(tokens) {
       const open = tokens[i - 1];
       if (open && open.type === 'paragraph_open') open.attrJoin('class', 'md-center');
     }
-    pairSubSup(items);
-    token.children = items.map((item) => {
+    pairTags(items);
+    token.children = dropNestedLinks(items.map((item) => {
       if (item.child) return item.child;
       if (item.tag === 'img') return buildImageToken(TokenCtor, item.attrs, item.level);
       if (item.tag === 'br') return buildTagToken(TokenCtor, 'hardbreak', 'br', 0, item.level);
-      if ((item.tag === 'sub' || item.tag === 'sup') && item.paired) {
-        return item.close
-          ? buildTagToken(TokenCtor, `${item.tag}_close`, item.tag, -1, item.level)
-          : buildTagToken(TokenCtor, `${item.tag}_open`, item.tag, 1, item.level);
-      }
+      if (item.paired) return buildPairedToken(TokenCtor, item);
       return buildTextToken(TokenCtor, item.text !== undefined ? item.text : item.raw, item.level);
-    });
+    }));
+    relevel(token.children);
   }
 }
 
@@ -431,7 +493,6 @@ function renderMarkdownDocument(source, imageOptions) {
   const text = String(source == null ? '' : source);
   const env = {};
   const tokens = markdown.parse(text, env);
-  recognizeHtmlTags(tokens);
   // Local image files the doc embeds, as absolute decoded POSIX paths — the
   // viewer's image poll stats these to catch regenerated images.
   const imagePaths = rewriteImageSources(tokens, imageOptions);

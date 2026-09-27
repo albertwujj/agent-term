@@ -313,6 +313,35 @@ test('sub and sup pair within a run; a stray open or close, and any other tag, s
   assert((doc.html.match(/<br>\n/g) || []).length === 2, `both br spellings break, got: ${doc.html}`);
 });
 
+test('an image wrapped in an HTML link keeps its href, and the caption can be strong', () => {
+  const doc = renderMarkdownDocument([
+    '<p align="center">',
+    '<a href="https://raw.example.com/docs/assets/loop.gif"><img src="assets/loop.gif" alt="a &amp; b"></a>',
+    '<br><strong>Docs: what you propose</strong>',
+    '</p>',
+  ].join('\n'), { rootUrl: 'file://', docDir: '/docs' });
+
+  assert(
+    doc.html.includes('<a href="https://raw.example.com/docs/assets/loop.gif"><img src="file:///docs/assets/loop.gif"'),
+    `the href should stay whole, not linkified inside the tag, got: ${doc.html}`,
+  );
+  assert(doc.html.includes('alt="a &amp; b"'), `an entity in an attribute decodes once, got: ${doc.html}`);
+  assert(doc.html.includes('<strong>Docs: what you propose</strong>'), `strong pairs, got: ${doc.html}`);
+  assert(!doc.html.includes('&lt;'), `no literal tag text should remain, got: ${doc.html}`);
+});
+
+test('an HTML link refuses what markdown-it would, and never nests another link', () => {
+  const doc = renderMarkdownDocument(
+    '<a href="javascript:alert(1)">bad</a>, <a name="spot"></a>, '
+    + '<a href="https://e.com">see https://f.com and [m](https://m.com)</a>, then https://g.com.',
+  );
+
+  assert(doc.html.includes('&lt;a href=&quot;javascript:alert(1)&quot;&gt;bad&lt;/a&gt;'), `javascript: stays literal, got: ${doc.html}`);
+  assert(doc.html.includes('&lt;a name=&quot;spot&quot;&gt;&lt;/a&gt;'), `an href-less a stays literal, got: ${doc.html}`);
+  assert(doc.html.includes('<a href="https://e.com">see https://f.com and m</a>'), `links inside keep only text, got: ${doc.html}`);
+  assert(doc.html.includes('<a href="https://g.com">https://g.com</a>'), `linkify still works outside, got: ${doc.html}`);
+});
+
 test('every anchor names an element the renderer actually emits', () => {
   // markdown-it hides the paragraph inside a tight list item (the <li> carries
   // the text), so anchoring it would point a line jump at nothing. A loose
