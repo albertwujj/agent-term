@@ -108,4 +108,4 @@ Then start a task with `@proceed-b`, which completes to the lock's [guide doc](h
 
 **Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
-AgentTerm is built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT.
+AgentTerm is built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT. No telemetry.
