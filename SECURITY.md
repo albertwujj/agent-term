@@ -6,7 +6,7 @@ AgentTerm needs no account, sends no telemetry, and runs no server. These featur
 
 - A web link you open goes to your browser or opens in the window. Pages opened in the window can load their own resources.
 - An IDE jump connects to the optional navigator plugin on `127.0.0.1`.
-- Once you set `hubUrl` in `~/.agent-term/config.json` for the optional phone view, AgentTerm sends your first prompt, machine name, and live terminal screen to your hub, and accepts input back.
+- Once you set `hubUrl` in `~/.agent-term/config.json` for the optional phone view, AgentTerm sends your first prompt, machine name, and live terminal screen to your hub, and accepts input back. It uses the address exactly as you set it, so give the hub an `https` address; a plain `http` one would send all of that unencrypted.
 
 Your shell and coding agents can make their own network requests, as they do in any terminal.
 
