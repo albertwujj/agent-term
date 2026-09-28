@@ -58,6 +58,17 @@ function handleTerminalKeydown({
     return false;
   }
 
+  // Return from scrollback to the live tail. Keep this on the terminal's key
+  // handler so other focused surfaces retain their own arrow-key behavior.
+  const scrollToBottom = event.key === 'ArrowDown' && !event.altKey && !event.shiftKey
+    && ((isMac && event.metaKey && !event.ctrlKey)
+      || (platform === 'win32' && event.ctrlKey && !event.metaKey));
+  if (scrollToBottom) {
+    event.preventDefault();
+    terminal.scrollToBottom();
+    return false;
+  }
+
   // Copy the selection. The platform's copy chord copies it as message text
   // (src/smart-copy.js): gutter and wraps gone, which is what a selection of
   // agent output is usually for. Shift added keeps the terminal layout, the

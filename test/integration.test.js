@@ -200,6 +200,55 @@ test('Cmd+F opens search on macOS', () => {
   assertTrue(event.isDefaultPrevented(), 'Mac search shortcut should prevent the browser default');
 });
 
+test('Cmd+Down handles Mac terminal scrollback without shell input', () => {
+  let scrollCalls = 0;
+  const event = createKeyEvent({ key: 'ArrowDown', metaKey: true });
+  const allowed = handleTerminalKeydown({
+    event,
+    terminal: { scrollToBottom: () => { scrollCalls++; } },
+    platform: 'darwin',
+  });
+
+  assertEqual(allowed, false, 'Cmd+Down should not reach xterm input');
+  assertTrue(event.isDefaultPrevented(), 'Cmd+Down should prevent the browser default');
+  assertEqual(scrollCalls, 1, 'Cmd+Down should scroll once');
+});
+
+test('Ctrl+Down handles Windows terminal scrollback without shell input', () => {
+  let scrollCalls = 0;
+  const event = createKeyEvent({ key: 'ArrowDown', ctrlKey: true });
+  const allowed = handleTerminalKeydown({
+    event,
+    terminal: { scrollToBottom: () => { scrollCalls++; } },
+    platform: 'win32',
+  });
+
+  assertEqual(allowed, false, 'Ctrl+Down should not reach xterm input');
+  assertTrue(event.isDefaultPrevented(), 'Ctrl+Down should prevent the browser default');
+  assertEqual(scrollCalls, 1, 'Ctrl+Down should scroll once');
+});
+
+test('scroll-to-bottom shortcuts require the matching platform and exact modifiers', () => {
+  for (const [platform, overrides] of [
+    ['win32', {}], ['linux', {}], ['darwin', { shiftKey: true }],
+    ['darwin', { ctrlKey: true }], ['darwin', { altKey: true }],
+    ['darwin', { metaKey: false }], ['darwin', { type: 'keyup' }],
+    ['win32', { ctrlKey: true, metaKey: false, shiftKey: true }],
+    ['win32', { ctrlKey: true, metaKey: false, altKey: true }],
+  ]) {
+    let calls = 0;
+    const event = createKeyEvent({ key: 'ArrowDown', metaKey: true, ...overrides });
+    const allowed = handleTerminalKeydown({
+      event,
+      terminal: { scrollToBottom: () => { calls++; }, hasSelection: () => false },
+      platform,
+    });
+    assertEqual(allowed, true, `${platform} ${JSON.stringify(overrides)} should pass through`);
+    assertEqual(calls, 0, 'Other arrow gestures should not scroll the viewport');
+    assertTrue(!event.isDefaultPrevented(), 'Other arrow gestures should keep the browser default');
+  }
+});
+
 test('Ctrl+F opens search in the alternate buffer', () => {
   let openCalls = 0;
   const event = createKeyEvent({ key: 'F', ctrlKey: true });

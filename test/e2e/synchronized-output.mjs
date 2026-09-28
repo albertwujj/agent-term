@@ -166,8 +166,21 @@ async function exercise(platform) {
     await screen.hover();
     await page.mouse.wheel(0, -600);
     await page.waitForTimeout(150);
-    const scrolled = await screen.screenshot();
+    let scrolled = await screen.screenshot();
     assert.ok(!bottom.equals(scrolled), 'wheel scroll reaches scrollback');
+    if (platform === 'darwin' || platform === 'win32') {
+      const shortcut = platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+ArrowDown';
+      const typedBefore = await app.evaluate(() => globalThis.typed.length);
+      await page.keyboard.press(shortcut);
+      await paint();
+      assert.ok(bottom.equals(await screen.screenshot()), `${shortcut} returns terminal scrollback to the live bottom`);
+      assert.equal(await app.evaluate(() => globalThis.typed.length), typedBefore,
+        `${shortcut} must not send an arrow key to the shell`);
+      await page.mouse.wheel(0, -600);
+      await page.waitForTimeout(150);
+      scrolled = await screen.screenshot();
+      assert.ok(!bottom.equals(scrolled), `wheel still reaches scrollback after ${shortcut}`);
+    }
     await send('\r\nNew output while reading history\r\nMore output\r\n');
     await paint();
     assert.ok(scrolled.equals(await screen.screenshot()),
