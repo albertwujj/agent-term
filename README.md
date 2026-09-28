@@ -29,7 +29,7 @@ up and launch it for my current project, following the basic setup in its
 docs/setup.md.
 ```
 
-Read [docs/setup.md](docs/setup.md), the reference in the prompt above.
+Read [docs/setup.md](docs/setup.md), the reference in the prompt above, and [what AgentTerm touches](SECURITY.md#what-agentterm-touches) if you want to check it first.
 
 Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual. You can [return to live output](docs/terminal.md) after reading scrollback. When you want to give precise feedback or ask a question, [select and enter a comment](docs/comment.md).
 
@@ -108,4 +108,4 @@ Then start a task with `@proceed-b`, which completes to the lock's [guide doc](h
 
 **Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
-AgentTerm is built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT. No telemetry, no account.
+AgentTerm is built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT. [No telemetry, no account](SECURITY.md#what-agentterm-touches).
