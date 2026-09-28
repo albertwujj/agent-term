@@ -21,6 +21,8 @@
 
 **Quick start:** ask your agent. macOS, or Windows through WSL.
 
+Want to check first? Read the [setup steps](docs/setup.md) and [what AgentTerm touches](SECURITY.md#what-agentterm-touches).
+
 Copy this prompt:
 
 ```text
@@ -28,8 +30,6 @@ Clone https://github.com/albertwujj/agent-term to ~/agent-term, then set it
 up and launch it for my current project, following the basic setup in its
 docs/setup.md.
 ```
-
-Read [docs/setup.md](docs/setup.md), the reference in the prompt above, and [what AgentTerm touches](SECURITY.md#what-agentterm-touches) if you want to check it first.
 
 Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual. You can [return to live output](docs/terminal.md) after reading scrollback. When you want to give precise feedback or ask a question, [select and enter a comment](docs/comment.md).
 
