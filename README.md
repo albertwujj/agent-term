@@ -1,8 +1,9 @@
 <a name="agentterm"></a>
 <a name="agentterm-a-terminal-built-for-coding-agents"></a>
 <a name="agentterm-a-super-terminal-for-coding-agents"></a>
+<a name="agentterm-a-super-terminal-for-you-and-your-coding-agents"></a>
 
-# AgentTerm: A super terminal for you and your coding agents
+# AgentTerm: A super terminal for you and your agents
 
 **Putting them to work, beyond the IDE**
 
