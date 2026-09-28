@@ -5,11 +5,11 @@
 
 # AgentTerm: A super terminal for you and your agents
 
-**Put them to work, beyond the IDE**
+**Tell them apart, drive them to finish, beyond the IDE**
 
 <a id="demo"></a>
 
-From telling sessions apart to finishing projects. *The demo plays automatically; the first frame may take a moment.*
+*The demo plays automatically; the first frame may take a moment.*
 
 [![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo.gif)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-demo.gif)
 
