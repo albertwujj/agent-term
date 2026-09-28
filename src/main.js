@@ -2512,6 +2512,7 @@ function createWindow() {
       }
     },
   });
+  if (streamClient.disabled && streamClient.lastError) log('[stream] ' + streamClient.lastError);
   primeVoiceRunbookRef();
 
   streamState = new StreamState({

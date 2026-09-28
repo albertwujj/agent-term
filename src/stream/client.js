@@ -22,6 +22,7 @@
 const { session } = require('electron');
 const {
   STREAM_HUB_URL,
+  STREAM_HUB_URL_PROBLEM,
   STREAM_HUB_SECRET,
   HEARTBEAT_IDLE_MS,
   HEARTBEAT_AWAITING_MS,
@@ -86,10 +87,12 @@ class StreamClient {
     // from ack viewerAgeMs). 0 = never seen a viewer.
     this._lastViewerPollAt = 0;
     this.reregisterPending = false;
-    // No hub URL configured → permanent "disabled" state. No requests, no
-    // retries, no heartbeats. Indicator shows a hollow/grey dot with a
-    // tooltip pointing the user at the config file.
+    // No hub URL configured, or one refused as unencrypted → permanent
+    // "disabled" state. No requests, no retries, no heartbeats. Indicator
+    // shows a hollow/grey dot with a tooltip pointing the user at the config
+    // file, or naming why the address was refused.
     this.disabled = !STREAM_HUB_URL;
+    if (STREAM_HUB_URL_PROBLEM) this.lastError = STREAM_HUB_URL_PROBLEM;
     if (this.disabled) this._setState('disabled');
   }
 

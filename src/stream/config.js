@@ -55,11 +55,28 @@ function readUserConfig() {
 
 const userConfig = readUserConfig();
 
-const STREAM_HUB_URL = (
+// The hub receives the live terminal screen and sends input back, so the
+// address must encrypt the traffic: https, or plain http only to this
+// machine. A refused address leaves streaming disabled, with the reason on
+// the indicator; the reason names the origin only, since a URL can carry
+// credentials.
+function hubUrlProblem(raw) {
+  let url;
+  try { url = new URL(raw); } catch { return 'hubUrl is not a valid URL.'; }
+  if (url.protocol === 'https:') return null;
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const local = host === 'localhost' || host.endsWith('.localhost') || host === '127.0.0.1' || host === '::1';
+  if (url.protocol === 'http:' && local) return null;
+  return `hubUrl ${url.origin} is refused: use an https address (plain http only for localhost).`;
+}
+
+const CONFIGURED_HUB_URL = (
   process.env.AGENT_STREAM_HUB_URL ||
   (typeof userConfig.hubUrl === 'string' && userConfig.hubUrl) ||
   HARDCODED_URL
 ).replace(/\/+$/, '');
+const STREAM_HUB_URL_PROBLEM = CONFIGURED_HUB_URL ? hubUrlProblem(CONFIGURED_HUB_URL) : null;
+const STREAM_HUB_URL = STREAM_HUB_URL_PROBLEM ? '' : CONFIGURED_HUB_URL;
 
 // The hub's shared secret gates viewer reads; the phone asks for it once.
 // Source POSTs are auth-open, so the terminal needs none. STREAM_HUB_SECRET
@@ -92,7 +109,9 @@ const BUFFER_POLL_MS = 500;            // renderer-side buffer-state poll interv
 
 module.exports = {
   userConfigPath,
+  hubUrlProblem,
   STREAM_HUB_URL,
+  STREAM_HUB_URL_PROBLEM,
   STREAM_HUB_SECRET,
   HEARTBEAT_MS,
   HEARTBEAT_IDLE_MS,

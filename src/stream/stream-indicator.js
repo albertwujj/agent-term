@@ -88,6 +88,7 @@ function injectStyles() {
 
 function tooltipText() {
   if (lastPayload.state === 'disabled') {
+    if (lastPayload.lastError) return `Streaming disabled.\n${lastPayload.lastError}`;
     return 'Streaming disabled.\nTo enable, set hubUrl in ~/.agent-term/config.json.';
   }
   const parts = [`stream: ${lastPayload.state}`];

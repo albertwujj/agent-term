@@ -3,7 +3,7 @@
 // Windows start the WSL launcher did not make.
 
 const assert = require('assert');
-const { userConfigPath } = require('../src/stream/config');
+const { userConfigPath, hubUrlProblem } = require('../src/stream/config');
 
 let testsPassed = 0, testsFailed = 0;
 function test(name, fn) {
@@ -32,6 +32,24 @@ test('Windows: WSL_DISTRO_NAME serves when the launcher name is absent', () => {
 test('Windows without the launcher: no file, never the Windows home', () => {
   assert.strictEqual(userConfigPath({ platform: 'win32', env: {}, homedir: 'C:\\Users\\me' }), null);
   assert.strictEqual(userConfigPath({ platform: 'win32', env: { AGENT_TERM_DISTRO: 'Ubuntu' }, homedir: 'C:\\Users\\me' }), null);
+});
+
+test('hub address: https passes, plain http only to this machine', () => {
+  assert.strictEqual(hubUrlProblem('https://stream.example.com'), null);
+  assert.strictEqual(hubUrlProblem('http://localhost:8787'), null);
+  assert.strictEqual(hubUrlProblem('http://127.0.0.1:8787'), null);
+  assert.strictEqual(hubUrlProblem('http://[::1]:8787'), null);
+  assert.strictEqual(hubUrlProblem('http://hub.localhost'), null);
+});
+
+test('hub address: plain http elsewhere is refused, naming only the origin', () => {
+  const problem = hubUrlProblem('http://user:pw@stream.example.com/path?token=x');
+  assert.match(problem, /refused: use an https address/);
+  assert.match(problem, /http:\/\/stream\.example\.com/);
+  assert.doesNotMatch(problem, /pw|token/);
+  assert.match(hubUrlProblem('http://192.168.1.5:8787'), /refused/);
+  assert.match(hubUrlProblem('ws://stream.example.com'), /refused/);
+  assert.match(hubUrlProblem('not a url'), /not a valid URL/);
 });
 
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
