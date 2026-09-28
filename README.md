@@ -21,7 +21,7 @@
 
 **Quick start:** ask your agent. macOS, or Windows through WSL.
 
-Want to check first? Read the [setup steps](docs/setup.md) and [what AgentTerm touches](SECURITY.md#what-agentterm-touches).
+Check first? Read the [setup steps](docs/setup.md) and [what AgentTerm touches](SECURITY.md#what-agentterm-touches).
 
 Copy this prompt:
 
