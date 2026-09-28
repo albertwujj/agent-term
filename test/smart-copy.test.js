@@ -208,6 +208,15 @@ test('a row longer than the terminal caps the wrap column at the width', () => {
   );
 });
 
+test('private-use prompt glyphs stay one column; compatibility ideographs take two', () => {
+  // A Powerline separator (Nerd Font prompts) sits in the private-use area,
+  // which the wide range once swallowed after the source was normalized.
+  assertEqual(displayWidth(String.fromCodePoint(0xE0B0)), 1);
+  assertEqual(displayWidth(String.fromCodePoint(0xD7B0)), 1);
+  assertEqual(displayWidth(String.fromCodePoint(0xF900)), 2);
+  assertEqual(displayWidth(String.fromCodePoint(0x8C48)), 2);
+});
+
 test('wide characters count two columns', () => {
   assertEqual(displayWidth('ab字'), 4);
   const cjk = '⏺ ' + '字'.repeat(37); // 2 + 74
