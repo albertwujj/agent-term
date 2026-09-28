@@ -4,7 +4,7 @@
 
 # AgentTerm: A super terminal for you and your coding agents
 
-**Beyond the IDE, when you put agents to work.**
+**Putting agents to work, beyond the IDE**
 
 <a id="demo"></a>
 
