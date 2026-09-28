@@ -5,7 +5,7 @@
 
 # AgentTerm: A super terminal for you and your agents
 
-**Tell them apart, drive them to finish, beyond the IDE**
+**Tell them apart, drive to the finish, beyond the IDE**
 
 <a id="demo"></a>
 
