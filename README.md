@@ -5,7 +5,7 @@
 
 # AgentTerm: A super terminal for you and your agents
 
-**Putting them to work, beyond the IDE**
+**Put them to work, beyond the IDE**
 
 <a id="demo"></a>
 
