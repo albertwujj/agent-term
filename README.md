@@ -78,7 +78,7 @@ This terminal makes that quick: it is already a better tool for working with you
 
 Below are just examples. Follow the links to explore more features.
 
-| In a plain terminal | In AgentTerm |
+| Plain terminal | AgentTerm |
 |---|---|
 | **Sessions**<br>hard to tell apart | Each session is its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md#switch-to-the-right-running-session)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. |
 | **Resume**<br>hard to find | **[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and the agents' own titles to help you return to the session. |
