@@ -173,9 +173,9 @@ window.pty.onResumeHintSubmit(() => {
 // why.
 const RESUME_REASONS = {
   'older-code': "AgentTerm's code changed. This session is re-established on the new code, "
-    + 'so it resumes through the CLI.',
+    + 'so it needs to resume through the CLI.',
   'closed-while-hidden': 'AgentTerm closed this session while it was hidden, '
-    + 'to keep at most 8 running, so it resumes through the CLI.',
+    + 'to keep at most 8 running, so it needs to resume through the CLI.',
 };
 window.pty.onResumeWithReason((picked) => {
   launcherBand.destroy();
