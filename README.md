@@ -11,7 +11,7 @@ A greatly expanded terminal for you and your agents.
 
 <a id="demo"></a>
 
-**An IDE for the new way of working** · *Autoplays; allow a moment to load.*
+**An IDE for the new way of working** *(autoplays; allow a moment to load)*
 
 [![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo.gif)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-demo.gif)
 
