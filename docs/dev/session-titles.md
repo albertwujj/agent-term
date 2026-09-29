@@ -56,15 +56,22 @@ The picker's own launches — start-new and resume alike — prepend
 per-invocation options in `aiCliLaunchCommand`:
 
 ```
-codex --no-alt-screen -c 'tui.terminal_title=["status","app-name","thread","spinner"]'
+codex --no-alt-screen --no-daemon -c 'tui.terminal_title=["status","app-name","thread","spinner"]'
 ```
 
 `--no-alt-screen` keeps the transcript in scrollback for AgentTerm's
 selection, search and comments. `-c` overrides one key for that process
 only, so it wins over the user's config file and leaves it untouched.
-Both options are scoped to launches AgentTerm issues and to Codex: no
+Current Codex runs configuration overrides in embedded mode; `--no-daemon`
+requests that mode explicitly, so it does not show the startup warning about
+running without the shared background server. This requires Codex 0.156.0 or
+newer. The shared server's remote control and daemon-wide `codex agents`
+overview cannot control these AgentTerm-launched sessions. These options are
+scoped to launches AgentTerm issues and to Codex: no
 shell wrappers, no rewriting what the user typed, no config writes, no
 guessing at metadata.
+An explicit `--remote` option omits `--no-daemon`, which Codex does not allow
+with a remote endpoint.
 
 A start-new pick runs the line. Taken with Shift+Enter it is typed into
 the shell and left at the prompt instead, so the override is in view and

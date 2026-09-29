@@ -90,16 +90,25 @@ function isConversationTitle(title, cli) {
 }
 
 function aiCliLaunchCommand(command) {
+  const line = String(command || '');
+  if (!/^codex(?=\s|$)/i.test(line)) return line;
   // Supported per-invocation options, scoped to Codex launches we own.
   // Keep the conversation in scrollback for AgentTerm's selection, search,
   // and comment marks, even when Codex defaults to a fullscreen transcript.
+  // The title override requires an embedded app server in current Codex.
+  // Request it explicitly so Codex does not warn about switching modes.
   // See docs/dev/cli-rendering.md and docs/dev/session-titles.md.
   // Status distinguishes idle animations from work; spinner also enables the
   // explicit Action Required title on approval/input waits. Put status first
   // so old thread names cannot be mistaken for this field.
   // No shell wrappers, input rewriting, config writes, or metadata guessing.
-  return String(command || '').replace(/^codex(?=\s|$)/i,
-    'codex --no-alt-screen -c \'tui.terminal_title=["status","app-name","thread","spinner"]\'');
+  // --remote uses an explicit server and is incompatible with --no-daemon.
+  // Avoid repeating a --no-daemon the user already supplied as well.
+  const explicitServer = /(?:^|\s)--remote(?:=|\s|$)/.test(line);
+  const noDaemon = /(?:^|\s)--no-daemon(?:\s|$)/.test(line);
+  const embedded = explicitServer || noDaemon ? '' : ' --no-daemon';
+  return line.replace(/^codex(?=\s|$)/i,
+    `codex --no-alt-screen${embedded} -c 'tui.terminal_title=["status","app-name","thread","spinner"]'`);
 }
 
 module.exports = {

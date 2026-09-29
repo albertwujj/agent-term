@@ -55,7 +55,9 @@ async function exercise(cli, titles) {
     const control = ${JSON.stringify(control)};
     const ack = ${JSON.stringify(ack)};
     if (${JSON.stringify(cli)} === 'codex' &&
-      process.argv[3] !== 'tui.terminal_title=["status","app-name","thread","spinner"]') process.exit(2);
+      (process.argv[2] !== '--no-alt-screen' || process.argv[3] !== '--no-daemon' ||
+       process.argv[4] !== '-c' ||
+       process.argv[5] !== 'tui.terminal_title=["status","app-name","thread","spinner"]')) process.exit(2);
     process.stdin.resume();
     let last, frame = 0;
     process.stdout.write('Activity test output\\r\\nHold this text to comment\\r\\n');

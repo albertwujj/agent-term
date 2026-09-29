@@ -85,10 +85,16 @@ test('Claude title cleanup and resumed topic acceptance stay unchanged', () => {
   assert.strictEqual(cleanAiTitle('Fix A | B', 'claude'), 'Fix A | B');
 });
 
-test('only Codex launches get inline rendering and the thread-title override', () => {
-  const prefix = 'codex --no-alt-screen -c \'tui.terminal_title=["status","app-name","thread","spinner"]\'';
+test('only Codex launches get inline rendering and an explicit embedded thread-title override', () => {
+  const prefix = 'codex --no-alt-screen --no-daemon -c \'tui.terminal_title=["status","app-name","thread","spinner"]\'';
   assert.strictEqual(aiCliLaunchCommand('codex'), prefix);
   assert.strictEqual(aiCliLaunchCommand('codex --resume abc'), prefix + ' --resume abc');
+  const remotePrefix = prefix.replace(' --no-daemon', '');
+  assert.strictEqual(aiCliLaunchCommand('codex --remote wss://example.test'),
+    remotePrefix + ' --remote wss://example.test');
+  assert.strictEqual(aiCliLaunchCommand('codex --remote=wss://example.test'),
+    remotePrefix + ' --remote=wss://example.test');
+  assert.strictEqual(aiCliLaunchCommand('codex --no-daemon'), remotePrefix + ' --no-daemon');
   for (const command of ['claude', 'claude --resume abc', 'agent', 'copilot',
     'echo codex', 'codex-tools', 'cd /tmp && codex']) {
     assert.strictEqual(aiCliLaunchCommand(command), command);
