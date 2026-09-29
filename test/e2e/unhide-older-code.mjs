@@ -106,8 +106,8 @@ try {
   const rec6 = await waitFor(() => { const r = sessionsLog.readActiveFile(UD, 6); return r && r.pid === pPid ? r : null; }, 5000);
   check('the session resumes in the picker window', !!rec6, JSON.stringify(sessionsLog.readActiveFile(UD, 6)));
   check('through its CLI, on the current code', /armed intercept after picker-pick id=6/.test(p.log));
-  const told = await waitFor(() => p.page.evaluate(() => document.body.innerText.includes('Resuming on the current code')), 5000);
-  check('the picker window says so', !!told);
+  const told = await waitFor(() => p.page.evaluate(() => document.body.innerText.includes('So it resumes on the current code, through the CLI.')), 5000);
+  check('the picker window says why it resumes through the CLI', !!told);
   check('the older window left a closed event', sessionsLog.readLog(UD).some(e => e.id === 6 && e.e === 'closed'));
   check('and exited on its own', aPid && !(() => { try { process.kill(aPid, 0); return true; } catch { return false; } })());
 

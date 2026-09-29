@@ -123,7 +123,7 @@ await test('drops the Codex app field from the title line and from search', () =
   picker.destroy();
 });
 
-await test('Delete hides the selected past session for this picker instance', () => {
+await test('Delete and Backspace leave the session list alone', () => {
   const picker = createPicker({
     sessions: [
       { id: 1, cli: 'claude', prompt: 'first', lastEventAt: 2 },
@@ -135,54 +135,10 @@ await test('Delete hides the selected past session for this picker instance', ()
   });
   const el = document.querySelector('.at-picker-input');
 
-  // With nothing typed the most recent past session is already selected.
   key(el, 'Delete');
-
-  assert.deepStrictEqual(picker._state().visibleRows.map(s => s.id), [2]);
-  assert.deepStrictEqual([...picker._state().dismissedIds], [1]);
-
-  picker.destroy();
-});
-
-await test('Backspace hides the selected past session when the filter is empty', () => {
-  const picker = createPicker({
-    sessions: [
-      { id: 1, cli: 'claude', prompt: 'first', lastEventAt: 2 },
-      { id: 2, cli: 'codex', prompt: 'second', lastEventAt: 1 },
-    ],
-    onPick: () => {},
-    onStartNew: () => {},
-    onClose: () => {},
-  });
-  const el = document.querySelector('.at-picker-input');
-
   key(el, 'Backspace');
 
-  assert.deepStrictEqual(picker._state().visibleRows.map(s => s.id), [2]);
-  assert.deepStrictEqual([...picker._state().dismissedIds], [1]);
-
-  picker.destroy();
-});
-
-await test('Backspace keeps normal filter editing when the filter has text', () => {
-  const picker = createPicker({
-    sessions: [
-      { id: 1, cli: 'claude', prompt: 'alpha task', lastEventAt: 2 },
-      { id: 2, cli: 'codex', prompt: 'beta task', lastEventAt: 1 },
-    ],
-    onPick: () => {},
-    onStartNew: () => {},
-    onClose: () => {},
-  });
-  const el = document.querySelector('.at-picker-input');
-
-  input(el, 'task');
-  key(el, 'ArrowDown');
-  const event = key(el, 'Backspace');
-
-  assert.strictEqual(event.defaultPrevented, false);
   assert.deepStrictEqual(picker._state().visibleRows.map(s => s.id), [1, 2]);
-  assert.deepStrictEqual([...picker._state().dismissedIds], []);
 
   picker.destroy();
 });

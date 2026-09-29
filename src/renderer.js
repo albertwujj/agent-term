@@ -165,12 +165,18 @@ window.pty.onViewerDiskSearchProgress((payload) => {
 window.pty.onResumeHintSubmit(() => {
   resumeHint.recordSubmit();
 });
-// Main started a resume here itself: a hidden session brought back after the
-// code changed resumes through its CLI on the current code, as a picked row does.
-window.pty.onResumeStarted((picked) => {
+// A hidden session brought back after the code changed resumes here through
+// its CLI, as a picked row does, where the user expected its window back. A
+// banner says why; it sits under the resume band, whose steps it must not
+// cover, and goes when the band does.
+window.pty.onResumeOnCurrentCode((picked) => {
   launcherBand.destroy();
-  if (picked) resumeHint.show({ cli: picked.cli, prompt: picked.prompt, title: picked.title });
   closeActivePicker();
+  if (!picked) return;
+  const banner = showToast('This session started before your latest code changes. '
+    + 'So it resumes on the current code, through the CLI. The band above walks you through it.',
+  { variant: 'warn', sticky: true, top: `calc(env(titlebar-area-height, 42px) + ${resumeHint.HINT_HEIGHT_PX + 13}px)` });
+  resumeHint.show({ cli: picked.cli, prompt: picked.prompt, title: picked.title, onDismiss: () => banner.remove() });
 });
 window.pty.onResumeHintInterceptOff(() => {
   resumeHint.recordInterceptOff();
@@ -4327,7 +4333,7 @@ function showLaunchPill(cwd) {
 // Show a simple toast message (blue, 2-second fade)
 // variant: 'info' (default, blue) | 'warn' (yellow) | 'error' (red), matching the
 // IDE navigation feedback palette in showNavigationFeedback.
-function showToast(message, { variant = 'info', sticky = variant === 'error' } = {}) {
+function showToast(message, { variant = 'info', sticky = variant === 'error', top = '16px' } = {}) {
   const palette = {
     info: { bg: '#569cd6', fg: 'white' },
     warn: { bg: '#dcdcaa', fg: '#1e1e1e' },
@@ -4342,7 +4348,7 @@ function showToast(message, { variant = 'info', sticky = variant === 'error' } =
   // Centered at the top so it's actually seen — a content-sized chip in the corner
   // was easy to miss. Bigger type + padding + a shadow; progress lingers a beat.
   el.style.cssText = `
-    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    position: fixed; top: ${top}; left: 50%; transform: translateX(-50%);
     background: ${bg}; color: ${fg};
     border-radius: 8px; z-index: 9999; box-shadow: 0 8px 28px rgba(0,0,0,.38);`
     + (sticky
@@ -4381,6 +4387,7 @@ function showToast(message, { variant = 'info', sticky = variant === 'error' } =
     setTimeout(() => el.remove(), 2800);
   }
   document.body.appendChild(el);
+  return el;
 }
 
 let markdownViewer = null;

@@ -50,7 +50,9 @@
 // this blue = guidance).
 //
 // Lifecycle:
-//   show({ cli, prompt, title })      — mount in the pre-Enter state
+//   show({ cli, prompt, title, onDismiss })
+//                                     — mount in the pre-Enter state;
+//                                       onDismiss runs once when it goes
 //   recordInterceptOff()              — main cancelled the intercept; switch
 //                                       to the intercept-off wording
 //   1st submit                        — pre-Enter → post-Enter (intercept-off
@@ -265,11 +267,16 @@ function normalizeHintCompare(s) {
 // Dismiss + notify main to cancel the resume intercept so the next Enter
 // isn't accidentally swallowed into a /resume after the user explicitly
 // dismissed the hint.
+let dismissHandler = null;
+
 function destroy({ cancelIntercept = true } = {}) {
   if (mountedRoot) {
     try { mountedRoot.remove(); } catch {}
     mountedRoot = null;
   }
+  const handler = dismissHandler;
+  dismissHandler = null;
+  if (handler) { try { handler(); } catch {} }
   enterCount = 0;
   if (cancelIntercept) {
     try { if (window.pty && window.pty.cancelResumeIntercept) window.pty.cancelResumeIntercept(); } catch {}
@@ -339,8 +346,9 @@ function renderHintMarkup(input) {
 }
 
 // Mount the hint. payload: { cli, prompt, title }
-function show({ cli, prompt, title } = {}) {
+function show({ cli, prompt, title, onDismiss } = {}) {
   destroy({ cancelIntercept: false });   // clear any prior mount; don't double-cancel
+  dismissHandler = typeof onDismiss === 'function' ? onDismiss : null;
   injectStyles();
   enterCount = 0;
   mode = 'resume';

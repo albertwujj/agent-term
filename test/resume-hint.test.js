@@ -155,6 +155,21 @@ test('intercept-off switches to manual wording and holds it across submits', () 
   delete global.document;
 });
 
+test('onDismiss runs once, when the band goes', () => {
+  installDom();
+  let calls = 0;
+  show({ prompt: 'Fix auth retry handling', title: 'Auth retry work', onDismiss: () => { calls += 1; } });
+  recordSubmit();
+  recordSubmit();
+  assert.strictEqual(calls, 0, 'collapsing is not going');
+  recordSubmit();
+  assert.strictEqual(calls, 1, 'the first new prompt dismisses it');
+  destroy({ cancelIntercept: false });
+  assert.strictEqual(calls, 1, 'and only once');
+  delete global.window;
+  delete global.document;
+});
+
 test('intercept-off after the first submit is ignored', () => {
   installDom();
   show({ prompt: 'Fix auth retry handling', title: 'Auth retry work' });

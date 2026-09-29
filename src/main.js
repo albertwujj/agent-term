@@ -3518,7 +3518,8 @@ async function pickSession(id) {
 
 // Resume a session nobody holds in this window, through its CLI. `onCurrentCode`
 // marks a hidden window that just closed for older code: the renderer did not
-// start this resume, so it is told to close its picker and show the resume band.
+// start this resume, so it is told to close its picker, show the resume band,
+// and say why the window did not come back as it was.
 function resumeHere(id, { onCurrentCode = false } = {}) {
   const userDataDir = app.getPath('userData');
   const sessions = sessionsLog.listSessions(userDataDir);
@@ -3526,8 +3527,7 @@ function resumeHere(id, { onCurrentCode = false } = {}) {
   if (!picked || !picked.cli) return;
   pickerOpen = false;
   if (onCurrentCode) {
-    sendHint('resume-started', { cli: picked.cli, prompt: picked.prompt, title: picked.title });
-    sendHint('notice', 'Resuming on the current code');
+    sendHint('resume-on-current-code', { cli: picked.cli, prompt: picked.prompt, title: picked.title });
   }
   // Inherit the picked session's identity (id, hue, prompt, active-file) so
   // this window IS that session, not a new one. Other windows then see it

@@ -34,8 +34,6 @@
 //   Enter      activate the highlighted row
 //   ⇧Enter     on row 0: type the command into the shell without running it
 //   Esc        dismiss → onClose
-//   Delete     on a past-session row: remove it from the picker for this
-//              session (in-memory only; sessions-log unchanged)
 
 const { parseLaunch } = require('./cli-detect');
 const cliIcons = require('./cli-icons');
@@ -66,7 +64,6 @@ function createPicker({
   onClose,
 } = {}) {
   const activeSet = new Set(activeIds);
-  let dismissedIds = new Set();   // local per-render filter, lets user temporarily hide rows
   let filterText = '';
   let selectedIndex = 0;          // rows in DOM order: [row 0 when typed] then visibleRows[]
   let visibleRows = [];
@@ -91,7 +88,6 @@ function createPicker({
         <span>↑↓ navigate</span>
         <span>↵ select</span>
         <span>⇧↵ add options</span>
-        <span>del hide</span>
         <span>esc skip</span>
       </div>
     </div>
@@ -119,7 +115,7 @@ function createPicker({
   function filterSessions(text) {
     const t = normalizeSearchText(text).toLowerCase();
     const terms = parseSearchTerms(t);
-    const beforeFilter = sessions.filter(s => !dismissedIds.has(s.id));
+    const beforeFilter = sessions;
     let list = beforeFilter;
     if (terms.length > 0) {
       list = list.filter(s => {
@@ -168,7 +164,7 @@ function createPicker({
   function deepVisibleRows() {
     const result = currentDeepResult();
     if (!result || !Array.isArray(result.sessions)) return [];
-    return result.sessions.filter(s => !dismissedIds.has(s.id));
+    return result.sessions;
   }
 
   function hiddenMatchLabel(count, running = false) {
@@ -509,9 +505,9 @@ function createPicker({
       const isActive = activeSet.has(s.id) || s.isActive;
       const isHidden = !!s.isHidden;
       // Visible-active rows are disabled (the user already has them).
-      // Hidden-active rows are clickable: clicking brings them back to the
-      // taskbar instead of resuming. Past (non-active) rows are clickable
-      // for resume as before.
+      // A hidden session's row reads like any past session's, since closing
+      // a window puts its session away: choosing it brings the window back
+      // (or resumes it on the current code), and past rows resume.
       if (isActive && !isHidden) row.classList.add('at-picker-row-disabled');
       const stripeColor = (typeof s.hue === 'number')
         ? `oklch(65% 0.27 ${s.hue})`
@@ -533,12 +529,7 @@ function createPicker({
         ? highlightSearchTerms(s.prompt, filtered.terms)
         : '<span class="at-picker-dim">(no prompt captured)</span>';
       const age = escapeHtml(relativeTime(s.lastEventAt));
-      let badge = '';
-      if (isActive && isHidden) {
-        badge = '<span class="at-picker-active-badge at-picker-hidden-badge">hidden — bring forward</span>';
-      } else if (isActive) {
-        badge = '<span class="at-picker-active-badge">active</span>';
-      }
+      const badge = (isActive && !isHidden) ? '<span class="at-picker-active-badge">active</span>' : '';
       // Conditional subtitle lines.
       //   · last prompt — recency hint ("what was I most recently working
       //     on") with a ↳ continuation glyph. Suppressed when the identity
@@ -689,22 +680,6 @@ function createPicker({
     }
   }
 
-  function dismissCurrent() {
-    const offset = rowOffset();
-    if (offset && selectedIndex === 0) return;
-    const session = visibleRows[selectedIndex - offset];
-    if (!session) return;
-    dismissedIds.add(session.id);
-    render();
-  }
-
-  function shouldBackspaceDismiss(e) {
-    if (e.key !== 'Backspace') return false;
-    if (filterText.length > 0) return false;
-    if (e.altKey || e.ctrlKey || e.metaKey) return false;
-    return true;
-  }
-
   // ---- event handlers ----
 
   function onKeyDown(e) {
@@ -739,11 +714,6 @@ function createPicker({
         selectedIndex = 0;
         render();
       }
-      return;
-    }
-    if (e.key === 'Delete' || shouldBackspaceDismiss(e)) {
-      e.preventDefault();
-      dismissCurrent();
       return;
     }
   }
@@ -786,7 +756,7 @@ function createPicker({
     },
     // exposed for tests
     handleHiddenSearchProgress,
-    _state: () => ({ filterText, selectedIndex, visibleRows, dismissedIds, mode, deepSearchState }),
+    _state: () => ({ filterText, selectedIndex, visibleRows, mode, deepSearchState }),
   };
 }
 
@@ -965,13 +935,6 @@ function injectStyles() {
   padding: 0 6px;
   font-size: 11px;
   flex: 0 0 auto;
-}
-.at-picker-hidden-badge {
-  /* Hidden-active rows are clickable to bring back, so style the badge as
-     an action affordance — slightly more prominent and a different hue
-     than plain "active" so the user spots it. */
-  background: #2a3548;
-  color: #aac6ec;
 }
 .at-picker-match {
   /* Subtle warm tint that doesn't overwhelm the row but is visible at a
