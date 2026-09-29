@@ -92,6 +92,14 @@ Below are just examples. Follow the links to explore more features.
 | **Long jobs**<br>unresponsive, or a missed finish | The agent starts a CI run or other long job and hands the terminal back; **[the job reports its own completion](docs/jobs.md)** through the terminal and the idle agent is prompted to pick it up, even across a session restart; a runner icon at the top right shows what is running. |
 | Not an **IDE**<br>can't jump from a cited symbol or line to the code | Click any file:line or symbol the agent cites and **[your IDE jumps to that exact line](docs/ide.md)** after a brief pause for selection; Ctrl/Cmd-click jumps immediately. The editor stays read-only so a stray key changes nothing. |
 
+## How it works
+
+AgentTerm runs your existing CLI agent in a full terminal, using Electron for the window, xterm.js for terminal emulation, and node-pty for the shell connection. The host parses terminal output for file references and recognized conventions, and keeps track of mentioned documents even when the agent redraws the screen.
+
+Those references connect the conversation to host capabilities. A Markdown path identifies a document the host can render. A `review://` reference can trigger validation, rendering, and automatic opening of a review. Document viewing and review build on this mechanism. Guide files tell agents how to follow these conventions. For example, [agent-threads](https://github.com/albertwujj/agent-threads) provides the guides and file protocol for document and review feedback.
+
+To keep the terminal responsive, repeated scans are combined and scheduled, while file checks and review rendering run asynchronously.
+
 ## Where to go next
 
 The [first start](#quick-start) gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
@@ -108,4 +116,4 @@ Then start a task with `@proceed-b`, which completes to the lock's [guide doc](h
 
 **Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
-AgentTerm is built on Electron with xterm.js (the terminal emulator) and node-pty (the shell's pty). MIT. [No telemetry, no account](SECURITY.md#what-agentterm-touches).
+MIT licensed. [No telemetry, no account](SECURITY.md#what-agentterm-touches).
