@@ -3,10 +3,13 @@
 <a name="agentterm-a-super-terminal-for-coding-agents"></a>
 <a name="agentterm-a-super-terminal-for-you-and-your-coding-agents"></a>
 <a name="agentterm-a-super-terminal-for-you-and-your-agents"></a>
+<a name="agentterm-a-greatly-expanded-terminal-for-you-and-your-agents"></a>
 
-# AgentTerm: A greatly expanded terminal for you and your agents
+# AgentTerm
 
-**IDE for the new way of working**
+A greatly expanded terminal for you and your agents.
+
+**An IDE for the new way of working**
 
 <a id="demo"></a>
 
