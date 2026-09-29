@@ -171,11 +171,10 @@ window.pty.onResumeHintSubmit(() => {
 // (again, when the row pick already showed it), with a banner saying why. The
 // banner sits under the band, whose steps it must not cover, and goes with it.
 const RESUME_REASONS = {
-  'older-code': 'This session started before your latest code changes. '
-    + 'So it resumes on the current code, through the CLI. The band above walks you through it.',
-  'closed-while-hidden': 'AgentTerm closed this session while it was hidden. '
-    + 'At most 8 sessions stay running, and this one was used longest ago. '
-    + 'So it resumes through the CLI. The band above walks you through it.',
+  'older-code': 'This session started before your latest code changes, '
+    + 'so it resumes on the current code through the CLI.',
+  'closed-while-hidden': 'AgentTerm closed this session while it was hidden, '
+    + 'to keep at most 8 running, so it resumes through the CLI.',
 };
 window.pty.onResumeWithReason((picked) => {
   launcherBand.destroy();
