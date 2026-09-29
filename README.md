@@ -34,7 +34,9 @@ docs/setup.md.
 
 Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual. You can [return to live output](docs/terminal.md) after reading scrollback. When you want to give precise feedback or ask a question, [select and enter a comment](docs/comment.md).
 
-## Why extend the terminal
+<a name="why-extend-the-terminal"></a>
+
+## Why expand the terminal
 
 If you are a terminal fan and want to get straight to it, skip ahead to [what AgentTerm adds](#whats-added-so-far).
 
