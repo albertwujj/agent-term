@@ -50,9 +50,12 @@
 // this blue = guidance).
 //
 // Lifecycle:
-//   show({ cli, prompt, title, onDismiss })
-//                                     — mount in the pre-Enter state;
-//                                       onDismiss runs once when it goes
+//   show({ cli, prompt, title, note })
+//                                     — mount in the pre-Enter state; a note
+//                                       (why this resume goes through the CLI)
+//                                       hangs under the band as a notice row
+//                                       (notice-strip.js), hides once the band
+//                                       collapses, and goes with it
 //   recordInterceptOff()              — main cancelled the intercept; switch
 //                                       to the intercept-off wording
 //   1st submit                        — pre-Enter → post-Enter (intercept-off
@@ -73,6 +76,7 @@
 //                                       /resume.
 
 const { aiTitleDedupeKey, cleanAiTitle, isConversationTitle } = require('./ai-title');
+const { noticeElement } = require('./notice-strip');
 
 const HINT_HEIGHT_PX = 44;
 const COLLAPSED_HEIGHT_PX = 7;
@@ -226,6 +230,14 @@ const HINT_CSS = `
   from { height: ${HINT_HEIGHT_PX}px; }
   to   { height: ${COLLAPSED_HEIGHT_PX}px; }
 }
+.at-resume-hint-note {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+}
+/* Collapsed means the resume is done, and with it the note's reason. */
+.at-resume-hint.collapsed .at-resume-hint-note { display: none; }
 .at-resume-hint.collapsed .at-resume-hint-text,
 .at-resume-hint.collapsed .at-resume-hint-close {
   opacity: 0;
@@ -267,16 +279,11 @@ function normalizeHintCompare(s) {
 // Dismiss + notify main to cancel the resume intercept so the next Enter
 // isn't accidentally swallowed into a /resume after the user explicitly
 // dismissed the hint.
-let dismissHandler = null;
-
 function destroy({ cancelIntercept = true } = {}) {
   if (mountedRoot) {
     try { mountedRoot.remove(); } catch {}
     mountedRoot = null;
   }
-  const handler = dismissHandler;
-  dismissHandler = null;
-  if (handler) { try { handler(); } catch {} }
   enterCount = 0;
   if (cancelIntercept) {
     try { if (window.pty && window.pty.cancelResumeIntercept) window.pty.cancelResumeIntercept(); } catch {}
@@ -346,9 +353,8 @@ function renderHintMarkup(input) {
 }
 
 // Mount the hint. payload: { cli, prompt, title }
-function show({ cli, prompt, title, onDismiss } = {}) {
+function show({ cli, prompt, title, note } = {}) {
   destroy({ cancelIntercept: false });   // clear any prior mount; don't double-cancel
-  dismissHandler = typeof onDismiss === 'function' ? onDismiss : null;
   injectStyles();
   enterCount = 0;
   mode = 'resume';
@@ -357,6 +363,11 @@ function show({ cli, prompt, title, onDismiss } = {}) {
   el.innerHTML = renderHintMarkup({ cli, prompt, title });
   document.body.appendChild(el);
   el.querySelector('.at-resume-hint-close').addEventListener('click', () => destroy());
+  if (note) {
+    const noteEl = noticeElement(note);
+    noteEl.classList.add('at-resume-hint-note');
+    el.appendChild(noteEl);
+  }
   mountedRoot = el;
 }
 

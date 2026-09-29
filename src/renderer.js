@@ -26,6 +26,7 @@ const { createViewerSelector } = require('./viewer-selector');
 const { isBandFilePath } = require('./band-viewable');
 const chromeBar = require('./chrome-bar');
 const resumeHint = require('./resume-hint');
+const { showNotice } = require('./notice-strip');
 const launcherBand = require('./launcher-band');
 const { parseLaunch } = require('./cli-detect');
 const { readPromptSnapshot } = require('./prompt-completion');
@@ -168,8 +169,8 @@ window.pty.onResumeHintSubmit(() => {
 // A session resumes here through its CLI where the user expected its window
 // back: it was hidden, and its window started before the code changed or was
 // closed by the live-session cap. The resume band shows as for a picked row
-// (again, when the row pick already showed it), with a banner saying why. The
-// banner sits under the band, whose steps it must not cover, and goes with it.
+// (again, when the row pick already showed it), with a note under it saying
+// why.
 const RESUME_REASONS = {
   'older-code': 'This session started before your latest code changes, '
     + 'so it resumes on the current code through the CLI.',
@@ -180,9 +181,7 @@ window.pty.onResumeWithReason((picked) => {
   launcherBand.destroy();
   closeActivePicker();
   if (!picked || !RESUME_REASONS[picked.reason]) return;
-  const banner = showToast(RESUME_REASONS[picked.reason], { variant: 'warn', sticky: true,
-    top: `calc(env(titlebar-area-height, 42px) + ${resumeHint.HINT_HEIGHT_PX + 13}px)` });
-  resumeHint.show({ cli: picked.cli, prompt: picked.prompt, title: picked.title, onDismiss: () => banner.remove() });
+  resumeHint.show({ cli: picked.cli, prompt: picked.prompt, title: picked.title, note: RESUME_REASONS[picked.reason] });
 });
 window.pty.onResumeHintInterceptOff(() => {
   resumeHint.recordInterceptOff();
@@ -869,15 +868,16 @@ if (typeof window.pty.onNewInstanceLaunchFailed === 'function') {
 if (typeof window.pty.onNotice === 'function') {
   window.pty.onNotice((message) => { if (message) showToast(message); });
 }
-// This window came back from hiding on code older than the checkout. Sticky:
-// it can arrive while the user is looking elsewhere.
+// This window came back from hiding on code older than the checkout. A notice
+// strip under the chrome bar, until dismissed: it can arrive while the user is
+// looking elsewhere.
 if (typeof window.pty.onOlderCodeNotice === 'function') {
   window.pty.onOlderCodeNotice(() => {
     const keys = window.pty.platform === 'darwin' ? '⌘⇧N' : 'Ctrl+Shift+N';
-    showToast('This window started before your latest code changes. '
+    showNotice('This window started before your latest code changes. '
       + `To update it, close it and press ${keys} twice. It comes back on the current code. `
       + 'If its agent is busy, it comes back unchanged. Try again once the agent is idle.',
-    { variant: 'warn', sticky: true });
+    { top: 'calc(env(titlebar-area-height, 42px) + 1px)' });
   });
 }
 
@@ -4339,7 +4339,7 @@ function showLaunchPill(cwd) {
 // Show a simple toast message (blue, 2-second fade)
 // variant: 'info' (default, blue) | 'warn' (yellow) | 'error' (red), matching the
 // IDE navigation feedback palette in showNavigationFeedback.
-function showToast(message, { variant = 'info', sticky = variant === 'error', top = '16px' } = {}) {
+function showToast(message, { variant = 'info', sticky = variant === 'error' } = {}) {
   const palette = {
     info: { bg: '#569cd6', fg: 'white' },
     warn: { bg: '#dcdcaa', fg: '#1e1e1e' },
@@ -4354,7 +4354,7 @@ function showToast(message, { variant = 'info', sticky = variant === 'error', to
   // Centered at the top so it's actually seen — a content-sized chip in the corner
   // was easy to miss. Bigger type + padding + a shadow; progress lingers a beat.
   el.style.cssText = `
-    position: fixed; top: ${top}; left: 50%; transform: translateX(-50%);
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
     background: ${bg}; color: ${fg};
     border-radius: 8px; z-index: 9999; box-shadow: 0 8px 28px rgba(0,0,0,.38);`
     + (sticky
@@ -4393,7 +4393,6 @@ function showToast(message, { variant = 'info', sticky = variant === 'error', to
     setTimeout(() => el.remove(), 2800);
   }
   document.body.appendChild(el);
-  return el;
 }
 
 let markdownViewer = null;

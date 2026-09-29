@@ -155,17 +155,21 @@ test('intercept-off switches to manual wording and holds it across submits', () 
   delete global.document;
 });
 
-test('onDismiss runs once, when the band goes', () => {
+test('a note hangs under the band, its ✕ removes only the note, and it goes with the band', () => {
   installDom();
-  let calls = 0;
-  show({ prompt: 'Fix auth retry handling', title: 'Auth retry work', onDismiss: () => { calls += 1; } });
-  recordSubmit();
-  recordSubmit();
-  assert.strictEqual(calls, 0, 'collapsing is not going');
-  recordSubmit();
-  assert.strictEqual(calls, 1, 'the first new prompt dismisses it');
+  show({ prompt: 'Fix auth retry handling', title: 'Auth retry work', note: 'Resumes on the current code.' });
+  const root = document.querySelector('.at-resume-hint');
+  const note = root.querySelector('.at-resume-hint-note');
+  assert.ok(note, 'the note is a row of the band');
+  assert.strictEqual(note.querySelector('.at-notice-text').textContent, 'Resumes on the current code.');
+  note.querySelector('.at-notice-close').dispatchEvent(new window.Event('click'));
+  assert.strictEqual(root.querySelector('.at-resume-hint-note'), null, 'the note goes');
+  assert.strictEqual(document.querySelector('.at-resume-hint'), root, 'the band stays');
+
+  show({ prompt: 'Fix auth retry handling', title: 'Auth retry work', note: 'Again.' });
+  assert.ok(document.querySelector('.at-resume-hint-note'));
   destroy({ cancelIntercept: false });
-  assert.strictEqual(calls, 1, 'and only once');
+  assert.strictEqual(document.querySelector('.at-resume-hint-note'), null, 'and it goes with the band');
   delete global.window;
   delete global.document;
 });
