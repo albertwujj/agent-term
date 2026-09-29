@@ -2110,6 +2110,7 @@ function checkLiveCap() {
   if (!windowCap.capVictims(records).includes(sessionIndex)) return;
   log('[auto-hide] closing hidden session ' + sessionIndex + ': more than ' +
       windowCap.MAX_LIVE + ' sessions are live');
+  closedBy = 'cap';
   app.quit();
 }
 
@@ -2344,12 +2345,14 @@ function writeLostSessionEvent() {
 // Leave the registry: release the active record while it is still ours and
 // log how the session ended. Idempotent, and a no-op once another window has
 // taken the id (releaseActiveFile leaves a record that names another pid).
+// `closedBy`, when set, records what closed the session in the user's place.
+let closedBy = null;
 function writeSessionEndEvent(e) {
   if (sessionIndex === null || !activeFileWritten) return;
   const userDataDir = app.getPath('userData');
   try {
     sessionsLog.releaseActiveFile(userDataDir, sessionIndex, process.pid);
-    sessionsLog.appendEvent(userDataDir, { e, id: sessionIndex });
+    sessionsLog.appendEvent(userDataDir, { e, id: sessionIndex, ...(closedBy ? { by: closedBy } : {}) });
   } catch (err) {
     log('[main] failed to write ' + e + ' event: ' + (err && err.message));
   }
@@ -3516,18 +3519,20 @@ async function pickSession(id) {
   else bringForwardFromPicker(id);
 }
 
-// Resume a session nobody holds in this window, through its CLI. `onCurrentCode`
-// marks a hidden window that just closed for older code: the renderer did not
-// start this resume, so it is told to close its picker, show the resume band,
-// and say why the window did not come back as it was.
+// Resume a session nobody holds in this window, through its CLI. When the
+// user expected a window back instead, the renderer is told why, and shows
+// the resume band with a banner: `onCurrentCode` marks a hidden window that
+// just closed for older code, and a session the live cap closed while it was
+// hidden reads `closedBy: 'cap'` in the log.
 function resumeHere(id, { onCurrentCode = false } = {}) {
   const userDataDir = app.getPath('userData');
   const sessions = sessionsLog.listSessions(userDataDir);
   const picked = sessions.find(s => s.id === id);
   if (!picked || !picked.cli) return;
   pickerOpen = false;
-  if (onCurrentCode) {
-    sendHint('resume-on-current-code', { cli: picked.cli, prompt: picked.prompt, title: picked.title });
+  const reason = onCurrentCode ? 'older-code' : (picked.closedBy === 'cap' ? 'closed-while-hidden' : null);
+  if (reason) {
+    sendHint('resume-with-reason', { cli: picked.cli, prompt: picked.prompt, title: picked.title, reason });
   }
   // Inherit the picked session's identity (id, hue, prompt, active-file) so
   // this window IS that session, not a new one. Other windows then see it

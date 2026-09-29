@@ -86,6 +86,18 @@ test('closed event marks session closed', (dir) => {
   log.appendEvent(dir, { e: 'closed',  id: 1 });
   const s = log.listSessions(dir).find(x => x.id === 1);
   assert.ok(s.closedAt > 0);
+  assert.strictEqual(s.closedBy, null);
+});
+
+test('closedBy follows the last end: the cap, then a loss or a plain close clears it', (dir) => {
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'closed',  id: 1, by: 'cap' });
+  assert.strictEqual(log.listSessions(dir).find(x => x.id === 1).closedBy, 'cap');
+  log.appendEvent(dir, { e: 'lost',    id: 1 });
+  assert.strictEqual(log.listSessions(dir).find(x => x.id === 1).closedBy, null);
+  log.appendEvent(dir, { e: 'closed',  id: 1, by: 'cap' });
+  log.appendEvent(dir, { e: 'closed',  id: 1 });
+  assert.strictEqual(log.listSessions(dir).find(x => x.id === 1).closedBy, null);
 });
 
 // ---- identity: the first prompt, and the next one or two while short ----

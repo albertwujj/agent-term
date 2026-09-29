@@ -16,6 +16,8 @@
 //      opens a fresh one
 //   8. Cmd/Ctrl+Shift+N pressed in a picker brings back the hidden session
 //      used most recently in its place; with none hidden, the picker stays
+//   9. a session the cap closed resumes from the picker through the CLI,
+//      with a banner saying why
 //
 // The input clock is advanced by rewriting its file; the working grace is
 // shortened through AGENT_TERM_WORKING_GRACE_MS. The cap check runs on the
@@ -212,6 +214,7 @@ try {
   check('the log says why', /closing hidden session 6: more than 8 sessions are live/.test(mainLog));
   const ended = sessionsLog.readLog(UD).filter(e => e.id === 6).map(e => e.e);
   check('it is recorded as closed', ended.includes('closed'), JSON.stringify(ended));
+  check('by the cap', sessionsLog.readLog(UD).some(e => e.id === 6 && e.e === 'closed' && e.by === 'cap'));
 } finally {
   try { await app.close(); } catch {}
 }
@@ -321,6 +324,22 @@ const launchPicker = async () => {
     check('and stays', still === 'running', String(still));
   } finally {
     try { await e.app.close(); } catch {}
+  }
+}
+
+// 9. Session 6 was closed by the cap in step 5. Picked in a fresh picker, it
+//    resumes through the CLI, and a banner says why.
+{
+  const f = await launchPicker();
+  try {
+    await f.page.click('.at-picker-row[data-id="6"]');
+    const shown = await f.page.waitForFunction(
+      () => document.body.innerText.includes('AgentTerm closed this session while it was hidden'),
+      null, { timeout: 5000 }).then(() => true, () => false);
+    check('a session the cap closed says so when it resumes', shown);
+    check('and it resumes through the CLI', await f.page.evaluate(() => !!document.querySelector('.at-resume-hint')));
+  } finally {
+    try { await f.app.close(); } catch {}
   }
 }
 

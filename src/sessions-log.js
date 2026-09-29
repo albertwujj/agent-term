@@ -183,7 +183,7 @@ function listSessions(userDataDir) {
     if (typeof ev.id !== 'number') continue;
     let s = map.get(ev.id);
     if (!s) {
-      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, capturedBranches: [], closedAt: null, lostAt: null, token: null };
+      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, capturedBranches: [], closedAt: null, closedBy: null, lostAt: null, token: null };
       map.set(ev.id, s);
     }
     s.lastEventAt = ev.t;
@@ -243,10 +243,13 @@ function listSessions(userDataDir) {
       case 'branches':
         if (ev.branch && !s.capturedBranches.includes(ev.branch)) s.capturedBranches.push(ev.branch);
         break;
-      case 'closed':  s.closedAt = ev.t; break;
+      // closedBy names what closed it when that was not the user: 'cap' for
+      // the live-session cap closing it while hidden (window-cap.js).
+      case 'closed':  s.closedAt = ev.t; s.closedBy = ev.by || null; break;
       // A loss leaves closedAt alone: the session is still open as far as the
-      // user is concerned, so recovery and the picker keep offering it.
-      case 'lost':    s.lostAt = ev.t; break;
+      // user is concerned, so recovery and the picker keep offering it. Its
+      // last end was the loss, so an earlier closedBy no longer applies.
+      case 'lost':    s.lostAt = ev.t; s.closedBy = null; break;
       // 'runid' and 'blockid' events are no-ops in the union model — the
       // hub auto-generates fresh runIds per process and the block concept
       // is gone. We don't strip them from disk (forward-compat); the fold

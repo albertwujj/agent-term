@@ -165,17 +165,24 @@ window.pty.onViewerDiskSearchProgress((payload) => {
 window.pty.onResumeHintSubmit(() => {
   resumeHint.recordSubmit();
 });
-// A hidden session brought back after the code changed resumes here through
-// its CLI, as a picked row does, where the user expected its window back. A
-// banner says why; it sits under the resume band, whose steps it must not
-// cover, and goes when the band does.
-window.pty.onResumeOnCurrentCode((picked) => {
+// A session resumes here through its CLI where the user expected its window
+// back: it was hidden, and its window started before the code changed or was
+// closed by the live-session cap. The resume band shows as for a picked row
+// (again, when the row pick already showed it), with a banner saying why. The
+// banner sits under the band, whose steps it must not cover, and goes with it.
+const RESUME_REASONS = {
+  'older-code': 'This session started before your latest code changes. '
+    + 'So it resumes on the current code, through the CLI. The band above walks you through it.',
+  'closed-while-hidden': 'AgentTerm closed this session while it was hidden. '
+    + 'At most 8 sessions stay running, and this one was used longest ago. '
+    + 'So it resumes through the CLI. The band above walks you through it.',
+};
+window.pty.onResumeWithReason((picked) => {
   launcherBand.destroy();
   closeActivePicker();
-  if (!picked) return;
-  const banner = showToast('This session started before your latest code changes. '
-    + 'So it resumes on the current code, through the CLI. The band above walks you through it.',
-  { variant: 'warn', sticky: true, top: `calc(env(titlebar-area-height, 42px) + ${resumeHint.HINT_HEIGHT_PX + 13}px)` });
+  if (!picked || !RESUME_REASONS[picked.reason]) return;
+  const banner = showToast(RESUME_REASONS[picked.reason], { variant: 'warn', sticky: true,
+    top: `calc(env(titlebar-area-height, 42px) + ${resumeHint.HINT_HEIGHT_PX + 13}px)` });
   resumeHint.show({ cli: picked.cli, prompt: picked.prompt, title: picked.title, onDismiss: () => banner.remove() });
 });
 window.pty.onResumeHintInterceptOff(() => {
