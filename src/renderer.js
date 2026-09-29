@@ -172,8 +172,8 @@ window.pty.onResumeHintSubmit(() => {
 // (again, when the row pick already showed it), with a note under it saying
 // why.
 const RESUME_REASONS = {
-  'older-code': 'This session started before your latest code changes, '
-    + 'so it resumes on the current code through the CLI.',
+  'older-code': "AgentTerm's code changed. This session is re-established on the new code, "
+    + 'so it resumes through the CLI.',
   'closed-while-hidden': 'AgentTerm closed this session while it was hidden, '
     + 'to keep at most 8 running, so it resumes through the CLI.',
 };
@@ -874,8 +874,8 @@ if (typeof window.pty.onNotice === 'function') {
 if (typeof window.pty.onOlderCodeNotice === 'function') {
   window.pty.onOlderCodeNotice(() => {
     const keys = window.pty.platform === 'darwin' ? '⌘⇧N' : 'Ctrl+Shift+N';
-    showNotice('This window started before your latest code changes. '
-      + `To update it, close it and press ${keys} twice. It comes back on the current code. `
+    showNotice("AgentTerm's code changed since this window started. "
+      + `To re-establish it on the new code, close it and press ${keys} twice. `
       + 'If its agent is busy, it comes back unchanged. Try again once the agent is idle.',
     { top: 'calc(env(titlebar-area-height, 42px) + 1px)' });
   });

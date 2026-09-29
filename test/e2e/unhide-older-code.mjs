@@ -106,7 +106,7 @@ try {
   const rec6 = await waitFor(() => { const r = sessionsLog.readActiveFile(UD, 6); return r && r.pid === pPid ? r : null; }, 5000);
   check('the session resumes in the picker window', !!rec6, JSON.stringify(sessionsLog.readActiveFile(UD, 6)));
   check('through its CLI, on the current code', /armed intercept after picker-pick id=6/.test(p.log));
-  const told = await waitFor(() => p.page.evaluate(() => document.body.innerText.includes('so it resumes on the current code through the CLI')), 5000);
+  const told = await waitFor(() => p.page.evaluate(() => document.body.innerText.includes('This session is re-established on the new code, so it resumes through the CLI')), 5000);
   check('the picker window says why it resumes through the CLI', !!told);
   check('the older window left a closed event', sessionsLog.readLog(UD).some(e => e.id === 6 && e.e === 'closed'));
   check('and exited on its own', aPid && !(() => { try { process.kill(aPid, 0); return true; } catch { return false; } })());
@@ -120,7 +120,7 @@ try {
   check('a working window stays', /session 8 runs older code but stays: its agent is working/.test(b.log), b.log.split('\n').filter(l => /auto-hide/.test(l)).join(' | '));
   check('and comes back as it is', await b.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()));
   check('the picker closes once it is back', qCode !== 'timeout', String(qCode));
-  const banner = await waitFor(() => b.page.evaluate(() => document.body.innerText.includes('started before your latest code changes')), 5000);
+  const banner = await waitFor(() => b.page.evaluate(() => document.body.innerText.includes('code changed since this window started')), 5000);
   check('it says it runs older code', !!banner);
 
   // 3. Its turn ends while hidden: it comes back on its own, without focus,
@@ -130,7 +130,7 @@ try {
   const back = await waitFor(() => /turn ended while hidden; bringing session 9 back/.test(c.log), 45_000);
   check('the returning window comes back after its turn', !!back);
   check('it knows it runs older code', !!(await waitFor(() => /session 9 came back on older code/.test(c.log), 5000)));
-  const noticeShown = () => c.page.evaluate(() => document.body.innerText.includes('started before your latest code changes'));
+  const noticeShown = () => c.page.evaluate(() => document.body.innerText.includes('code changed since this window started'));
   await sleep(1000);
   check('no notice while it is not in front', !(await noticeShown()));
   await c.app.evaluate(({ app, BrowserWindow }) => {
