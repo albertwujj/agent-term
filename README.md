@@ -2,8 +2,9 @@
 <a name="agentterm-a-terminal-built-for-coding-agents"></a>
 <a name="agentterm-a-super-terminal-for-coding-agents"></a>
 <a name="agentterm-a-super-terminal-for-you-and-your-coding-agents"></a>
+<a name="agentterm-a-super-terminal-for-you-and-your-agents"></a>
 
-# AgentTerm: A super terminal for you and your agents
+# AgentTerm: A greatly expanded terminal for you and your agents
 
 **Tell them apart, drive to the finish, beyond the IDE**
 
