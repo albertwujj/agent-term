@@ -52,7 +52,7 @@ Expanding it on demand is what keeps it a terminal. Additions come in only when 
 <br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts.
 </p>
 
-A vendor's desktop app supports that vendor's agents and only those, and pulls you away from your shell. In this terminal, the agent can be of any kind and stay in your shell.
+A vendor's desktop app is built around its own agent and workflow. Here, you keep your choice of CLI agents in your own shell.
 
 Some other terminals have gone the vendors' way and built their own agent to manage proprietary local or cloud environments; you must use their agent. Here, the agent you have been using works as before and only gains new capabilities through this terminal.
 
