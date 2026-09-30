@@ -41,20 +41,20 @@ If you are a terminal fan and want to get straight to it, skip ahead to [what Ag
 
 People run coding agents in an IDE, in the terminal, or in the vendor's desktop app. The terminal keeps pulling them in: Claude Code and Codex shipped as terminal programs, and Cursor and Copilot, born in the IDE, added CLIs of their own. A form from decades ago turned out to have what an agent needs: text in, text out, and your shell, git, and every other tool one command away.
 
-So why do people still run agents in the IDE, and why are the vendors adding their agents to desktop apps? Partly because the standard terminal interface (TUI), great for text-centric iteration, cannot offer agents and users the essentials and the boosts a richer interface can. One answer is to move the agent out, into an app built around it. The other is to treat the terminal as the core and expand it. This repo is the second path: a full terminal wrapped in a modern extensible window (Electron), retaining everything you already have and raising the ceiling on how it helps you work with agents.
+So why do people still run agents in the IDE, and why are the vendors adding their agents to desktop apps? Partly because the standard terminal interface (TUI), great for text-centric iteration, cannot offer agents and users the essentials and the boosts a richer interface can. One answer is to move the agent out, into an app built around it. The other is to treat the terminal as the core and expand it. AgentTerm takes the second path: a full terminal wrapped in a modern extensible window (Electron), expanded for the way you work with agents.
 
 When they take over the low-level tasks, traditional IDE functions take a back seat, and your time, energy, and focus go to higher-level work: plans, reviews, and several sessions at once. The expanded terminal is visual like an IDE at that level: the plan and the review render in the window, where you direct the agents right on the page.
 
-Expanding it on demand is what keeps it a terminal. Additions come in only when you need them, and the window is a terminal again the moment you finish. An IDE or a vendor's desktop app has its panels up before you type, which can distract. Here the window is your session alone, shaped only by the work you do in it, and full screen if you like, with nothing else in view ([one OS window per session](#one-os-window-per-session)).
+With AgentTerm, you keep working with your agents in the terminal's familiar text interface. Richer views and interactions appear when needed, and the window returns to the terminal view when you finish. Persistent panels can compete with the session for your attention. Here the window is your session alone, shaped only by the work you do in it, and full screen if you like, with nothing else in view ([one OS window per session](#one-os-window-per-session)).
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window.gif"><img src="docs/assets/viewer-window.gif" alt="An AgentTerm window in three states: a two-page document sharing the window with the agent conversation below, the document filling the window, and the document rolled up while a new prompt is typed"></a>
 <br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts.
 </p>
 
-A vendor's desktop app is built around its own agent and workflow. Here, you keep your choice of CLI agents in your own shell.
+A vendor's desktop app moves the conversation out of the terminal and into an interface built around its own agent and workflow. With AgentTerm, you keep your choice of CLI agents in the terminal's familiar text interface.
 
-Some other terminals have gone the vendors' way and built their own agent to manage proprietary local or cloud environments; you must use their agent. Here, the agent you have been using works as before and only gains new capabilities through this terminal.
+Some terminals combine support for CLI agents with an agent and platform of their own. AgentTerm's whole purpose is to make your existing CLI agents work better for you.
 
 ### One OS window per session
 
@@ -104,7 +104,7 @@ To keep the terminal responsive, repeated scans are combined and scheduled, whil
 
 ## Where to go next
 
-The [first start](#quick-start) gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Existing sessions](docs/sessions.md) from before this terminal work too.
+The [first start](#quick-start) gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Sessions started before you switched to AgentTerm](docs/sessions.md) work too.
 
 The rest are the [optional suite](docs/suite.md): [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
 
