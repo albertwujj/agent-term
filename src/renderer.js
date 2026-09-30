@@ -4260,7 +4260,7 @@ function showClickFeedback(text, patternName, status = 'info') {
 
   feedback.style.cssText = `
     position: fixed;
-    top: 10px;
+    top: calc(var(--at-overlay-bottom, 0px) + 10px);
     right: 10px;
     background: ${bgColors[status] || bgColors.info};
     color: white;
@@ -4312,7 +4312,7 @@ function showLaunchPill(cwd) {
   dismissLaunchPill();
   const el = document.createElement('div');
   el.style.cssText = `
-    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    position: fixed; top: calc(var(--at-overlay-bottom, 0px) + 16px); left: 50%; transform: translateX(-50%);
     display: flex; align-items: center; gap: 9px;
     background: #569cd6; color: white;
     border-radius: 8px; z-index: 9999; box-shadow: 0 8px 28px rgba(0,0,0,.38);
@@ -4354,7 +4354,7 @@ function showToast(message, { variant = 'info', sticky = variant === 'error' } =
   // Centered at the top so it's actually seen — a content-sized chip in the corner
   // was easy to miss. Bigger type + padding + a shadow; progress lingers a beat.
   el.style.cssText = `
-    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    position: fixed; top: calc(var(--at-overlay-bottom, 0px) + 16px); left: 50%; transform: translateX(-50%);
     background: ${bg}; color: ${fg};
     border-radius: 8px; z-index: 9999; box-shadow: 0 8px 28px rgba(0,0,0,.38);`
     + (sticky
@@ -4467,7 +4467,7 @@ function showIdeSetupNotice(notice) {
   const el = document.createElement('div');
   el.className = 'nav-feedback nav-feedback-ide';
   el.style.cssText = `
-    position: fixed; top: 10px; right: 10px; z-index: 9999;
+    position: fixed; top: calc(var(--at-overlay-bottom, 0px) + 10px); right: 10px; z-index: 9999;
     display: flex; align-items: center; gap: 8px;
     background: #569cd6; color: white;
     padding: 8px 12px 8px 16px; border-radius: 4px;
@@ -4540,7 +4540,7 @@ function showNavigationFeedback(filePath, line, result, { explicit = false } = {
   feedback.textContent = message;
   feedback.style.cssText = `
     position: fixed;
-    top: 10px;
+    top: calc(var(--at-overlay-bottom, 0px) + 10px);
     right: 10px;
     background: ${bgColor};
     color: ${bgColor === '#dcdcaa' ? '#1e1e1e' : 'white'};
@@ -4605,7 +4605,7 @@ function showPathChooser(choices) {
     // yield to an open modal.
     panel.className = 'at-modal-overlay';
     panel.style.cssText = `
-      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      position: fixed; top: calc(var(--at-overlay-bottom, 0px) + 16px); left: 50%; transform: translateX(-50%);
       background: #26292e; color: #d0d5db; border: 1px solid #45484e;
       border-radius: 8px; z-index: 9999; box-shadow: 0 8px 28px rgba(0,0,0,.5);
       padding: 6px; width: min(640px, 80vw); box-sizing: border-box;
@@ -4922,7 +4922,7 @@ function showSymbolFeedback(symbolName, result, { explicit = false } = {}) {
   feedback.textContent = message;
   feedback.style.cssText = `
     position: fixed;
-    top: 10px;
+    top: calc(var(--at-overlay-bottom, 0px) + 10px);
     right: 10px;
     background: ${bgColor};
     color: ${bgColor === '#dcdcaa' ? '#1e1e1e' : 'white'};

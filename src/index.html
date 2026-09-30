@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <title>agent-term</title>
   <style>
+    :root {
+      /* Floating toasts and pills start below the Windows titleBarOverlay, so
+         the caption buttons (min/max/close) never cover them. macOS has no
+         overlay, so the env() falls back to 0 and nothing moves there. */
+      --at-overlay-bottom: calc(env(titlebar-area-y, 0px) + env(titlebar-area-height, 0px));
+    }
     * {
       margin: 0;
       padding: 0;
