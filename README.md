@@ -41,13 +41,13 @@ Once a window opens, [resume your previous session](docs/sessions.md#resume-an-e
 
 If you are a terminal fan and want to get straight to it, skip ahead to [what AgentTerm adds](#whats-added-so-far).
 
-People run coding agents in an IDE, in the terminal, or in the vendor's desktop app. The terminal keeps pulling them in: Claude Code and Codex shipped as terminal programs, and Cursor and Copilot, born in the IDE, added CLIs of their own. A form from decades ago turned out to have what an agent needs: text in, text out, and your shell, git, and every other tool one command away.
+The terminal is a natural home for coding agents: text in, text out, with the shell, git, and other tools one command away. Claude Code and Codex started there; Cursor and Copilot added CLIs alongside their IDE interfaces.
 
-So why do people still run agents in the IDE, and why are the vendors adding their agents to desktop apps? Partly because the standard terminal interface (TUI), great for text-centric iteration, cannot offer agents and users the essentials and the boosts a richer interface can. One answer is to move the agent out, into an app built around it. The other is to treat the terminal as the core and expand it. AgentTerm takes the second path: a full terminal wrapped in a modern extensible window (Electron), expanded for the way you work with agents.
+An IDE or desktop app offers richer views and interactions than a text interface alone. Expanding the terminal lets AgentTerm add those capabilities while keeping your existing CLI agents in the familiar text interface.
 
 As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several sessions at once. The expanded terminal supports that work visually, like an IDE: plans and reviews render in the window, where you direct the agents right on the page.
 
-With AgentTerm, you keep working with your agents in the terminal's familiar text interface. Richer views and interactions appear when needed, and the window returns to the terminal view when you finish. Persistent panels can compete with the session for your attention. Here the window is your session alone, shaped only by the work you do in it, and full screen if you like, with nothing else in view ([one OS window per session](#one-os-window-per-session)).
+Richer views appear when needed, and the window returns to the terminal view when you finish. Persistent panels can compete with the session for your attention. Here the window is your session alone, shaped by your work, and full screen if you like, with nothing else in view ([one OS window per session](#one-os-window-per-session)).
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window.gif"><img src="docs/assets/viewer-window.gif" alt="An AgentTerm window in three states: a two-page document sharing the window with the agent conversation below, the document filling the window, and the document rolled up while a new prompt is typed"></a>
