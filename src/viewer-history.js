@@ -1,3 +1,5 @@
+const { BAND_VIEWABLE_KINDS } = require('./band-viewable');
+
 // review:// is printed by an agent, not typed into a browser: no parser on the
 // emitting side ever checks it, so the host is the only place a malformed link
 // can be caught. The one slip a model actually makes is a space between the
@@ -7,32 +9,46 @@
 // never be read as a package.
 const URL_TOKEN_SOURCE = String.raw`[^\s<>"'\x60\x00-\x1f]`;
 const URL_TOKEN_END_SOURCE = String.raw`[^\s<>"'\x60\x00-\x1f.,;:!?\)\]}>]`;
-const MARKDOWN_TOKEN_SOURCE = String.raw`[a-zA-Z0-9_.+$~\/\\\u2026%-]`;
-// Cursor can redraw one logical target as two physical rows. Blank cells after
-// the first fragment are not evidence: xterm exposes them whether or not Cursor
-// emitted explicit padding. The continuation gutter is the structural signal.
-// A right-side box glyph is removable row chrome, but it is not required.
+const PATH_TOKEN_SOURCE = String.raw`[a-zA-Z0-9_.+$~\/\\\u2026%-]`;
+// A CLI that lays out its own text breaks a target too long for the row and
+// carries the rest to the next one: Cursor inside its boxes, Codex and Claude
+// Code as they word-wrap prose. Blank cells after the first fragment are not
+// evidence: xterm exposes them whether or not the CLI emitted explicit padding.
+// The continuation gutter is the structural signal. A right-side box glyph is
+// removable row chrome, but it is not required.
 const RENDERER_GUTTER_SOURCE = String.raw`(?:[ \t]{2,}|[ \t]*[│┃|▎][ \t]*)`;
 const RENDERER_ROW_END_SOURCE = String.raw`(?:[ \t]+[│┃|▎])?[ \t]*`;
 const RENDERER_WRAP_SOURCE = String.raw`${RENDERER_ROW_END_SOURCE}\r?\n${RENDERER_GUTTER_SOURCE}`;
 const RENDERER_WRAP_RE = new RegExp(RENDERER_WRAP_SOURCE);
-// Bare document paths must own the row's content area: column zero, horizontal
-// inset, or a recognized Cursor gutter. Review URLs may follow a short label
-// ("Review: review://...") before Cursor hard-wraps them; those reconstructed
-// candidates are provisional until the renderer confirms the joined package
-// exists, so admitting that shape cannot make a fabricated join clickable.
-const RENDERER_CONTENT_START_SOURCE = String.raw`(?<=^|^[ \t]{2,}|^[ \t]*[│┃|▎][ \t]*)`;
-const RENDERER_WRAPPED_END_SOURCE = String.raw`(?=[.,;:!?\)\]}>]?${RENDERER_ROW_END_SOURCE}(?:\r?\n|$))`;
+// A wrapped target starts where any token can (the row's start, whitespace, an
+// opening bracket or quote, a box gutter) and its continuation ends where the
+// token does, so prose may surround the join on both rows. Every reconstructed
+// candidate is provisional until the renderer confirms the joined file exists,
+// so admitting that shape cannot make a fabricated join clickable.
+const RENDERER_TOKEN_START_SOURCE = String.raw`(?<=^|[\s(\[{<"'\x60│┃|▎])`;
+const RENDERER_TOKEN_END_SOURCE = String.raw`(?![a-zA-Z0-9_+$~\/\\\u2026%-]|\.[a-zA-Z0-9_])`;
+const RENDERER_ROW_TAIL_END_SOURCE = String.raw`(?=[.,;:!?\)\]}>]?${RENDERER_ROW_END_SOURCE}(?:\r?\n|$))`;
 const REVIEW_URL_FLAT_SOURCE = String.raw`review:\/\/[ \t]*\/${URL_TOKEN_SOURCE}*${URL_TOKEN_END_SOURCE}`;
-// Match the whole second fragment first, then verify the canonical joined URL
-// ends in .md below. That permits either suffix split produced at narrow widths:
+// A continuation that completes the .md suffix may run on into prose. One that
+// ends its row is matched whole and the canonical joined URL is checked for the
+// suffix below, which admits the splits produced at narrow widths:
 // "package.\n  md" and "package.m\n  d", as well as the usual "pack\n  age.md".
-const REVIEW_URL_WRAPPED_SOURCE = String.raw`review:\/\/[ \t]*\/${MARKDOWN_TOKEN_SOURCE}+(?<!\.md)${RENDERER_WRAP_SOURCE}${MARKDOWN_TOKEN_SOURCE}+?${RENDERER_WRAPPED_END_SOURCE}`;
+const REVIEW_URL_WRAPPED_SOURCE = String.raw`review:\/\/[ \t]*\/${PATH_TOKEN_SOURCE}+(?<!\.md)${RENDERER_WRAP_SOURCE}(?:${PATH_TOKEN_SOURCE}*\.md${RENDERER_TOKEN_END_SOURCE}|${PATH_TOKEN_SOURCE}+?${RENDERER_ROW_TAIL_END_SOURCE})`;
 const REVIEW_URL_SOURCE = String.raw`(?:${REVIEW_URL_WRAPPED_SOURCE}|${REVIEW_URL_FLAT_SOURCE})`;
 const VIEWER_URL_SOURCE = String.raw`(?:${REVIEW_URL_SOURCE}|(?:https?|file|review):\/\/[^\s<>"'\x60\x00-\x1f]+[^\s<>"'\x60\x00-\x1f.,;:!?\)\]}>])`;
 const MARKDOWN_PATH_FLAT_SOURCE = String.raw`(?:[a-zA-Z]:)?(?:[.\/\\~\u2026]|[a-zA-Z0-9_])[a-zA-Z0-9_.+$~\/\\\u2026-]*\.(?:markdown|mdown|md)\b`;
-const MARKDOWN_PATH_WRAPPED_SOURCE = String.raw`${RENDERER_CONTENT_START_SOURCE}(?:[a-zA-Z]:[\\/]|\/|~[\\/]|\.\.?[\\/])${MARKDOWN_TOKEN_SOURCE}+(?<!\.md)(?<!\.mdown)(?<!\.markdown)${RENDERER_WRAP_SOURCE}${MARKDOWN_TOKEN_SOURCE}*\.(?:markdown|mdown|md)${RENDERER_WRAPPED_END_SOURCE}`;
+// An explicit path (absolute, home, ./ or ../, or a drive) broken across rows,
+// whose joined name ends in one of `extensions`. The head stops short of a
+// complete name, so a whole path ending one row never swallows the next row.
+function wrappedPathSource(extensions) {
+  const extension = `(?:${extensions.join('|')})`;
+  return String.raw`${RENDERER_TOKEN_START_SOURCE}(?:[a-zA-Z]:[\\/]|\/|~[\\/]|\.\.?[\\/])${PATH_TOKEN_SOURCE}+(?<!\.${extension})${RENDERER_WRAP_SOURCE}${PATH_TOKEN_SOURCE}*\.${extension}${RENDERER_TOKEN_END_SOURCE}`;
+}
+const MARKDOWN_PATH_WRAPPED_SOURCE = wrappedPathSource(BAND_VIEWABLE_KINDS.md);
 const MARKDOWN_PATH_SOURCE = String.raw`(?:${MARKDOWN_PATH_WRAPPED_SOURCE}|${MARKDOWN_PATH_FLAT_SOURCE})`;
+// The terminal joins a wrapped path to anything the viewers render, not only
+// the md docs the selector lists (band-viewable.js).
+const VIEWABLE_PATH_WRAPPED_SOURCE = wrappedPathSource(Object.values(BAND_VIEWABLE_KINDS).flat());
 const MARKDOWN_DOCUMENT_RE = /\.(?:markdown|mdown|md)$/i;
 // One character that could still extend a candidate of each kind. The match
 // regexes trim trailing punctuation ("https://a.com." matches "https://a.com"),
@@ -56,7 +72,7 @@ function pendingRendererWrappedReview(source, match) {
   // Hold an incomplete review token through the line boundary long enough to
   // see whether the next PTY write supplies Cursor's indented continuation.
   // If it does not, the next non-continuation bytes commit the original token.
-  const possibleContinuation = String.raw`(?:[ \t]*|${RENDERER_GUTTER_SOURCE}${MARKDOWN_TOKEN_SOURCE}*)`;
+  const possibleContinuation = String.raw`(?:[ \t]*|${RENDERER_GUTTER_SOURCE}${PATH_TOKEN_SOURCE}*)`;
   return new RegExp(
     String.raw`^${RENDERER_ROW_END_SOURCE}(?:\r?\n${possibleContinuation})?$`
   ).test(source.slice(match.end));
@@ -96,7 +112,7 @@ function canonicalViewerUrl(url) {
     .replace(/^(review:\/\/)[ \t]+/i, '$1');
 }
 
-function normalizeMarkdownPath(raw) {
+function normalizeLocalPath(raw) {
   let path = String(raw || '').replace(new RegExp(RENDERER_WRAP_SOURCE, 'g'), '');
   const wslUnc = /^\\\\wsl(?:\.localhost|\$)\\[^\\]+/i;
   if (wslUnc.test(path)) path = path.replace(wslUnc, '').replace(/\\/g, '/');
@@ -128,12 +144,15 @@ function rendererWrappedSegments(source, matchStart, raw) {
   ];
 }
 
-function extractViewerCandidateMatches(text) {
+// Local paths are md docs by default, the viewer candidates the selector
+// lists; `pathSource` widens that for the terminal's wrapped-target analysis,
+// where a joined path to any other viewable file is kind 'file'.
+function extractViewerCandidateMatches(text, pathSource = MARKDOWN_PATH_SOURCE) {
   const source = String(text || '');
   const matches = [];
   const urlSpans = [];
   const urlRe = new RegExp(VIEWER_URL_SOURCE, 'gim');
-  const markdownRe = new RegExp(MARKDOWN_PATH_SOURCE, 'gim');
+  const pathRe = new RegExp(pathSource, 'gim');
 
   for (const match of source.matchAll(urlRe)) {
     const key = canonicalViewerUrl(match[0]);
@@ -155,14 +174,14 @@ function extractViewerCandidateMatches(text) {
     urlSpans.push({ start, end });
   }
 
-  for (const match of source.matchAll(markdownRe)) {
+  for (const match of source.matchAll(pathRe)) {
     const start = match.index;
     const end = start + match[0].length;
     if (urlSpans.some((span) => start < span.end && end > span.start)) continue;
-    const key = normalizeMarkdownPath(match[0]);
+    const key = normalizeLocalPath(match[0]);
     const segments = rendererWrappedSegments(source, start, match[0]);
     if (key) matches.push({
-      entry: { kind: 'md', key },
+      entry: { kind: MARKDOWN_DOCUMENT_RE.test(key) ? 'md' : 'file', key },
       start,
       end,
       tokenEnd: viewerTokenEnd(source, end, MARKDOWN_CONTINUATION_RE),
@@ -246,11 +265,15 @@ function physicalSegmentsForLogicalSpan(logical, segment) {
   return pieces;
 }
 
-// Reconstruct one renderer hard-wrap from two adjacent *logical* xterm lines.
-// Either half may itself span several physical rows after xterm reflows the
-// scrollback on resize. Return physical segments so terminal decoration and hit
-// testing can still address every visible fragment of the joined target.
-function analyzeRendererWrappedDocument(buffer, headRow) {
+// Reconstruct one renderer hard-wrap from two adjacent *logical* xterm lines:
+// a review link, or a path to anything the viewers render (an md doc is kind
+// 'md', any other viewable file kind 'file'). Either half may itself span
+// several physical rows after xterm reflows the scrollback on resize. Return
+// physical segments so terminal decoration and hit testing can still address
+// every visible fragment of the joined target, and the span each line gives up
+// to it (`spans`, offsets into that line's text) so the rest of both lines can
+// still be matched on its own.
+function analyzeRendererWrappedTarget(buffer, headRow) {
   if (!buffer || headRow < 0) return null;
   const headStart = bufferLogicalLineStart(buffer, headRow);
   if (headStart !== headRow) return null;
@@ -264,7 +287,7 @@ function analyzeRendererWrappedDocument(buffer, headRow) {
   if (!tail) return null;
 
   const signature = `${head.text}\n${tail.text}`;
-  const parsed = extractViewerCandidateMatches(signature).find(
+  const parsed = extractViewerCandidateMatches(signature, VIEWABLE_PATH_WRAPPED_SOURCE).find(
     (match) => match.rendererWrapped && Array.isArray(match.segments) && match.segments.length === 2
   );
   if (!parsed) return null;
@@ -282,6 +305,12 @@ function analyzeRendererWrappedDocument(buffer, headRow) {
     tailRow: tail.startRow,
     endRow: tail.endRow,
     signature,
+    lines: logicalLines,
+    spans: parsed.segments.map((segment) => ({
+      row: logicalLines[segment.lineIndex].startRow,
+      start: segment.start,
+      end: segment.end,
+    })),
     segments,
   };
 }
@@ -540,7 +569,7 @@ module.exports = {
   ViewerHistory,
   ViewerStreamAccumulator,
   ViewerValidationMemory,
-  analyzeRendererWrappedDocument,
+  analyzeRendererWrappedTarget,
   bufferLogicalLineStart,
   canonicalViewerUrl,
   collectBufferViewerCandidates,

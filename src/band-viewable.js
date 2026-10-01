@@ -1,7 +1,7 @@
 // What the viewer band renders on its own, by extension. One table for the
 // click rule (terminal-nav-destination), the click sites (renderer), the
-// selector's disk walk and its row tags: a format added here reaches every
-// surface at once.
+// paths a CLI wraps across rows (viewer-history), the selector's disk walk and
+// its row tags: a format added here reaches every surface at once.
 //
 // The web band is a Chromium webview, so "renders" means Chromium's own image,
 // media and PDF pages. The media set is what Electron 43's bundled ffmpeg

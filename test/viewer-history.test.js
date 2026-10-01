@@ -3,7 +3,7 @@ const {
   ViewerHistory,
   ViewerStreamAccumulator,
   ViewerValidationMemory,
-  analyzeRendererWrappedDocument,
+  analyzeRendererWrappedTarget,
   collectBufferViewerCandidates,
   collectBufferViewerMatchRows,
   extractViewerCandidateMatches,
@@ -119,6 +119,42 @@ test('reconstructs a review when the md suffix straddles the hard wrap', () => {
   assert.deepStrictEqual(
     keys(extractViewerCandidates('review:///tmp/work-name.  \n  md\n')),
     ['review:review:///tmp/work-name.md']
+  );
+});
+
+test('reconstructs a markdown path a word-wrapping CLI broke mid-sentence', () => {
+  // Codex: the path follows prose on its row, splits at a hyphen, and the
+  // continuation runs on into the rest of the sentence.
+  const rendered = [
+    '  I retook all three frames: comparison (/Users/me/launch/hero-docs-september-',
+    '  30/README.md) · notes (/Users/me/launch/notes.md).',
+  ].join('\n');
+  assert.deepStrictEqual(keys(extractViewerCandidates(rendered)), [
+    'md:/Users/me/launch/hero-docs-september-30/README.md',
+    'md:/Users/me/launch/notes.md',
+  ]);
+  assert.strictEqual(extractViewerCandidateMatches(rendered)[0].rendererWrapped, true);
+});
+
+test('reconstructs a review link whose continuation runs on into prose', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('Package at review:///tmp/work-na\n  me.md, ready for you.\n')),
+    ['review:review:///tmp/work-name.md']
+  );
+});
+
+test('a review link ending its row stays whole when the next row is prose', () => {
+  assert.deepStrictEqual(
+    keys(extractViewerCandidates('Package at review:///tmp/work.md\n  is ready.\n')),
+    ['review:review:///tmp/work.md']
+  );
+});
+
+test('a continuation must end the markdown token', () => {
+  assert.deepStrictEqual(
+    extractViewerCandidateMatches('saved (/tmp/run-\n  notes.md.bak) earlier\n')
+      .filter((match) => match.rendererWrapped),
+    []
   );
 });
 
@@ -319,7 +355,7 @@ test('renderer-wrapped analysis maps a resize-soft-wrapped head to physical rows
     { text: '  me.md    ' },
   ]);
 
-  const analysis = analyzeRendererWrappedDocument(buffer, 0);
+  const analysis = analyzeRendererWrappedTarget(buffer, 0);
   assert(analysis);
   assert.strictEqual(
     analysis.entry.key,
@@ -330,6 +366,51 @@ test('renderer-wrapped analysis maps a resize-soft-wrapped head to physical rows
   assert.strictEqual(
     analysis.segments.map((segment) => segment.text).join(''),
     analysis.entry.key
+  );
+});
+
+test('renderer-wrapped analysis joins a path to any viewable file', () => {
+  const buffer = fakeBuffer([
+    { text: '• New screenshot (/Users/me/launch/hero-phone-september-30/phone-' },
+    { text: '  2.png)' },
+    { text: '  /Users/me/launch/clips/demo-recor' },
+    { text: '  ding.mp4 and /Users/me/launch/report-fin' },
+    { text: '  al.pdf' },
+  ]);
+  const joined = [0, 2, 3].map((row) => analyzeRendererWrappedTarget(buffer, row)?.entry);
+  assert.deepStrictEqual(joined, [
+    { kind: 'file', key: '/Users/me/launch/hero-phone-september-30/phone-2.png', rendererWrapped: true },
+    { kind: 'file', key: '/Users/me/launch/clips/demo-recording.mp4', rendererWrapped: true },
+    { kind: 'file', key: '/Users/me/launch/report-final.pdf', rendererWrapped: true },
+  ]);
+  // The selector still lists md docs and URLs only.
+  assert.deepStrictEqual(collectBufferViewerCandidates(buffer), []);
+});
+
+test('a complete viewable path ending its row does not swallow the next row', () => {
+  const buffer = fakeBuffer([
+    { text: '  /Users/me/launch/phone-1.png' },
+    { text: '  phone-2.png' },
+  ]);
+  assert.strictEqual(analyzeRendererWrappedTarget(buffer, 0), null);
+});
+
+test('renderer-wrapped analysis claims only the fragments on prose rows', () => {
+  const head = 'See (/Users/me/launch/hero-docs-september-';
+  const tail = '  30/README.md) and docs/plan.md.';
+  const buffer = fakeBuffer([{ text: head }, { text: tail }]);
+
+  const analysis = analyzeRendererWrappedTarget(buffer, 0);
+  assert(analysis);
+  assert.strictEqual(analysis.entry.key, '/Users/me/launch/hero-docs-september-30/README.md');
+  assert.deepStrictEqual(analysis.lines.map((line) => line.startRow), [0, 1]);
+  assert.deepStrictEqual(analysis.spans, [
+    { row: 0, start: head.indexOf('/Users'), end: head.length },
+    { row: 1, start: 2, end: tail.indexOf(')') },
+  ]);
+  assert.deepStrictEqual(
+    analysis.segments.map(({ row, start, end }) => ({ row, start, end })),
+    analysis.spans
   );
 });
 

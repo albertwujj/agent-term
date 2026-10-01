@@ -42,7 +42,7 @@ const {
   ViewerHistory,
   ViewerStreamAccumulator,
   ViewerValidationMemory,
-  analyzeRendererWrappedDocument,
+  analyzeRendererWrappedTarget,
   bufferLogicalLineStart,
   canonicalViewerUrl,
   collectBufferViewerCandidates,
@@ -607,6 +607,14 @@ async function resolveViewerEntry(entry) {
     try {
       const r = await window.pty.statMarkdownFile(entry.key);
       if (r && r.success && r.path) return { entry, openKey: r.path };
+    } catch {}
+    return null;
+  }
+  // Any other viewable file resolves the way its click does.
+  if (entry.kind === 'file') {
+    try {
+      const r = await window.pty.resolveFileUrl(entry.key);
+      if (r && r.success) return { entry, openKey: entry.key };
     } catch {}
     return null;
   }
@@ -2048,8 +2056,8 @@ function collectTerminalSelectionCommentContext() {
 
   const buffer = terminal.buffer.active;
   const selectedEndRow = getSelectionEndRow(range);
-  const startLogicalRow = getLogicalLineStart(buffer, range.start.row);
-  const endLogicalRow = getLogicalLineStart(buffer, selectedEndRow);
+  const startLogicalRow = bufferLogicalLineStart(buffer, range.start.row);
+  const endLogicalRow = bufferLogicalLineStart(buffer, selectedEndRow);
   const contextStartRow = Math.max(0, startLogicalRow - SELECTION_COMMENT_CONTEXT_ROWS);
   const contextEndRow = Math.min(buffer.length - 1, endLogicalRow + SELECTION_COMMENT_CONTEXT_ROWS);
   const contextLines = collectLogicalSelectionLines(buffer, contextStartRow, contextEndRow);
@@ -5440,10 +5448,11 @@ const patterns = [
       // A file the band renders (image, video, audio, pdf) opens there; a
       // modifier means the OS instead, and alt still raises the chooser first.
       const context = clickContext(options);
-      if (isBandFilePath(match.text) && !fileWantsOsHandoff(mod)) {
-        if (await openFileInViewerBand(match.text, context)) return;
+      const target = match.viewerTarget || match.text;
+      if (isBandFilePath(target) && !fileWantsOsHandoff(mod)) {
+        if (await openFileInViewerBand(target, context)) return;
       }
-      const result = await openResourceChoosing(match.text, { forceChoose: !!mod.altKey, ...context });
+      const result = await openResourceChoosing(target, { forceChoose: !!mod.altKey, ...context });
       if (result && !result.success && !result.dismissed) {
         showToast(result.error || 'Could not open file');
       }
@@ -5677,7 +5686,10 @@ let altBufferDirty = false;
 let decorationProcessScheduled = false;
 let hoveredMatchKey = null;
 
+// Every fragment of a renderer-wrapped target shares one key, so the whole
+// target lights up together, as a soft-wrapped link does across its rows.
 function getMatchKey(match) {
+  if (match.joinRow != null) return `${match.joinRow}:${match.patternName}:${match.viewerTarget}`;
   return `${match.bufferRow}:${match.start}:${match.end}:${match.patternName}:${match.text}`;
 }
 
@@ -5841,17 +5853,18 @@ function getRowText(bufferLineIndex) {
   return logical ? { text: logical.text, endIndex: logical.endRow } : { text: '', endIndex: bufferLineIndex };
 }
 
-function getLogicalLineStart(buffer, bufferLineIndex) {
-  let currentIndex = bufferLogicalLineStart(buffer, bufferLineIndex);
-  // A renderer-wrapped local document is also one navigation unit.
-  // Back up to its head when the viewport begins on the continuation row so we
-  // do not redecorate that tail as a misleading standalone `ng.md` target.
-  if (currentIndex > 0) {
-    const previousStart = bufferLogicalLineStart(buffer, currentIndex - 1);
-    const previous = analyzeRendererWrappedDocument(buffer, previousStart);
-    if (previous && previous.tailRow === currentIndex) currentIndex = previousStart;
+// Where a decoration pass starts: the logical line holding `row`, backed up to
+// the head of any renderer-wrapped target that line continues, so a viewport
+// opening on a continuation row still decorates the join whole rather than
+// its tail as a misleading standalone `ng.md` target.
+function decorationScanStart(buffer, row) {
+  let start = bufferLogicalLineStart(buffer, row);
+  while (start > 0) {
+    const previousStart = bufferLogicalLineStart(buffer, start - 1);
+    if (!analyzeRendererWrappedTarget(buffer, previousStart)) break;
+    start = previousStart;
   }
-  return currentIndex;
+  return start;
 }
 
 function getMouseBufferPosition(event) {
@@ -5913,7 +5926,7 @@ function getWordAtMouseEvent(event) {
   const position = getMouseBufferPosition(event);
   if (!position) return '';
   const { buffer, bufferRow, col } = position;
-  const logicalStart = getLogicalLineStart(buffer, bufferRow);
+  const logicalStart = bufferLogicalLineStart(buffer, bufferRow);
   const { text } = getRowText(logicalStart);
   if (!text) return '';
   const offset = getLogicalLineOffset(buffer, logicalStart, bufferRow, col);
@@ -5925,13 +5938,18 @@ function getWordAtMouseEvent(event) {
   return trimTokenEdges(text.slice(start, end));
 }
 
-function rendererWrappedDocumentSegmentMatch(analysis, segment) {
-  const patternName = analysis.entry.kind === 'review' ? 'url' : 'plain_file';
+// A fragment answers as the pattern that would claim its target printed
+// whole: a review link as a url, a file the band renders as a resource, and an
+// md or html path as a plain file, which navigateToFileLine sends to its viewer.
+function rendererWrappedTargetSegmentMatch(analysis, segment) {
+  const { kind, key } = analysis.entry;
+  const patternName = kind === 'review' ? 'url' : isBandFilePath(key) ? 'resource_file' : 'plain_file';
   const pattern = patterns.find((candidate) => candidate.name === patternName);
   if (!pattern) return null;
   return {
     text: segment.text,
-    viewerTarget: analysis.entry.key,
+    viewerTarget: key,
+    joinRow: analysis.headRow,
     start: segment.start,
     end: segment.end,
     bufferRow: segment.row,
@@ -5943,20 +5961,21 @@ function rendererWrappedDocumentSegmentMatch(analysis, segment) {
   };
 }
 
-function rendererWrappedDocumentHitAt(buffer, bufferRow, col) {
-  const logicalStart = bufferLogicalLineStart(buffer, bufferRow);
-  const previousStart = logicalStart > 0
-    ? bufferLogicalLineStart(buffer, logicalStart - 1)
-    : -1;
-  for (const headRow of [previousStart, logicalStart]) {
-    if (headRow < 0) continue;
-    const analysis = analyzeRendererWrappedDocument(buffer, headRow);
-    if (!analysis) continue;
-    const segment = analysis.segments.find((candidate) => candidate.row === bufferRow);
-    if (!segment || col < segment.start || col >= segment.end) continue;
-    return { analysis, segment };
+// The renderer-wrapped targets with a fragment on the logical line starting at
+// `logicalStart`: the one it continues and the one it begins.
+function rendererWrappedTargetsAt(buffer, logicalStart) {
+  const analyses = [];
+  if (logicalStart > 0) {
+    const previous = analyzeRendererWrappedTarget(buffer, bufferLogicalLineStart(buffer, logicalStart - 1));
+    if (previous) analyses.push(previous);
   }
-  return null;
+  const own = analyzeRendererWrappedTarget(buffer, logicalStart);
+  if (own) analyses.push(own);
+  return analyses;
+}
+
+function overlapsSpan(match, spans) {
+  return spans.some((span) => match.start < span.end && match.end > span.start);
 }
 
 // A word pasted mid-prompt needs a separator: when the character just left of
@@ -6007,14 +6026,20 @@ function getClickableMatchAtMouseEvent(event) {
   if (!position) return null;
 
   const { buffer, bufferRow, col } = position;
+  const logicalStart = bufferLogicalLineStart(buffer, bufferRow);
 
-  const rendererWrappedDocumentHit = rendererWrappedDocumentHitAt(buffer, bufferRow, col);
-  if (rendererWrappedDocumentHit) {
-    const { analysis, segment } = rendererWrappedDocumentHit;
-    const validation = ensureRendererWrappedViewerValidation(analysis.entry);
-    return validation.status === 'valid'
-      ? rendererWrappedDocumentSegmentMatch(analysis, segment)
-      : null;
+  // A renderer-wrapped target answers for all its fragments once the joined
+  // file is confirmed, and holds them back while that check is in flight. A
+  // join that names no file leaves its fragments to the ordinary matchers.
+  const claimed = [];
+  for (const analysis of rendererWrappedTargetsAt(buffer, logicalStart)) {
+    const { status } = ensureRendererWrappedViewerValidation(analysis.entry);
+    if (status === 'invalid') continue;
+    const segment = analysis.segments.find((candidate) => (
+      candidate.row === bufferRow && col >= candidate.start && col < candidate.end
+    ));
+    if (segment) return status === 'valid' ? rendererWrappedTargetSegmentMatch(analysis, segment) : null;
+    claimed.push(...analysis.spans.filter((span) => span.row === logicalStart));
   }
 
   // Stitched image-attachment paths span rows and are invisible to parseRow;
@@ -6022,13 +6047,13 @@ function getClickableMatchAtMouseEvent(event) {
   const imageMatch = imageAttachmentMatchAt(buffer, bufferRow, col);
   if (imageMatch) return imageMatch;
 
-  const logicalStart = getLogicalLineStart(buffer, bufferRow);
   const { text } = getRowText(logicalStart);
   if (!text) return null;
 
   const charOffset = getLogicalLineOffset(buffer, logicalStart, bufferRow, col);
   const matches = parseRow(text);
   for (const match of matches) {
+    if (overlapsSpan(match, claimed)) continue;
     match.bufferRow = logicalStart;
     // The hit region is the marked span, so what is underlined is what responds.
     // On README.md:42 that is README.md; the :42 is ordinary text you can select.
@@ -6247,56 +6272,73 @@ function decorateImageAttachmentRow(buffer, row) {
   return analysis.endRow;
 }
 
-// Draw one coherent affordance over both physical fragments of a reconstructed
-// local document target. The click resolver independently rebuilds the same
-// match, so a decoration remains visual-only just like image attachments.
-function decorateRendererWrappedDocumentRow(buffer, row) {
-  const analysis = analyzeRendererWrappedDocument(buffer, row);
-  if (!analysis) return -1;
-  const validation = ensureRendererWrappedViewerValidation(analysis.entry);
-  const validatedSignature = `${analysis.signature}\0${validation.status}`;
-  if (processedRows.get(row) === validatedSignature
-      && (validation.status !== 'valid' || decorations.has(row))) {
-    return analysis.endRow;
+// Decorate the run of logical lines that renderer-wrapped targets join, from
+// `row` on (a continuation row may itself begin the next target): one coherent
+// affordance over every fragment of each confirmed target, and the ordinary
+// matches everywhere else on those lines. A target still being checked holds
+// its fragments back; one that names no file leaves them to the ordinary
+// matchers. The click resolver independently rebuilds the same matches, so a
+// decoration remains visual-only just like image attachments. Returns the
+// run's last row, or -1 when `row` begins no wrapped target.
+function decorateRendererWrappedTargetRow(buffer, row) {
+  const joins = [];
+  for (let analysis = analyzeRendererWrappedTarget(buffer, row); analysis;
+    analysis = analyzeRendererWrappedTarget(buffer, analysis.tailRow)) {
+    joins.push({ analysis, validation: ensureRendererWrappedViewerValidation(analysis.entry) });
+  }
+  if (!joins.length) return -1;
+  const endRow = joins[joins.length - 1].analysis.endRow;
+  const signature = joins
+    .map(({ analysis, validation }) => `${analysis.signature}\0${validation.status}`)
+    .join('\0');
+  const anyValid = joins.some(({ validation }) => validation.status === 'valid');
+  if (processedRows.get(row) === signature && (!anyValid || decorations.has(row))) {
+    return endRow;
   }
 
-  for (let physicalRow = row; physicalRow <= analysis.endRow; physicalRow++) {
+  for (let physicalRow = row; physicalRow <= endRow; physicalRow++) {
     clearStoredRow(physicalRow, buffer);
   }
-  if (validation.status === 'valid') {
-    const rowDecorations = [];
+  const claimed = joins
+    .filter(({ validation }) => validation.status !== 'invalid')
+    .flatMap(({ analysis }) => analysis.spans);
+  const lines = [joins[0].analysis.lines[0], ...joins.map(({ analysis }) => analysis.lines[1])];
+  const rowDecorations = [];
+  for (const line of lines) {
+    const lineClaims = claimed.filter((span) => span.row === line.startRow);
+    rowDecorations.push(...logicalLineDecorations(line.startRow, line.text, lineClaims));
+  }
+  for (const { analysis, validation } of joins) {
+    if (validation.status !== 'valid') continue;
     for (const segment of analysis.segments) {
-      const match = rendererWrappedDocumentSegmentMatch(analysis, segment);
+      const match = rendererWrappedTargetSegmentMatch(analysis, segment);
       if (!match) continue;
       try {
         const entry = createDecoration(segment.row, match);
         if (entry) rowDecorations.push(entry);
       } catch (error) {
-        console.error('[decor] Failed renderer-wrapped document decoration:', error.message);
+        console.error('[decor] Failed renderer-wrapped target decoration:', error.message);
       }
     }
-    if (rowDecorations.length > 0) decorations.set(row, rowDecorations);
   }
-  for (let physicalRow = row; physicalRow <= analysis.endRow; physicalRow++) {
-    processedRows.set(physicalRow, validatedSignature);
+  if (rowDecorations.length > 0) decorations.set(row, rowDecorations);
+  for (let physicalRow = row; physicalRow <= endRow; physicalRow++) {
+    processedRows.set(physicalRow, signature);
   }
-  return analysis.endRow;
+  return endRow;
 }
 
-function decorateLogicalRow(row, text, endIndex) {
-  debug(`Row ${row}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
-
-  const matches = parseRow(text);
-  for (const match of matches) {
-    match.bufferRow = row;
-  }
-
+// Decorations for the pattern matches on one logical line, except those that
+// overlap a `claimed` span (offsets into `text`).
+function logicalLineDecorations(row, text, claimed = []) {
+  const matches = parseRow(text).filter((match) => !overlapsSpan(match, claimed));
   if (matches.length > 0) {
     debug(`  Found ${matches.length} matches:`, matches.map((m) => m.text));
   }
 
   const rowDecorations = [];
   for (const match of matches) {
+    match.bufferRow = row;
     // diff_block lines are only real when a diff header sits above them in the same
     // box; gate here (needs the buffer) so non-diff "│ - bullet" boxes aren't decorated.
     if (match.patternName === 'diff_block' && !findCursorDiffHeader(match.bufferRow)) continue;
@@ -6309,7 +6351,13 @@ function decorateLogicalRow(row, text, endIndex) {
       console.error('[decor] Failed to create decoration:', e.message);
     }
   }
+  return rowDecorations;
+}
 
+function decorateLogicalRow(row, text, endIndex) {
+  debug(`Row ${row}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+
+  const rowDecorations = logicalLineDecorations(row, text);
   if (rowDecorations.length > 0) {
     decorations.set(row, rowDecorations);
   }
@@ -6320,7 +6368,7 @@ function decorateLogicalRow(row, text, endIndex) {
 }
 
 function rebuildAlternateViewportDecorations(buffer, viewportStart, viewportEnd) {
-  let row = getLogicalLineStart(buffer, viewportStart);
+  let row = decorationScanStart(buffer, viewportStart);
   let processedCount = 0;
 
   while (row < viewportEnd) {
@@ -6335,7 +6383,7 @@ function rebuildAlternateViewportDecorations(buffer, viewportStart, viewportEnd)
       continue;
     }
 
-    const rendererWrappedEnd = decorateRendererWrappedDocumentRow(buffer, row);
+    const rendererWrappedEnd = decorateRendererWrappedTargetRow(buffer, row);
     if (rendererWrappedEnd >= 0) {
       processedCount++;
       row = rendererWrappedEnd + 1;
@@ -6404,21 +6452,23 @@ function processVisibleRowsNow() {
 
   debug(`Processing: viewport=${viewportStart}-${viewportEnd}, cursorRow=${cursorRow}, baseY=${buffer.baseY}, cursorY=${buffer.cursorY}`);
 
-  let row = getLogicalLineStart(buffer, viewportStart);
+  let row = decorationScanStart(buffer, viewportStart);
   let processedCount = 0;
 
-  // A renderer-wrapped document is structurally complete (the continuation
-  // finishes in a markdown extension) and validated against the filesystem, so
+  // A renderer-wrapped target is structurally complete (the continuation
+  // finishes in a viewable extension) and validated against the filesystem, so
   // it is safe to recognize anywhere in the viewport. TUI redraws can park the
   // cursor in the middle of otherwise stable output; applying the generic
-  // row-at/below-cursor rule here would decorate only the first fragment.
+  // row-at/below-cursor rule here would decorate only the first fragment. The
+  // other matches on the joined lines come along: a later write to any of them
+  // changes the run's signature, which redecorates it.
   const rendererWrappedHeads = new Set();
 
   while (row < viewportEnd) {
     profile.visited++;
     profile.wrappedChecks++;
     const wrappedStartedAt = performance.now();
-    const rendererWrappedEnd = decorateRendererWrappedDocumentRow(buffer, row);
+    const rendererWrappedEnd = decorateRendererWrappedTargetRow(buffer, row);
     profile.wrappedMs += performance.now() - wrappedStartedAt;
     if (rendererWrappedEnd >= 0) {
       profile.wrappedHits++;

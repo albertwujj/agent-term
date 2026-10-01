@@ -49,7 +49,7 @@ const {
   handleTerminalKeydown,
 } = require('../src/terminal-keyboard');
 const {
-  analyzeRendererWrappedDocument,
+  analyzeRendererWrappedTarget,
   collectBufferViewerCandidates,
 } = require('../src/viewer-history');
 
@@ -1344,7 +1344,7 @@ test('two hard rows reconstruct a labeled review with a split md suffix', async 
 
   const buffer = terminal.buffer.active;
   assertEqual(buffer.getLine(1)?.isWrapped, false, 'Fixture must use a hard row boundary');
-  const analysis = analyzeRendererWrappedDocument(buffer, 0);
+  const analysis = analyzeRendererWrappedTarget(buffer, 0);
   assertTrue(analysis !== null, 'The two hard rows should reconstruct one review target');
   assertEqual(analysis.entry.key, expected);
   assertEqual(analysis.segments.map((segment) => segment.text).join(''), expected);
@@ -1362,7 +1362,7 @@ test('renderer-wrapped review target survives xterm resize reflow', async () => 
   const buffer = terminal.buffer.active;
   assertTrue(buffer.getLine(1)?.isWrapped, 'Resize should soft-wrap the first hard fragment');
 
-  const analysis = analyzeRendererWrappedDocument(buffer, 0);
+  const analysis = analyzeRendererWrappedTarget(buffer, 0);
   assertTrue(analysis !== null, 'Hard-wrap analysis should cross resize-created soft wraps');
   assertEqual(analysis.entry.key, expected);
   assertEqual(analysis.tailRow, 2, 'The gutter continuation should follow the reflowed head');
@@ -1386,7 +1386,7 @@ test('renderer-wrapped markdown path survives xterm resize reflow', async () => 
   const buffer = terminal.buffer.active;
   assertTrue(buffer.getLine(1)?.isWrapped, 'Resize should soft-wrap the first hard fragment');
 
-  const analysis = analyzeRendererWrappedDocument(buffer, 0);
+  const analysis = analyzeRendererWrappedTarget(buffer, 0);
   assertTrue(analysis !== null, 'Markdown analysis should cross resize-created soft wraps');
   assertEqual(analysis.entry.key, expected);
   assertEqual(analysis.tailRow, 2, 'The gutter continuation should follow the reflowed head');
@@ -1395,6 +1395,32 @@ test('renderer-wrapped markdown path survives xterm resize reflow', async () => 
     analysis.segments.map((segment) => segment.row),
     [0, 1, 2],
     'Every physical fragment should receive a decoration/hit segment'
+  );
+
+  terminal.dispose();
+});
+
+test('a markdown path word-wrapped mid-sentence joins across full hard rows', async () => {
+  // Codex fills the row, breaks the path at a hyphen and indents the rest.
+  const head = '  comparison (/Users/me/launch/hero-docs-september-';
+  const tail = '  30/README.md) · preview (/Users/me/launch/demo.gif).';
+  const terminal = createTestTerminal({ cols: head.length, rows: 5 });
+  await writeAndWait(terminal, `${head}\r\n${tail}\r\n`);
+
+  const buffer = terminal.buffer.active;
+  assertEqual(buffer.getLine(1)?.isWrapped, false, 'Fixture must use a hard row boundary');
+  const analysis = analyzeRendererWrappedTarget(buffer, 0);
+  assertTrue(analysis !== null, 'The two hard rows should reconstruct one markdown target');
+  assertEqual(analysis.entry.key, '/Users/me/launch/hero-docs-september-30/README.md');
+  assertEqual(
+    analysis.segments.map(({ row, text }) => `${row}:${text}`),
+    ['0:/Users/me/launch/hero-docs-september-', '1:30/README.md']
+  );
+  const tailSpan = analysis.spans.find((span) => span.row === 1);
+  assertEqual(
+    analysis.lines[1].text.slice(tailSpan.start, tailSpan.end),
+    '30/README.md',
+    'The continuation row gives up only the fragment, leaving the rest of its links'
   );
 
   terminal.dispose();
