@@ -43,20 +43,20 @@ If you are a terminal fan and want to get straight to it, skip ahead to [what Ag
 
 The terminal is a natural home for coding agents: text in, text out, with the shell, git, and other tools one command away. Claude Code and Codex started there; Cursor and Copilot added CLIs alongside their IDE interfaces.
 
-An IDE or desktop app offers richer views and interactions than a text interface alone. Expanding the terminal lets AgentTerm add those capabilities while keeping your existing CLI agents in the familiar text interface.
+An IDE or desktop app offers richer views and interactions than a text interface alone. Expanding the terminal lets AgentTerm add those capabilities while keeping your existing AI CLIs in the familiar text interface.
 
 As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several sessions at once. The expanded terminal supports that work visually, like an IDE: plans and reviews render in the window, where you direct the agents right on the page.
 
-Richer views appear when needed, and the window returns to the terminal view when you finish. Persistent panels can compete with the session for your attention. Here the window is your session alone, shaped by your work, and full screen if you like, with nothing else in view ([one OS window per session](#one-os-window-per-session)).
+Richer views appear when needed, and the window returns to the terminal view when you finish. Persistent panels can compete with the session for your attention. Here the window is dedicated to your session, shaped by your work, and full screen if you like, with nothing else in view ([one OS window per session](#one-os-window-per-session)).
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window.gif"><img src="docs/assets/viewer-window.gif" alt="An AgentTerm window in three states: a two-page document sharing the window with the agent conversation below, the document filling the window, and the document rolled up while a new prompt is typed"></a>
 <br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts.
 </p>
 
-A vendor's desktop app moves the conversation out of the terminal and into an interface built around its own agent and workflow. With AgentTerm, you keep your choice of CLI agents in the terminal's familiar text interface.
+A vendor's desktop app moves the conversation out of the terminal and into an interface built around its own agent and workflow. With AgentTerm, you keep your choice of AI CLIs in the terminal's familiar text interface.
 
-Some terminals combine support for CLI agents with an agent and platform of their own. AgentTerm's whole purpose is to make your existing CLI agents work better for you.
+Some terminals combine support for AI CLIs with an agent and platform of their own. AgentTerm's whole purpose is to make your existing AI CLIs work better for you.
 
 ### One OS window per session
 
@@ -66,7 +66,7 @@ Why not tmux, or one manager app over every session? The OS already provides fam
 
 This path can look hacky: the host parses text and reacts to it. Useful text conventions tend to persist, and in practice the patterns we rely on have held up well. We occasionally add support for new patterns, and those updates have been among the easier parts to maintain. It works from both sides: guide files instruct agents to print what the host understands, and the parser recognizes output styles agents already use. This integration does not require a vendor SDK or API.
 
-With a host that understands its agents, and agents that understand the host, a capable agent does more than its CLI can alone. For example, a plan the agent mentions can open inside the same window, rendered for you to read and write on. Through its protocol with the host, the agent treats what you write as intent and updates the plan in place.
+With a host that understands its agents, and agents that understand the host, an agent can use capabilities beyond those built into its CLI. For example, a plan the agent mentions can open inside the same window, rendered for you to read and write on. Through its protocol with the host, the agent treats what you write as intent and updates the plan in place.
 
 <a name="make-it-fit"></a>
 
@@ -84,8 +84,8 @@ Below are just examples. Follow the links to explore more features.
 
 | Plain terminal | AgentTerm |
 |---|---|
-| **Sessions**<br>hard to tell apart | Each session is its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md#switch-to-the-right-running-session)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. |
-| **Resume**<br>hard to find | **[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and the agents' own titles to help you return to the session. |
+| **Sessions**<br>hard to tell apart | Each session has its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md#switch-to-the-right-running-session)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. |
+| **Resume**<br>hard to find | **[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and session titles to help you return to the session. |
 | **Comment**<br>manually quote past output | **[Select anything the agent prints and comment](docs/comment.md)**. |
 | **Docs**<br>append-only, not rendered | Ask for a plan as a markdown file and click its name. The doc opens rendered, and the rendered page is where you work: **[comment on any passage, or write in it directly](docs/plan.md)**; the agent takes an edit as intent and applies it in its own words in the source, and answers in a thread on the passage. You can follow what you proposed and what the agent changed. |
 | **Code**<br>scrolling fragments, or a wall of diff | The agent hands you a **[curated review, rendered](docs/review.md)**, with a narrative you can follow and the parts that need your attention called out; you comment inline, it fixes and replies in place. |
@@ -98,7 +98,7 @@ Below are just examples. Follow the links to explore more features.
 
 ## How it works
 
-AgentTerm runs your existing CLI agent in a full terminal, using Electron for the window, xterm.js for terminal emulation, and node-pty for the shell connection. The host parses terminal output for file references and recognized conventions, and keeps track of mentioned documents even when the agent redraws the screen.
+AgentTerm runs your existing AI CLI in a full terminal, using Electron for the window, xterm.js for terminal emulation, and node-pty for the shell connection. The host parses terminal output for file references and recognized conventions, and keeps track of mentioned documents even when the CLI redraws the screen.
 
 Those references connect the conversation to host capabilities. A Markdown path identifies a document the host can render. A `review://` reference can trigger validation, rendering, and automatic opening of a review. Document viewing and review build on this mechanism. Guide files tell agents how to follow these conventions. For example, [agent-threads](https://github.com/albertwujj/agent-threads) provides the guides and file protocol for document and review feedback.
 
