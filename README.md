@@ -108,7 +108,7 @@ To keep the terminal responsive, repeated scans are combined and scheduled, whil
 
 The [quick start](#quick-start) sets up the terminal together with [plans](docs/plan.md), [reviews](docs/review.md), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), and the voice interpretation guide. [Sessions started before you switched to AgentTerm](docs/sessions.md) work too.
 
-Follow the [suite guides](docs/suite.md#using-the-components) to start using them. For example, ask your agent for a curated review with `@produce-r`, which completes to [produce-review.md](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md). The agent presents the changes for you to review and comment on.
+Follow the [suite guides](docs/suite.md#using-the-components) to start using them. For example, ask your agent for a curated review with `@produce-r`, which completes to [produce-review.md](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md). The agent curates and presents the changes for you to review and comment on.
 
 Add [phone access](docs/phone.md) when you want to continue remotely, or [IDE integration](docs/ide.md) to jump from cited code to your editor. These have separate setup; phone voice input also needs recording and transcription configured on the hub.
 
