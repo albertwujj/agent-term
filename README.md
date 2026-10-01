@@ -26,10 +26,12 @@ Check first? Read the [setup steps](docs/setup.md) and [what AgentTerm touches](
 Copy this prompt:
 
 ```text
-Clone https://github.com/albertwujj/agent-term to ~/agent-term, then set it
-up and launch it for my current project, following the basic setup in its
-docs/setup.md.
+Clone https://github.com/albertwujj/agent-term to ~/agent-term.
+Follow the recommended setup in its docs/setup.md for my current
+project, then launch AgentTerm there and show me how to start using it.
 ```
+
+Phone access, including recording and transcription, and IDE integration have [separate setup](docs/setup.md#phone-and-ide-integration).
 
 Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual. When you want to give precise feedback or ask a question, [select and enter a comment](docs/comment.md).
 
@@ -104,17 +106,11 @@ To keep the terminal responsive, repeated scans are combined and scheduled, whil
 
 ## Where to go next
 
-The [first start](#quick-start) gives you sessions as windows with their taskbar buttons or Dock tiles, the picker, and commenting on anything the agent prints. [Sessions started before you switched to AgentTerm](docs/sessions.md) work too.
+The [quick start](#quick-start) sets up the terminal together with [plans](docs/plan.md), [reviews](docs/review.md), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), and the voice interpretation guide. [Sessions started before you switched to AgentTerm](docs/sessions.md) work too.
 
-The rest are the [optional suite](docs/suite.md): [plans](docs/plan.md) and [reviews](docs/review.md) (one repo covers both), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), the [phone view](docs/phone.md), the [IDE integration](docs/ide.md). Ask your agent for the ones you want. For example, this adds the checkout lock:
+Follow the [suite guides](docs/suite.md#using-the-components) to start using them. For example, start a task with `@proceed-b`, which completes to the lock's [guide doc](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md), and the agent takes the checkout lock before it works.
 
-```text
-Clone the repository below into ai/ in this project, and leave ai/ out
-of .gitignore.
-https://github.com/yunxin/agent-lock
-```
-
-Then start a task with `@proceed-b`, which completes to the lock's [guide doc](https://github.com/yunxin/agent-lock/blob/main/proceed-by-lock-and-branch.md) in the [agent-lock](https://github.com/yunxin/agent-lock) clone, and the agent takes the [checkout lock](docs/lock.md) before it works. For the other pieces, see [their guides](docs/suite.md).
+Add [phone access](docs/phone.md) when you want to continue remotely, or [IDE integration](docs/ide.md) to jump from cited code to your editor. These have separate setup; phone voice input also needs recording and transcription configured on the hub.
 
 **Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
