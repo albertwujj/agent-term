@@ -28,7 +28,7 @@ Copy this prompt:
 ```text
 Clone https://github.com/albertwujj/agent-term to ~/agent-term.
 Follow the recommended setup in its docs/setup.md for my current
-project, then launch AgentTerm there and show me how to start using it.
+project, then launch AgentTerm there.
 ```
 
 Phone access, including recording and transcription, and IDE integration have [separate setup](docs/setup.md#phone-and-ide-integration).
