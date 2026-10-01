@@ -60,7 +60,7 @@ Some terminals combine support for CLI agents with an agent and platform of thei
 
 ### One OS window per session
 
-Why not tmux, or one manager app over every session? Because the opposite shape has a key benefit. Each session is its own OS window and process, with the agent running in it, so the native OS you know well becomes the manager, battle-tested: the taskbar, the Dock, Mission Control, and alt-tab do the juggling, and each agent, through its terminal host, is instantly recognizable by its unique visual signature.
+Why not tmux, or one manager app over every session? The OS already provides familiar, mature tools for arranging and switching windows: the taskbar, Dock, Mission Control, and alt-tab. Giving each session its own window and process lets AgentTerm build on those strengths and add what agent sessions need. Each session has a distinct visual signature to help you recognize it. To reduce clutter, AgentTerm hides sessions you don't need for a while; the [session picker](docs/sessions.md) brings them back.
 
 ### A stable interface between agent and terminal
 
