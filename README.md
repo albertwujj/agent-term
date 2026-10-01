@@ -9,7 +9,7 @@
 
 <a id="demo"></a>
 
-A substantially expanded terminal for AI CLIs, serving as an IDE for your new way of working *(autoplays after loading)*:
+A terminal for AI CLIs, expanding each session into its own rich visual workspace for the new way of working *(autoplays after loading)*:
 
 [![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo-2133589730e6.gif)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-demo-2133589730e6.gif)
 
@@ -86,7 +86,7 @@ Below are just examples. Follow the links to explore more features.
 |---|---|
 | **Sessions**<br>hard to tell apart | Each session is its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md#switch-to-the-right-running-session)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. |
 | **Resume**<br>hard to find | **[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and the agents' own titles to help you return to the session. |
-| **Comment**<br>no way to reference past output | **[Select anything the agent prints and comment](docs/comment.md)**, precise feedback with the exact text quoted; the agent makes the change. |
+| **Comment**<br>manually quote past output | **[Select anything the agent prints and comment](docs/comment.md)**. |
 | **Docs**<br>append-only, not rendered | Ask for a plan as a markdown file and click its name. The doc opens rendered, and the rendered page is where you work: **[comment on any passage, or write in it directly](docs/plan.md)**; the agent takes an edit as intent and applies it in its own words in the source, and answers in a thread on the passage. You can follow what you proposed and what the agent changed. |
 | **Code**<br>scrolling fragments, or a wall of diff | The agent hands you a **[curated review, rendered](docs/review.md)**, with a narrative you can follow and the parts that need your attention called out; you comment inline, it fixes and replies in place. |
 | **Phone**<br>not connected, travel back to check | **[See which agents need you across your machines](docs/phone.md)**. Open the same terminal on your phone, with the same layout so you recognize at once what you left behind; reply by voice. |
