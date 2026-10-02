@@ -118,5 +118,16 @@ test('text slot: the start line before any CLI, then waiting, then the prompt', 
   assert.ok(prompt.includes('fix &lt;login&gt;') && !prompt.includes(' dim'));
 });
 
+test('grip: a drag handle between the text and the icons, in every state', () => {
+  for (const state of [{}, { cli: 'claude' }, { cli: 'claude', prompt: 'x', lock: { state: 'mine' } }]) {
+    const m = bar.renderBarMarkup(state);
+    const grip = m.indexOf('at-chrome-grip');
+    assert.ok(grip > m.indexOf('at-chrome-text'), 'grip after the text');
+    if (state.lock) assert.ok(grip < m.indexOf('at-chrome-lock'), 'grip before the icons');
+  }
+  assert.match(bar.BAR_CSS, /\.at-chrome-grip \{[^}]*flex: 1 0 \d+px;[^}]*-webkit-app-region: drag;/);
+  assert.match(bar.BAR_CSS, /\.at-chrome-text \{[^}]*flex: 0 1 auto;/);
+});
+
 console.log(`\nchrome-bar lock: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

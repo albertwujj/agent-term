@@ -38,7 +38,10 @@
 // the COLOR is the shared identity, not the mechanism.
 //
 // Interaction:
-//   · Whole bar is a -webkit-app-region: drag region for window dragging.
+//   · The bar drags the window everywhere but the text and the icons. The
+//     text slot is only as wide as its words, and the grip after it never
+//     narrows below a caption button's width, so a long prompt still
+//     leaves somewhere to grab once the window is no longer maximized.
 //   · Right-click on the prompt area copies the full captured prompt.
 //   · Before a CLI, the start line is a click target: the picker again
 //     in this window (onSessionsClick; main decides whether it still may).
@@ -96,7 +99,7 @@ const BAR_CSS = `
   pointer-events: none;
 }
 .at-chrome-text {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   align-self: stretch;
   display: flex;
   align-items: center;
@@ -106,6 +109,12 @@ const BAR_CSS = `
   text-overflow: ellipsis;
   color: #e6e6e6;
   -webkit-app-region: no-drag;
+}
+/* The rest of the bar after the text: the window's drag handle. */
+.at-chrome-grip {
+  flex: 1 0 48px;
+  align-self: stretch;
+  -webkit-app-region: drag;
 }
 .at-chrome-text.dim {
   color: #909090;
@@ -270,9 +279,7 @@ function ensureMounted({ onContextMenu, onSessionsClick } = {}) {
   injectStyles();
   const el = document.createElement('div');
   el.className = 'at-chrome';
-  el.innerHTML = `
-    <span class="at-chrome-text dim at-chrome-sessions">${escapeHtml(START_LINE)}</span>
-  `;
+  el.innerHTML = renderBarMarkup({});
   document.body.appendChild(el);
   el.style.webkitAppRegion = 'drag';
   el.addEventListener('mousedown', (ev) => {
@@ -331,6 +338,7 @@ function renderBarMarkup(state) {
   }
   return `
     <span class="at-chrome-text${dim ? ' dim' : ''}${sessions ? ' at-chrome-sessions' : ''}">${escapeHtml(text)}</span>
+    <span class="at-chrome-grip"></span>
     ${renderJobsMarkup(s.jobs)}
     ${renderLockMarkup(s.lock)}
   `;
