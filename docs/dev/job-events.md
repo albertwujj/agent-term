@@ -69,8 +69,8 @@ AgentTerm polls the spool every minute, resolving each start record's
 liveness (`kill -0` on the filename pid) in the same read.
 
 - A start record with a live process shows as a background-jobs indicator
-  in the window's chrome bar: presence only, the tooltip naming the
-  commands. This survives a session resume — the CLI's own task display
+  in the window's chrome bar, with a count once more than one is running;
+  the tooltip names the commands. This survives a session resume — the CLI's own task display
   is gone after a resume, but the jobs and their records are not.
 - An event for its session is delivered at most once, as a one-line
   notice into the agent's input, and only to an agent that was idle when

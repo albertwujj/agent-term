@@ -9,14 +9,14 @@
 //     (same font as the terminal body below). Dim italic fallback when
 //     no prompt yet ("waiting for prompt…"; before any CLI, the start line).
 //   · Jobs icon — a background job of this session is running (a start
-//     record with a live process in the docs/dev/job-events.md spool). Presence
-//     only, no count drawn: the question it answers is "is anything still
-//     working for me", asked mostly after a session resume, when the
-//     CLI's own task display is gone but the jobs survived. Grey for the
-//     expected shape (one job); amber past that — several at once usually
-//     means something was left behind. Hover names the jobs; click opens
-//     a popover with per-job running durations. Static open-arc glyph;
-//     never animates.
+//     record with a live process in the docs/dev/job-events.md spool). The
+//     question it answers is "is anything still working for me", asked
+//     mostly after a session resume, when the CLI's own task display is
+//     gone but the jobs survived. Grey for the expected shape (one job,
+//     no number); amber with the count beside it past that — several at
+//     once usually means something was left behind. Hover names the jobs;
+//     click opens a popover with per-job running durations. Static
+//     open-arc glyph; never animates.
 //   · Lock icon — who holds agent-lock's lock/agent on the session's repo:
 //     shape = what the lock is doing (open outline free on a work branch,
 //     filled held by an active holder, outline held by an idle one, dashed
@@ -130,7 +130,12 @@ const BAR_CSS = `
   -webkit-app-region: no-drag;
 }
 .at-chrome-lock svg, .at-chrome-jobs svg { width: 16px; height: 16px; display: block; }
-.at-chrome-jobs { cursor: default; }
+.at-chrome-jobs {
+  width: auto;
+  display: inline-flex; align-items: center; gap: 3px;
+  cursor: default;
+}
+.at-chrome-jobs-count { font-size: 13px; line-height: 16px; }
 .at-chrome-jobs-pop {
   position: fixed;
   top: calc(env(titlebar-area-height, ${BAR_HEIGHT_PX}px) + 6px);
@@ -183,8 +188,8 @@ const JOBS_WARN_COLOR = '#dcdcaa';
 
 // Markup for the background-jobs indicator, or '' when nothing is running.
 // jobs: { count, jobs: [{ cmd, startedMs }] } from main's job-watch poll.
-// Presence is the signal; hover names the jobs, click opens the popover
-// with running durations.
+// One job is the arc alone; past that the count sits beside it. Hover
+// names the jobs, click opens the popover with running durations.
 function renderJobsMarkup(jobs) {
   if (!jobs || !jobs.count) return '';
   const many = jobs.count > 1;
@@ -192,7 +197,9 @@ function renderJobsMarkup(jobs) {
   const tooltip = (many ? `${jobs.count} background jobs running:` : 'background job running:')
     + '\n' + (jobs.jobs || []).map((j) => j.cmd).join('\n');
   return `<span class="at-chrome-jobs" style="color:${color}" title="${escapeHtml(tooltip)}">`
-    + `<svg viewBox="0 0 16 16" aria-hidden="true">${JOBS_GLYPH}</svg></span>`;
+    + `<svg viewBox="0 0 16 16" aria-hidden="true">${JOBS_GLYPH}</svg>`
+    + (many ? `<span class="at-chrome-jobs-count">${jobs.count}</span>` : '')
+    + '</span>';
 }
 
 // "running 42m" for the popover rows, computed when it opens.

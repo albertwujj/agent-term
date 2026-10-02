@@ -84,12 +84,14 @@ test('jobs: one running → grey arc, singular tooltip naming the command', () =
   assert.ok(m.includes('color:#909090'));
   assert.ok(m.includes('stroke-dasharray'), 'open-arc glyph');
   assert.ok(m.includes('title="background job running:\nwatch-build.sh --url http://j/42/"'));
+  assert.ok(!m.includes('at-chrome-jobs-count'), 'no number for one job');
 });
 
-test('jobs: more than one running → warn amber, count in the tooltip', () => {
+test('jobs: more than one running → warn amber, count beside the arc and in the tooltip', () => {
   const m = bar.renderJobsMarkup({ count: 3, jobs: [{ cmd: 'a' }, { cmd: 'b' }, { cmd: 'c' }] });
   assert.ok(m.includes('color:#dcdcaa'));
   assert.ok(m.includes('3 background jobs running:'));
+  assert.match(m, /<\/svg><span class="at-chrome-jobs-count">3<\/span><\/span>$/);
 });
 
 test('jobs: tooltip is escaped', () => {
