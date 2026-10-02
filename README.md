@@ -33,7 +33,7 @@ project, then launch AgentTerm there.
 
 Phone access, including recording and transcription, and IDE integration have [separate setup](docs/setup.md#phone-and-ide-integration).
 
-Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual. When you want to give precise feedback or ask a question, [select and enter a comment](docs/comment.md).
+Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual. Explore the additions shown in the [demo above](#demo), and follow the [guides below](#where-to-go-next) to start using them.
 
 <a name="why-extend-the-terminal"></a>
 
