@@ -87,7 +87,7 @@ Below are just examples. Follow the links to explore more features.
 | **Sessions**<br>hard to tell apart | Each session has its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md#switch-to-the-right-running-session)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. |
 | **Resume**<br>hard to find | **[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and session titles to help you return to the session. |
 | **Comment**<br>manually quote past output | **[Select anything the agent prints and comment](docs/comment.md)**. |
-| **Docs**<br>append-only, not rendered | Ask for a plan as a markdown file and click its name. The doc opens rendered, and the rendered page is where you work: **[comment on any passage, or write in it directly](docs/plan.md)**; the agent takes an edit as intent and applies it in its own words in the source, and answers in a thread on the passage. You can follow what you proposed and what the agent changed. |
+| **Docs**<br>append-only, not rendered | Ask for a plan as a markdown file and click its name. The doc opens rendered, and the rendered page is where you work: **[comment on any passage, or write in it directly](docs/plan.md)**; the agent replies in a thread on the passage, discusses your feedback when needed, and updates the document to reflect your intent. AgentTerm shows what you proposed and what the agent changed. |
 | **Code**<br>scrolling fragments, or a wall of diff | The agent hands you a **[curated review, rendered](docs/review.md)**, with a narrative you can follow and the parts that need your attention called out; you comment inline, it fixes and replies in place. |
 | **Phone**<br>not connected, travel back to check | **[See which agents need you across your machines](docs/phone.md)**. Open the same terminal on your phone, with the same layout so you recognize at once what you left behind; reply by voice. |
 | **Copy**<br>every paste needs cleanup | Copy what the agent wrote and it **[pastes into a chat or email ready to send](docs/copy.md)**, one clean paragraph instead of chopped lines. A doc in the viewer copies the same way. |
@@ -110,7 +110,7 @@ The [quick start](#quick-start) sets up the terminal together with [plans](docs/
 
 Follow the [suite guides](docs/suite.md#using-the-components) to start using them. For example, ask your agent for a curated review with `@produce-r`, which completes to [produce-review.md](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md). The agent curates and presents the changes for you to review and comment on.
 
-Add [phone access](docs/phone.md) when you want to continue remotely, or [IDE integration](docs/ide.md) to jump from cited code to your editor. These have separate setup; phone voice input also needs recording and transcription configured on the hub.
+Add [phone access](docs/phone.md) when you want to continue remotely, or [IDE integration](docs/ide.md) if you use an IDE. These have separate setup; phone voice input also needs recording and transcription configured on the hub.
 
 **Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
