@@ -1,11 +1,9 @@
-// The clone prompt the terminal sends has the shape of the README's example.
+// The clone prompt the terminal sends asks for the setup guide's own step.
 //
-// The README shows the reader how a loop is added (its example is another
-// loop, since the terminal offers agent-threads on its own); the terminal
-// sends the same words with agent-threads' URL. If the two drift, the
-// terminal asks the agent for something the docs never described. The
-// README wraps the prompt over lines inside a code block, so the
-// comparison is whitespace-insensitive.
+// docs/setup.md's recommended setup clones each local component into ai/ and
+// keeps ai/ out of .gitignore; the terminal, finding no agent-threads, asks the
+// agent to do that step for agent-threads. If the two drift, the terminal asks
+// the agent for something the docs never described.
 
 const assert = require('assert');
 const fs = require('fs');
@@ -30,12 +28,16 @@ const norm = (s) => s.replace(/\s+/g, ' ').trim();
 
 console.log('loop-install');
 
-test("the README's example prompt has the same shape, after the URL", () => {
-  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
-  const shape = AGENT_THREADS_CLONE_PROMPT.replace(/^Clone \S+ /, '');
-  assert.ok(shape.startsWith('into ai/'), shape);
-  assert.ok(norm(readme).includes(norm(shape)),
-    "README.md's example prompt no longer ends the way the terminal's does");
+test("the prompt asks for the setup guide's step: the same clone, into ai/, out of .gitignore", () => {
+  const setup = fs.readFileSync(path.join(__dirname, '..', 'docs', 'setup.md'), 'utf8');
+  const at = setup.indexOf('### Add the local components');
+  assert.ok(at !== -1, 'docs/setup.md no longer has its "Add the local components" step');
+  const step = norm(setup.slice(at, setup.indexOf('\n### ', at + 1)));
+  const url = (AGENT_THREADS_CLONE_PROMPT.match(/^Clone (\S+) into ai\//) || [])[1];
+  assert.ok(url, AGENT_THREADS_CLONE_PROMPT);
+  assert.ok(step.includes(`git clone ${url} ai/${url.split('/').pop()}`),
+    'the setup step no longer clones agent-threads into ai/ the way the prompt asks');
+  assert.ok(/out of `\.gitignore`/.test(step), 'the setup step no longer keeps ai/ out of .gitignore');
 });
 
 test('the prompt names the repo, the folder, and the .gitignore rule', () => {

@@ -5424,10 +5424,10 @@ function createMarkdownViewer({
   // missing: send-anyway ack or cancel), then hand off as one turn.
   // The runbook the pointer names is missing: the choice is made where the
   // send was clicked, in the card, with the composer's own buttons, not in
-  // an alert. Have the agent clone agent-threads into ai/ (the README's own
-  // prompt goes to the composer and the card waits, polling once a second,
-  // until the clone lands and the send goes ahead on its own), send without
-  // the guide, or cancel and keep the draft. The wait is part of the Send, so
+  // an alert. Have the agent clone agent-threads into ai/ (the setup guide's
+  // step, as a prompt, goes to the composer and the card waits, polling once
+  // a second, until the clone lands and the send goes ahead on its own), send
+  // without the guide, or cancel and keep the draft. The wait is part of the Send, so
   // a full-size band recedes now, letting the terminal show the clone, and
   // the Send that follows arms the return. Resolves to { runbook }, 'send',
   // or 'cancel'.
@@ -5473,7 +5473,7 @@ function createMarkdownViewer({
       const render = (message, buttons, { link = null } = {}) => {
         text.textContent = message + (link ? ' ' : '');
         if (link) {
-          // The README section that carries the same prompt and the loops.
+          // The setup guide's step this prompt asks the agent to take.
           const a = document.createElement('a');
           a.href = link.url;
           a.textContent = link.label;
@@ -5508,7 +5508,7 @@ function createMarkdownViewer({
           } catch {}
         }, 1000);
       };
-      // The button carries the prompt it sends as its tooltip, the README's own.
+      // The button carries the prompt it sends as its tooltip.
       render('agent-threads is not installed.', [
         ['Ask the agent to clone it into ai/', true, async () => {
           const r = typeof requestRunbookClone === 'function' ? await requestRunbookClone() : null;
@@ -5520,7 +5520,7 @@ function createMarkdownViewer({
         }, AGENT_THREADS_CLONE_PROMPT],
         ['Send anyway', false, () => finish('send')],
         ['Cancel', false, () => finish('cancel')],
-      ], { link: { label: 'README', url: 'https://github.com/albertwujj/agent-term/blob/main/README.md#where-to-go-next' } });
+      ], { link: { label: 'setup', url: 'https://github.com/albertwujj/agent-term/blob/main/docs/setup.md#add-the-local-components' } });
     });
   }
 

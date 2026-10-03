@@ -786,10 +786,10 @@ async function run() {
       !!stripButton('Ask the agent to clone it into ai/') && !!stripButton('Send anyway') && !!stripButton('Cancel'));
     check('under the pending edit', !!strip() && !!strip().previousElementSibling
       && strip().previousElementSibling.classList.contains('md-pending-block'));
-    check('the strip names what is missing and links the README',
+    check('the strip names what is missing and links the setup step',
       !!strip() && strip().textContent.startsWith('agent-threads is not installed.')
-        && /README\.md#where-to-go-next$/.test((strip().querySelector('a') && strip().querySelector('a').getAttribute('href')) || ''));
-    check("the clone button's tooltip is the README's prompt",
+        && /docs\/setup\.md#add-the-local-components$/.test((strip().querySelector('a') && strip().querySelector('a').getAttribute('href')) || ''));
+    check("the clone button's tooltip is the prompt it sends",
       !!stripButton('Ask the agent to clone it into ai/') && /agent-threads into ai\//.test(stripButton('Ask the agent to clone it into ai/').title));
     check('and nothing is sent yet', sentBatches.length === sentBefore);
     // Cancel on the strip: it goes and the edit stays pending.

@@ -1,6 +1,6 @@
 // End-to-end: a Send from a comment card that finds no agent-threads runbook
 // puts the choice in the card, with the composer's own buttons and no native
-// alert: have the agent clone it (the README's prompt goes to the composer,
+// alert: have the agent clone it (the setup step's prompt goes to the composer,
 // the band drops from full size, the card waits and sends on its own when
 // the clone lands), send without the guide, or cancel and keep the draft.
 //
@@ -160,11 +160,11 @@ async function main() {
     await clickSend();
     const shown = await waitFor(notice);
     check('the strip appears below the composer, in place of its actions', !!shown && shown.composerActionsHidden, shown);
-    check('it says what is missing and links the README', !!shown && shown.text.startsWith('agent-threads is not installed.')
-      && /README\.md#where-to-go-next$/.test(shown.link || ''), shown);
+    check('it says what is missing and links the setup step', !!shown && shown.text.startsWith('agent-threads is not installed.')
+      && /docs\/setup\.md#add-the-local-components$/.test(shown.link || ''), shown);
     check('with the clone first, then send anyway, then cancel', !!shown
       && JSON.stringify(shown.buttons) === JSON.stringify(['Ask the agent to clone it into ai/', 'Send anyway', 'Cancel']), shown && shown.buttons);
-    check("and the clone button's tooltip is the README's prompt", !!shown && shown.primaryTitle === AGENT_THREADS_CLONE_PROMPT, shown && shown.primaryTitle);
+    check("and the clone button's tooltip is the prompt it sends", !!shown && shown.primaryTitle === AGENT_THREADS_CLONE_PROMPT, shown && shown.primaryTitle);
     check('no store was written yet', !fs.existsSync(store));
     fs.mkdirSync(SHOT_DIR, { recursive: true });
     await page.screenshot({ path: path.join(SHOT_DIR, 'runbook-choice.png') });
@@ -172,7 +172,7 @@ async function main() {
     console.log('the clone, taken, and landing');
     check('the clone button is there to click', await clickNotice('Ask the agent to clone it into ai/'));
     const line = await waitFor(() => promptLines()[0] || null);
-    check("the terminal submitted the README's prompt, word for word, as one bracketed paste",
+    check("the terminal submitted the prompt, word for word, as one bracketed paste",
       !!line && line.startsWith('\x1b[200~') && line.endsWith('\x1b[201~'), line);
     const waiting = await waitFor(async () => { const n = await notice(); return n && /^Waiting for the agent to clone it\./.test(n.text) ? n : null; });
     check('the strip now waits, with send anyway and cancel', !!waiting && JSON.stringify(waiting.buttons) === JSON.stringify(['Send anyway', 'Cancel']), waiting);
