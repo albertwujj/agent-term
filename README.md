@@ -114,4 +114,8 @@ Add [phone access](docs/phone.md) when you want to continue remotely, or [IDE in
 
 **Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
+## Contributing
+
+If you've improved AgentTerm for your work, [share the change](CONTRIBUTING.md) so others can use it too.
+
 MIT licensed. [No telemetry, no account](SECURITY.md#what-agentterm-touches).
