@@ -18,9 +18,7 @@ Both support the [shared commenting workflow](comment.md), alongside commenting 
 
 Links behave differently in documents, reviews, and ordinary web pages; [what a click does](clicks.md#inside-viewers) covers where they take you.
 
-In markdown, if you have a new comment or edit waiting to send, following a file link is blocked until you send or discard it; then follow the link again. Web links leave the markdown document open while you visit the browser.
-
-For now, send draft replies in existing comment threads before switching documents; the link warning does not protect those drafts.
+In markdown, if you have a comment, reply or edit waiting to send, following a file link is blocked until you send or discard it; then follow the link again. Web links leave the markdown document open while you visit the browser.
 
 ## Hide or resize
 

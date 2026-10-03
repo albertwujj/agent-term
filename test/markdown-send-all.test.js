@@ -2,9 +2,10 @@
 // driving the REAL src/markdown-viewer.js in jsdom.
 //
 // A reply's Send used to carry only the reply: comments and edits waiting in
-// the page stayed behind, though the comment composer's Send flushed them.
-// Now a reply typed while work waits says Send all and takes it along, in one
-// batch and one turn. Either way the Send recedes a full band to golden, the
+// the page stayed behind, though the comment composer's Send flushed them,
+// and no Send carried a reply draft resting in its card. Now every Send takes
+// everything waiting — queued comments, edits, resting reply drafts — in one
+// batch and one turn, and a link will not drop a resting draft either. Either way the Send recedes a full band to golden, the
 // receipt, and the band returns to full once the agent has answered and the
 // CLI says its turn is over (viewer-band.js; the decision is unit-tested in
 // viewer-band.test.js, the wiring from the store here).
@@ -40,6 +41,8 @@ const FIXTURE = [
   'Second paragraph is plain text with nothing attached to it.',
   '',
   'Third paragraph is also plain text.',
+  '',
+  'Fourth paragraph links to [the notes](notes.md).',
 ].join('\n');
 
 const blocked = {
@@ -54,7 +57,7 @@ const blocked = {
 };
 let store = { version: 1, turn: 2, threads: [blocked] };
 
-const calls = { batches: [], replies: [] };
+const calls = { batches: [], replies: [], opened: [], toasts: [] };
 const noop = () => {};
 const viewer = createMarkdownViewer({
   readMarkdownFile: async () => ({ success: true, path: '/fake/doc.md', content: FIXTURE, mtimeMs: 1, size: FIXTURE.length }),
@@ -77,8 +80,9 @@ const viewer = createMarkdownViewer({
   readMarkdownThreads: async () => ({ success: true, data: store }),
   addMarkdownThreadMessage: async (payload) => { calls.replies.push(payload); return { success: true, data: store }; },
   writeMarkdownFile: async () => ({ success: true, path: '/fake/doc.md', mtimeMs: 1, size: 0 }),
-  showToast: noop,
+  showToast: (message) => calls.toasts.push(message),
   openURL: noop,
+  openDocPath: (docPath) => calls.opened.push(docPath),
   getTerminalMetrics: () => ({ cols: 80, rows: 24, cellWidth: 8, cellHeight: 16 }),
   focusTerminal: noop,
   openSearchBar: noop,
@@ -186,6 +190,40 @@ async function run() {
   await sleep(60);
   check('a plain reply goes as a reply', calls.replies.length === 1 && calls.batches.length === 1);
   check('and recedes the band too', isGolden());
+
+  // A reply draft resting in its card rides the next Send, whatever the Send.
+  await sleep(1300); // the store poll picks up the sent reply
+  click(Array.from(find('.md-thread-card.needs-user').querySelectorAll('button')).find((b) => b.textContent === 'Reply'));
+  await sleep(20);
+  typeInto(find('.md-thread-reply textarea'), 'a resting thought');
+  clickBlock('Third paragraph');
+  await sleep(20);
+  check('the reply rests as a draft row', !!find('.md-thread-draft-mark'));
+
+  // Following a file link would drop it, so the link waits, as for a comment.
+  const link = Array.from(primary().querySelectorAll('a')).find((a) => a.textContent === 'the notes');
+  link.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, metaKey: true, ctrlKey: true }));
+  await sleep(20);
+  check('a resting draft holds a file link back', calls.opened.length === 0, calls.opened);
+  check('and says why', calls.toasts.includes('Send or discard your changes to follow that link'), calls.toasts);
+
+  clickBlock('Second paragraph');
+  key('p');
+  await sleep(20);
+  const box = find('.md-comment-card textarea');
+  typeInto(box, 'one more');
+  const send = Array.from(find('.md-comment-card').querySelectorAll('button')).find((b) => b.textContent.startsWith('Send'));
+  check('the comment\'s Send counts the resting draft', send && send.textContent.startsWith('Send all (2)'), send && send.textContent);
+  click(send);
+  await sleep(60);
+  const last = calls.batches[calls.batches.length - 1];
+  check('one batch carries the comment and the draft', calls.batches.length === 2
+    && last.threads.length === 1 && last.followUps.length === 1 && last.followUps[0].body === 'a resting thought',
+    last && last.followUps);
+  // The one card awaiting the user is the thread the plain reply went to.
+  check('to the thread it was written on', last.followUps[0].threadId === calls.replies[0].threadId,
+    [last.followUps[0].threadId, calls.replies[0].threadId]);
+  check('and the draft row is gone', !find('.md-thread-draft-mark'));
 
   viewer.close();
   console.log(`\n--- Results: ${passed} passed, ${failed} failed ---`);

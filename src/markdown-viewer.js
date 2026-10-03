@@ -4364,6 +4364,23 @@ function createMarkdownViewer({
     return state.queuedComments.length + (getActiveMarkdownCommentText() ? 1 : 0);
   }
 
+  // Reply drafts resting in their cards (typed, then clicked away) on threads
+  // still in the store. The reply being typed is not one of them: it rides as
+  // the Send's own reply, so `except` defaults to its thread.
+  function restingReplyDrafts({ except = state.threadReply ? state.threadReply.threadId : null } = {}) {
+    const threads = (state.threadStore && Array.isArray(state.threadStore.threads)) ? state.threadStore.threads : [];
+    return Array.from(state.replyDrafts.entries())
+      .filter(([id, text]) => id !== except && String(text || '').trim() && threads.some((t) => t.id === id))
+      .map(([threadId, text]) => ({ threadId, body: String(text).trim() }));
+  }
+
+  // What a Send flushes beyond the composer it is pressed in: queued comments,
+  // edits, and resting reply drafts. Every Send is a Send all, so every Send
+  // label counts this.
+  function pendingBatchCount(options) {
+    return state.queuedComments.length + state.blockOverlays.size + restingReplyDrafts(options).length;
+  }
+
   function removeQueuedMarkdownCommentCard(comment) {
     preserveSpreadTopAcross(() => {
       try { if (comment && comment.card) comment.card.remove(); } catch {}
@@ -4947,7 +4964,7 @@ function createMarkdownViewer({
     // Send flushes the whole batch — this edit plus everything queued — so the
     // label counts when that is more than one (the comment composer's grammar).
     // A revisited block is already in blockOverlays; a fresh edit is not yet.
-    const batchCount = state.queuedComments.length + state.blockOverlays.size
+    const batchCount = pendingBatchCount()
       + (state.blockOverlays.has(session.anchorId) ? 0 : 1);
     const composer = createComposer({
       placeholder: 'Note for the agent about this edit...',
@@ -5282,7 +5299,7 @@ function createMarkdownViewer({
     holder.addEventListener('mousedown', (event) => event.stopPropagation());
     holder.addEventListener('click', (event) => event.stopPropagation());
     // This overlay is already in the batch; count everything Send will flush.
-    const batchCount = state.queuedComments.length + state.blockOverlays.size;
+    const batchCount = pendingBatchCount();
     const composer = createComposer({
       placeholder: 'Note for the agent about this edit...',
       seed: note || '',
@@ -5508,14 +5525,16 @@ function createMarkdownViewer({
   }
 
   // `reply` ({ threadId, body }) rides along when the Send was pressed in a
-  // thread's reply: every Send is a Send all, so a follow-up typed while
-  // comments or edits wait goes out with them, in one turn and one pointer.
+  // thread's reply. Every Send is a Send all: queued comments, edits, and the
+  // reply drafts resting in their cards go out together, in one turn and one
+  // pointer.
   async function sendEditBatch({ toPrompt = false, host = null, reply = null } = {}) {
     const doc = state.resolvedPath || state.filePath;
     if (!doc || typeof submitMarkdownThreads !== 'function') return false;
     const commentRecords = getPendingMarkdownCommentRecords();
     const overlayEntries = Array.from(state.blockOverlays.entries());
-    if (!overlayEntries.length && !commentRecords.length && !reply) return false;
+    const drafts = restingReplyDrafts({ except: reply ? reply.threadId : null });
+    if (!overlayEntries.length && !commentRecords.length && !drafts.length && !reply) return false;
     let allowMissingRunbook = false;
     if (typeof preflightMarkdownRunbook === 'function') {
       const pf = await preflightMarkdownRunbook({ docPath: doc });
@@ -5540,7 +5559,7 @@ function createMarkdownViewer({
       const comments = commentRecords.map(getMarkdownThreadPayload);
       const commentCount = comments.length;
       const threads = [...editThreads, ...comments];
-      const followUps = reply ? [reply] : [];
+      const followUps = [...drafts, ...(reply ? [reply] : [])];
       if (threads.length || followUps.length) {
         const batchKind = editCount && threads.length + followUps.length > editCount
           ? 'mixed'
@@ -5555,10 +5574,10 @@ function createMarkdownViewer({
         if (!toPrompt) band.recedeForSend();
         reportThreadState();
       }
-      if (reply) {
-        state.threadReply = null; // its holder vanishes in the re-render
-        state.replyDrafts.delete(reply.threadId);
-        state.expandedThreads.delete(reply.threadId);
+      if (reply) state.threadReply = null; // its holder vanishes in the re-render
+      for (const { threadId } of followUps) {
+        state.replyDrafts.delete(threadId);
+        state.expandedThreads.delete(threadId);
       }
       state.blockOverlays = new Map();
       state.expandedHunkKey = null;
@@ -5573,7 +5592,7 @@ function createMarkdownViewer({
         const bits = [];
         if (editCount) bits.push(`${editCount} edit${editCount === 1 ? '' : 's'}`);
         if (commentCount) bits.push(`${commentCount} comment${commentCount === 1 ? '' : 's'}`);
-        if (reply) bits.push('a reply');
+        if (followUps.length) bits.push(followUps.length === 1 ? 'a reply' : `${followUps.length} replies`);
         showToast(`Sent ${bits.join(' and ')}`);
       }
       return true;
@@ -6281,7 +6300,7 @@ function createMarkdownViewer({
     const counterpart = counterpartKeepBox(card);
     refreshThreadFoot(card, thread, { composing: true });
     refreshThreadFoot(counterpart, thread, { composing: true });
-    const pendingCount = state.queuedComments.length + state.blockOverlays.size;
+    const pendingCount = pendingBatchCount({ except: thread.id });
     const composer = createComposer({
       placeholder: 'Reply...',
       seed: state.replyDrafts.get(thread.id) || '',
@@ -6294,7 +6313,7 @@ function createMarkdownViewer({
       },
       actions: [
         { label: 'Discard', onClick: () => closeThreadReply({ discard: true }) },
-        // Every Send is a Send all: comments and edits waiting go with it.
+        // Every Send is a Send all: comments, edits and other replies waiting go with it.
         { label: pendingCount > 0 ? `Send all (${pendingCount + 1})` : 'Send', primary: true, title: 'Enter', onClick: () => submitThreadReply(thread, composer) },
         toPromptAction(() => submitThreadReply(thread, composer, { toPrompt: true })),
       ],
@@ -6322,7 +6341,7 @@ function createMarkdownViewer({
     const text = composer.textarea.value.trim();
     if (!text || composer.primaryButton.disabled) return;
     composer.primaryButton.disabled = true;
-    if (state.queuedComments.length || state.blockOverlays.size) {
+    if (pendingBatchCount() > 0) {
       const sent = await sendEditBatch({ toPrompt, host: composer.root, reply: { threadId: thread.id, body: text } });
       if (!sent) composer.primaryButton.disabled = false;
       return;
@@ -6565,11 +6584,12 @@ function createMarkdownViewer({
       return;
     }
     if (target.kind !== 'path' || typeof openDocPath !== 'function') return;
-    // Opening another doc resets the viewer, and queued comments, an open card and
-    // a pending edit batch all belong to the doc they were written against — the
-    // same reason a pending batch freezes auto-refresh. Unsent work outranks an
-    // incidental click on a link, so say so instead of dropping it.
-    if (hasBlockingMarkdownRefreshState()) {
+    // Opening another doc resets the viewer, and queued comments, an open card,
+    // a pending edit batch and resting reply drafts all belong to the doc they
+    // were written against — the same reason a pending batch freezes
+    // auto-refresh. Unsent work outranks an incidental click on a link, so say
+    // so instead of dropping it.
+    if (hasBlockingMarkdownRefreshState() || restingReplyDrafts().length) {
       if (typeof showToast === 'function') showToast('Send or discard your changes to follow that link');
       return;
     }
@@ -6794,7 +6814,7 @@ function createMarkdownViewer({
     };
     // Enter always sends; queueing happens by moving to another paragraph. The
     // primary flushes everything — this comment plus anything already queued.
-    const pendingCount = state.queuedComments.length + state.blockOverlays.size;
+    const pendingCount = pendingBatchCount();
     const primaryLabel = pendingCount > 0 ? `Send all (${pendingCount + 1})` : 'Send';
     // Shared composer (comment-ui) — same widget as the review viewer. Placement,
     // queue/draft, autogrow and spread-fit stay md's; only the textarea + buttons
@@ -6938,7 +6958,7 @@ function createMarkdownViewer({
     if (!state.activeCard) return;
     const { textarea, sendButton } = state.activeCard;
     if (sendButton.disabled) return;
-    if (!textarea.value.trim() && !state.queuedComments.length && state.blockOverlays.size === 0) return;
+    if (!textarea.value.trim() && pendingBatchCount() === 0) return;
     sendButton.disabled = true; // also guards against a double Enter
     const sent = await sendEditBatch({ toPrompt, host: textarea.closest('.cu-composer') });
     if (!sent && state.activeCard) sendButton.disabled = false; // failed or declined; still open
@@ -7050,7 +7070,7 @@ function createMarkdownViewer({
     // editor first. Empty batch = no-op.
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter'
       && !(event.target && event.target.closest && event.target.closest('.cu-composer'))) {
-      if (state.editing || state.blockOverlays.size > 0 || state.queuedComments.length > 0) {
+      if (state.editing || pendingBatchCount() > 0) {
         event.preventDefault();
         if (state.editing) commitBlockEditor();
         sendEditBatch({ toPrompt: !event.shiftKey });
