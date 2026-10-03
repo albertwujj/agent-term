@@ -10,9 +10,9 @@
 //      says so once it is in front, and not before
 //
 // The checkout changes for real: after each window under test starts, the
-// test moves the mtime of src/build-info.json (a file nothing reads) to now,
-// and restores it at the end. Other AgentTerm windows running from this
-// checkout see the change while the test runs.
+// test moves the mtime of src/tools/protocol.md (a tracked doc nothing loads)
+// to now, and restores it at the end. Other AgentTerm windows running from
+// this checkout see the change while the test runs.
 // Run: node test/e2e/unhide-older-code.mjs
 
 import { launchElectron } from './electron.mjs';
@@ -35,7 +35,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 let passed = 0; const failures = [];
 const check = (name, cond, extra = '') => { if (cond) { passed++; console.log(`  ✓ ${name}`); } else { failures.push(name); console.log(`  ✗ ${name} ${extra}`); } };
 
-const MARKER = path.join(APP_DIR, 'src', 'build-info.json');
+const MARKER = path.join(APP_DIR, 'src', 'tools', 'protocol.md');
 const markerStat = fs.statSync(MARKER);
 const sourceChangesNow = () => { const now = new Date(); fs.utimesSync(MARKER, now, now); };
 
