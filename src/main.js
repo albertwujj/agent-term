@@ -2515,6 +2515,10 @@ function createWindow() {
         const prompt = raw.replace(/[\r\n]+/g, ' ').trim();
         if (!prompt) continue;
         const ok = writeAsSubmission(prompt);
+        // Every phone prompt is a turn, /resume included: the phone joins a
+        // session only after its first prompt, and stopping or resuming the
+        // CLI from the phone ends the session it streams, so that path is
+        // unsupported rather than checked.
         if (ok) { notifyResumeHintSubmit(); setViewerAutoOpenArmed(true); }
         if (!ok) log('[stream] PTY write failed for remote input');
       }
