@@ -9,7 +9,7 @@
 
 <a id="demo"></a>
 
-A terminal for AI CLIs, expanding each session into its own rich visual workspace for the new way of working *(autoplays after loading)*:
+Expand each AI CLI session into its own rich visual workspace for the new way of working *(autoplays after loading)*:
 
 [![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo-aed4fc631ccb.gif)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-demo-aed4fc631ccb.gif)
 
@@ -47,7 +47,7 @@ An IDE or desktop app offers richer views and interactions than a text interface
 
 As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several sessions at once. The expanded terminal supports that work visually, like an IDE: plans and reviews render in the window, where you direct the agents right on the page.
 
-Richer views appear when needed, and the window returns to the terminal view when you finish. Persistent panels can compete with the session for your attention. Here the window is dedicated to your session, shaped by your work, and full screen if you like, with nothing else in view ([one OS window per session](#one-os-window-per-session)).
+Richer views appear when needed, and the window returns to the terminal view when you finish. Persistent panels can compete with the session for your attention. Here the window is dedicated to your session, shaped by your work, and full screen if you like, resulting in fewer distractions ([one OS window per session](#one-os-window-per-session)).
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window.gif"><img src="docs/assets/viewer-window.gif" alt="An AgentTerm window in three states: a two-page document sharing the window with the agent conversation below, the document filling the window, and the document rolled up while a new prompt is typed"></a>
