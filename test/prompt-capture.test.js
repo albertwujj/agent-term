@@ -461,6 +461,22 @@ test('the Enter after an inline slash command is a prompt, even a short one', (c
   assert.deepStrictEqual(getAll(), ['generate more']);
 });
 
+// /resume is reported as it opens the dialog: what the CLI prints next is a
+// past conversation, not an answer to this window's turn (main disarms the
+// viewer's auto-open on it). A typed /resume and the intercept's alike, since
+// the intercept feeds its /resume through handleInput.
+{
+  const resumes = [];
+  const cap = createPromptCapture({ onPrompt: () => {}, onResumeCommand: () => resumes.push('resume') });
+  cap.notifyCliStarted();
+  cap.handleInput('/resume stuck\r');
+  cap.handleInput('old proj\r');                   // the pick, not a second report
+  cap.handleInput('/clear\r');                     // other slash commands are not it
+  const ok = resumes.length === 1;
+  if (ok) { testsPassed++; console.log('  ✓ /resume is reported once, as it opens the dialog'); }
+  else { testsFailed++; console.log('  ✗ /resume is reported once, as it opens the dialog'); console.log(`      got ${resumes.length}`); }
+}
+
 test('a resume dialog opened before cliStarted is not tracked', (cap, get, _s, getAll) => {
   cap.handleInput('/resume\r');                    // a shell command, whatever it is
   cap.notifyCliStarted();

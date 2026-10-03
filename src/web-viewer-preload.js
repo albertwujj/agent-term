@@ -664,25 +664,38 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     reportThreadState();
   }
 
-  // Tell the host where the agent's turn stands after every store snapshot.
-  // The host uses the flip to restore full size after a send receded to golden
-  // (web-viewer.js), so this must not report "over" mid-turn — and it did,
-  // when the old runbook let the agent reply inline before editing and
-  // committing: agent-last was a mid-work state the store poll routinely
-  // caught, and the band expanded to full while the agent was still editing.
-  // Only `resolved` reports the turn over, and the contract now orders it
-  // last — written only after the commit, so all-resolved arrives with the
-  // work already rendered (agent-threads contract.md, resolve-after-
-  // visibility). A thread the agent leaves open — a question back, or merely
-  // answered — keeps the band at golden, where the reply is already visible
-  // and pulsing; expanding for it is the user's call.
+  // Tell the host where the agent stands after every store snapshot, for the
+  // band's return to full after a Send (viewer-band.js). answered: no thread
+  // still waits on the agent — each is resolved, or ends with its reply (an
+  // open thread the agent spoke last on is it blocked on the user, by the
+  // contract). resolved: each is resolved. The band pairs answered with the
+  // CLI's idle title, since a reply can land before the commit it describes,
+  // and falls back to resolved where the title says nothing.
   function reportThreadState() {
     const threads = (store && store.threads) || [];
-    const agentTurnOver = threads.length > 0 && threads.every(function (t) {
-      return t.status === 'resolved';
-    });
-    try { ipcRenderer.sendToHost('rv-threads-state', { agentTurnOver: agentTurnOver }); } catch {}
+    const isResolved = function (t) { return t.status === 'resolved'; };
+    const isAnswered = function (t) {
+      if (isResolved(t)) return true;
+      const msgs = t.messages || [];
+      const last = msgs[msgs.length - 1];
+      return !!last && last.author === 'agent';
+    };
+    try {
+      ipcRenderer.sendToHost('rv-threads-state', {
+        answered: threads.length > 0 && threads.every(isAnswered),
+        resolved: threads.length > 0 && threads.every(isResolved),
+      });
+    } catch {}
   }
+
+  // Starting to write — a comment, a reply, the commit message — tells the
+  // host, which leaves the band at the size the user is writing at.
+  document.addEventListener('focusin', function (e) {
+    const el = e.target;
+    if (el && (el.tagName === 'TEXTAREA' || el.isContentEditable)) {
+      try { ipcRenderer.sendToHost('rv-writing'); } catch {}
+    }
+  }, true);
 
   // --- diff-line pulse (scope 1): on an auto-refresh RELOAD, briefly highlight the new-side
   // lines the agent just added, vs the previous render. The reload wipes this guest, so the
@@ -1111,13 +1124,11 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
   }
 
   // How every agent ping lands, Send and banner nudge alike: a failure toasts
-  // the reason; success toasts okMsg and tells the host on `channel`, which
-  // recedes a full-size band to golden (web-viewer.js) — the pasted prompt,
-  // the receipt, shows in the terminal sliding in underneath. Channels:
-  // 'rv-sent' (a send — the host also arms the resume-to-full), 'rv-nudged'
-  // (a banner nudge — recede only), 'rv-to-prompt' (rolls the band up via
-  // main's 'to-prompt' event and disarms any resume an earlier send left
-  // armed: full terminal, staying).
+  // the reason; success toasts okMsg and tells the host on `channel`.
+  // Channels: 'rv-sent' (a Send — the host recedes a full band to golden so
+  // the pasted prompt, the receipt, shows in the terminal, and arms the
+  // return to full), 'rv-nudged' (a banner nudge — the toast is its receipt;
+  // the band stays), 'rv-to-prompt' (main's 'to-prompt' rolls the band up).
   function pingFinished(res, channel, okMsg) {
     // The user canceled the missing-runbook dialog themselves — no toast.
     if (res && res.canceled) return false;

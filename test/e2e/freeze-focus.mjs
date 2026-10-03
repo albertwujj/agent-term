@@ -10,8 +10,9 @@
 //      keyboard lands back on the terminal, not on nothing).
 //   2. a nav-key keydown (ArrowDown) thaws a frozen view (so a codex menu is
 //      visible as you navigate it).
-//   3. onData withdraws an open viewer only on a printable char — a bare Enter
-//      (answering a prompt) leaves the viewer up.
+//   3. onData withdraws an open viewer on any input — a bare Enter answering a
+//      prompt as much as a printable: the dimmed terminal under an open
+//      viewer is there to read, and acting on it makes it the main pane.
 //
 // Run: npm run test:e2e   (builds the renderer first, then this)
 
@@ -85,8 +86,8 @@ async function main() {
   });
 
   try {
-    // ---- Fix 3: viewer withdraw gates on a printable char, not Enter ----
-    console.log('Fix 3 — Enter keeps an open viewer up; a printable rolls it up');
+    // ---- Fix 3: any input withdraws the viewer, Enter included ----
+    console.log('Fix 3 — Enter rolls an open viewer up, and so does a printable');
     await runCmd(`echo ${url.pathToFileURL(FIXTURE).href}`);
     await sleep(400);
     // Open the web viewer on the just-printed file URL via the recent-viewer hotkey
@@ -99,9 +100,17 @@ async function main() {
 
     await focusTerm();
     await page.keyboard.press('Enter');       // answering a prompt
-    await sleep(200);
-    check('viewer stays up on Enter', (await webBand())?.open === true);
+    await page.waitForFunction(
+      () => document.querySelector('.vb-shell.vb-web')?.classList.contains('hidden'),
+      { timeout: 5_000 },
+    ).catch(() => {});
+    check('viewer rolls up on Enter', (await webBand())?.hidden === true);
 
+    // Back up from the handle (a bar tap); dispatched, since the startup
+    // picker's overlay sits over the window and would take a real click.
+    await page.evaluate(() => document.querySelector('.vb-shell.vb-web .vb-bar')
+      .dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await page.waitForSelector('.vb-shell.vb-web.open', { timeout: 5_000 });
     await focusTerm();
     await page.keyboard.type('x');            // composing a command
     await page.waitForFunction(

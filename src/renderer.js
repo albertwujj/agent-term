@@ -57,6 +57,8 @@ const {
   extractMentionedFolders,
 } = require('./mentioned-folders');
 const { isReviewPackagePath } = require('./review-package-path');
+const { isDiscussionDocPath } = require('./discussion-doc-path');
+const { userIsTyping, setTypingProbe, setAgentIdle } = require('./viewer-band');
 
 // Custom title-bar / chrome bar — replaces the old session-banner row and
 // the Electron application menu. Mounts once on load and updates in place
@@ -72,6 +74,9 @@ streamIndicator.init();
 window.pty.onChromeState((payload) => {
   chromeBar.update(payload);
   currentCli = (payload && payload.cli) || null;
+  // The CLI's own word on its turn: a viewer band waiting to return to full
+  // after a Send re-checks when it changes (viewer-band.js).
+  setAgentIdle(payload ? payload.agentIdle : null);
   // A CLI is starting here: the launcher strip has done its job.
   if (currentCli) launcherBand.destroy();
   // Re-fit the terminal in case the chrome height was applied (mac fallback path).
@@ -427,14 +432,31 @@ const streamViewerCandidates = new ViewerStreamAccumulator({ limit: 100 });
 const reviewSightings = new Map();
 // Sightings waiting for a survey.
 const pendingReviewSurveys = new Set();
+// Discussion docs already sighted. Only a doc's first sighting is a handoff:
+// agents name their docs again in passing, so a later mention moves nothing.
+const discussionSightings = new Set();
+
+// Main's word on whether output now answers a turn the user started here
+// (setViewerAutoOpenArmed): a CLI reprinting a resumed conversation is not.
+let viewerAutoOpenArmed = false;
+if (typeof window.pty.onViewerAutoOpen === 'function') {
+  window.pty.onViewerAutoOpen((armed) => { viewerAutoOpenArmed = !!armed; });
+}
 
 function captureViewerCandidates(data) {
   const captured = streamViewerCandidates.push(data);
+  const handoffs = [];
   for (const entry of captured) {
     viewerValidationMemory.observe(entry);
     if (entry.rendererWrapped) {
       forgetRendererWrappedViewerValidation(entry);
       void ensureRendererWrappedViewerValidation(entry).promise;
+    }
+    if (entry.kind === 'md' && isDiscussionDocPath(entry.key)) {
+      if (discussionSightings.has(entry.key)) continue;
+      discussionSightings.add(entry.key);
+      if (viewerAutoOpenArmed) handoffs.push(entry);
+      continue;
     }
     if (entry.kind !== 'review' || !looksLikeRealViewerUrl(entry.key)) continue;
     pendingReviewSurveys.add(entry.key);
@@ -442,8 +464,11 @@ function captureViewerCandidates(data) {
     reviewSightings.set(entry.key, null);
     // First sighting captures the reviewed branch and auto-opens a real package.
     try { window.pty.captureReviewBranch(entry.key); } catch {}
-    maybeAutoOpenReview(entry.key);
+    if (viewerAutoOpenArmed) handoffs.push(entry);
   }
+  // The accumulator reports a chunk's candidates newest first; handoffs open
+  // in the order they were printed, so the first of a burst is the one shown.
+  for (const entry of handoffs.reverse()) queueHandoffOpen(entry);
 }
 
 // A sighting is bytes in the stream; whether they are a new copy of the link
@@ -511,21 +536,48 @@ function surveyReviewSightings() {
   }
 }
 
-// Auto-open a freshly-printed review:// so the user needn't click the link.
-// The capture site filters example links and routes only a URL's FIRST sighting
-// here (later sightings are surveyed, and a new copy goes to
-// maybeRevealReprintedReview). Guards: the .md must
-// actually exist — a stale or hypothetical path is skipped silently, never
-// popped or toasted (the "md path is not valid" corner case) — and if a viewer
-// is already open, don't yank it away: just toast that a review is ready (the
-// link in the terminal stays clickable).
-async function maybeAutoOpenReview(url) {
-  if (!(await resolveViewerEntry({ kind: 'review', key: url }))) return;
-  if (anyViewerOpen()) {
-    showToast('Agent posted a review — click the link to open');
+// An agent's handoff opens on its own, so the user needn't click it: a
+// review:// link (produce-review's) or a discussion doc's path (split's), on
+// its FIRST sighting, in output answering the user's turn (the capture site
+// checks both and filters example links; a review link's later sightings are
+// surveyed, and a new copy goes to maybeRevealReprintedReview). It never
+// replaces a viewer already up, open or rolled up, and never lands while the
+// user is typing (viewer-band.js): either way a toast says it arrived, and the
+// printed link stays clickable. A path that does not exist is skipped
+// silently, never popped or toasted (the "md path is not valid" corner case).
+// One at a time, each waiting for the last to open, so a burst of discussion
+// paths opens the first and toasts the rest.
+let handoffQueue = Promise.resolve();
+function queueHandoffOpen(entry) {
+  handoffQueue = handoffQueue.then(() => openHandoff(entry)).catch(() => {});
+}
+async function openHandoff(entry) {
+  const resolved = await resolveViewerEntry(entry);
+  if (!resolved) return;
+  if (anyViewerOpen() || userIsTyping()) {
+    noteSkippedHandoff(entry.kind);
     return;
   }
-  openUrlFromTerminal(url, 'auto', false);
+  await openViewerFromHistory(entry, resolved.openKey);
+}
+
+// Handoffs that arrived without opening, counted over a beat so a burst of
+// discussion paths reads as one toast.
+const skippedHandoffs = { review: 0, md: 0 };
+let skippedHandoffTimer = null;
+function noteSkippedHandoff(kind) {
+  skippedHandoffs[kind === 'review' ? 'review' : 'md'] += 1;
+  if (skippedHandoffTimer) return;
+  skippedHandoffTimer = setTimeout(() => {
+    skippedHandoffTimer = null;
+    const { review, md } = skippedHandoffs;
+    skippedHandoffs.review = 0;
+    skippedHandoffs.md = 0;
+    const parts = [];
+    if (review) parts.push(review === 1 ? 'a review' : `${review} reviews`);
+    if (md) parts.push(md === 1 ? 'a discussion doc' : `${md} discussion docs`);
+    showToast(`Agent posted ${parts.join(' and ')} — click ${review + md === 1 ? 'the link' : 'a link'} to open`);
+  }, 400);
 }
 
 // A review:// printed AGAIN is the agent's explicit "look at this" ping — the only
@@ -541,7 +593,11 @@ async function maybeAutoOpenReview(url) {
 // (surveyReviewSightings) reaches here. The actions are idempotent — revealing
 // an open band and re-opening the current review are no-ops — and another
 // viewer on stage stays untouched (the link in the terminal remains clickable).
+// Like the first sighting, it moves the band only in output answering the
+// user's turn, and never while they type (a toast instead).
 async function maybeRevealReprintedReview(url) {
+  if (!viewerAutoOpenArmed) return;
+  if (userIsTyping()) { noteSkippedHandoff('review'); return; }
   if (openReviewUrl === url && webViewer && webViewer.isOpen()) {
     webViewer.show();
     return;
@@ -1343,14 +1399,27 @@ function cancelTerminalFreeze(reason = 'cancel') {
   try { terminal.focus(); } catch {}
 }
 
-// Typing in the shell means the user's attention is back on the terminal — roll up
+// Input to the terminal means the user's attention is back on it — roll up
 // any OPEN viewer to its handle (reversible; the content stays alive) so the terminal
 // is unobstructed and un-dimmed (the recede only applies while a viewer is open).
 // hide() is a no-op unless the viewer is open, so this only acts when one is showing.
+// The band overlays the terminal, so lifting it moves none of the text being
+// typed: the one layout change typing may cause (viewer-band.js).
 function withdrawViewersOnInput() {
   try { webViewer && webViewer.hide && webViewer.hide(); } catch {}
   try { markdownViewer && markdownViewer.hide && markdownViewer.hide(); } catch {}
 }
+
+// Typing in the terminal, for the band's no-automatic-move-while-typing rule:
+// a composing keystroke or paste in the last few seconds, the span main's
+// progress bar treats as the user writing a prompt (USER_QUIET_MS). A submit
+// or a cleared line ends it — the user is watching again.
+const TERMINAL_TYPING_MS = 5000;
+let terminalTypedAt = 0;
+function noteTerminalInput(data) {
+  terminalTypedAt = /^(?:\r\n?|\n|\u0003|\u0015|\u001b)$/.test(data) ? 0 : Date.now();
+}
+setTypingProbe(() => terminalTypedAt > 0 && Date.now() - terminalTypedAt < TERMINAL_TYPING_MS);
 
 // Terminal input → PTY (typing into the shell resumes a frozen view)
 terminal.onData((data) => {
@@ -1363,12 +1432,13 @@ terminal.onData((data) => {
   // continuously. Treating replies as typing collapsed the viewer the instant
   // it opened and unfroze a commenting-frozen terminal. Same rule as main's
   // isAutoTerminalProtocol: any multi-byte ESC-prefixed sequence is protocol,
-  // never user input; bare ESC (the Esc key) still counts. Deliberate tradeoff
-  // (same as main): arrow/F/nav keys ride ESC prefixes too, so they don't
-  // withdraw the viewer. Either way the data is forwarded to the pty so the
-  // shell's protocol handling works. (Enter/control input also no longer
-  // withdraws — see the printable-only gate below.)
-  const isAutoProtocol = data.length > 1 && /^\u001b[\[\]OP_^]/.test(data);
+  // never user input; bare ESC (the Esc key) still counts, and so does a
+  // bracketed paste (ESC[200~ … ESC[201~), which is the user's. Deliberate
+  // tradeoff (same as main): arrow/F/nav keys ride ESC prefixes too, so they
+  // don't withdraw the viewer. Either way the data is forwarded to the pty so
+  // the shell's protocol handling works.
+  const isAutoProtocol = data.length > 1 && /^\u001b[\[\]OP_^]/.test(data)
+    && !data.startsWith('\u001b[200~');
   if (!isAutoProtocol) {
     if (terminalOutputFrozen) unfreezeTerminalOutput('terminal-input');
     // Genuine input reaching the shell (Enter, Esc, Ctrl-*) means attention is
@@ -1376,10 +1446,12 @@ terminal.onData((data) => {
     // here while armed (the pill's keydown handler opens the composer instead),
     // and mouse reports are ESC-prefixed, so the armed snapshot survives them.
     hideTerminalSelectionCommentHint();
-    // Only a PRINTABLE char / paste (composing a command) rolls an open viewer up.
-    // A bare Enter or other control input (answering a codex prompt) thaws but
-    // keeps the viewer up, so the re-render the approval triggers stays visible.
-    if (/[^\x00-\x1f\x7f]/.test(data)) withdrawViewersOnInput();
+    // Any input rolls an open viewer up — a prompt being typed, and a one-key
+    // answer or an Enter to the CLI's question alike. The terminal under an
+    // open viewer is dimmed: secondary, there to read. Acting on it makes it
+    // the main pane again.
+    withdrawViewersOnInput();
+    noteTerminalInput(data);
   }
   // Sample the already-rendered composer before completion/submit keys.
   // Main correlates it with typed input; no output-wide path index is made.

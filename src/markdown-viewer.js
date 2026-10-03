@@ -1200,7 +1200,6 @@ function createMarkdownViewer({
     // must not move because a spacer above it was recomputed.
     keepSpacerByKey: new Map(),
     replyDrafts: new Map(), // thread id → reply text typed and clicked away (rests as a row in the card)
-    resumeFullPending: false, // a full-size send receded to golden; resume full when the agent's turn ends
     resolvedExpanded: new Set(), // block anchorIds whose resolved history is unfolded to lines
     expandedThreads: new Set(), // thread ids opened from a resolved/waiting line into a full card
     editing: null, // open block-editor session
@@ -1275,10 +1274,10 @@ function createMarkdownViewer({
     bg: 'var(--md-surface)',
     minHeight: 220,
     // Opening a doc puts it on stage, so a fresh reveal is full-screen. The
-    // golden split is the handoff state, and it arrives on its own: a send
-    // recedes to it (the terminal receipt) and the store's turn-end resumes
-    // full. The web viewer keeps golden — a terminal URL is a glance beside
-    // the session, not a takeover.
+    // golden split is the handoff state, and it arrives on its own: a Send
+    // recedes to it (the terminal receipt) and the agent's answer returns
+    // full (viewer-band.js). The web viewer keeps golden — a terminal URL is
+    // a glance beside the session, not a takeover.
     defaultSize: 'full',
     closeTitle: 'Close markdown viewer',
     escToHide: false,
@@ -2402,7 +2401,7 @@ function createMarkdownViewer({
       // A store update can answer a sealed edit, releasing a refresh that was
       // held waiting on it — apply it now so the resolve lands in one step.
       if (!applyPendingMarkdownRefreshIfReady()) scheduleThreadLayerRender();
-      maybeResumeFullSize();
+      reportThreadState();
     } catch {} finally {
       state.threadPollInFlight = false;
     }
@@ -4162,7 +4161,6 @@ function createMarkdownViewer({
     state.threadStore = null;
     state.threadStoreSig = '';
     state.threadRenderPending = false;
-    state.resumeFullPending = false;
     state.resolvedExpanded = new Set();
     state.editing = null;
     state.blockOverlays = new Map();
@@ -5412,9 +5410,10 @@ function createMarkdownViewer({
   // an alert. Have the agent clone agent-threads into ai/ (the README's own
   // prompt goes to the composer and the card waits, polling once a second,
   // until the clone lands and the send goes ahead on its own), send without
-  // the guide, or cancel and keep the draft. A full-size band drops to its
-  // open size while it waits, so the terminal shows the clone; nothing
-  // resumes it. Resolves to { runbook }, 'send', or 'cancel'.
+  // the guide, or cancel and keep the draft. The wait is part of the Send, so
+  // a full-size band recedes now, letting the terminal show the clone, and
+  // the Send that follows arms the return. Resolves to { runbook }, 'send',
+  // or 'cancel'.
   function askRunbookDecision(host, doc) {
     return new Promise((resolve) => {
       // Sent from a keyboard path with no composer in hand: the viewer's last
@@ -5484,7 +5483,7 @@ function createMarkdownViewer({
           ['Send anyway', false, () => finish('send')],
           ['Cancel', false, () => finish('cancel')],
         ]);
-        if (band.isFull()) band.toggleFullSize();
+        band.recede();
         polling = setInterval(async () => {
           try {
             const pf = await preflightMarkdownRunbook({ docPath: doc });
@@ -5508,12 +5507,15 @@ function createMarkdownViewer({
     });
   }
 
-  async function sendEditBatch({ toPrompt = false, host = null } = {}) {
+  // `reply` ({ threadId, body }) rides along when the Send was pressed in a
+  // thread's reply: every Send is a Send all, so a follow-up typed while
+  // comments or edits wait goes out with them, in one turn and one pointer.
+  async function sendEditBatch({ toPrompt = false, host = null, reply = null } = {}) {
     const doc = state.resolvedPath || state.filePath;
     if (!doc || typeof submitMarkdownThreads !== 'function') return false;
     const commentRecords = getPendingMarkdownCommentRecords();
     const overlayEntries = Array.from(state.blockOverlays.entries());
-    if (!overlayEntries.length && !commentRecords.length) return false;
+    if (!overlayEntries.length && !commentRecords.length && !reply) return false;
     let allowMissingRunbook = false;
     if (typeof preflightMarkdownRunbook === 'function') {
       const pf = await preflightMarkdownRunbook({ docPath: doc });
@@ -5538,18 +5540,25 @@ function createMarkdownViewer({
       const comments = commentRecords.map(getMarkdownThreadPayload);
       const commentCount = comments.length;
       const threads = [...editThreads, ...comments];
-      if (threads.length) {
-        const batchKind = editCount && threads.length > editCount
+      const followUps = reply ? [reply] : [];
+      if (threads.length || followUps.length) {
+        const batchKind = editCount && threads.length + followUps.length > editCount
           ? 'mixed'
           : (editCount ? 'edits' : 'comments');
-        const result = await submitMarkdownThreads({ docPath: doc, threads, batchKind, allowMissingRunbook, toPrompt });
+        const result = await submitMarkdownThreads({ docPath: doc, threads, followUps, batchKind, allowMissingRunbook, toPrompt });
         if (!result || !result.success) throw new Error((result && result.error) || 'Could not send the batch');
         adoptThreadStore(result.data);
-        // To prompt is the user's hand taking the layout — often the review's
-        // last turn before implementation. Main's 'to-prompt' event rolls the
-        // band up, and any armed resume is disarmed: full terminal, staying.
-        if (toPrompt) state.resumeFullPending = false;
-        else recedeForAgentTurn();
+        // A Send recedes a full band to golden, the receipt, and arms the
+        // return to full for when the agent has answered. To prompt is the
+        // user's hand taking the layout instead: main's 'to-prompt' event rolls
+        // the band up, which ends the round trip.
+        if (!toPrompt) band.recedeForSend();
+        reportThreadState();
+      }
+      if (reply) {
+        state.threadReply = null; // its holder vanishes in the re-render
+        state.replyDrafts.delete(reply.threadId);
+        state.expandedThreads.delete(reply.threadId);
       }
       state.blockOverlays = new Map();
       state.expandedHunkKey = null;
@@ -5564,6 +5573,7 @@ function createMarkdownViewer({
         const bits = [];
         if (editCount) bits.push(`${editCount} edit${editCount === 1 ? '' : 's'}`);
         if (commentCount) bits.push(`${commentCount} comment${commentCount === 1 ? '' : 's'}`);
+        if (reply) bits.push('a reply');
         showToast(`Sent ${bits.join(' and ')}`);
       }
       return true;
@@ -5723,53 +5733,21 @@ function createMarkdownViewer({
     return msgs.length > 0 && msgs[msgs.length - 1].author === 'agent';
   }
 
-  // The agent's doc-side turn is over when every thread is resolved — the
-  // agent's explicit end-of-work mark, and the contract orders it after the
-  // doc write (agent-threads contract.md, resolve-after-visibility), so
-  // all-resolved lands with the last change already on disk. Counting an open
-  // agent-last thread as "bounced back" made this flip mid-turn: a reply can
-  // land before the acting is done, so the poll caught the reply and expanded
-  // the band while edits were still landing (the review viewer had the same
-  // bug, worse — its regen reload made the expand look tied to the code
-  // change). A thread left open — blocked on the user, or merely answered —
-  // keeps golden: the reply is on screen and pulsing there, and expanding for
-  // it is the user's call. The cost is that such a wave never auto-resumes
-  // full; the cost of the old rule was motion mid-turn, and of the two only
-  // one takes the screen out of the user's hands.
-  function agentTurnOverInStore() {
+  // Where the agent stands on this document, reported to the band after every
+  // store snapshot for its return to full after a Send (viewer-band.js).
+  // answered: no thread still waits on the agent — each is resolved, or ends
+  // with its reply (an open thread the agent spoke last on is it blocked on
+  // the user, by the contract). resolved: each is resolved. The band pairs
+  // answered with the CLI's idle title, since a reply can land before the
+  // edits it describes, and falls back to resolved where the title says
+  // nothing.
+  function reportThreadState() {
     const threads = (state.threadStore && Array.isArray(state.threadStore.threads))
       ? state.threadStore.threads : [];
-    return threads.length > 0 && threads.every((t) => isThreadResolved(t));
-  }
-
-  // The resume armed by a full-size send (sendEditBatch): the user chose full
-  // mode, the send only borrowed the screen for the terminal receipt, so when
-  // the store says the agent is done the doc takes the stage back. One-shot at
-  // the moment the store turns: if the user has meanwhile taken the layout into
-  // their own hands (band hidden by terminal typing or Esc, or already resized),
-  // the moment passes and nothing moves — their hand wins over the restoration.
-  // Sending hands the turn to the agent. At full size that leaves the user
-  // blind to the pickup, so recede to the golden split: the terminal slides
-  // into view underneath (the receipt) while the doc keeps the major share,
-  // where the replies land. The user chose full mode, so the recede arms a
-  // resume: when the store says the agent's turn is over (no thread awaits
-  // it — see maybeResumeFullSize), full size comes back. The store is the
-  // one true done signal; PTY quiet can't tell a finished turn from a
-  // permission prompt, so no auto-expand rides the working heuristics.
-  // Every hand-over takes this path — a batch send and a thread reply alike:
-  // a reply from full size used to leave the band up, so the user typed a
-  // follow-up and never saw the agent pick it up.
-  function recedeForAgentTurn() {
-    if (!band.isFull()) return;
-    band.toggleFullSize();
-    state.resumeFullPending = true;
-  }
-
-  function maybeResumeFullSize() {
-    if (!state.resumeFullPending || !agentTurnOverInStore()) return;
-    state.resumeFullPending = false;
-    if (!band.isOpen() || band.isFull()) return;
-    band.toggleFullSize();
+    band.reportThreads({
+      answered: threads.length > 0 && threads.every((t) => isThreadResolved(t) || threadNeedsUser(t)),
+      resolved: threads.length > 0 && threads.every((t) => isThreadResolved(t)),
+    });
   }
 
   // A block's resolved threads, newest first: the one you just finished is the
@@ -6303,6 +6281,7 @@ function createMarkdownViewer({
     const counterpart = counterpartKeepBox(card);
     refreshThreadFoot(card, thread, { composing: true });
     refreshThreadFoot(counterpart, thread, { composing: true });
+    const pendingCount = state.queuedComments.length + state.blockOverlays.size;
     const composer = createComposer({
       placeholder: 'Reply...',
       seed: state.replyDrafts.get(thread.id) || '',
@@ -6315,7 +6294,8 @@ function createMarkdownViewer({
       },
       actions: [
         { label: 'Discard', onClick: () => closeThreadReply({ discard: true }) },
-        { label: 'Send', primary: true, title: 'Enter', onClick: () => submitThreadReply(thread, composer) },
+        // Every Send is a Send all: comments and edits waiting go with it.
+        { label: pendingCount > 0 ? `Send all (${pendingCount + 1})` : 'Send', primary: true, title: 'Enter', onClick: () => submitThreadReply(thread, composer) },
         toPromptAction(() => submitThreadReply(thread, composer, { toPrompt: true })),
       ],
     });
@@ -6342,6 +6322,11 @@ function createMarkdownViewer({
     const text = composer.textarea.value.trim();
     if (!text || composer.primaryButton.disabled) return;
     composer.primaryButton.disabled = true;
+    if (state.queuedComments.length || state.blockOverlays.size) {
+      const sent = await sendEditBatch({ toPrompt, host: composer.root, reply: { threadId: thread.id, body: text } });
+      if (!sent) composer.primaryButton.disabled = false;
+      return;
+    }
     const doc = state.resolvedPath || state.filePath;
     let allowMissingRunbook = false;
     if (typeof preflightMarkdownRunbook === 'function') {
@@ -6369,8 +6354,8 @@ function createMarkdownViewer({
       // rests as the waiting line rather than staying expanded.
       state.expandedThreads.delete(thread.id);
       adoptThreadStore(result.data);
-      if (toPrompt) state.resumeFullPending = false;
-      else recedeForAgentTurn();
+      if (!toPrompt) band.recedeForSend();
+      reportThreadState();
       layoutSpread();
       if (typeof showToast === 'function') showToast('Reply sent');
     } catch (error) {
@@ -6518,7 +6503,6 @@ function createMarkdownViewer({
     state.threadStore = null;
     state.threadStoreSig = '';
     state.threadRenderPending = false;
-    state.resumeFullPending = false;
     state.resolvedExpanded = new Set();
     state.editing = null;
     state.blockOverlays = new Map();

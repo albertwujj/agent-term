@@ -11,7 +11,7 @@ Object.defineProperty(window, 'innerHeight', {
   value: 1000,
 });
 
-const { createViewerBand } = require('../src/viewer-band');
+const { createViewerBand, userIsTyping, setTypingProbe, setAgentIdle } = require('../src/viewer-band');
 
 const band = createViewerBand({ name: 'test' });
 band.open();
@@ -169,6 +169,113 @@ assert.ok(fullBand.isFull(), 'retargeting while closed takes effect on open');
   plain.shell.focus();
   plain.close();
   assert.ok(!plain.isOpen());
+}
+
+// The Send's round trip. A Send at full recedes to golden (the terminal shows
+// the pickup) and arms the return; full comes back once the agent has
+// answered and the CLI says its turn is over — or, where the title gives no
+// idle evidence, once every thread is resolved. The user's hand, putting the
+// band away, and starting to write all end it; nothing moves while typing.
+{
+  const rt = createViewerBand({ name: 'roundtrip', defaultSize: 'full', escToHide: false });
+  const answered = { answered: true, resolved: false };
+  const resolved = { answered: true, resolved: true };
+  const waiting = { answered: false, resolved: false };
+  const freshSend = () => { rt.close(); rt.open(); rt.recedeForSend(); };
+
+  setAgentIdle(false);
+  rt.open();
+  rt.reportThreads(resolved); // a report from before the Send
+  rt.recedeForSend();
+  assert.ok(rt.isOpen() && !rt.isFull(), 'a Send at full recedes to golden');
+  setAgentIdle(true);
+  assert.ok(!rt.isFull(), 'a report from before the Send does not count');
+  rt.reportThreads(waiting);
+  assert.ok(!rt.isFull(), 'threads still waiting on the agent keep golden');
+  setAgentIdle(false);
+  rt.reportThreads(answered);
+  assert.ok(!rt.isFull(), 'answered while the CLI still works keeps golden');
+  setAgentIdle(true);
+  assert.ok(rt.isFull(), 'answered and idle returns to full');
+  rt.toggleFullSize(); // the user drops to golden by hand
+  rt.reportThreads(resolved);
+  assert.ok(!rt.isFull(), 'the return is one-shot; a size picked by hand holds');
+
+  // No idle evidence from the title: only every thread resolved returns.
+  freshSend();
+  setAgentIdle(null);
+  rt.reportThreads(answered);
+  assert.ok(!rt.isFull(), 'without idle evidence, answered alone keeps golden');
+  rt.reportThreads(resolved);
+  assert.ok(rt.isFull(), 'without idle evidence, all resolved returns to full');
+
+  // A Send from golden the user chose arms nothing.
+  rt.toggleFullSize();
+  setAgentIdle(true);
+  rt.recedeForSend();
+  rt.reportThreads(resolved);
+  assert.ok(!rt.isFull(), 'a Send from a golden the user picked stays golden');
+
+  // The hand, putting the band away, and starting to write each end the trip.
+  freshSend();
+  rt.toggleFullSize(); rt.toggleFullSize(); // back to golden, by hand
+  rt.reportThreads(resolved);
+  assert.ok(!rt.isFull(), 'a hand resize cancels the return');
+  freshSend();
+  rt.hide(); rt.show();
+  assert.ok(rt.isFull(), 'a band put away comes back at its default size');
+  rt.toggleFullSize();
+  rt.reportThreads(resolved);
+  assert.ok(!rt.isFull(), 'and owes nothing to the Send before');
+
+  freshSend();
+  const box = document.createElement('textarea');
+  rt.content.appendChild(box);
+  box.dispatchEvent(new window.FocusEvent('focusin', { bubbles: true }));
+  rt.reportThreads(resolved);
+  assert.ok(!rt.isFull(), 'starting to write at golden settles golden');
+  rt.recedeForSend(); // the Send written there
+  rt.reportThreads(resolved);
+  assert.ok(!rt.isFull(), 'and the Send written there arms nothing');
+
+  freshSend();
+  const search = document.createElement('input');
+  rt.content.appendChild(search);
+  search.dispatchEvent(new window.FocusEvent('focusin', { bubbles: true }));
+  search.focus();
+  assert.ok(userIsTyping(), 'a focused text field in a band is typing');
+  rt.reportThreads(resolved);
+  assert.ok(!rt.isFull(), 'no return lands while the user types');
+  search.blur();
+  rt.reportThreads(resolved);
+  assert.ok(!rt.isFull(), 'a return dropped for typing is not deferred');
+
+  freshSend();
+  let typing = true;
+  setTypingProbe(() => typing);
+  assert.ok(userIsTyping(), 'the host probe (terminal typing) counts');
+  rt.reportThreads(resolved);
+  assert.ok(!rt.isFull(), 'typing in the terminal blocks the return too');
+  typing = false;
+  setTypingProbe(null);
+
+  // A Send still being prepared (md waiting on the agent-threads clone)
+  // recedes without arming; the Send that completes it arms the return.
+  rt.close(); rt.open();
+  rt.recede();
+  assert.ok(!rt.isFull(), 'the clone wait recedes');
+  rt.reportThreads(resolved);
+  assert.ok(!rt.isFull(), 'and arms nothing by itself');
+  rt.recedeForSend();
+  rt.reportThreads(resolved);
+  assert.ok(rt.isFull(), 'the Send it completes arms the return');
+
+  // Rolled up, the band stays put; nothing reveals it.
+  freshSend();
+  rt.hide();
+  rt.reportThreads(resolved);
+  assert.ok(rt.isHidden(), 'a rolled-up band stays rolled up');
+  rt.close();
 }
 
 console.log('viewer-band test passed');

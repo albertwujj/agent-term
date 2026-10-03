@@ -14,9 +14,55 @@
 //
 // Sizing: `share: 'major'` takes ~62vh (golden major), 'minor' ~38vh; the band's
 // bottom is grid-snapped to a terminal row so the row peeking below isn't chopped.
+//
+// Automatic moves. The band moves on its own in three places, and nowhere else:
+// an agent's handoff opens a viewer (the host's auto-open), a Send recedes a
+// full band to golden so the terminal shows the agent picking it up (the
+// acknowledgment), and the band returns to full once the agent has answered
+// that Send. Everything else is the user's hand. One invariant covers all
+// three: no automatic move lands while the user is typing, in a viewer or in
+// the terminal — nothing moves the text being typed. userIsTyping() is that
+// check; the host registers what typing in the terminal means (setTypingProbe)
+// and calls it before its own automatic moves, and the return consults it here.
 
 const VIEWER_BAND_STYLE_ID = 'viewer-band-style';
 const SHARE_FRACTION = { major: 0.62, minor: 0.38 };
+
+// Text entry: where a keystroke lands as text. A focused one inside a band is
+// typing on the band's own terms, so the band needs no host probe for it.
+function isTextEntry(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (el.tagName === 'TEXTAREA' || el.isContentEditable) return true;
+  if (el.getAttribute && el.getAttribute('contenteditable') === 'true') return true;
+  return el.tagName === 'INPUT' && !/^(?:button|checkbox|radio|submit|reset|range|color|file|image)$/i.test(el.type || '');
+}
+// Writing: a comment, reply or edit — a textarea or an editable block, not a
+// search field. Starting to write at golden settles the size there.
+function isWritingSurface(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (el.tagName === 'TEXTAREA' || el.isContentEditable) return true;
+  return !!(el.getAttribute && el.getAttribute('contenteditable') === 'true');
+}
+
+let typingProbe = null;
+function setTypingProbe(fn) { typingProbe = typeof fn === 'function' ? fn : null; }
+function userIsTyping() {
+  const active = typeof document !== 'undefined' ? document.activeElement : null;
+  if (active && active.closest && active.closest('.vb-shell') && isTextEntry(active)) return true;
+  try { return !!(typingProbe && typingProbe()); } catch { return false; }
+}
+
+// Whether the CLI says its turn is over: true (idle), false (working), or null
+// when its title carries no such evidence. Window-wide, so it lives here and
+// every band re-checks its return when it changes.
+let agentIdle = null;
+const liveBands = new Set();
+function setAgentIdle(value) {
+  const next = value === true ? true : value === false ? false : null;
+  if (next === agentIdle) return;
+  agentIdle = next;
+  for (const band of liveBands) band.evaluateReturn();
+}
 
 function ensureBandStyles() {
   if (document.getElementById(VIEWER_BAND_STYLE_ID)) return;
@@ -265,6 +311,13 @@ function createViewerBand({
   let restSize = defaultSize === 'full' ? 'full' : 'golden';
   let sizeMode = restSize; // open-height target: 'golden' (the major share) | 'full' (viewport)
   const fraction = SHARE_FRACTION[share] || SHARE_FRACTION.major;
+  // The Send's round trip. recededForSend: the band sits at golden because a
+  // Send put it there, not the user's hand. returnArmed: that Send's answer
+  // brings full back. threads: the viewer's last report on its store,
+  // { answered, resolved }, or null until one arrives after the Send.
+  let recededForSend = false;
+  let returnArmed = false;
+  let threads = null;
 
   // The band overlays the terminal, so its bottom edge is where visible terminal
   // starts. Anything the host anchors to a terminal row (the type-to-comment
@@ -324,9 +377,14 @@ function createViewerBand({
     // Tap the bar → roll up / restore (same in golden or full); double-click → full
     // screen. See bindBarGestures.
     bindBarGestures();
+    // Starting to write in the band (a comment, a reply, an edit) settles the
+    // size where it is: a return that landed later would re-flow the page under
+    // the next sentence. A guest page reports its own (cancelReturn).
+    shell.addEventListener('focusin', (e) => { if (isWritingSurface(e.target)) cancelReturn(); });
 
     shell.append(content, bar); // content above the bottom bar
     document.body.appendChild(shell);
+    liveBands.add(api);
     return api;
   }
 
@@ -391,6 +449,7 @@ function createViewerBand({
 
   function open() {
     mount();
+    endRoundTrip(); // a fresh page owes nothing to an earlier Send
     applyOpenSize();
     shell.classList.remove('hidden');
     shell.classList.add('open');
@@ -400,6 +459,7 @@ function createViewerBand({
   // Roll up to just the bar handle, keeping content alive so showing is instant.
   function hide() {
     if (state !== 'open') return;
+    endRoundTrip(); // the user put the band away; nothing brings it back on its own
     sizeMode = restSize; // collapsing resets to the band's default size
     snap(() => {
       shell.classList.remove('vb-full');
@@ -435,12 +495,65 @@ function createViewerBand({
   }
   // The bar's double-click and the size chord: golden⇄full while open; from the
   // hidden handle it reveals at full — so toggle() reveals at the band's default
-  // size and this always lands full, whatever the default.
+  // size and this always lands full, whatever the default. Always the user's
+  // hand, so a size picked here holds: no automatic move overrides it.
   function toggleFullSize() {
     if (state === 'closed' || !shell) return;
+    endRoundTrip();
     applySize(state === 'open' && sizeMode === 'full' ? 'golden' : 'full');
   }
   function isFull() { return state === 'open' && sizeMode === 'full'; }
+
+  // ---- The Send's round trip (see "Automatic moves" at the top) ----
+
+  function endRoundTrip() {
+    recededForSend = false;
+    returnArmed = false;
+    threads = null;
+  }
+  // A Send hands the turn to the agent. At full size that leaves the user blind
+  // to the pickup, so drop to golden: the terminal slides in underneath with
+  // the pasted prompt, the receipt. recede() alone is for a Send still being
+  // prepared (md waits there for agent-threads to be cloned); the Send itself
+  // calls recedeForSend(), which also arms the return.
+  function recede() {
+    if (!isFull()) return;
+    applySize('golden');
+    recededForSend = true;
+  }
+  // Arms the return only when this Send (or the one it completes) receded the
+  // band: a band the user already sat at golden stays there.
+  function recedeForSend() {
+    recede();
+    if (!recededForSend) return;
+    returnArmed = true;
+    threads = null; // only a report made after this Send counts
+  }
+  // The viewer's store, after every snapshot: answered = no thread still waits
+  // on the agent (each is resolved, or ends with its reply); resolved = each is
+  // resolved.
+  function reportThreads(report) {
+    threads = report ? { answered: !!report.answered, resolved: !!report.resolved } : null;
+    evaluateReturn();
+  }
+  // Full comes back once the agent has answered everything and the CLI says
+  // its turn is over. Both, because a reply can land before the edits it
+  // describes (agent-threads lets the agent answer first, then act), and an
+  // idle CLI alone says nothing about the threads. A CLI whose title gives no
+  // idle evidence falls back to every thread resolved, the agent's explicit
+  // end-of-work mark. One-shot, and dropped rather than deferred when the user
+  // is typing: a size change landing later would be one they did not pick.
+  function evaluateReturn() {
+    if (!returnArmed || state !== 'open' || sizeMode !== 'golden' || !threads) return;
+    const done = agentIdle === null ? threads.resolved : (agentIdle && threads.answered);
+    if (!done) return;
+    endRoundTrip();
+    if (userIsTyping()) return;
+    applySize('full');
+  }
+  // The user started writing: the size they are writing at is theirs, so the
+  // Send that follows from there arms nothing either.
+  function cancelReturn() { endRoundTrip(); }
 
   // Retarget the size fresh reveals land on — for a band whose default depends
   // on what it hosts (the web band: review pages full, plain pages golden). A
@@ -477,6 +590,7 @@ function createViewerBand({
   // Full dismiss; the viewer's onClose frees content (GC the webview, etc.).
   function close() {
     if (state === 'closed' || !shell) return;
+    endRoundTrip();
     sizeMode = restSize; // the next open is a fresh reveal, at the default size
     shell.classList.remove('open', 'hidden', 'vb-full');
     state = 'closed';
@@ -526,6 +640,7 @@ function createViewerBand({
   const api = {
     mount, open, hide, show, toggle, toggleFullSize, close, isOpen, isHidden, isFull, setDefaultSize,
     setTitle, makeBtn, flash,
+    recede, recedeForSend, reportThreads, evaluateReturn, cancelReturn,
     get shell() { return shell; },
     get bar() { return bar; },
     get barLeft() { return barLeft; },
@@ -536,4 +651,4 @@ function createViewerBand({
   return api;
 }
 
-module.exports = { createViewerBand };
+module.exports = { createViewerBand, userIsTyping, setTypingProbe, setAgentIdle };

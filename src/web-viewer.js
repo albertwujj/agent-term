@@ -55,10 +55,6 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
   let destroyTimer = null;
   let entryUrl = null;       // the url passed to open() — what we route to the browser on a block
   let blockedFired = false;  // fire onDeviceAuthBlock at most once per open()
-  // A full-size review send receded to golden; resume full when the guest reports
-  // the agent's turn over. Same loop as the md viewer (see maybeResumeFullSize
-  // there); here the guest owns the store, so it reports state over IPC instead.
-  let resumeFullPending = false;
   // A <webview> is a separate document host CSS can't reach, so its page renders the OS-native
   // scrollbar — the classic wide bar on Windows, while the host's terminal/md panes are styled
   // thin. Inject a matching slim scrollbar into the guest on each load so the viewer is
@@ -86,7 +82,6 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     onHide: () => closeFind(),
     onClose: () => {
       closeFind();
-      resumeFullPending = false;
       if (destroyTimer) clearTimeout(destroyTimer);
       destroyTimer = setTimeout(() => { destroyView(); destroyTimer = null; }, 200);
       if (typeof onClose === 'function') onClose();
@@ -238,34 +233,16 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
         const action = e.args && e.args[0];
         if (action === 'selector' || action === 'toggle' || action === 'size') onShortcut(action);
       }
-      // A review send hands the turn to the agent. At full size that leaves the
-      // user blind to the pickup, so recede to the golden split — the terminal
-      // slides in underneath with the pasted pointer prompt (the receipt) — and
-      // arm the resume, since full was the user's choice.
-      if (e.channel === 'rv-sent' && band.isFull()) {
-        band.toggleFullSize();
-        resumeFullPending = true;
-      }
-      // A banner nudge (Notify agent) pastes its prompt the same way, so a
-      // full-size band recedes the same way — but no threads changed hands, so
-      // it never arms the resume: with the review's threads possibly already
-      // all-resolved, an armed resume would fire on the next store snapshot,
-      // mid-agent-work. An earlier send's armed resume stays armed.
-      if (e.channel === 'rv-nudged' && band.isFull()) band.toggleFullSize();
-      // A To prompt send is often the review's last turn: the band rolled up
-      // (main's 'to-prompt'), and no armed resume may bring it back.
-      if (e.channel === 'rv-to-prompt') resumeFullPending = false;
-      // The guest re-reads the store on every refresh and reports where the
-      // agent's turn stands. One-shot at the moment it turns: the flag clears
-      // whether or not motion happens, and motion only if the band is open at
-      // golden — a band the user hid or resized stays where their hand put it.
-      if (e.channel === 'rv-threads-state' && resumeFullPending) {
-        const s = e.args && e.args[0];
-        if (s && s.agentTurnOver) {
-          resumeFullPending = false;
-          if (band.isOpen() && !band.isFull()) band.toggleFullSize();
-        }
-      }
+      // A review Send (every one is a Send all) hands the turn to the agent:
+      // a full band recedes to golden so the terminal shows the pasted pointer,
+      // the receipt, and the return to full is armed (viewer-band.js). Only a
+      // Send moves the band; a banner nudge's toast is its own receipt, and To
+      // prompt rolls the band up through main's 'to-prompt'.
+      if (e.channel === 'rv-sent') band.recedeForSend();
+      // The guest reports its store after every snapshot; the band decides.
+      if (e.channel === 'rv-threads-state') band.reportThreads(e.args && e.args[0]);
+      // The user started writing in the page: the size they write at is theirs.
+      if (e.channel === 'rv-writing') band.cancelReturn();
     });
     // Each finished load on a Microsoft login host is checked for a device-compliance block.
     view.addEventListener('did-finish-load', checkDeviceAuthBlock);
@@ -366,7 +343,6 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     const target = normalizeHttpUrl(rawUrl);
     if (!target) return false;
     band.setDefaultSize(review ? 'full' : 'golden');
-    resumeFullPending = false; // a new page is a fresh start; no stale resume
     entryUrl = target;
     blockedFired = false;
     if (destroyTimer) { clearTimeout(destroyTimer); destroyTimer = null; }

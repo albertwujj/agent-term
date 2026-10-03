@@ -98,7 +98,9 @@ function isResumeCommand(trimmed) {
   return /^\/resume(\s|$)/.test(trimmed);
 }
 
-function createPromptCapture({ onPrompt, onShellCommand, classifyPaste } = {}) {
+// onResumeCommand: the user submitted /resume — the CLI is about to reprint a
+// past conversation.
+function createPromptCapture({ onPrompt, onShellCommand, onResumeCommand, classifyPaste } = {}) {
   let cliStarted = false;
   let locked = false;
   let buf = '';
@@ -434,7 +436,10 @@ function createPromptCapture({ onPrompt, onShellCommand, classifyPaste } = {}) {
           // still get filtered: slash-commands are meta-commands, and a
           // line of a few characters is a dialog answer.
           if (!hadPaste && trimmed.startsWith('/')) {
-            if (isResumeCommand(trimmed)) inResumeDialog = true;
+            if (isResumeCommand(trimmed)) {
+              inResumeDialog = true;
+              if (typeof onResumeCommand === 'function') onResumeCommand();
+            }
             reset();
             i++;
             continue;

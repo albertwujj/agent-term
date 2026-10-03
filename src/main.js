@@ -589,6 +589,22 @@ function pasteCommentMessage(body, { toPrompt = false } = {}) {
   return toPrompt ? writeAsBracketedPasteToPrompt(body) : writeAsBracketedPasteSubmission(body);
 }
 
+// The renderer auto-opens an agent's handoff (a review:// link, a discussion
+// doc) only in output that answers a turn the user started in this window: a
+// prompt typed or sent from the phone, a shell command, a Send from a viewer.
+// Launching a CLI and /resume disarm it until the next one, since what follows
+// them is the CLI reprinting a conversation, and a link in that history is not
+// a handoff. A window starts disarmed: nothing it prints before the first turn
+// was asked for here.
+let viewerAutoOpenArmed = false;
+function setViewerAutoOpenArmed(armed) {
+  if (viewerAutoOpenArmed === armed) return;
+  viewerAutoOpenArmed = armed;
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('viewer-auto-open', armed);
+  } catch {}
+}
+
 // One finisher for every user-initiated agent ping (inline comment, review
 // send, review banner nudge, md pointer): paste, then the bookkeeping the
 // paste implies — the prompt went to a live CLI, so a still-armed resume
@@ -597,6 +613,7 @@ function pasteCommentMessage(body, { toPrompt = false } = {}) {
 // bar can show the pickup.
 function pasteAgentPing(body, { toPrompt = false } = {}) {
   if (!pasteCommentMessage(body, { toPrompt })) return false;
+  setViewerAutoOpenArmed(true);
   pendingResumeIntercept = false;
   lastInputTime = Date.now();
   lastTypingTime = 0;
@@ -1556,6 +1573,7 @@ function renderIdentityIconAndTitle() {
 
 function onPromptCaptured(promptText, mentions = null, attachments = []) {
   if (typeof promptText !== 'string' || !promptText) return;
+  setViewerAutoOpenArmed(true);
   const isFirst = !firstPrompt;
   lastPromptTime = Date.now();
 
@@ -1648,6 +1666,8 @@ function onShellCommandTyped(cmd) {
   // so the title is the CLI name alone). A launch typed by hand and one
   // typed by the picker both arrive here, so both start the same way.
   const cli = detectCli(cmd);
+  // A plain shell command is a turn; a CLI launch may reprint a conversation.
+  setViewerAutoOpenArmed(!cli);
   if (!cli) return;
   detectedCli = cli;
   titleActivity.reset();
@@ -1680,6 +1700,7 @@ function resumeFromSession(picked) {
   sessionCwd = picked.cwd || shellStartCwd();
   detectedCli = picked.cli || null;
   titleActivity.reset(); // a saved title describes the old process, not its new run
+  setViewerAutoOpenArmed(false); // the CLI is about to reprint this conversation
   sessionStartTime = Date.now();
   // No boot vocabulary on resume (firstPrompt is inherited, so collection
   // never opens): banner junk in the title log is instead caught by the
@@ -1769,6 +1790,9 @@ function syncChromeState() {
     cli: detectedCli || null,
     prompt: firstPrompt || null,
     isWorking,
+    // The CLI's own word on its turn, from its title: true idle, false
+    // working, null no evidence. The viewer band's return to full reads it.
+    agentIdle: titleActivity.working === null ? null : !titleActivity.working,
     lock: lockState,
     jobs: jobsState,
   };
@@ -2430,6 +2454,7 @@ function createWindow() {
   promptCapture = createPromptCapture({
     onPrompt: onPromptCaptured,
     onShellCommand: onShellCommandTyped,
+    onResumeCommand: () => setViewerAutoOpenArmed(false),
     classifyPaste: (content) => {
       if (!pendingClipboardImagePaths.delete(content)) return null;
       return { kind: 'image', path: content };
@@ -2490,7 +2515,7 @@ function createWindow() {
         const prompt = raw.replace(/[\r\n]+/g, ' ').trim();
         if (!prompt) continue;
         const ok = writeAsSubmission(prompt);
-        if (ok) notifyResumeHintSubmit();
+        if (ok) { notifyResumeHintSubmit(); setViewerAutoOpenArmed(true); }
         if (!ok) log('[stream] PTY write failed for remote input');
       }
     },
@@ -2510,7 +2535,7 @@ function createWindow() {
         const transcript = raw.replace(/[\r\n]+/g, ' ').trim();
         if (!transcript) continue;
         const ok = writeAsBracketedPasteSubmission(voicePromptLead() + '\n' + transcript);
-        if (ok) notifyResumeHintSubmit();
+        if (ok) { notifyResumeHintSubmit(); setViewerAutoOpenArmed(true); }
         if (!ok) log('[stream] PTY write failed for voice input');
       }
     },
@@ -2889,6 +2914,7 @@ function createPty(cols, rows) {
       const state = titleActivity.working === null ? 'unknown'
         : titleActivity.working ? 'working' : 'idle';
       log(`[activity] title=${state} cli=${detectedCli || 'unknown'} session=${sessionIndex}`);
+      syncChromeState();
     }
     updateProgressBar();
   });
@@ -5538,8 +5564,9 @@ function pasteMdPointer(doc, storePosix, runbook, batchKind, { toPrompt = false 
 }
 
 // One user send-batch of md comments: tick the store's turn clock, append one
-// open thread per comment, then paste the pointer.
-ipcMain.handle('md-add-threads', async (event, { docPath, threads, batchKind, allowMissingRunbook, toPrompt = false } = {}) => {
+// open thread per comment and any follow-up a reply's Send carried (every Send
+// is a Send all), then paste the pointer.
+ipcMain.handle('md-add-threads', async (event, { docPath, threads, followUps, batchKind, allowMissingRunbook, toPrompt = false } = {}) => {
   const doc = String(docPath || '');
   if (!doc.startsWith('/') || !isMarkdownFilePath(doc)) {
     return { success: false, error: 'Not a markdown document path' };
@@ -5553,7 +5580,10 @@ ipcMain.handle('md-add-threads', async (event, { docPath, threads, batchKind, al
       anchor: (t && t.anchor) || {},
     }))
     .filter((t) => t.body);
-  if (!items.length) return { success: false, error: 'Empty comment batch' };
+  const replies = (Array.isArray(followUps) ? followUps : [])
+    .map((f) => ({ threadId: String((f && f.threadId) || ''), body: String((f && f.body) || '').trim() }))
+    .filter((f) => f.threadId && f.body);
+  if (!items.length && !replies.length) return { success: false, error: 'Empty comment batch' };
   const runbook = await resolveMdRunbook(doc);
   if (!runbook && !allowMissingRunbook) {
     return { success: false, error: runbookMissingError(MD_THREADS_RUNBOOK, 'document') };
@@ -5563,7 +5593,15 @@ ipcMain.handle('md-add-threads', async (event, { docPath, threads, batchKind, al
   return withCommentsLock(p, async () => {
     try {
       const store = await loadCommentStore(p);
+      const repliedTo = replies.map((f) => store.threads.find((x) => x.id === f.threadId));
+      if (repliedTo.some((t) => !t)) return { success: false, error: 'Thread not found' };
       store.turn = (Number.isFinite(store.turn) ? store.turn : 0) + 1;
+      // The reopen is derived, never written, as for md-add-message.
+      replies.forEach((f, i) => {
+        const t = repliedTo[i];
+        if (!Array.isArray(t.messages)) t.messages = [];
+        t.messages.push({ author: 'user', body: f.body, ts: Date.now(), turn: store.turn });
+      });
       for (const item of items) {
         store.threads.push({
           id: newThreadId(),

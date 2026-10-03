@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('pty', {
   // A comment batch was handed to the prompt unsubmitted (any surface): roll
   // the viewers up and focus the terminal, the user types there next.
   onToPrompt: (callback) => ipcRenderer.on('to-prompt', () => callback()),
+  onViewerAutoOpen: (callback) => ipcRenderer.on('viewer-auto-open', (event, armed) => callback(armed)),
   onExit: (callback) => ipcRenderer.on('pty-exit', (event, code) => callback(code)),
   onResize: (callback) => ipcRenderer.on('resize', (event, size) => callback(size)),
   // Navigate to file:line in the IDE via the navigator plugin
