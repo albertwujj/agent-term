@@ -40,14 +40,22 @@ assert.ok(!shell.classList.contains('vb-full'));
 // Hover leans the bar toward where a click sends it: a strip just above it
 // over the top half, just below it over the bottom half.
 const lean = () => document.querySelector('.vb-bar-lean.on');
+// The bar names what a click does, a beat after the pointer arrives, then
+// follows the pointer at once.
+const hint = () => {
+  const el = bar.querySelector('.vb-hover-hint.on');
+  return el ? el.textContent : '';
+};
 hoverBar(TOP);
 assert.ok(lean() && lean().classList.contains('up') && lean().style.top === '588px',
   'hovering the top half at golden leans the bar up');
-assert.strictEqual(bar.title, 'Click to roll up');
+assert.strictEqual(hint(), '', 'the hint waits a beat');
+await new Promise((resolve) => setTimeout(resolve, 200));
+assert.strictEqual(hint(), '↑ Roll up');
 hoverBar(BOTTOM);
 assert.ok(lean() && lean().classList.contains('down') && lean().style.top === '626px',
   'hovering the bottom half leans it down');
-assert.strictEqual(bar.title, 'Click for full size');
+assert.strictEqual(hint(), '↓ Full size', 'once shown, the hint follows the pointer at once');
 lean().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 const fullHeight = shell.style.getPropertyValue('--vb-open-h');
 assert.ok(shell.classList.contains('vb-full'), 'the lean is part of the target: a click on it steps the same way');
@@ -55,8 +63,9 @@ assert.ok(parseFloat(fullHeight) > parseFloat(goldenHeight));
 assert.ok(!lean(), 'a step drops the lean');
 assert.ok(document.querySelector('.vb-edge-catch.on'), 'at full the sliver below the bar joins it');
 hoverBar(BOTTOM);
+await new Promise((resolve) => setTimeout(resolve, 200));
 assert.ok(!lean() && bar.classList.contains('vb-hot')
-  && bar.title === 'Click to roll up · double-click for the split view',
+  && hint() === '↑ Roll up · double-click: split view',
   'at full the whole bar is one target; it lightens, with no lean, since every click goes up');
 
 // At the two ends a click crosses to the other end — golden is the
@@ -68,7 +77,8 @@ await settle();
 assert.ok(shell.classList.contains('hidden'), 'then rolls the band up');
 assert.ok(!document.querySelector('.vb-edge-catch.on'), 'the sliver is only the bar at full');
 hoverBar(TOP);
-assert.ok(!lean() && bar.title === 'Click for full size · double-click for the split view',
+await new Promise((resolve) => setTimeout(resolve, 200));
+assert.ok(!lean() && hint() === '↓ Full size · double-click: split view',
   'the handle has no lean either; every click opens it');
 clickBar(TOP);
 await settle();
@@ -84,7 +94,7 @@ assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full
 // A few pixels of terminal just below the bar count as its lower half,
 // wherever the band can grow.
 const nearBelow = () => document.querySelector('.vb-near-below.on');
-assert.ok(nearBelow() && nearBelow().style.height === '8px', 'at golden a strip just below the bar is live');
+assert.ok(nearBelow() && nearBelow().style.height === '12px', 'at golden a strip just below the bar, as deep as the lean, is live');
 nearBelow().dispatchEvent(new window.PointerEvent('pointerenter'));
 assert.ok(lean() && lean().classList.contains('down'), 'the pointer arriving from the terminal leans the bar down');
 nearBelow().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

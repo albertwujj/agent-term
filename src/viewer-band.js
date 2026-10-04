@@ -160,7 +160,9 @@ function ensureBandStyles() {
               brightness(calc(1 + var(--vb-term-dim) * 0.5));
     }
     .vb-bar {
-      flex: 0 0 26px;
+      /* 32px open, so each half of the stepper is 16px (see bindBarGestures);
+         the rolled-up handle stays slim (--vb-collapsed-h). */
+      flex: 0 0 32px;
       display: flex; align-items: center; gap: 4px; padding: 0 8px;
       /* A medium grey bridging the (light) content above and the dark terminal
          below; the hue accents the TOP (content|bar) seam, the bottom melts
@@ -203,10 +205,11 @@ function ensureBandStyles() {
       cursor: pointer; display: none;
     }
     .vb-edge-catch.on { display: block; }
-    /* A few pixels of terminal just below the bar count as its lower half
-       wherever the band can grow (golden, the rolled-up handle): growing is
-       the common move, and the pointer often arrives from the terminal.
-       Above the bar nothing is taken: that is the page, scrollbar included. */
+    /* At golden a few pixels of terminal just below the bar count as its
+       lower half: growing is the common move, and the pointer often arrives
+       from the terminal. Not under the rolled-up handle, which sits on the
+       terminal's first lines, where a short session's text is; and above the
+       bar nothing is taken: that is the page, scrollbar included. */
     .vb-near-below {
       position: fixed; left: 0; right: 0; z-index: 8199;
       cursor: pointer; display: none;
@@ -237,6 +240,15 @@ function ensureBandStyles() {
       transition: color 280ms ease, opacity 220ms ease;
     }
     .vb-close { margin-left: auto; }
+    /* What a click on the bar does, shown in the bar a beat after the pointer
+       arrives: the OS tooltip takes about a second, too slow for a control
+       whose action depends on where you are on it. */
+    .vb-hover-hint {
+      display: none; flex: 0 0 auto; padding: 0 8px;
+      color: #f2f4f7; font-size: 11px; font-weight: 500; line-height: 14px;
+      white-space: nowrap; pointer-events: none;
+    }
+    .vb-hover-hint.on { display: block; }
     /* min-height:0 lets the content shrink to 0 as the band rolls up; without it
        the flex default keeps a sliver showing and clips the bar. */
     .vb-content { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: 100%;
@@ -410,7 +422,9 @@ function createViewerBand({
 
     // barRight rides between the title and the ✕: a right-side slot for widgets
     // that should sit apart from the (left-aligned) title, e.g. a "copy body".
-    bar.append(barLeft, titleEl, barRight, closeBtn);
+    hintEl = document.createElement('div');
+    hintEl.className = 'vb-hover-hint';
+    bar.append(barLeft, titleEl, hintEl, barRight, closeBtn);
     // Tap the bar → roll up / restore (same in golden or full); double-click → full
     // screen. See bindBarGestures.
     bindBarGestures();
@@ -623,7 +637,8 @@ function createViewerBand({
   // reach the comment gesture on the terminal text behind the bar; widgets
   // (.vb-btn) stop their own.
   const LEAN_PX = 12;
-  const NEAR_BELOW_PX = 8;
+  const NEAR_BELOW_PX = 12; // as deep as the lean, so what lights up is what takes the click
+  const HINT_DELAY_MS = 150;
   const STEP_SETTLE_MS = 400;
   const END_CLICK_WAIT_MS = 250;
   let lastStepAt = 0;
@@ -631,6 +646,8 @@ function createViewerBand({
   let edgeCatch = null;
   let nearBelow = null;
   let lean = null;
+  let hintEl = null;
+  let hintTimer = null;
   function currentLevel() {
     if (state === 'hidden') return 0;
     return sizeMode === 'full' ? 2 : 1;
@@ -707,15 +724,28 @@ function createViewerBand({
       l.style.height = LEAN_PX + 'px';
     }
     l.classList.toggle('on', leaning);
-    bar.title = !on ? ''
-      : state === 'hidden' ? 'Click for full size · double-click for the split view'
-        : sizeMode === 'full' ? 'Click to roll up · double-click for the split view'
-          : zone === 'shrink' ? 'Click to roll up' : 'Click for full size';
-    l.title = bar.title;
+    showHint(!on ? ''
+      : state === 'hidden' ? '↓ Full size · double-click: split view'
+        : sizeMode === 'full' ? '↑ Roll up · double-click: split view'
+          : zone === 'shrink' ? '↑ Roll up' : '↓ Full size');
+  }
+  // The in-bar hint: after HINT_DELAY_MS on first arrival, then it follows
+  // the pointer across the bar at once; gone the moment the pointer leaves.
+  function showHint(text) {
+    if (!hintEl) return;
+    if (!text) {
+      clearTimeout(hintTimer);
+      hintTimer = null;
+      hintEl.classList.remove('on');
+      return;
+    }
+    hintEl.textContent = text;
+    if (hintEl.classList.contains('on') || hintTimer) return;
+    hintTimer = setTimeout(() => { hintTimer = null; hintEl.classList.add('on'); }, HINT_DELAY_MS);
   }
   // The bar's targets beyond itself: at full the sliver down to the window's
-  // bottom edge (.vb-edge-catch), at golden and on the handle a strip of the
-  // terminal just below it (.vb-near-below). Every size change runs through
+  // bottom edge (.vb-edge-catch), at golden a strip of the terminal just
+  // below it (.vb-near-below). Every size change runs through
   // here, so it also drops a hover lean the change has left behind.
   function syncBarTargets() {
     if (!shell) return;
@@ -729,19 +759,17 @@ function createViewerBand({
       nearBelow.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); doubleClickAtEnd(); });
       document.body.appendChild(nearBelow);
     }
-    const canGrow = state === 'hidden' || (state === 'open' && sizeMode !== 'full');
-    nearBelow.classList.toggle('on', canGrow);
-    if (canGrow) {
+    const golden = state === 'open' && sizeMode !== 'full';
+    nearBelow.classList.toggle('on', golden);
+    if (golden) {
       // offsetTop, not the bounding box: the band slides in by a transform.
-      const height = state === 'hidden' ? collapsedHeight()
-        : (parseFloat(shell.style.getPropertyValue('--vb-open-h')) || openHeight());
+      const height = parseFloat(shell.style.getPropertyValue('--vb-open-h')) || openHeight();
       nearBelow.style.top = (shell.offsetTop + height) + 'px';
       nearBelow.style.height = NEAR_BELOW_PX + 'px';
     }
     if (!edgeCatch) {
       edgeCatch = document.createElement('div');
       edgeCatch.className = 'vb-edge-catch';
-      edgeCatch.title = 'Click to roll up · double-click for the split view';
       edgeCatch.addEventListener('pointerenter', () => { if (state === 'open') setHot('shrink'); });
       edgeCatch.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
       edgeCatch.addEventListener('click', (e) => { e.stopPropagation(); onClickAt('shrink'); });
@@ -828,10 +856,8 @@ function createViewerBand({
   window.addEventListener('resize', () => {
     if (!shell) return;
     if (state === 'open') applyOpenSize();
-    else if (state === 'hidden') {
-      shell.style.setProperty('--vb-collapsed-h', collapsedHeight() + 'px');
-      syncBarTargets();
-    } else return;
+    else if (state === 'hidden') shell.style.setProperty('--vb-collapsed-h', collapsedHeight() + 'px');
+    else return;
     // After the re-snap, not on the raw resize: the host's own resize listener
     // runs first and would read the pre-snap edge.
     emitGeometryChange();
