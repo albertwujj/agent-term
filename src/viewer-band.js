@@ -174,7 +174,6 @@ function ensureBandStyles() {
       /* The bar is the band's bottom edge, the divider between doc and
          terminal: drag it to resize (see bindBarGestures); a tap still rolls
          the band up or brings it back. */
-      position: relative;
       user-select: none; cursor: ns-resize;
       backdrop-filter: blur(0px) saturate(1) brightness(1);
       -webkit-backdrop-filter: blur(0px) saturate(1) brightness(1);
@@ -182,15 +181,13 @@ function ensureBandStyles() {
                   backdrop-filter 280ms ease, flex-basis 200ms ease;
     }
     .vb-bar:hover { background: #53565c; }
-    /* The drag's hover sign: a short grip at the bar's top edge, the bottom
-       sheet's handle. Hidden at rest so the bar stays clean; above the title's
-       line so a long title never runs under it. */
-    .vb-grip {
-      position: absolute; top: 3px; left: 50%; width: 28px; height: 3px; margin-left: -14px;
-      border-radius: 2px; background: rgba(218, 222, 227, 0.6);
-      opacity: 0; pointer-events: none; transition: opacity 160ms ease;
-    }
-    .vb-bar:hover .vb-grip, .vb-shell.vb-dragging .vb-grip { opacity: 1; }
+    /* The cursor is the drag's only sign, and it points the ways the bar can
+       go: down only from the rolled-up handle, up only at full, both at golden.
+       macOS draws n-/s-resize as its single-arrow frame cursors (a window edge
+       that can only grow or shrink); Windows draws all three as the double
+       arrow. */
+    .vb-shell.vb-full .vb-bar { cursor: n-resize; }
+    .vb-shell.hidden .vb-bar { cursor: s-resize; }
     /* Where a drag will land the band, drawn over the part that changes: the
        terminal it will take when growing (tinted, the landing line at its
        foot), the doc it will give up when shrinking (veiled, the landing line
@@ -389,9 +386,6 @@ function createViewerBand({
     bar.className = 'vb-bar';
     bar.title = 'Drag to resize · click to hide / show';
 
-    const grip = document.createElement('div');
-    grip.className = 'vb-grip';
-
     barLeft = document.createElement('div');
     barLeft.className = 'vb-bar-left';
 
@@ -406,7 +400,7 @@ function createViewerBand({
 
     // barRight rides between the title and the ✕: a right-side slot for widgets
     // that should sit apart from the (left-aligned) title, e.g. a "copy body".
-    bar.append(grip, barLeft, titleEl, barRight, closeBtn);
+    bar.append(barLeft, titleEl, barRight, closeBtn);
     // Tap the bar → roll up / restore (same in golden or full); double-click → full
     // screen. See bindBarGestures.
     bindBarGestures();
@@ -668,7 +662,6 @@ function createViewerBand({
       drag = null;
       document.removeEventListener('keydown', onDragKey, true);
       try { if (bar.releasePointerCapture) bar.releasePointerCapture(pointerId); } catch {}
-      shell.classList.remove('vb-dragging');
       hideDragGuide();
       if (!moved) return;
       dragEndedAt = Date.now(); // the click this drag's release fires is not a tap
@@ -692,7 +685,6 @@ function createViewerBand({
       if (!drag || e.pointerId !== drag.pointerId) return;
       if (!drag.moved && Math.abs(e.clientY - drag.startY) < DRAG_STEP_PX) return;
       drag.moved = true;
-      shell.classList.add('vb-dragging');
       drag.target = dragTarget(drag.start, drag.startY, e.clientY, drag.bottoms);
       if (drag.target === drag.start) hideDragGuide();
       else showDragGuide(drag.start, drag.target, drag.bottoms);
