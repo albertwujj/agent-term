@@ -172,6 +172,7 @@ try {
 
   await page.locator('.vb-shell.vb-md .vb-bar').click({ position: { x: 300, y: 10 } });
   check('the handle brings it back at full', await waitBand('md', 'full', 2000) === 'full', await band('md'));
+  await sleep(450); // a step swallows clicks off the bar for a beat
 
   // A Send at full: golden while the agent works, full once it is done.
   const paragraph = page.locator('.primary .md-viewer-body p').filter({ hasText: 'first paragraph' });
@@ -192,8 +193,9 @@ try {
   check('answered and idle returns to full', await waitBand('md', 'full', 5000) === 'full', await band('md'));
 
   // Typing in the viewer never resizes it.
-  await page.locator('.vb-shell.vb-md .vb-bar').dblclick({ position: { x: 300, y: 10 } });
-  check('double-click drops to golden', await waitBand('md', 'golden', 2000) === 'golden', await band('md'));
+  await page.locator('.vb-shell.vb-md .vb-bar').click({ position: { x: 300, y: 10 } });
+  check('a click on the bar at full drops to golden', await waitBand('md', 'golden', 2000) === 'golden', await band('md'));
+  await sleep(450); // a step swallows clicks off the bar for a beat
   await page.locator('.primary .md-viewer-body p').filter({ hasText: 'second paragraph' }).click();
   await page.keyboard.type('Another thought.');
   await sleep(800);

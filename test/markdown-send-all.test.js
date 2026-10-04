@@ -179,9 +179,14 @@ async function run() {
   check('answered and idle returns to full', isFull());
 
   // A reply with nothing waiting is a plain Send, and still the receipt.
-  shell().querySelector('.vb-bar').dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }));
-  shell().querySelector('.vb-bar').dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }));
+  // Two clicks on the bar: at full anywhere steps to golden, then the bottom
+  // half (jsdom lays nothing out, so every y is below the bar's middle) steps
+  // back to full. A step swallows stray clicks off the bar for a beat.
+  shell().querySelector('.vb-bar').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, clientY: 5 }));
+  check('a click at full steps to golden', isGolden());
+  shell().querySelector('.vb-bar').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, clientY: 5 }));
   check('back at full by hand', isFull());
+  await sleep(450);
   click(Array.from(find('.md-thread-card.needs-user').querySelectorAll('button')).find((b) => b.textContent === 'Reply'));
   await sleep(20);
   check('with nothing waiting it is a plain Send', !!replyButton('Send') && !replyButton('Send all'));

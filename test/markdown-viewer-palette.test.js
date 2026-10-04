@@ -37,9 +37,13 @@ const viewer = createMarkdownViewer({
   platform: 'darwin',
 });
 
-const doubleClick = (element) => element.dispatchEvent(new window.MouseEvent('dblclick', {
+// A click on the bar steps the band: at full anywhere to golden; at golden
+// the bottom half to full (jsdom lays nothing out, so y=5 is below the
+// bar's middle).
+const clickBar = (element) => element.dispatchEvent(new window.MouseEvent('click', {
   bubbles: true,
   cancelable: true,
+  clientY: 5,
 }));
 
 async function run() {
@@ -59,14 +63,14 @@ async function run() {
     '#eef1f5',
   );
 
-  doubleClick(bar);
+  clickBar(bar);
   assert.ok(!shell.classList.contains('vb-full'));
   assert.strictEqual(
     window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),
     '#dadde1',
   );
 
-  doubleClick(bar);
+  clickBar(bar);
   assert.ok(shell.classList.contains('vb-full'));
   assert.strictEqual(
     window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),

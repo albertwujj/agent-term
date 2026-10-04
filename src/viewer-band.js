@@ -28,28 +28,6 @@
 const VIEWER_BAND_STYLE_ID = 'viewer-band-style';
 const SHARE_FRACTION = { major: 0.62, minor: 0.38 };
 
-// The bar's resize cursor, drawn here so it is the same on macOS and Windows
-// and sized to the 26px bar (about half its height): two triangles, white
-// with a thin dark outline so they read over the grey bar, the light doc and
-// the dark terminal, with the way the bar cannot go greyed — macOS's own
-// frame-resize grammar, which Windows lacks (it draws every resize cursor as
-// one plain double arrow). The hotspot is the gap between them; the native
-// cursor stays as the fallback.
-function barCursor(upAlpha, downAlpha, fallback) {
-  const tri = (points, alpha) => `<polygon points="${points}" fill="#fff" fill-opacity="${alpha}" `
-    + `stroke="#1a1a1a" stroke-opacity="${Math.max(alpha, 0.55)}" stroke-width="1" stroke-linejoin="round"/>`;
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="16" viewBox="0 0 12 16">'
-    + tri('6,1.25 10.75,6.75 1.25,6.75', upAlpha)
-    + tri('1.25,9.25 10.75,9.25 6,14.75', downAlpha)
-    + '</svg>';
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 6 8, ${fallback}`;
-}
-const BAR_CURSOR = {
-  both: barCursor(1, 1, 'ns-resize'),
-  upOnly: barCursor(1, 0.3, 'n-resize'),
-  downOnly: barCursor(0.3, 1, 's-resize'),
-};
-
 // Text entry: where a keystroke lands as text. A focused one inside a band is
 // typing on the band's own terms, so the band needs no host probe for it.
 function isTextEntry(el) {
@@ -193,21 +171,28 @@ function ensureBandStyles() {
          into the dimmed (greyed) terminal below it. */
       border-bottom: 1px solid rgba(0, 0, 0, 0.4);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      /* The bar is the band's bottom edge, the divider between doc and
-         terminal: drag it to resize (see bindBarGestures); a tap still rolls
-         the band up or brings it back. */
-      user-select: none; cursor: ${BAR_CURSOR.both};
+      /* The bar is the band's bottom edge: a click steps its size by where
+         it lands, and a drag resizes (see bindBarGestures). */
+      user-select: none; cursor: pointer;
       backdrop-filter: blur(0px) saturate(1) brightness(1);
       -webkit-backdrop-filter: blur(0px) saturate(1) brightness(1);
       transition: background-color 280ms ease, border-color 280ms ease,
                   backdrop-filter 280ms ease, flex-basis 200ms ease;
     }
-    .vb-bar:hover { background: #53565c; }
-    /* The cursor is the drag's only sign, and it points the ways the bar can
-       go: down only from the rolled-up handle, up only at full, both at golden
-       (BAR_CURSOR). */
-    .vb-shell.vb-full .vb-bar { cursor: ${BAR_CURSOR.upOnly}; }
-    .vb-shell.hidden .vb-bar { cursor: ${BAR_CURSOR.downOnly}; }
+    /* Hover lights the part of the bar a click acts on: at golden its top
+       half (smaller) or bottom half (bigger), at full the whole bar. */
+    .vb-bar.vb-hot-all { background-color: #55585e; }
+    /* A light wash over the half, on top of the bar's own colour (the
+       background shorthand would fade that colour out underneath). */
+    .vb-bar.vb-hot-top { background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.16) 50%, transparent 50%); }
+    .vb-bar.vb-hot-bottom { background-image: linear-gradient(to bottom, transparent 50%, rgba(255, 255, 255, 0.16) 50%); }
+    /* At full the bar stops a few pixels short of the window's bottom edge;
+       that sliver joins the bar, so a pointer thrown to the edge lands on it. */
+    .vb-edge-catch {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 8199; /* under the band: the bar wins any overlap */
+      cursor: pointer; display: none;
+    }
+    .vb-edge-catch.on { display: block; }
     /* Where a drag will land the band, drawn over the part that changes: the
        terminal it will take when growing (tinted, the landing line at its
        foot), the doc it will give up when shrinking (veiled, the landing line
@@ -404,8 +389,6 @@ function createViewerBand({
 
     bar = document.createElement('div');
     bar.className = 'vb-bar';
-    // Every bar gesture, since none shows on its own (see bindBarGestures).
-    bar.title = 'Drag to resize · click to hide / show · double-click to toggle full size';
 
     barLeft = document.createElement('div');
     barLeft.className = 'vb-bar-left';
@@ -472,6 +455,7 @@ function createViewerBand({
     const height = openHeight();
     shell.classList.toggle('vb-full', sizeMode === 'full');
     shell.style.setProperty('--vb-open-h', height + 'px');
+    syncEdgeCatch();
   }
 
   // Run a state flip with transitions off (see .vb-snap). Two frames before
@@ -502,6 +486,7 @@ function createViewerBand({
     shell.classList.remove('hidden');
     shell.classList.add('open');
     state = 'open';
+    syncEdgeCatch();
     emitGeometryChange();
   }
   // Roll up to just the bar handle, keeping content alive so showing is instant.
@@ -516,6 +501,7 @@ function createViewerBand({
       shell.classList.add('hidden');
     });
     state = 'hidden';
+    syncEdgeCatch();
     releaseFocus();
     emitGeometryChange();
     if (typeof onHide === 'function') onHide();
@@ -528,6 +514,7 @@ function createViewerBand({
       shell.classList.add('open');
     });
     state = 'open';
+    syncEdgeCatch();
     emitGeometryChange();
     if (typeof onShow === 'function') onShow();
   }
@@ -612,13 +599,17 @@ function createViewerBand({
     if (state !== 'open') sizeMode = restSize;
   }
 
-  // Bar gestures: a single TAP rolls up / restores (the everyday toggle, same in golden
-  // or full); a DOUBLE-CLICK toggles full ↔ golden — so from full you drop to golden to
-  // read the agent's output in the terminal tail at full size, then double-click back.
-  // The tap is deferred a beat so a double-click doesn't collapse-then-restore first
-  // (jiggle) — the dblclick cancels the pending tap. Both stopPropagation so a
-  // click/dblclick on the bar never reaches the comment gesture on the terminal text
-  // behind it. Widgets (.vb-btn) stopPropagation on their own, so they never reach here.
+  // Bar gestures. A CLICK steps the band's size by where it lands. At golden,
+  // the one size with somewhere to go both ways, the bar's top half steps it
+  // smaller (rolled up) and its bottom half bigger (full): a stepper, top up,
+  // bottom down. At full a click anywhere steps back to golden, and on the
+  // rolled-up handle a click anywhere brings the band back at its default size.
+  // Hover lights the part a click acts on. Each click acts at once, with no
+  // double-click to wait for; a step moves the bar out from under the pointer,
+  // so clicks outside the bar just after one (the rest of a habitual double)
+  // are swallowed rather than landing on the doc or the terminal. Clicks
+  // stopPropagation so they never reach the comment gesture on the terminal
+  // text behind the bar; widgets (.vb-btn) stop their own.
   //
   // A DRAG of the bar resizes: the bar is the band's bottom edge, the divider
   // between doc and terminal, so pulling it down grows the band and pushing it up
@@ -667,15 +658,66 @@ function createViewerBand({
     dragGuide.classList.add('on');
   }
   function hideDragGuide() { if (dragGuide) dragGuide.classList.remove('on'); }
-  // The user's hand, so it ends any Send's round trip, as a double-click does.
+  // The user's hand, so it ends any Send's round trip.
   function setLevelByHand(level) {
     if (level === 0) { hide(); return; }
     endRoundTrip();
     applySize(level === 2 ? 'full' : 'golden');
   }
 
+  const STEP_SETTLE_MS = 400;
+  let lastStepAt = 0;
+  let edgeCatch = null;
+  // What a click at this height does: 'shrink' or 'grow'.
+  function zoneAt(clientY) {
+    if (state === 'hidden') return 'grow';
+    if (sizeMode === 'full') return 'shrink';
+    const r = bar.getBoundingClientRect();
+    return clientY < r.top + r.height / 2 ? 'shrink' : 'grow';
+  }
+  function stepByClick(zone) {
+    lastStepAt = Date.now();
+    if (state === 'hidden') { show(); return; }
+    setLevelByHand(Math.max(0, Math.min(2, currentLevel() + (zone === 'grow' ? 1 : -1))));
+  }
+  // Light the part of the bar a click would act on, and say what it does.
+  function setHot(clientY) {
+    let hot = null;
+    if (clientY != null && state === 'open') {
+      hot = sizeMode === 'full' ? 'all' : (zoneAt(clientY) === 'shrink' ? 'top' : 'bottom');
+    }
+    bar.classList.toggle('vb-hot-all', hot === 'all');
+    bar.classList.toggle('vb-hot-top', hot === 'top');
+    bar.classList.toggle('vb-hot-bottom', hot === 'bottom');
+    bar.title = state === 'hidden' ? 'Click to show'
+      : hot === 'top' ? 'Click to roll up'
+        : hot === 'bottom' ? 'Click for full size'
+          : hot === 'all' ? 'Click to shrink' : '';
+  }
+  // At full, the sliver between the bar and the window's bottom edge is part
+  // of the bar (see .vb-edge-catch).
+  function syncEdgeCatch() {
+    if (!shell) return;
+    if (!edgeCatch) {
+      edgeCatch = document.createElement('div');
+      edgeCatch.className = 'vb-edge-catch';
+      edgeCatch.title = 'Click to shrink';
+      edgeCatch.addEventListener('pointerenter', () => { if (state === 'open') bar.classList.add('vb-hot-all'); });
+      edgeCatch.addEventListener('pointerleave', () => setHot(null));
+      edgeCatch.addEventListener('click', (e) => { e.stopPropagation(); stepByClick('shrink'); setHot(null); });
+      document.body.appendChild(edgeCatch);
+    }
+    const on = state === 'open' && sizeMode === 'full';
+    edgeCatch.classList.toggle('on', on);
+    if (on) {
+      // offsetTop, not the bounding box: the band slides in by a transform,
+      // and the strip belongs where the bar comes to rest.
+      const height = parseFloat(shell.style.getPropertyValue('--vb-open-h')) || openHeight();
+      edgeCatch.style.top = (shell.offsetTop + height) + 'px';
+    }
+  }
+
   function bindBarGestures() {
-    let tapTimer = null;
     let drag = null; // { pointerId, startY, start, target, bottoms, moved }
     const endDrag = (commit) => {
       if (!drag) return;
@@ -703,6 +745,7 @@ function createViewerBand({
       document.addEventListener('keydown', onDragKey, true);
     });
     bar.addEventListener('pointermove', (e) => {
+      if (!drag) setHot(e.clientY);
       if (!drag || e.pointerId !== drag.pointerId) return;
       if (!drag.moved && Math.abs(e.clientY - drag.startY) < DRAG_STEP_PX) return;
       drag.moved = true;
@@ -714,22 +757,27 @@ function createViewerBand({
       if (drag && e.pointerId === drag.pointerId) endDrag(true);
     });
     bar.addEventListener('pointercancel', () => endDrag(false));
+    bar.addEventListener('pointerleave', () => { if (!drag) setHot(null); });
     const justDragged = () => Date.now() - dragEndedAt < 500;
     bar.addEventListener('click', (e) => {
       if (e.target.closest && e.target.closest('.vb-btn')) return;
       e.stopPropagation();
       if (justDragged()) return;
-      if (tapTimer) return; // the 2nd click of a double — dblclick will handle it
-      tapTimer = setTimeout(() => { tapTimer = null; toggle(); }, 250);
+      stepByClick(zoneAt(e.clientY));
+      setHot(e.clientY);
     });
-    bar.addEventListener('dblclick', (e) => {
-      if (e.target.closest && e.target.closest('.vb-btn')) return;
-      if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; } // cancel the pending tap
+    // A double-click is two clicks, each a step; it must not reach the doc's
+    // own double-click (select a word) behind the bar.
+    bar.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
+    const swallowStray = (e) => {
+      if (Date.now() - lastStepAt > STEP_SETTLE_MS) return;
+      if (e.target && e.target.closest && e.target.closest('.vb-bar, .vb-edge-catch')) return;
       e.preventDefault();
       e.stopPropagation();
-      if (justDragged()) return; // a drag's release and a click after it are not a double
-      toggleFullSize();
-    });
+    };
+    for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick']) {
+      document.addEventListener(type, swallowStray, true);
+    }
   }
   // Full dismiss; the viewer's onClose frees content (GC the webview, etc.).
   function close() {
@@ -738,6 +786,7 @@ function createViewerBand({
     sizeMode = restSize; // the next open is a fresh reveal, at the default size
     shell.classList.remove('open', 'hidden', 'vb-full');
     state = 'closed';
+    syncEdgeCatch();
     releaseFocus();
     emitGeometryChange();
     if (typeof onClose === 'function') onClose();

@@ -47,8 +47,10 @@ try {
 
   async function size(full) {
     if (await page.locator('.vb-shell.vb-md').evaluate((el) => el.classList.contains('vb-full')) !== full) {
-      await page.locator('.vb-shell.vb-md .vb-bar').dblclick({ position: { x: 200, y: 10 } });
-      await page.waitForTimeout(350);
+      // The bar steps: at full a click anywhere drops to golden; at golden its
+      // bottom half goes full. A step swallows clicks off the bar for a beat.
+      await page.locator('.vb-shell.vb-md .vb-bar').click({ position: { x: 200, y: 20 } });
+      await page.waitForTimeout(450);
     }
     assert.equal(await page.locator('.vb-shell.vb-md').evaluate((el) => el.classList.contains('vb-full')), full);
   }

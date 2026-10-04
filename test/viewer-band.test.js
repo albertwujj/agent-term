@@ -17,25 +17,45 @@ const band = createViewerBand({ name: 'test' });
 band.open();
 
 const { shell, bar } = band;
-const doubleClickBar = () => bar.dispatchEvent(new window.MouseEvent('dblclick', {
-  bubbles: true,
-  cancelable: true,
-}));
+// The bar is a stepper. jsdom lays nothing out, so it sits where we say: its
+// top half is above y=613, its bottom half below.
+bar.getBoundingClientRect = () => ({ top: 600, bottom: 626, height: 26, left: 0, right: 800, width: 800 });
+const TOP = 605;
+const BOTTOM = 620;
+const clickBar = (y) => bar.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, clientY: y }));
+const hoverBar = (y) => bar.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, clientY: y }));
 
 const goldenHeight = shell.style.getPropertyValue('--vb-open-h');
 assert.ok(shell.classList.contains('open'));
 assert.ok(!shell.classList.contains('vb-full'));
 
-doubleClickBar();
+hoverBar(TOP);
+assert.ok(bar.classList.contains('vb-hot-top') && bar.title === 'Click to roll up', 'hovering the top half at golden lights it');
+hoverBar(BOTTOM);
+assert.ok(bar.classList.contains('vb-hot-bottom') && bar.title === 'Click for full size', 'hovering the bottom half lights it');
+
+clickBar(BOTTOM);
 const fullHeight = shell.style.getPropertyValue('--vb-open-h');
-assert.ok(shell.classList.contains('vb-full'));
+assert.ok(shell.classList.contains('vb-full'), "golden's bottom half steps to full");
 assert.ok(parseFloat(fullHeight) > parseFloat(goldenHeight));
+assert.ok(document.querySelector('.vb-edge-catch.on'), 'at full the sliver below the bar joins it');
+hoverBar(BOTTOM);
+assert.ok(bar.classList.contains('vb-hot-all') && bar.title === 'Click to shrink', 'at full the whole bar is one target');
 
-doubleClickBar();
-assert.ok(!shell.classList.contains('vb-full'));
+clickBar(BOTTOM);
+assert.ok(!shell.classList.contains('vb-full'), 'at full a click anywhere steps back to golden');
 assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
+assert.ok(!document.querySelector('.vb-edge-catch.on'), 'the sliver is only the bar at full');
 
-doubleClickBar();
+clickBar(BOTTOM);
+assert.ok(shell.classList.contains('vb-full'));
+document.querySelector('.vb-edge-catch').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+assert.ok(!shell.classList.contains('vb-full') && shell.classList.contains('open'), 'a click on the sliver steps back to golden');
+clickBar(TOP);
+assert.ok(shell.classList.contains('hidden'), "golden's top half rolls the band up");
+clickBar(TOP);
+assert.ok(shell.classList.contains('open'), 'a click anywhere on the handle brings it back');
+clickBar(BOTTOM);
 assert.ok(shell.classList.contains('vb-full'));
 
 band.hide();
@@ -74,10 +94,25 @@ band.toggleFullSize();
 assert.ok(shell.classList.contains('open') && shell.classList.contains('vb-full'),
   'size toggle from the handle reveals at full');
 
-// The bar's double-click drives the same golden⇄full toggle.
-doubleClickBar();
+// A click on the bar at full steps back to golden, like the size chord.
+clickBar(TOP);
 assert.ok(!shell.classList.contains('vb-full'));
 assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
+
+// A step moves the bar out from under the pointer, so a click elsewhere right
+// after it (the rest of a habitual double-click) is swallowed, not delivered.
+{
+  const target = document.createElement('div');
+  document.body.appendChild(target);
+  let clicks = 0;
+  target.addEventListener('click', () => { clicks += 1; });
+  clickBar(BOTTOM);
+  target.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  assert.strictEqual(clicks, 0, 'a click just after a step is swallowed');
+  clickBar(TOP); // back to golden for what follows; the bar itself still takes clicks
+  assert.ok(!shell.classList.contains('vb-full'));
+  target.remove();
+}
 
 // Esc rolls up an open band — but yields while a modal overlay is up, so the
 // modal (viewer selector, path chooser, session picker) can close itself.
@@ -337,11 +372,10 @@ console.log('viewer-band test passed');
   await sleep(300);
   assert.strictEqual(level(), 'full', 'a pulled-back drag changes nothing, and is no tap');
 
-  const plain = () => { pointer('pointerdown', 992); pointer('pointerup', 992); bar.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); };
+  const plain = () => { pointer('pointerdown', 992); pointer('pointerup', 992); bar.dispatchEvent(new window.MouseEvent('click', { bubbles: true, clientY: 992 })); };
   await sleep(600);
   plain();
-  await sleep(300);
-  assert.strictEqual(level(), 'hidden', 'a plain click on the bar is still the tap');
+  assert.strictEqual(level(), 'golden', 'a plain click at full steps to golden, at once');
 
   // A drag is the user's hand: it ends a Send's round trip like a double-click.
   dg.close();
