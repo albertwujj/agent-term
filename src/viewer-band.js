@@ -28,6 +28,28 @@
 const VIEWER_BAND_STYLE_ID = 'viewer-band-style';
 const SHARE_FRACTION = { major: 0.62, minor: 0.38 };
 
+// The bar's resize cursor, drawn here so it is the same on macOS and Windows
+// and sized to the 26px bar (about half its height): two triangles, white
+// with a thin dark outline so they read over the grey bar, the light doc and
+// the dark terminal, with the way the bar cannot go greyed — macOS's own
+// frame-resize grammar, which Windows lacks (it draws every resize cursor as
+// one plain double arrow). The hotspot is the gap between them; the native
+// cursor stays as the fallback.
+function barCursor(upAlpha, downAlpha, fallback) {
+  const tri = (points, alpha) => `<polygon points="${points}" fill="#fff" fill-opacity="${alpha}" `
+    + `stroke="#1a1a1a" stroke-opacity="${Math.max(alpha, 0.55)}" stroke-width="1" stroke-linejoin="round"/>`;
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="16" viewBox="0 0 12 16">'
+    + tri('6,1.25 10.75,6.75 1.25,6.75', upAlpha)
+    + tri('1.25,9.25 10.75,9.25 6,14.75', downAlpha)
+    + '</svg>';
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 6 8, ${fallback}`;
+}
+const BAR_CURSOR = {
+  both: barCursor(1, 1, 'ns-resize'),
+  upOnly: barCursor(1, 0.3, 'n-resize'),
+  downOnly: barCursor(0.3, 1, 's-resize'),
+};
+
 // Text entry: where a keystroke lands as text. A focused one inside a band is
 // typing on the band's own terms, so the band needs no host probe for it.
 function isTextEntry(el) {
@@ -174,7 +196,7 @@ function ensureBandStyles() {
       /* The bar is the band's bottom edge, the divider between doc and
          terminal: drag it to resize (see bindBarGestures); a tap still rolls
          the band up or brings it back. */
-      user-select: none; cursor: ns-resize;
+      user-select: none; cursor: ${BAR_CURSOR.both};
       backdrop-filter: blur(0px) saturate(1) brightness(1);
       -webkit-backdrop-filter: blur(0px) saturate(1) brightness(1);
       transition: background-color 280ms ease, border-color 280ms ease,
@@ -182,12 +204,10 @@ function ensureBandStyles() {
     }
     .vb-bar:hover { background: #53565c; }
     /* The cursor is the drag's only sign, and it points the ways the bar can
-       go: down only from the rolled-up handle, up only at full, both at golden.
-       macOS draws n-/s-resize as its single-arrow frame cursors (a window edge
-       that can only grow or shrink); Windows draws all three as the double
-       arrow. */
-    .vb-shell.vb-full .vb-bar { cursor: n-resize; }
-    .vb-shell.hidden .vb-bar { cursor: s-resize; }
+       go: down only from the rolled-up handle, up only at full, both at golden
+       (BAR_CURSOR). */
+    .vb-shell.vb-full .vb-bar { cursor: ${BAR_CURSOR.upOnly}; }
+    .vb-shell.hidden .vb-bar { cursor: ${BAR_CURSOR.downOnly}; }
     /* Where a drag will land the band, drawn over the part that changes: the
        terminal it will take when growing (tinted, the landing line at its
        foot), the doc it will give up when shrinking (veiled, the landing line
