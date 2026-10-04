@@ -16,6 +16,7 @@ const { createViewerBand, userIsTyping, setTypingProbe, setAgentIdle } = require
 const band = createViewerBand({ name: 'test' });
 band.open();
 
+(async () => {
 const { shell, bar } = band;
 // The bar is a stepper. jsdom lays nothing out, so it sits where we say: its
 // top half is above y=613, its bottom half below.
@@ -24,6 +25,13 @@ const TOP = 605;
 const BOTTOM = 620;
 const clickBar = (y) => bar.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, clientY: y }));
 const hoverBar = (y) => bar.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, clientY: y }));
+const doubleClickBar = (y) => {
+  clickBar(y);
+  clickBar(y);
+  bar.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientY: y }));
+};
+// A click at full or on the handle waits a beat for a double-click.
+const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
 
 const goldenHeight = shell.style.getPropertyValue('--vb-open-h');
 assert.ok(shell.classList.contains('open'));
@@ -47,26 +55,39 @@ assert.ok(parseFloat(fullHeight) > parseFloat(goldenHeight));
 assert.ok(!lean(), 'a step drops the lean');
 assert.ok(document.querySelector('.vb-edge-catch.on'), 'at full the sliver below the bar joins it');
 hoverBar(BOTTOM);
-assert.ok(lean() && lean().classList.contains('up') && bar.title === 'Click to roll up',
-  'at full the whole bar leans up, its only way');
+assert.ok(lean() && lean().classList.contains('up')
+  && bar.title === 'Click to roll up · double-click for the split view',
+  'at full the whole bar is one target, leaning up, its only way');
 
-// At full a click anywhere rolls the band up: golden is the transitional size
-// a Send recedes to, not a stop on the way.
+// At the two ends a click crosses to the other end — golden is the
+// transitional size a Send recedes to, not a stop on the way — after a beat
+// in which a double-click lands it on golden instead.
 clickBar(BOTTOM);
-assert.ok(shell.classList.contains('hidden'), 'at full a click anywhere rolls the band up');
+assert.ok(shell.classList.contains('vb-full'), 'a click at full waits a beat for a double-click');
+await settle();
+assert.ok(shell.classList.contains('hidden'), 'then rolls the band up');
 assert.ok(!document.querySelector('.vb-edge-catch.on'), 'the sliver is only the bar at full');
+hoverBar(TOP);
+assert.ok(lean() && lean().classList.contains('down')
+  && bar.title === 'Click for full size · double-click for the split view', 'the handle leans down');
 clickBar(TOP);
-assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'),
-  'a click anywhere on the handle brings it back, at its default size');
+await settle();
+assert.ok(shell.classList.contains('vb-full'), 'a click on the handle opens it full');
+doubleClickBar(TOP);
+await settle();
+assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a double-click at full lands on golden');
+clickBar(TOP);
+assert.ok(shell.classList.contains('hidden'), "golden's top half rolls the band up, at once");
+doubleClickBar(TOP);
+await settle();
+assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a double-click on the handle opens golden');
 clickBar(BOTTOM);
-assert.ok(shell.classList.contains('vb-full'));
+assert.ok(shell.classList.contains('vb-full'), "golden's bottom half goes full, at once");
 document.querySelector('.vb-edge-catch').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await settle();
 assert.ok(shell.classList.contains('hidden'), 'a click on the sliver rolls it up too');
 clickBar(TOP);
-clickBar(TOP);
-assert.ok(shell.classList.contains('hidden'), "golden's top half rolls the band up");
-clickBar(TOP);
-clickBar(BOTTOM);
+await settle();
 assert.ok(shell.classList.contains('vb-full'));
 
 band.hide();
@@ -105,11 +126,14 @@ band.toggleFullSize();
 assert.ok(shell.classList.contains('open') && shell.classList.contains('vb-full'),
   'size toggle from the handle reveals at full');
 
-// A click on the bar at full rolls it up; the handle brings it back.
+// A click on the bar at full rolls it up; the handle brings it back, full.
 clickBar(TOP);
+await settle();
 assert.ok(shell.classList.contains('hidden'));
 clickBar(TOP);
-assert.ok(shell.classList.contains('open'));
+await settle();
+assert.ok(shell.classList.contains('vb-full'));
+band.toggleFullSize(); // golden, by the size chord
 
 // A step moves the bar out from under the pointer, so a click elsewhere right
 // after it (the rest of a habitual double-click) is swallowed, not delivered.
@@ -326,5 +350,6 @@ assert.ok(fullBand.isFull(), 'retargeting while closed takes effect on open');
 }
 
 console.log('viewer-band test passed');
+})().catch((err) => { console.error(err); process.exit(1); });
 
 
