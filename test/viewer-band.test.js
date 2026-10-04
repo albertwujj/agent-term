@@ -51,11 +51,11 @@ assert.ok(lean() && lean().classList.contains('up') && lean().style.top === '580
   'hovering the top half at golden leans the bar up, as far as it reaches');
 assert.strictEqual(hint(), '', 'the hint waits a beat');
 await new Promise((resolve) => setTimeout(resolve, 200));
-assert.strictEqual(hint(), 'Roll up', 'at golden the hint names only the action; the lean shows the way');
+assert.strictEqual(hint(), 'Click: roll up', 'the hint names the gesture and what it does');
 hoverBar(BOTTOM);
 assert.ok(lean() && lean().classList.contains('down') && lean().style.top === '626px',
   'hovering the bottom half leans it down');
-assert.strictEqual(hint(), 'Full size', 'once shown, the hint follows the pointer at once');
+assert.strictEqual(hint(), 'Click: full size', 'once shown, the hint follows the pointer at once');
 lean().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 const fullHeight = shell.style.getPropertyValue('--vb-open-h');
 assert.ok(shell.classList.contains('vb-full'), 'the lean is part of the target: a click on it steps the same way');

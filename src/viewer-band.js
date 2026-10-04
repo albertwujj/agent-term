@@ -734,11 +734,11 @@ function createViewerBand({
       l.style.height = REACH_PX + 'px';
     }
     l.classList.toggle('on', leaning);
-    // Name the gesture only where there are two; the lean shows the way.
+    // One grammar everywhere: each gesture named, then what it does.
     showHint(!on ? ''
       : state === 'hidden' ? 'Click: full size · Double-click: split view'
         : sizeMode === 'full' ? 'Click: roll up · Double-click: split view'
-          : zone === 'shrink' ? 'Roll up' : 'Full size');
+          : zone === 'shrink' ? 'Click: roll up' : 'Click: full size');
   }
   // The in-bar hint: after HINT_DELAY_MS on first arrival, then it follows
   // the pointer across the bar at once; gone the moment the pointer leaves.
