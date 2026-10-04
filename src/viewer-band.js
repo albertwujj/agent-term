@@ -179,9 +179,9 @@ function ensureBandStyles() {
       transition: background-color 280ms ease, border-color 280ms ease,
                   backdrop-filter 280ms ease, flex-basis 200ms ease;
     }
-    /* Hover lightens the bar and leans it toward where a click sends it:
-       thicker upward where a click rolls the band up, downward where a click
-       takes it full or brings it back (bindBarGestures). The lean is
+    /* Hover lightens the bar, and at golden leans it toward where a click
+       sends it: thicker upward over the half that rolls the band up,
+       downward over the half that takes it full (bindBarGestures). The lean is
        its own layer, .vb-bar-lean, since the band clips whatever hangs below
        it; while it shows it is part of the click target. */
     .vb-bar.vb-hot { background-color: #55585e; }
@@ -196,11 +196,6 @@ function ensureBandStyles() {
     .vb-bar-lean.on { transform: scaleY(1); pointer-events: auto; }
     .vb-bar-lean.up { transform-origin: bottom; border-top: 1px solid var(--at-hue, rgba(100, 116, 139, 0.85)); }
     .vb-bar-lean.down { transform-origin: top; border-bottom: 1px solid rgba(0, 0, 0, 0.4); }
-    /* On the rolled-up handle the bar is a frosted strip; its lean matches. */
-    .vb-bar-lean.frost {
-      background: color-mix(in srgb, color-mix(in srgb, #4a4d53 50%, #000) 72%, transparent);
-      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 0;
-    }
     /* At full the bar stops a few pixels short of the window's bottom edge;
        that sliver joins the bar, so a pointer thrown to the edge lands on it. */
     .vb-edge-catch {
@@ -676,25 +671,27 @@ function createViewerBand({
     document.body.appendChild(lean);
     return lean;
   }
-  // Hover: lighten the bar, lean it toward `zone` ('shrink' up, 'grow' down),
-  // and say what a click does. null clears it.
+  // Hover: lighten the bar, say what a click does, and at golden lean it
+  // toward `zone` ('shrink' up, 'grow' down) — the lean tells the halves
+  // apart; at the ends every click goes one way, so there is nothing to
+  // tell. null clears it.
   function setHot(zone) {
     if (!bar) return;
     const on = !!zone && (state === 'open' || state === 'hidden');
+    const leaning = on && !atEnd();
     bar.classList.toggle('vb-hot', on);
-    bar.classList.toggle('vb-lean-up', on && zone === 'shrink');
-    bar.classList.toggle('vb-lean-down', on && zone === 'grow');
+    bar.classList.toggle('vb-lean-up', leaning && zone === 'shrink');
+    bar.classList.toggle('vb-lean-down', leaning && zone === 'grow');
     const l = ensureLean();
-    if (on) {
+    if (leaning) {
       const r = bar.getBoundingClientRect();
       l.dataset.zone = zone;
       l.classList.toggle('up', zone === 'shrink');
       l.classList.toggle('down', zone === 'grow');
-      l.classList.toggle('frost', state === 'hidden');
       l.style.top = (zone === 'shrink' ? r.top - LEAN_PX : r.bottom) + 'px';
       l.style.height = LEAN_PX + 'px';
     }
-    l.classList.toggle('on', on);
+    l.classList.toggle('on', leaning);
     bar.title = !on ? ''
       : state === 'hidden' ? 'Click for full size · double-click for the split view'
         : sizeMode === 'full' ? 'Click to roll up · double-click for the split view'

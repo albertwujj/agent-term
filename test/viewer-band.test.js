@@ -55,9 +55,9 @@ assert.ok(parseFloat(fullHeight) > parseFloat(goldenHeight));
 assert.ok(!lean(), 'a step drops the lean');
 assert.ok(document.querySelector('.vb-edge-catch.on'), 'at full the sliver below the bar joins it');
 hoverBar(BOTTOM);
-assert.ok(lean() && lean().classList.contains('up')
+assert.ok(!lean() && bar.classList.contains('vb-hot')
   && bar.title === 'Click to roll up · double-click for the split view',
-  'at full the whole bar is one target, leaning up, its only way');
+  'at full the whole bar is one target; it lightens, with no lean, since every click goes up');
 
 // At the two ends a click crosses to the other end — golden is the
 // transitional size a Send recedes to, not a stop on the way — after a beat
@@ -68,8 +68,8 @@ await settle();
 assert.ok(shell.classList.contains('hidden'), 'then rolls the band up');
 assert.ok(!document.querySelector('.vb-edge-catch.on'), 'the sliver is only the bar at full');
 hoverBar(TOP);
-assert.ok(lean() && lean().classList.contains('down')
-  && bar.title === 'Click for full size · double-click for the split view', 'the handle leans down');
+assert.ok(!lean() && bar.title === 'Click for full size · double-click for the split view',
+  'the handle has no lean either; every click opens it');
 clickBar(TOP);
 await settle();
 assert.ok(shell.classList.contains('vb-full'), 'a click on the handle opens it full');
