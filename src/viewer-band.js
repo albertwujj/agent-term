@@ -218,6 +218,23 @@ function ensureBandStyles() {
       background: #1f2228 ${CHEVRON_UP} no-repeat;
       border-bottom: 1px solid rgba(0, 0, 0, 0.4);
     }
+    /* As a band appears, its chevron slides a few pixels toward the bar and
+       settles: the push, said once in motion, never looping. */
+    .vb-bar-lean.above.nudge { animation: vb-nudge-down 220ms ease-out; }
+    .vb-bar-lean.below.nudge { animation: vb-nudge-up 220ms ease-out; }
+    @keyframes vb-nudge-down {
+      0% { background-position-y: calc(50% - 4px); }
+      60% { background-position-y: calc(50% + 1px); }
+      100% { background-position-y: 50%; }
+    }
+    @keyframes vb-nudge-up {
+      0% { background-position-y: calc(50% + 4px); }
+      60% { background-position-y: calc(50% - 1px); }
+      100% { background-position-y: 50%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .vb-bar-lean.nudge { animation: none; }
+    }
     /* At full the bar stops a few pixels short of the window's bottom edge;
        that sliver joins the bar, so a pointer thrown to the edge lands on it. */
     .vb-edge-catch {
@@ -749,6 +766,12 @@ function createViewerBand({
     const leaning = on && !atEnd();
     bar.classList.toggle('vb-hot', on);
     const l = ensureLean();
+    if (leaning && (!l.classList.contains('on') || l.dataset.zone !== zone)) {
+      // A band appearing, or crossing to the other side: nudge its chevron.
+      l.classList.remove('nudge');
+      void l.offsetWidth; // restart the animation
+      l.classList.add('nudge');
+    }
     if (leaning) {
       // The viewer's side ('grow') is above the bar, the terminal's below.
       const r = bar.getBoundingClientRect();

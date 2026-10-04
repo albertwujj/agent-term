@@ -57,6 +57,7 @@ assert.strictEqual(hint(), 'Click: roll up', 'the hint names the gesture and wha
 hoverBar(TOP);
 assert.ok(lean() && lean().classList.contains('above') && lean().style.top === '580px',
   "hovering the top half draws the viewer's band above it");
+assert.ok(lean().classList.contains('nudge'), 'a band crossing to the other side nudges its chevron again');
 bar.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, clientY: TOP, clientX: 400 }));
 assert.strictEqual(lean().style.backgroundPosition, '391px center', "the band's one chevron sits under the pointer");
 assert.strictEqual(hint(), 'Click: full size', 'once shown, the hint follows the pointer at once');
