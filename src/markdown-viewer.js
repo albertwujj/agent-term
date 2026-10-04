@@ -1279,6 +1279,9 @@ function createMarkdownViewer({
     // full (viewer-band.js). The web viewer keeps golden — a terminal URL is
     // a glance beside the session, not a takeover.
     defaultSize: 'full',
+    // Each page ends in a 20px margin the text never enters (.md-spread-pane),
+    // so at golden the bar may reach up into it.
+    reachAbove: true,
     closeTitle: 'Close markdown viewer',
     escToHide: false,
     focusTerminal,

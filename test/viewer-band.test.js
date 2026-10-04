@@ -13,7 +13,7 @@ Object.defineProperty(window, 'innerHeight', {
 
 const { createViewerBand, userIsTyping, setTypingProbe, setAgentIdle } = require('../src/viewer-band');
 
-const band = createViewerBand({ name: 'test' });
+const band = createViewerBand({ name: 'test', reachAbove: true });
 band.open();
 
 (async () => {
@@ -47,15 +47,15 @@ const hint = () => {
   return el ? el.textContent : '';
 };
 hoverBar(TOP);
-assert.ok(lean() && lean().classList.contains('up') && lean().style.top === '588px',
-  'hovering the top half at golden leans the bar up');
+assert.ok(lean() && lean().classList.contains('up') && lean().style.top === '580px' && lean().style.height === '20px',
+  'hovering the top half at golden leans the bar up, as far as it reaches');
 assert.strictEqual(hint(), '', 'the hint waits a beat');
 await new Promise((resolve) => setTimeout(resolve, 200));
-assert.strictEqual(hint(), '↑ Roll up');
+assert.strictEqual(hint(), 'Roll up', 'at golden the hint names only the action; the lean shows the way');
 hoverBar(BOTTOM);
 assert.ok(lean() && lean().classList.contains('down') && lean().style.top === '626px',
   'hovering the bottom half leans it down');
-assert.strictEqual(hint(), '↓ Full size', 'once shown, the hint follows the pointer at once');
+assert.strictEqual(hint(), 'Full size', 'once shown, the hint follows the pointer at once');
 lean().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 const fullHeight = shell.style.getPropertyValue('--vb-open-h');
 assert.ok(shell.classList.contains('vb-full'), 'the lean is part of the target: a click on it steps the same way');
@@ -65,7 +65,7 @@ assert.ok(document.querySelector('.vb-edge-catch.on'), 'at full the sliver below
 hoverBar(BOTTOM);
 await new Promise((resolve) => setTimeout(resolve, 200));
 assert.ok(!lean() && bar.classList.contains('vb-hot')
-  && hint() === '↑ Roll up · double-click: split view',
+  && hint() === 'Click: roll up · Double-click: split view',
   'at full the whole bar is one target; it lightens, with no lean, since every click goes up');
 
 // At the two ends a click crosses to the other end — golden is the
@@ -78,7 +78,7 @@ assert.ok(shell.classList.contains('hidden'), 'then rolls the band up');
 assert.ok(!document.querySelector('.vb-edge-catch.on'), 'the sliver is only the bar at full');
 hoverBar(TOP);
 await new Promise((resolve) => setTimeout(resolve, 200));
-assert.ok(!lean() && hint() === '↓ Full size · double-click: split view',
+assert.ok(!lean() && hint() === 'Click: full size · Double-click: split view',
   'the handle has no lean either; every click opens it');
 clickBar(TOP);
 await settle();
@@ -91,15 +91,26 @@ assert.ok(shell.classList.contains('hidden'), "golden's top half rolls the band 
 doubleClickBar(TOP);
 await settle();
 assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a double-click on the handle opens golden');
-// A few pixels of terminal just below the bar count as its lower half,
-// wherever the band can grow.
-const nearBelow = () => document.querySelector('.vb-near-below.on');
-assert.ok(nearBelow() && nearBelow().style.height === '12px', 'at golden a strip just below the bar, as deep as the lean, is live');
-nearBelow().dispatchEvent(new window.PointerEvent('pointerenter'));
+// At golden the bar reaches past itself: a strip of terminal below it counts
+// as its lower half and, for a viewer whose page ends in an empty margin, a
+// strip above it as its upper half.
+const reachBelow = () => document.querySelector('.vb-reach-below.on');
+const reachAbove = () => document.querySelector('.vb-reach-above.on');
+assert.ok(reachBelow() && reachBelow().style.height === '20px', 'at golden the bar reaches 20px below');
+assert.ok(reachAbove() && reachAbove().style.height === '20px', 'and, where the viewer allows it, 20px above');
+reachBelow().dispatchEvent(new window.PointerEvent('pointerenter'));
 assert.ok(lean() && lean().classList.contains('down'), 'the pointer arriving from the terminal leans the bar down');
-nearBelow().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+reachBelow().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 assert.ok(shell.classList.contains('vb-full'), 'a click there takes the band full');
-assert.ok(!nearBelow(), 'at full there is nowhere to grow; the edge sliver takes over');
+assert.ok(!reachBelow() && !reachAbove(), 'at full the bar does not reach; the edge sliver takes over');
+band.toggleFullSize();
+reachAbove().dispatchEvent(new window.PointerEvent('pointerenter'));
+assert.ok(lean() && lean().classList.contains('up'), 'the pointer arriving from the page above leans the bar up');
+reachAbove().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+assert.ok(shell.classList.contains('hidden'), 'a click there rolls the band up');
+assert.ok(!reachAbove() && !reachBelow(), 'nor does it reach from the rolled-up handle');
+clickBar(TOP);
+await settle();
 band.toggleFullSize();
 clickBar(BOTTOM);
 assert.ok(shell.classList.contains('vb-full'), "golden's bottom half goes full, at once");
