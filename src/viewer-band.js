@@ -171,13 +171,43 @@ function ensureBandStyles() {
          into the dimmed (greyed) terminal below it. */
       border-bottom: 1px solid rgba(0, 0, 0, 0.4);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      user-select: none; cursor: pointer;
+      /* The bar is the band's bottom edge, the divider between doc and
+         terminal: drag it to resize (see bindBarGestures); a tap still rolls
+         the band up or brings it back. */
+      position: relative;
+      user-select: none; cursor: ns-resize;
       backdrop-filter: blur(0px) saturate(1) brightness(1);
       -webkit-backdrop-filter: blur(0px) saturate(1) brightness(1);
       transition: background-color 280ms ease, border-color 280ms ease,
                   backdrop-filter 280ms ease, flex-basis 200ms ease;
     }
     .vb-bar:hover { background: #53565c; }
+    /* The drag's hover sign: a short grip at the bar's top edge, the bottom
+       sheet's handle. Hidden at rest so the bar stays clean; above the title's
+       line so a long title never runs under it. */
+    .vb-grip {
+      position: absolute; top: 3px; left: 50%; width: 28px; height: 3px; margin-left: -14px;
+      border-radius: 2px; background: rgba(218, 222, 227, 0.6);
+      opacity: 0; pointer-events: none; transition: opacity 160ms ease;
+    }
+    .vb-bar:hover .vb-grip, .vb-shell.vb-dragging .vb-grip { opacity: 1; }
+    /* Where a drag will land the band, drawn over the part that changes: the
+       terminal it will take when growing (tinted, the landing line at its
+       foot), the doc it will give up when shrinking (veiled, the landing line
+       at its head). The doc itself reflows once, on release. */
+    .vb-drag-guide {
+      position: fixed; left: 0; right: 0; z-index: 8201; pointer-events: none;
+      box-sizing: border-box; display: none;
+    }
+    .vb-drag-guide.on { display: block; }
+    .vb-drag-guide.grow {
+      background: color-mix(in srgb, var(--at-hue, rgb(88, 166, 255)) 22%, transparent);
+      border-bottom: 2px solid var(--at-hue, rgba(88, 166, 255, 0.9));
+    }
+    .vb-drag-guide.shrink {
+      background: rgba(10, 12, 16, 0.42);
+      border-top: 2px solid var(--at-hue, rgba(88, 166, 255, 0.9));
+    }
     .vb-bar-left { display: flex; align-items: center; gap: 4px; }
     .vb-bar-right { display: flex; align-items: center; gap: 4px; }
     .vb-btn {
@@ -357,7 +387,10 @@ function createViewerBand({
 
     bar = document.createElement('div');
     bar.className = 'vb-bar';
-    bar.title = 'Click to hide / show';
+    bar.title = 'Drag to resize · click to hide / show';
+
+    const grip = document.createElement('div');
+    grip.className = 'vb-grip';
 
     barLeft = document.createElement('div');
     barLeft.className = 'vb-bar-left';
@@ -373,7 +406,7 @@ function createViewerBand({
 
     // barRight rides between the title and the ✕: a right-side slot for widgets
     // that should sit apart from the (left-aligned) title, e.g. a "copy body".
-    bar.append(barLeft, titleEl, barRight, closeBtn);
+    bar.append(grip, barLeft, titleEl, barRight, closeBtn);
     // Tap the bar → roll up / restore (same in golden or full); double-click → full
     // screen. See bindBarGestures.
     bindBarGestures();
@@ -571,11 +604,108 @@ function createViewerBand({
   // (jiggle) — the dblclick cancels the pending tap. Both stopPropagation so a
   // click/dblclick on the bar never reaches the comment gesture on the terminal text
   // behind it. Widgets (.vb-btn) stopPropagation on their own, so they never reach here.
+  //
+  // A DRAG of the bar resizes: the bar is the band's bottom edge, the divider
+  // between doc and terminal, so pulling it down grows the band and pushing it up
+  // shrinks it. With three sizes the drag is a pull, not an aim: past one row
+  // (DRAG_STEP_PX) it is one size in its direction (golden → full, full → golden,
+  // golden → rolled up), and the pointer passing halfway to the size beyond makes
+  // it two (full → rolled up, the handle → full). A guide shows where the bar will
+  // land; release commits, Esc or pulling back cancels. Nothing reflows while the
+  // pointer moves — the doc re-lays once, on release.
+  const DRAG_STEP_PX = 16;
+  let dragGuide = null;
+  let dragEndedAt = 0;
+  // Bottom edge of the band at each level: 0 rolled up, 1 golden, 2 full.
+  function levelBottoms() {
+    const top = shell.getBoundingClientRect().top;
+    return [top + collapsedHeight(), top + goldenHeight(), top + maxOpenHeight()];
+  }
+  function currentLevel() {
+    if (state === 'hidden') return 0;
+    return sizeMode === 'full' ? 2 : 1;
+  }
+  function dragTarget(start, startY, y, bottoms) {
+    const dy = y - startY;
+    if (Math.abs(dy) < DRAG_STEP_PX) return start;
+    const dir = dy > 0 ? 1 : -1;
+    let target = start + dir;
+    if (target < 0 || target > 2) return start;
+    for (let next = target + dir; next >= 0 && next <= 2; next += dir) {
+      const half = (bottoms[target] + bottoms[next]) / 2;
+      if (dir > 0 ? y > half : y < half) target = next; else break;
+    }
+    return target;
+  }
+  function showDragGuide(start, level, bottoms) {
+    if (!dragGuide) {
+      dragGuide = document.createElement('div');
+      dragGuide.className = 'vb-drag-guide';
+      document.body.appendChild(dragGuide);
+    }
+    const from = bottoms[start];
+    const to = bottoms[level];
+    dragGuide.style.top = Math.min(from, to) + 'px';
+    dragGuide.style.height = Math.max(2, Math.abs(to - from)) + 'px';
+    dragGuide.classList.toggle('grow', to > from);
+    dragGuide.classList.toggle('shrink', to < from);
+    dragGuide.classList.add('on');
+  }
+  function hideDragGuide() { if (dragGuide) dragGuide.classList.remove('on'); }
+  // The user's hand, so it ends any Send's round trip, as a double-click does.
+  function setLevelByHand(level) {
+    if (level === 0) { hide(); return; }
+    endRoundTrip();
+    applySize(level === 2 ? 'full' : 'golden');
+  }
+
   function bindBarGestures() {
     let tapTimer = null;
+    let drag = null; // { pointerId, startY, start, target, bottoms, moved }
+    const endDrag = (commit) => {
+      if (!drag) return;
+      const { start, target, moved, pointerId } = drag;
+      drag = null;
+      document.removeEventListener('keydown', onDragKey, true);
+      try { if (bar.releasePointerCapture) bar.releasePointerCapture(pointerId); } catch {}
+      shell.classList.remove('vb-dragging');
+      hideDragGuide();
+      if (!moved) return;
+      dragEndedAt = Date.now(); // the click this drag's release fires is not a tap
+      if (commit && target !== start) setLevelByHand(target);
+    };
+    const onDragKey = (e) => {
+      if (e.key !== 'Escape' || !drag) return;
+      e.preventDefault();
+      e.stopPropagation();
+      endDrag(false);
+    };
+    bar.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || (e.target.closest && e.target.closest('.vb-btn'))) return;
+      if (state === 'closed') return;
+      drag = { pointerId: e.pointerId, startY: e.clientY, start: currentLevel(), target: currentLevel(),
+        bottoms: levelBottoms(), moved: false };
+      try { if (bar.setPointerCapture) bar.setPointerCapture(e.pointerId); } catch {}
+      document.addEventListener('keydown', onDragKey, true);
+    });
+    bar.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      if (!drag.moved && Math.abs(e.clientY - drag.startY) < DRAG_STEP_PX) return;
+      drag.moved = true;
+      shell.classList.add('vb-dragging');
+      drag.target = dragTarget(drag.start, drag.startY, e.clientY, drag.bottoms);
+      if (drag.target === drag.start) hideDragGuide();
+      else showDragGuide(drag.start, drag.target, drag.bottoms);
+    });
+    bar.addEventListener('pointerup', (e) => {
+      if (drag && e.pointerId === drag.pointerId) endDrag(true);
+    });
+    bar.addEventListener('pointercancel', () => endDrag(false));
+    const justDragged = () => Date.now() - dragEndedAt < 500;
     bar.addEventListener('click', (e) => {
       if (e.target.closest && e.target.closest('.vb-btn')) return;
       e.stopPropagation();
+      if (justDragged()) return;
       if (tapTimer) return; // the 2nd click of a double — dblclick will handle it
       tapTimer = setTimeout(() => { tapTimer = null; toggle(); }, 250);
     });
@@ -584,6 +714,7 @@ function createViewerBand({
       if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; } // cancel the pending tap
       e.preventDefault();
       e.stopPropagation();
+      if (justDragged()) return; // a drag's release and a click after it are not a double
       toggleFullSize();
     });
   }
