@@ -28,6 +28,17 @@
 const VIEWER_BAND_STYLE_ID = 'viewer-band-style';
 const SHARE_FRACTION = { major: 0.62, minor: 0.38 };
 
+// A row of chevrons for the bar's hover bands, one per 140px tile, pointing
+// at the bar: a click on either side pushes it away (see bindBarGestures).
+function chevronRow(points, color) {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="140" height="20" viewBox="0 0 140 20">'
+    + `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.6" `
+    + 'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+const CHEVRONS_DOWN = chevronRow('64,7 70,13 76,7', '#7d828b');
+const CHEVRONS_UP = chevronRow('64,13 70,7 76,13', '#9aa0a8');
+
 // Text entry: where a keystroke lands as text. A focused one inside a band is
 // typing on the band's own terms, so the band needs no host probe for it.
 function isTextEntry(el) {
@@ -179,24 +190,32 @@ function ensureBandStyles() {
       transition: background-color 280ms ease, border-color 280ms ease,
                   backdrop-filter 280ms ease, flex-basis 200ms ease;
     }
-    /* Hover lightens the bar, and at golden leans it toward where a click
-       sends it, as far as the bar reaches: thicker upward over the half that
-       rolls the band up, downward over the half that takes it full
-       (bindBarGestures). The lean is
-       its own layer, .vb-bar-lean, since the band clips whatever hangs below
-       it; while it shows it is part of the click target. */
+    /* Hover lightens the bar, and at golden draws a band on the side the
+       pointer is on, as far as the bar reaches there: above it, in the
+       viewer's shade, with chevrons pointing down (a click pushes the bar
+       down, the viewer goes full); below it, in the terminal's, with
+       chevrons pointing up (the bar goes up, the viewer rolls away)
+       (bindBarGestures). The band is its own layer, .vb-bar-lean, since the
+       band clips whatever hangs below it; while it shows it is part of the
+       click target. */
     .vb-bar.vb-hot { background-color: #55585e; }
-    .vb-bar.vb-hot.vb-lean-up { border-top-color: transparent; }
-    .vb-bar.vb-hot.vb-lean-down { border-bottom-color: transparent; }
     .vb-bar-lean {
       position: fixed; left: 0; right: 0; z-index: 8201; box-sizing: border-box;
-      background: #55585e; cursor: pointer;
+      cursor: pointer;
       transform: scaleY(0); pointer-events: none;
       transition: transform 110ms ease-out;
     }
     .vb-bar-lean.on { transform: scaleY(1); pointer-events: auto; }
-    .vb-bar-lean.up { transform-origin: bottom; border-top: 1px solid var(--at-hue, rgba(100, 116, 139, 0.85)); }
-    .vb-bar-lean.down { transform-origin: top; border-bottom: 1px solid rgba(0, 0, 0, 0.4); }
+    .vb-bar-lean.above {
+      transform-origin: bottom;
+      background: #d3d6db ${CHEVRONS_DOWN} repeat-x center;
+      border-top: 1px solid rgba(100, 116, 139, 0.55);
+    }
+    .vb-bar-lean.below {
+      transform-origin: top;
+      background: #1f2228 ${CHEVRONS_UP} repeat-x center;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.4);
+    }
     /* At full the bar stops a few pixels short of the window's bottom edge;
        that sliver joins the bar, so a pointer thrown to the edge lands on it. */
     .vb-edge-catch {
@@ -204,10 +223,10 @@ function ensureBandStyles() {
       cursor: pointer; display: none;
     }
     .vb-edge-catch.on { display: block; }
-    /* At golden the bar reaches past itself (REACH_PX), so rolling up and
-       going full are easy to hit: below it into the terminal, where the
-       pointer often arrives from, and above it into a viewer whose page ends
-       in an empty margin (reachAbove: the doc's). Not over a review or web
+    /* At golden the bar reaches past itself (REACH_PX), so its two sides
+       are easy to hit: below it into the terminal (roll the viewer up), and
+       above it into a viewer whose page ends in an empty margin (reachAbove:
+       the doc's; go full). Not over a review or web
        page, whose bottom edge is live (its scrollbar included), nor under the
        rolled-up handle, which sits on the terminal's first lines. The reach
        above stands down while the user writes in the band: an edit's bubble
@@ -627,19 +646,22 @@ function createViewerBand({
     if (state !== 'open') sizeMode = restSize;
   }
 
-  // Bar gestures: a CLICK moves the band by where it lands. At golden, the one
-  // size with somewhere to go both ways, the bar's top half rolls the band up
-  // and its bottom half takes it full: a stepper, top up, bottom down. At the
-  // two ends the whole bar is one target and a click goes straight to the
-  // other end — full rolls up, the rolled-up handle opens full — since golden
-  // is the transitional size a Send recedes to, not a stop on the way; a
+  // Bar gestures: a CLICK moves the band by where it lands, pushing the bar
+  // away from the side clicked. At golden, the one size with somewhere to go
+  // both ways, the viewer's side of the bar (its top half, and the reach
+  // above it) pushes the bar down and takes the viewer full; the terminal's
+  // side (its bottom half, and the reach below) pushes it up and rolls the
+  // viewer away. Click the side you want more of. At the two ends the whole
+  // bar is one target and a click goes straight to the other end — full
+  // rolls up, the rolled-up handle opens full — since golden is the
+  // transitional size a Send recedes to, not a stop on the way; a
   // DOUBLE-CLICK at either end lands on golden. So a click at an end waits a
   // beat (END_CLICK_WAIT_MS) for a second one; at golden none waits.
-  // The halves are measured on the resting bar, so the hover lean never moves
-  // the line between them. Hover lightens the bar and leans it toward where a
-  // click sends it (.vb-bar-lean), and the lean takes clicks too, so the
-  // target grows the way the pointer is heading. Each click acts at once; a
-  // step moves the bar out from under the pointer, so clicks off the bar just
+  // The halves are measured on the resting bar, so a hover band never moves
+  // the line between them. Hover lightens the bar and, at golden, draws a
+  // band on the pointer's side (.vb-bar-lean); the band takes clicks too, so
+  // the target is as big as what lights up. Each click acts at once; a step
+  // moves the bar out from under the pointer, so clicks off the bar just
   // after one (the rest of a habitual double-click) are swallowed rather than
   // landing on the doc or the terminal. Clicks stopPropagation so they never
   // reach the comment gesture on the terminal text behind the bar; widgets
@@ -673,7 +695,7 @@ function createViewerBand({
     if (state === 'hidden') return 'grow';
     if (sizeMode === 'full') return 'shrink';
     const r = bar.getBoundingClientRect();
-    return clientY < r.top + r.height / 2 ? 'shrink' : 'grow';
+    return clientY < r.top + r.height / 2 ? 'grow' : 'shrink';
   }
   function stepTo(level) {
     lastStepAt = Date.now();
@@ -713,24 +735,23 @@ function createViewerBand({
     document.body.appendChild(lean);
     return lean;
   }
-  // Hover: lighten the bar, say what a click does, and at golden lean it
-  // toward `zone` ('shrink' up, 'grow' down) — the lean tells the halves
-  // apart; at the ends every click goes one way, so there is nothing to
-  // tell. null clears it.
+  // Hover: lighten the bar, say what a click does, and at golden draw the
+  // band on the side of `zone` ('grow' the viewer's, above; 'shrink' the
+  // terminal's, below) — the band tells the sides apart; at the ends every
+  // click goes one way, so there is nothing to tell. null clears it.
   function setHot(zone) {
     if (!bar) return;
     const on = !!zone && (state === 'open' || state === 'hidden');
     const leaning = on && !atEnd();
     bar.classList.toggle('vb-hot', on);
-    bar.classList.toggle('vb-lean-up', leaning && zone === 'shrink');
-    bar.classList.toggle('vb-lean-down', leaning && zone === 'grow');
     const l = ensureLean();
     if (leaning) {
+      // The viewer's side ('grow') is above the bar, the terminal's below.
       const r = bar.getBoundingClientRect();
       l.dataset.zone = zone;
-      l.classList.toggle('up', zone === 'shrink');
-      l.classList.toggle('down', zone === 'grow');
-      l.style.top = (zone === 'shrink' ? r.top - REACH_PX : r.bottom) + 'px';
+      l.classList.toggle('above', zone === 'grow');
+      l.classList.toggle('below', zone === 'shrink');
+      l.style.top = (zone === 'grow' ? r.top - REACH_PX : r.bottom) + 'px';
       l.style.height = REACH_PX + 'px';
     }
     l.classList.toggle('on', leaning);
@@ -771,8 +792,8 @@ function createViewerBand({
   function syncBarTargets() {
     if (!shell) return;
     setHot(null);
-    if (!reachBelow) reachBelow = reachZone('vb-reach-below', 'grow');
-    if (!reachAbove && reachesAbove) reachAbove = reachZone('vb-reach-above', 'shrink');
+    if (!reachBelow) reachBelow = reachZone('vb-reach-below', 'shrink');
+    if (!reachAbove && reachesAbove) reachAbove = reachZone('vb-reach-above', 'grow');
     const golden = state === 'open' && sizeMode !== 'full';
     reachBelow.classList.toggle('on', golden);
     if (reachAbove) reachAbove.classList.toggle('on', golden);

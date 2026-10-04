@@ -37,8 +37,10 @@ const goldenHeight = shell.style.getPropertyValue('--vb-open-h');
 assert.ok(shell.classList.contains('open'));
 assert.ok(!shell.classList.contains('vb-full'));
 
-// Hover leans the bar toward where a click sends it: a strip just above it
-// over the top half, just below it over the bottom half.
+// At golden a click pushes the bar away from the side clicked: the viewer's
+// side (top half) takes the viewer full, the terminal's side (bottom half)
+// rolls it up. Hover draws a band on the pointer's side, as far as the bar
+// reaches there.
 const lean = () => document.querySelector('.vb-bar-lean.on');
 // The bar names what a click does, a beat after the pointer arrives, then
 // follows the pointer at once.
@@ -46,21 +48,21 @@ const hint = () => {
   const el = bar.querySelector('.vb-hover-hint.on');
   return el ? el.textContent : '';
 };
-hoverBar(TOP);
-assert.ok(lean() && lean().classList.contains('up') && lean().style.top === '580px' && lean().style.height === '20px',
-  'hovering the top half at golden leans the bar up, as far as it reaches');
+hoverBar(BOTTOM);
+assert.ok(lean() && lean().classList.contains('below') && lean().style.top === '626px' && lean().style.height === '20px',
+  "hovering the bottom half at golden draws the terminal's band below the bar");
 assert.strictEqual(hint(), '', 'the hint waits a beat');
 await new Promise((resolve) => setTimeout(resolve, 200));
 assert.strictEqual(hint(), 'Click: roll up', 'the hint names the gesture and what it does');
-hoverBar(BOTTOM);
-assert.ok(lean() && lean().classList.contains('down') && lean().style.top === '626px',
-  'hovering the bottom half leans it down');
+hoverBar(TOP);
+assert.ok(lean() && lean().classList.contains('above') && lean().style.top === '580px',
+  "hovering the top half draws the viewer's band above it");
 assert.strictEqual(hint(), 'Click: full size', 'once shown, the hint follows the pointer at once');
 lean().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 const fullHeight = shell.style.getPropertyValue('--vb-open-h');
-assert.ok(shell.classList.contains('vb-full'), 'the lean is part of the target: a click on it steps the same way');
+assert.ok(shell.classList.contains('vb-full'), 'the band is part of the target: a click on it acts the same way');
 assert.ok(parseFloat(fullHeight) > parseFloat(goldenHeight));
-assert.ok(!lean(), 'a step drops the lean');
+assert.ok(!lean(), 'a step drops the band');
 assert.ok(document.querySelector('.vb-edge-catch.on'), 'at full the sliver below the bar joins it');
 hoverBar(BOTTOM);
 await new Promise((resolve) => setTimeout(resolve, 200));
@@ -86,34 +88,34 @@ assert.ok(shell.classList.contains('vb-full'), 'a click on the handle opens it f
 doubleClickBar(TOP);
 await settle();
 assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a double-click at full lands on golden');
-clickBar(TOP);
-assert.ok(shell.classList.contains('hidden'), "golden's top half rolls the band up, at once");
+clickBar(BOTTOM);
+assert.ok(shell.classList.contains('hidden'), "golden's bottom half rolls the band up, at once");
 doubleClickBar(TOP);
 await settle();
 assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a double-click on the handle opens golden');
 // At golden the bar reaches past itself: a strip of terminal below it counts
-// as its lower half and, for a viewer whose page ends in an empty margin, a
-// strip above it as its upper half.
+// as the terminal's side and, for a viewer whose page ends in an empty
+// margin, a strip above it as the viewer's.
 const reachBelow = () => document.querySelector('.vb-reach-below.on');
 const reachAbove = () => document.querySelector('.vb-reach-above.on');
 assert.ok(reachBelow() && reachBelow().style.height === '20px', 'at golden the bar reaches 20px below');
 assert.ok(reachAbove() && reachAbove().style.height === '20px', 'and, where the viewer allows it, 20px above');
-reachBelow().dispatchEvent(new window.PointerEvent('pointerenter'));
-assert.ok(lean() && lean().classList.contains('down'), 'the pointer arriving from the terminal leans the bar down');
-reachBelow().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-assert.ok(shell.classList.contains('vb-full'), 'a click there takes the band full');
+reachAbove().dispatchEvent(new window.PointerEvent('pointerenter'));
+assert.ok(lean() && lean().classList.contains('above'), "the pointer arriving from the page above draws the viewer's band");
+reachAbove().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+assert.ok(shell.classList.contains('vb-full'), 'a click there takes the viewer full');
 assert.ok(!reachBelow() && !reachAbove(), 'at full the bar does not reach; the edge sliver takes over');
 band.toggleFullSize();
-reachAbove().dispatchEvent(new window.PointerEvent('pointerenter'));
-assert.ok(lean() && lean().classList.contains('up'), 'the pointer arriving from the page above leans the bar up');
-reachAbove().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-assert.ok(shell.classList.contains('hidden'), 'a click there rolls the band up');
+reachBelow().dispatchEvent(new window.PointerEvent('pointerenter'));
+assert.ok(lean() && lean().classList.contains('below'), "the pointer arriving from the terminal draws the terminal's band");
+reachBelow().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+assert.ok(shell.classList.contains('hidden'), 'a click there rolls the viewer up');
 assert.ok(!reachAbove() && !reachBelow(), 'nor does it reach from the rolled-up handle');
 clickBar(TOP);
 await settle();
 band.toggleFullSize();
-clickBar(BOTTOM);
-assert.ok(shell.classList.contains('vb-full'), "golden's bottom half goes full, at once");
+clickBar(TOP);
+assert.ok(shell.classList.contains('vb-full'), "golden's top half goes full, at once");
 document.querySelector('.vb-edge-catch').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await settle();
 assert.ok(shell.classList.contains('hidden'), 'a click on the sliver rolls it up too');
@@ -173,7 +175,7 @@ band.toggleFullSize(); // golden, by the size chord
   document.body.appendChild(target);
   let clicks = 0;
   target.addEventListener('click', () => { clicks += 1; });
-  clickBar(BOTTOM);
+  clickBar(TOP);
   target.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
   assert.strictEqual(clicks, 0, 'a click just after a step is swallowed');
   band.toggleFullSize(); // back to golden for what follows, by the size chord
