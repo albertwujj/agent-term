@@ -471,8 +471,7 @@ function createViewerBand({
     hintEl = document.createElement('div');
     hintEl.className = 'vb-hover-hint';
     bar.append(barLeft, titleEl, hintEl, barRight, closeBtn);
-    // Tap the bar → roll up / restore (same in golden or full); double-click → full
-    // screen. See bindBarGestures.
+    // A click on the bar moves the band by where it lands; see bindBarGestures.
     bindBarGestures();
     // Starting to write in the band (a comment, a reply, an edit) settles the
     // size where it is: a return that landed later would re-flow the page under
@@ -594,9 +593,9 @@ function createViewerBand({
     if (state === 'hidden') show();          // show() applies the size it was just given
     else { applyOpenSize(); emitGeometryChange(); }
   }
-  // The bar's double-click and the size chord: golden⇄full while open; from the
-  // hidden handle it reveals at full — so toggle() reveals at the band's default
-  // size and this always lands full, whatever the default. Always the user's
+  // The size chord: golden⇄full while open; from the hidden handle it reveals
+  // at full — so toggle() reveals at the band's default size and this always
+  // lands full, whatever the default. Always the user's
   // hand, so a size picked here holds: no automatic move overrides it.
   function toggleFullSize() {
     if (state === 'closed' || !shell) return;

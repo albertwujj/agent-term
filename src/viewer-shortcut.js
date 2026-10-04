@@ -23,9 +23,8 @@ function getViewerShortcutAction(input, _platform) {
 
   if (!hasPrimaryModifier) return null;
   // The U/I/O cluster: U picks the viewer, O toggles it shown/hidden (the
-  // everyday tab switch, same as the bar tap), I toggles the open size
-  // golden⇄full (same as the bar double-click; from hidden it reveals at full,
-  // so each open size is one press from the handle). O and I with no viewer at
+  // everyday tab switch), I toggles the open size golden⇄full (from hidden it
+  // reveals at full, so each open size is one press from the handle). O and I with no viewer at
   // all fall through to the selector.
   // (I and O once stepped a collapsed/golden/full size ladder, and before that
   // held a back / forward history cycle; hide/show became a one-press mode

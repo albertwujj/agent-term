@@ -882,10 +882,10 @@ function bandOwningViewer() {
   return null;
 }
 
-// Band chords: Cmd/Ctrl+Shift+O toggles the band shown/hidden (the bar tap),
-// ...+I toggles the open size golden⇄full (the bar double-click; from hidden it
-// reveals at full). Either chord with no viewer at all opens the selector, so
-// the whole cluster gets you a viewer from nothing.
+// Band chords: Cmd/Ctrl+Shift+O toggles the band shown/hidden, ...+I toggles
+// the open size golden⇄full (from hidden it reveals at full). Either chord
+// with no viewer at all opens the selector, so the whole cluster gets you a
+// viewer from nothing.
 function toggleViewerVisibility() {
   const viewer = bandOwningViewer();
   if (!viewer) { toggleViewerSelector(); return; }
