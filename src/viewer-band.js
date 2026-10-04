@@ -384,7 +384,8 @@ function createViewerBand({
 
     bar = document.createElement('div');
     bar.className = 'vb-bar';
-    bar.title = 'Drag to resize · click to hide / show';
+    // Every bar gesture, since none shows on its own (see bindBarGestures).
+    bar.title = 'Drag to resize · click to hide / show · double-click to toggle full size';
 
     barLeft = document.createElement('div');
     barLeft.className = 'vb-bar-left';
