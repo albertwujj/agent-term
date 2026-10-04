@@ -172,20 +172,35 @@ function ensureBandStyles() {
       border-bottom: 1px solid rgba(0, 0, 0, 0.4);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       /* The bar is the band's bottom edge: a click steps its size by where
-         it lands, and a drag resizes (see bindBarGestures). */
+         it lands (see bindBarGestures). */
       user-select: none; cursor: pointer;
       backdrop-filter: blur(0px) saturate(1) brightness(1);
       -webkit-backdrop-filter: blur(0px) saturate(1) brightness(1);
       transition: background-color 280ms ease, border-color 280ms ease,
                   backdrop-filter 280ms ease, flex-basis 200ms ease;
     }
-    /* Hover lights the part of the bar a click acts on: at golden its top
-       half (smaller) or bottom half (bigger), at full the whole bar. */
-    .vb-bar.vb-hot-all { background-color: #55585e; }
-    /* A light wash over the half, on top of the bar's own colour (the
-       background shorthand would fade that colour out underneath). */
-    .vb-bar.vb-hot-top { background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.16) 50%, transparent 50%); }
-    .vb-bar.vb-hot-bottom { background-image: linear-gradient(to bottom, transparent 50%, rgba(255, 255, 255, 0.16) 50%); }
+    /* Hover lightens the bar and leans it toward where a click sends it:
+       thicker upward where a click rolls the band up or shrinks it, downward
+       where a click grows it or brings it back (bindBarGestures). The lean is
+       its own layer, .vb-bar-lean, since the band clips whatever hangs below
+       it; while it shows it is part of the click target. */
+    .vb-bar.vb-hot { background-color: #55585e; }
+    .vb-bar.vb-hot.vb-lean-up { border-top-color: transparent; }
+    .vb-bar.vb-hot.vb-lean-down { border-bottom-color: transparent; }
+    .vb-bar-lean {
+      position: fixed; left: 0; right: 0; z-index: 8201; box-sizing: border-box;
+      background: #55585e; cursor: pointer;
+      transform: scaleY(0); pointer-events: none;
+      transition: transform 110ms ease-out;
+    }
+    .vb-bar-lean.on { transform: scaleY(1); pointer-events: auto; }
+    .vb-bar-lean.up { transform-origin: bottom; border-top: 1px solid var(--at-hue, rgba(100, 116, 139, 0.85)); }
+    .vb-bar-lean.down { transform-origin: top; border-bottom: 1px solid rgba(0, 0, 0, 0.4); }
+    /* On the rolled-up handle the bar is a frosted strip; its lean matches. */
+    .vb-bar-lean.frost {
+      background: color-mix(in srgb, color-mix(in srgb, #4a4d53 50%, #000) 72%, transparent);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 0;
+    }
     /* At full the bar stops a few pixels short of the window's bottom edge;
        that sliver joins the bar, so a pointer thrown to the edge lands on it. */
     .vb-edge-catch {
@@ -193,23 +208,6 @@ function ensureBandStyles() {
       cursor: pointer; display: none;
     }
     .vb-edge-catch.on { display: block; }
-    /* Where a drag will land the band, drawn over the part that changes: the
-       terminal it will take when growing (tinted, the landing line at its
-       foot), the doc it will give up when shrinking (veiled, the landing line
-       at its head). The doc itself reflows once, on release. */
-    .vb-drag-guide {
-      position: fixed; left: 0; right: 0; z-index: 8201; pointer-events: none;
-      box-sizing: border-box; display: none;
-    }
-    .vb-drag-guide.on { display: block; }
-    .vb-drag-guide.grow {
-      background: color-mix(in srgb, var(--at-hue, rgb(88, 166, 255)) 22%, transparent);
-      border-bottom: 2px solid var(--at-hue, rgba(88, 166, 255, 0.9));
-    }
-    .vb-drag-guide.shrink {
-      background: rgba(10, 12, 16, 0.42);
-      border-top: 2px solid var(--at-hue, rgba(88, 166, 255, 0.9));
-    }
     .vb-bar-left { display: flex; align-items: center; gap: 4px; }
     .vb-bar-right { display: flex; align-items: center; gap: 4px; }
     .vb-btn {
@@ -599,75 +597,35 @@ function createViewerBand({
     if (state !== 'open') sizeMode = restSize;
   }
 
-  // Bar gestures. A CLICK steps the band's size by where it lands. At golden,
+  // Bar gestures: a CLICK steps the band's size by where it lands. At golden,
   // the one size with somewhere to go both ways, the bar's top half steps it
   // smaller (rolled up) and its bottom half bigger (full): a stepper, top up,
   // bottom down. At full a click anywhere steps back to golden, and on the
   // rolled-up handle a click anywhere brings the band back at its default size.
-  // Hover lights the part a click acts on. Each click acts at once, with no
-  // double-click to wait for; a step moves the bar out from under the pointer,
-  // so clicks outside the bar just after one (the rest of a habitual double)
-  // are swallowed rather than landing on the doc or the terminal. Clicks
-  // stopPropagation so they never reach the comment gesture on the terminal
-  // text behind the bar; widgets (.vb-btn) stop their own.
-  //
-  // A DRAG of the bar resizes: the bar is the band's bottom edge, the divider
-  // between doc and terminal, so pulling it down grows the band and pushing it up
-  // shrinks it. With three sizes the drag is a pull, not an aim: past one row
-  // (DRAG_STEP_PX) it is one size in its direction (golden → full, full → golden,
-  // golden → rolled up), and the pointer passing halfway to the size beyond makes
-  // it two (full → rolled up, the handle → full). A guide shows where the bar will
-  // land; release commits, Esc or pulling back cancels. Nothing reflows while the
-  // pointer moves — the doc re-lays once, on release.
-  const DRAG_STEP_PX = 16;
-  let dragGuide = null;
-  let dragEndedAt = 0;
-  // Bottom edge of the band at each level: 0 rolled up, 1 golden, 2 full.
-  function levelBottoms() {
-    const top = shell.getBoundingClientRect().top;
-    return [top + collapsedHeight(), top + goldenHeight(), top + maxOpenHeight()];
-  }
+  // The halves are measured on the resting bar, so the hover lean never moves
+  // the line between them. Hover lightens the bar and leans it toward where a
+  // click sends it (.vb-bar-lean), and the lean takes clicks too, so the
+  // target grows the way the pointer is heading. Each click acts at once; a
+  // step moves the bar out from under the pointer, so clicks off the bar just
+  // after one (the rest of a habitual double-click) are swallowed rather than
+  // landing on the doc or the terminal. Clicks stopPropagation so they never
+  // reach the comment gesture on the terminal text behind the bar; widgets
+  // (.vb-btn) stop their own.
+  const LEAN_PX = 6;
+  const STEP_SETTLE_MS = 400;
+  let lastStepAt = 0;
+  let edgeCatch = null;
+  let lean = null;
   function currentLevel() {
     if (state === 'hidden') return 0;
     return sizeMode === 'full' ? 2 : 1;
   }
-  function dragTarget(start, startY, y, bottoms) {
-    const dy = y - startY;
-    if (Math.abs(dy) < DRAG_STEP_PX) return start;
-    const dir = dy > 0 ? 1 : -1;
-    let target = start + dir;
-    if (target < 0 || target > 2) return start;
-    for (let next = target + dir; next >= 0 && next <= 2; next += dir) {
-      const half = (bottoms[target] + bottoms[next]) / 2;
-      if (dir > 0 ? y > half : y < half) target = next; else break;
-    }
-    return target;
-  }
-  function showDragGuide(start, level, bottoms) {
-    if (!dragGuide) {
-      dragGuide = document.createElement('div');
-      dragGuide.className = 'vb-drag-guide';
-      document.body.appendChild(dragGuide);
-    }
-    const from = bottoms[start];
-    const to = bottoms[level];
-    dragGuide.style.top = Math.min(from, to) + 'px';
-    dragGuide.style.height = Math.max(2, Math.abs(to - from)) + 'px';
-    dragGuide.classList.toggle('grow', to > from);
-    dragGuide.classList.toggle('shrink', to < from);
-    dragGuide.classList.add('on');
-  }
-  function hideDragGuide() { if (dragGuide) dragGuide.classList.remove('on'); }
   // The user's hand, so it ends any Send's round trip.
   function setLevelByHand(level) {
     if (level === 0) { hide(); return; }
     endRoundTrip();
     applySize(level === 2 ? 'full' : 'golden');
   }
-
-  const STEP_SETTLE_MS = 400;
-  let lastStepAt = 0;
-  let edgeCatch = null;
   // What a click at this height does: 'shrink' or 'grow'.
   function zoneAt(clientY) {
     if (state === 'hidden') return 'grow';
@@ -680,31 +638,59 @@ function createViewerBand({
     if (state === 'hidden') { show(); return; }
     setLevelByHand(Math.max(0, Math.min(2, currentLevel() + (zone === 'grow' ? 1 : -1))));
   }
-  // Light the part of the bar a click would act on, and say what it does.
-  function setHot(clientY) {
-    let hot = null;
-    if (clientY != null && state === 'open') {
-      hot = sizeMode === 'full' ? 'all' : (zoneAt(clientY) === 'shrink' ? 'top' : 'bottom');
+  const onBarTarget = (el) => !!(el && el.closest && el.closest('.vb-bar, .vb-edge-catch, .vb-bar-lean'));
+  function ensureLean() {
+    if (lean) return lean;
+    lean = document.createElement('div');
+    lean.className = 'vb-bar-lean';
+    lean.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
+    lean.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const zone = lean.dataset.zone;
+      setHot(null);
+      stepByClick(zone);
+    });
+    document.body.appendChild(lean);
+    return lean;
+  }
+  // Hover: lighten the bar, lean it toward `zone` ('shrink' up, 'grow' down),
+  // and say what a click does. null clears it.
+  function setHot(zone) {
+    if (!bar) return;
+    const on = !!zone && (state === 'open' || state === 'hidden');
+    bar.classList.toggle('vb-hot', on);
+    bar.classList.toggle('vb-lean-up', on && zone === 'shrink');
+    bar.classList.toggle('vb-lean-down', on && zone === 'grow');
+    const l = ensureLean();
+    if (on) {
+      const r = bar.getBoundingClientRect();
+      l.dataset.zone = zone;
+      l.classList.toggle('up', zone === 'shrink');
+      l.classList.toggle('down', zone === 'grow');
+      l.classList.toggle('frost', state === 'hidden');
+      l.style.top = (zone === 'shrink' ? r.top - LEAN_PX : r.bottom) + 'px';
+      l.style.height = LEAN_PX + 'px';
     }
-    bar.classList.toggle('vb-hot-all', hot === 'all');
-    bar.classList.toggle('vb-hot-top', hot === 'top');
-    bar.classList.toggle('vb-hot-bottom', hot === 'bottom');
-    bar.title = state === 'hidden' ? 'Click to show'
-      : hot === 'top' ? 'Click to roll up'
-        : hot === 'bottom' ? 'Click for full size'
-          : hot === 'all' ? 'Click to shrink' : '';
+    l.classList.toggle('on', on);
+    bar.title = !on ? ''
+      : state === 'hidden' ? 'Click to show'
+        : sizeMode === 'full' ? 'Click to shrink'
+          : zone === 'shrink' ? 'Click to roll up' : 'Click for full size';
+    l.title = bar.title;
   }
   // At full, the sliver between the bar and the window's bottom edge is part
-  // of the bar (see .vb-edge-catch).
+  // of the bar (see .vb-edge-catch). Every size change runs through here, so
+  // it also drops a hover lean the change has left behind.
   function syncEdgeCatch() {
     if (!shell) return;
+    setHot(null);
     if (!edgeCatch) {
       edgeCatch = document.createElement('div');
       edgeCatch.className = 'vb-edge-catch';
       edgeCatch.title = 'Click to shrink';
-      edgeCatch.addEventListener('pointerenter', () => { if (state === 'open') bar.classList.add('vb-hot-all'); });
-      edgeCatch.addEventListener('pointerleave', () => setHot(null));
-      edgeCatch.addEventListener('click', (e) => { e.stopPropagation(); stepByClick('shrink'); setHot(null); });
+      edgeCatch.addEventListener('pointerenter', () => { if (state === 'open') setHot('shrink'); });
+      edgeCatch.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
+      edgeCatch.addEventListener('click', (e) => { e.stopPropagation(); stepByClick('shrink'); });
       document.body.appendChild(edgeCatch);
     }
     const on = state === 'open' && sizeMode === 'full';
@@ -718,60 +704,21 @@ function createViewerBand({
   }
 
   function bindBarGestures() {
-    let drag = null; // { pointerId, startY, start, target, bottoms, moved }
-    const endDrag = (commit) => {
-      if (!drag) return;
-      const { start, target, moved, pointerId } = drag;
-      drag = null;
-      document.removeEventListener('keydown', onDragKey, true);
-      try { if (bar.releasePointerCapture) bar.releasePointerCapture(pointerId); } catch {}
-      hideDragGuide();
-      if (!moved) return;
-      dragEndedAt = Date.now(); // the click this drag's release fires is not a tap
-      if (commit && target !== start) setLevelByHand(target);
-    };
-    const onDragKey = (e) => {
-      if (e.key !== 'Escape' || !drag) return;
-      e.preventDefault();
-      e.stopPropagation();
-      endDrag(false);
-    };
-    bar.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || (e.target.closest && e.target.closest('.vb-btn'))) return;
-      if (state === 'closed') return;
-      drag = { pointerId: e.pointerId, startY: e.clientY, start: currentLevel(), target: currentLevel(),
-        bottoms: levelBottoms(), moved: false };
-      try { if (bar.setPointerCapture) bar.setPointerCapture(e.pointerId); } catch {}
-      document.addEventListener('keydown', onDragKey, true);
-    });
     bar.addEventListener('pointermove', (e) => {
-      if (!drag) setHot(e.clientY);
-      if (!drag || e.pointerId !== drag.pointerId) return;
-      if (!drag.moved && Math.abs(e.clientY - drag.startY) < DRAG_STEP_PX) return;
-      drag.moved = true;
-      drag.target = dragTarget(drag.start, drag.startY, e.clientY, drag.bottoms);
-      if (drag.target === drag.start) hideDragGuide();
-      else showDragGuide(drag.start, drag.target, drag.bottoms);
+      if (e.target.closest && e.target.closest('.vb-btn')) { setHot(null); return; }
+      setHot(zoneAt(e.clientY));
     });
-    bar.addEventListener('pointerup', (e) => {
-      if (drag && e.pointerId === drag.pointerId) endDrag(true);
-    });
-    bar.addEventListener('pointercancel', () => endDrag(false));
-    bar.addEventListener('pointerleave', () => { if (!drag) setHot(null); });
-    const justDragged = () => Date.now() - dragEndedAt < 500;
+    bar.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
     bar.addEventListener('click', (e) => {
       if (e.target.closest && e.target.closest('.vb-btn')) return;
       e.stopPropagation();
-      if (justDragged()) return;
       stepByClick(zoneAt(e.clientY));
-      setHot(e.clientY);
     });
     // A double-click is two clicks, each a step; it must not reach the doc's
     // own double-click (select a word) behind the bar.
     bar.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
     const swallowStray = (e) => {
-      if (Date.now() - lastStepAt > STEP_SETTLE_MS) return;
-      if (e.target && e.target.closest && e.target.closest('.vb-bar, .vb-edge-catch')) return;
+      if (Date.now() - lastStepAt > STEP_SETTLE_MS || onBarTarget(e.target)) return;
       e.preventDefault();
       e.stopPropagation();
     };

@@ -29,10 +29,22 @@ const goldenHeight = shell.style.getPropertyValue('--vb-open-h');
 assert.ok(shell.classList.contains('open'));
 assert.ok(!shell.classList.contains('vb-full'));
 
+// Hover leans the bar toward where a click sends it: a strip just above it
+// over the top half, just below it over the bottom half.
+const lean = () => document.querySelector('.vb-bar-lean.on');
 hoverBar(TOP);
-assert.ok(bar.classList.contains('vb-hot-top') && bar.title === 'Click to roll up', 'hovering the top half at golden lights it');
+assert.ok(lean() && lean().classList.contains('up') && lean().style.top === '594px',
+  'hovering the top half at golden leans the bar up');
+assert.strictEqual(bar.title, 'Click to roll up');
 hoverBar(BOTTOM);
-assert.ok(bar.classList.contains('vb-hot-bottom') && bar.title === 'Click for full size', 'hovering the bottom half lights it');
+assert.ok(lean() && lean().classList.contains('down') && lean().style.top === '626px',
+  'hovering the bottom half leans it down');
+assert.strictEqual(bar.title, 'Click for full size');
+lean().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+assert.ok(shell.classList.contains('vb-full'), 'the lean is part of the target: a click on it steps the same way');
+assert.ok(!lean(), 'a step drops the lean');
+clickBar(TOP); // back to golden for the steps below
+bar.dispatchEvent(new window.PointerEvent('pointerleave', { bubbles: true }));
 
 clickBar(BOTTOM);
 const fullHeight = shell.style.getPropertyValue('--vb-open-h');
@@ -40,7 +52,8 @@ assert.ok(shell.classList.contains('vb-full'), "golden's bottom half steps to fu
 assert.ok(parseFloat(fullHeight) > parseFloat(goldenHeight));
 assert.ok(document.querySelector('.vb-edge-catch.on'), 'at full the sliver below the bar joins it');
 hoverBar(BOTTOM);
-assert.ok(bar.classList.contains('vb-hot-all') && bar.title === 'Click to shrink', 'at full the whole bar is one target');
+assert.ok(lean() && lean().classList.contains('up') && bar.title === 'Click to shrink',
+  'at full the whole bar leans up, its only way');
 
 clickBar(BOTTOM);
 assert.ok(!shell.classList.contains('vb-full'), 'at full a click anywhere steps back to golden');
@@ -315,80 +328,4 @@ assert.ok(fullBand.isFull(), 'retargeting while closed takes effect on open');
 
 console.log('viewer-band test passed');
 
-// Dragging the bar resizes. jsdom lays nothing out, so the band's bottom sits
-// at 26 rolled up, 620 golden (0.62 of 1000) and 992 full. A pull past one row
-// is one size; past halfway to the size beyond, two. A guide shows the landing;
-// Esc or pulling back cancels; the click a drag's release fires is no tap.
-(async () => {
-  const dg = createViewerBand({ name: 'drag', escToHide: false });
-  dg.open();
-  const bar = dg.bar;
-  const pointer = (type, y) => bar.dispatchEvent(new window.PointerEvent(type, {
-    bubbles: true, cancelable: true, button: 0, pointerId: 1, clientY: y,
-  }));
-  const guide = () => document.querySelector('.vb-drag-guide.on');
-  const level = () => (dg.isHidden() ? 'hidden' : dg.isFull() ? 'full' : 'golden');
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const drag = (from, ...to) => { pointer('pointerdown', from); for (const y of to) pointer('pointermove', y); };
-
-  drag(620, 630);
-  assert.ok(!guide(), 'under a row of movement is no drag yet');
-  pointer('pointermove', 640);
-  assert.ok(guide(), 'a pull past a row shows where the bar will land');
-  assert.ok(guide().classList.contains('grow') && guide().style.top === '620px' && guide().style.height === '372px',
-    'the guide covers the terminal the band will take, down to where the bar lands');
-  pointer('pointerup', 640);
-  bar.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  assert.strictEqual(level(), 'full', 'a short pull down from golden lands full');
-  assert.ok(!guide(), 'the guide goes on release');
-  await sleep(300);
-  assert.strictEqual(level(), 'full', "the release's click is not a tap that rolls the band up");
-
-  drag(992, 960);
-  assert.ok(guide().classList.contains('shrink') && guide().style.top === '620px' && guide().style.height === '372px',
-    'a short push up from full veils the doc golden gives up');
-  pointer('pointermove', 300);
-  assert.ok(guide().style.top === '26px' && guide().style.height === '966px', 'past halfway to the handle, it targets rolled up');
-  pointer('pointerup', 300);
-  assert.strictEqual(level(), 'hidden', 'two sizes in one drag');
-
-  drag(26, 50);
-  assert.ok(guide().classList.contains('grow') && guide().style.top === '26px' && guide().style.height === '594px',
-    'from the handle a short pull opens golden');
-  pointer('pointermove', 900);
-  pointer('pointerup', 900);
-  assert.strictEqual(level(), 'full', 'a long pull from the handle lands full');
-
-  drag(992, 900);
-  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-  assert.ok(!guide(), 'Esc cancels the drag');
-  pointer('pointerup', 900);
-  assert.strictEqual(level(), 'full', 'and nothing moves');
-
-  drag(992, 960, 985);
-  assert.ok(!guide(), 'pulling back under a row of movement shows no landing');
-  pointer('pointerup', 985);
-  bar.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  await sleep(300);
-  assert.strictEqual(level(), 'full', 'a pulled-back drag changes nothing, and is no tap');
-
-  const plain = () => { pointer('pointerdown', 992); pointer('pointerup', 992); bar.dispatchEvent(new window.MouseEvent('click', { bubbles: true, clientY: 992 })); };
-  await sleep(600);
-  plain();
-  assert.strictEqual(level(), 'golden', 'a plain click at full steps to golden, at once');
-
-  // A drag is the user's hand: it ends a Send's round trip like a double-click.
-  dg.close();
-  dg.open();
-  drag(620, 640); pointer('pointerup', 640);
-  dg.recedeForSend();
-  assert.strictEqual(level(), 'golden');
-  setAgentIdle(true);
-  drag(620, 640); pointer('pointerup', 640);
-  drag(992, 960); pointer('pointerup', 960);
-  dg.reportThreads({ answered: true, resolved: true });
-  assert.strictEqual(level(), 'golden', 'a size dragged to holds; the return does not override it');
-  dg.close();
-  console.log('viewer-band drag test passed');
-})().catch((err) => { console.error(err); process.exit(1); });
 
