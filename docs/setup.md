@@ -45,7 +45,7 @@ The [suite guides](suite.md#using-the-components) cover writing on plans, reques
 
 ## Terminal only
 
-For a smaller setup, follow [Install the terminal](#install-the-terminal) and [Launch and start using it](#launch-and-start-using-it). You can add any of the local components later.
+For a smaller setup, follow the [Install the terminal](#install-the-terminal) and [Launch and start using it](#launch-and-start-using-it) sections above. You can add any of the local components later.
 
 <a id="optional-suite"></a>
 
