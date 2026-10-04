@@ -203,6 +203,19 @@ function ensureBandStyles() {
       cursor: pointer; display: none;
     }
     .vb-edge-catch.on { display: block; }
+    /* A few pixels of terminal just below the bar count as its lower half
+       wherever the band can grow (golden, the rolled-up handle): growing is
+       the common move, and the pointer often arrives from the terminal.
+       Above the bar nothing is taken: that is the page, scrollbar included. */
+    .vb-near-below {
+      position: fixed; left: 0; right: 0; z-index: 8199;
+      cursor: pointer; display: none;
+    }
+    .vb-near-below.on { display: block; }
+    .vb-shell.hidden .vb-bar.vb-hot {
+      background: color-mix(in srgb, color-mix(in srgb, var(--vb-bar) 50%, #000) 72%, transparent);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    }
     .vb-bar-left { display: flex; align-items: center; gap: 4px; }
     .vb-bar-right { display: flex; align-items: center; gap: 4px; }
     .vb-btn {
@@ -448,7 +461,7 @@ function createViewerBand({
     const height = openHeight();
     shell.classList.toggle('vb-full', sizeMode === 'full');
     shell.style.setProperty('--vb-open-h', height + 'px');
-    syncEdgeCatch();
+    syncBarTargets();
   }
 
   // Run a state flip with transitions off (see .vb-snap). Two frames before
@@ -479,7 +492,7 @@ function createViewerBand({
     shell.classList.remove('hidden');
     shell.classList.add('open');
     state = 'open';
-    syncEdgeCatch();
+    syncBarTargets();
     emitGeometryChange();
   }
   // Roll up to just the bar handle, keeping content alive so showing is instant.
@@ -494,7 +507,7 @@ function createViewerBand({
       shell.classList.add('hidden');
     });
     state = 'hidden';
-    syncEdgeCatch();
+    syncBarTargets();
     releaseFocus();
     emitGeometryChange();
     if (typeof onHide === 'function') onHide();
@@ -507,7 +520,7 @@ function createViewerBand({
       shell.classList.add('open');
     });
     state = 'open';
-    syncEdgeCatch();
+    syncBarTargets();
     emitGeometryChange();
     if (typeof onShow === 'function') onShow();
   }
@@ -610,11 +623,13 @@ function createViewerBand({
   // reach the comment gesture on the terminal text behind the bar; widgets
   // (.vb-btn) stop their own.
   const LEAN_PX = 12;
+  const NEAR_BELOW_PX = 8;
   const STEP_SETTLE_MS = 400;
   const END_CLICK_WAIT_MS = 250;
   let lastStepAt = 0;
   let endClickTimer = null;
   let edgeCatch = null;
+  let nearBelow = null;
   let lean = null;
   function currentLevel() {
     if (state === 'hidden') return 0;
@@ -655,7 +670,7 @@ function createViewerBand({
     if (atEnd()) clickAtEnd();
     else stepTo(zone === 'grow' ? 2 : 0);
   }
-  const onBarTarget = (el) => !!(el && el.closest && el.closest('.vb-bar, .vb-edge-catch, .vb-bar-lean'));
+  const onBarTarget = (el) => !!(el && el.closest && el.closest('.vb-bar, .vb-edge-catch, .vb-near-below, .vb-bar-lean'));
   function ensureLean() {
     if (lean) return lean;
     lean = document.createElement('div');
@@ -698,12 +713,31 @@ function createViewerBand({
           : zone === 'shrink' ? 'Click to roll up' : 'Click for full size';
     l.title = bar.title;
   }
-  // At full, the sliver between the bar and the window's bottom edge is part
-  // of the bar (see .vb-edge-catch). Every size change runs through here, so
-  // it also drops a hover lean the change has left behind.
-  function syncEdgeCatch() {
+  // The bar's targets beyond itself: at full the sliver down to the window's
+  // bottom edge (.vb-edge-catch), at golden and on the handle a strip of the
+  // terminal just below it (.vb-near-below). Every size change runs through
+  // here, so it also drops a hover lean the change has left behind.
+  function syncBarTargets() {
     if (!shell) return;
     setHot(null);
+    if (!nearBelow) {
+      nearBelow = document.createElement('div');
+      nearBelow.className = 'vb-near-below';
+      nearBelow.addEventListener('pointerenter', () => setHot('grow'));
+      nearBelow.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
+      nearBelow.addEventListener('click', (e) => { e.stopPropagation(); onClickAt('grow'); });
+      nearBelow.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); doubleClickAtEnd(); });
+      document.body.appendChild(nearBelow);
+    }
+    const canGrow = state === 'hidden' || (state === 'open' && sizeMode !== 'full');
+    nearBelow.classList.toggle('on', canGrow);
+    if (canGrow) {
+      // offsetTop, not the bounding box: the band slides in by a transform.
+      const height = state === 'hidden' ? collapsedHeight()
+        : (parseFloat(shell.style.getPropertyValue('--vb-open-h')) || openHeight());
+      nearBelow.style.top = (shell.offsetTop + height) + 'px';
+      nearBelow.style.height = NEAR_BELOW_PX + 'px';
+    }
     if (!edgeCatch) {
       edgeCatch = document.createElement('div');
       edgeCatch.className = 'vb-edge-catch';
@@ -717,8 +751,6 @@ function createViewerBand({
     const on = state === 'open' && sizeMode === 'full';
     edgeCatch.classList.toggle('on', on);
     if (on) {
-      // offsetTop, not the bounding box: the band slides in by a transform,
-      // and the strip belongs where the bar comes to rest.
       const height = parseFloat(shell.style.getPropertyValue('--vb-open-h')) || openHeight();
       edgeCatch.style.top = (shell.offsetTop + height) + 'px';
     }
@@ -759,7 +791,7 @@ function createViewerBand({
     sizeMode = restSize; // the next open is a fresh reveal, at the default size
     shell.classList.remove('open', 'hidden', 'vb-full');
     state = 'closed';
-    syncEdgeCatch();
+    syncBarTargets();
     releaseFocus();
     emitGeometryChange();
     if (typeof onClose === 'function') onClose();
@@ -796,8 +828,10 @@ function createViewerBand({
   window.addEventListener('resize', () => {
     if (!shell) return;
     if (state === 'open') applyOpenSize();
-    else if (state === 'hidden') shell.style.setProperty('--vb-collapsed-h', collapsedHeight() + 'px');
-    else return;
+    else if (state === 'hidden') {
+      shell.style.setProperty('--vb-collapsed-h', collapsedHeight() + 'px');
+      syncBarTargets();
+    } else return;
     // After the re-snap, not on the raw resize: the host's own resize listener
     // runs first and would read the pre-snap edge.
     emitGeometryChange();

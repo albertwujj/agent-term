@@ -81,6 +81,16 @@ assert.ok(shell.classList.contains('hidden'), "golden's top half rolls the band 
 doubleClickBar(TOP);
 await settle();
 assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a double-click on the handle opens golden');
+// A few pixels of terminal just below the bar count as its lower half,
+// wherever the band can grow.
+const nearBelow = () => document.querySelector('.vb-near-below.on');
+assert.ok(nearBelow() && nearBelow().style.height === '8px', 'at golden a strip just below the bar is live');
+nearBelow().dispatchEvent(new window.PointerEvent('pointerenter'));
+assert.ok(lean() && lean().classList.contains('down'), 'the pointer arriving from the terminal leans the bar down');
+nearBelow().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+assert.ok(shell.classList.contains('vb-full'), 'a click there takes the band full');
+assert.ok(!nearBelow(), 'at full there is nowhere to grow; the edge sliver takes over');
+band.toggleFullSize();
 clickBar(BOTTOM);
 assert.ok(shell.classList.contains('vb-full'), "golden's bottom half goes full, at once");
 document.querySelector('.vb-edge-catch').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
