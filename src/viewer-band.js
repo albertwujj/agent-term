@@ -28,16 +28,17 @@
 const VIEWER_BAND_STYLE_ID = 'viewer-band-style';
 const SHARE_FRACTION = { major: 0.62, minor: 0.38 };
 
-// A row of chevrons for the bar's hover bands, one per 140px tile, pointing
-// at the bar: a click on either side pushes it away (see bindBarGestures).
-function chevronRow(points, color) {
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="140" height="20" viewBox="0 0 140 20">'
-    + `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.6" `
+// The chevron in the bar's hover band, drawn by the pointer and pointing at
+// the bar: a click on either side pushes it away (see bindBarGestures).
+const CHEVRON_W = 18;
+function chevron(points, color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CHEVRON_W}" height="12" viewBox="0 0 ${CHEVRON_W} 12">`
+    + `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" `
     + 'stroke-linecap="round" stroke-linejoin="round"/></svg>';
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
-const CHEVRONS_DOWN = chevronRow('64,7 70,13 76,7', '#7d828b');
-const CHEVRONS_UP = chevronRow('64,13 70,7 76,13', '#9aa0a8');
+const CHEVRON_DOWN = chevron('2,3 9,10 16,3', '#3f4652');
+const CHEVRON_UP = chevron('2,9 9,2 16,9', '#e5e7eb');
 
 // Text entry: where a keystroke lands as text. A focused one inside a band is
 // typing on the band's own terms, so the band needs no host probe for it.
@@ -192,9 +193,10 @@ function ensureBandStyles() {
     }
     /* Hover lightens the bar, and at golden draws a band on the side the
        pointer is on, as far as the bar reaches there: above it, in the
-       viewer's shade, with chevrons pointing down (a click pushes the bar
-       down, the viewer goes full); below it, in the terminal's, with
-       chevrons pointing up (the bar goes up, the viewer rolls away)
+       viewer's shade, with a chevron by the pointer pointing down (a click
+       pushes the bar down, the viewer goes full); below it, in the
+       terminal's, with one pointing up (the bar goes up, the viewer rolls
+       away)
        (bindBarGestures). The band is its own layer, .vb-bar-lean, since the
        band clips whatever hangs below it; while it shows it is part of the
        click target. */
@@ -208,12 +210,12 @@ function ensureBandStyles() {
     .vb-bar-lean.on { transform: scaleY(1); pointer-events: auto; }
     .vb-bar-lean.above {
       transform-origin: bottom;
-      background: #d3d6db ${CHEVRONS_DOWN} repeat-x center;
+      background: #d3d6db ${CHEVRON_DOWN} no-repeat;
       border-top: 1px solid rgba(100, 116, 139, 0.55);
     }
     .vb-bar-lean.below {
       transform-origin: top;
-      background: #1f2228 ${CHEVRONS_UP} repeat-x center;
+      background: #1f2228 ${CHEVRON_UP} no-repeat;
       border-bottom: 1px solid rgba(0, 0, 0, 0.4);
     }
     /* At full the bar stops a few pixels short of the window's bottom edge;
@@ -680,6 +682,7 @@ function createViewerBand({
   let lean = null;
   let hintEl = null;
   let hintTimer = null;
+  let pointerX = null; // where the band's chevron sits
   function currentLevel() {
     if (state === 'hidden') return 0;
     return sizeMode === 'full' ? 2 : 1;
@@ -725,6 +728,7 @@ function createViewerBand({
     lean = document.createElement('div');
     lean.className = 'vb-bar-lean';
     lean.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
+    lean.addEventListener('pointermove', trackPointer);
     lean.addEventListener('click', (e) => {
       e.stopPropagation();
       const zone = lean.dataset.zone;
@@ -753,6 +757,7 @@ function createViewerBand({
       l.classList.toggle('below', zone === 'shrink');
       l.style.top = (zone === 'grow' ? r.top - REACH_PX : r.bottom) + 'px';
       l.style.height = REACH_PX + 'px';
+      placeChevron();
     }
     l.classList.toggle('on', leaning);
     // One grammar everywhere: each gesture named, then what it does.
@@ -760,6 +765,16 @@ function createViewerBand({
       : state === 'hidden' ? 'Click: full size · Double-click: split view'
         : sizeMode === 'full' ? 'Click: roll up · Double-click: split view'
           : zone === 'shrink' ? 'Click: roll up' : 'Click: full size');
+  }
+  // Keep the band's chevron under the pointer (centred, if it never moved).
+  function trackPointer(e) {
+    pointerX = e.clientX;
+    placeChevron();
+  }
+  function placeChevron() {
+    if (!lean) return;
+    const x = pointerX == null ? (window.innerWidth || 0) / 2 : pointerX;
+    lean.style.backgroundPosition = `${Math.round(x - CHEVRON_W / 2)}px center`;
   }
   // The in-bar hint: after HINT_DELAY_MS on first arrival, then it follows
   // the pointer across the bar at once; gone the moment the pointer leaves.
@@ -782,7 +797,8 @@ function createViewerBand({
   function reachZone(cls, zone) {
     const el = document.createElement('div');
     el.className = cls;
-    el.addEventListener('pointerenter', () => setHot(zone));
+    el.addEventListener('pointerenter', (e) => { pointerX = e.clientX; setHot(zone); });
+    el.addEventListener('pointermove', trackPointer);
     el.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
     el.addEventListener('click', (e) => { e.stopPropagation(); onClickAt(zone); });
     el.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
@@ -827,6 +843,7 @@ function createViewerBand({
   function bindBarGestures() {
     bar.addEventListener('pointermove', (e) => {
       if (e.target.closest && e.target.closest('.vb-btn')) { setHot(null); return; }
+      pointerX = e.clientX;
       setHot(zoneAt(e.clientY));
     });
     bar.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
