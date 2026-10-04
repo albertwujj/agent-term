@@ -9,7 +9,7 @@
 
 <a id="demo"></a>
 
-Expand each AI CLI session into a rich visual workspace for the new way of working *(autoplays after loading)*:
+Expand AI CLI sessions into rich visual workspaces for the new way of working with tasks, docs, and code *(autoplays after loading)*:
 
 [![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo-971d228eea7d.gif)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-demo-971d228eea7d.gif)
 
