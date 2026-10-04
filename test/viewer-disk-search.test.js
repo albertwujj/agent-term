@@ -28,7 +28,7 @@ function test(name, fn) {
 }
 
 // A neighbourhood the walk has opinions about: a repo with pruned folders and
-// a .git that only contributes discussion/, every kind the band renders plus
+// a .git that only contributes conversation/, every kind the band renders plus
 // an archive it does not, a sibling repo, and a doc at the sibling root.
 // Every file gets an explicit mtime (T, or T plus a bump) so the order the
 // walk prints is deterministic.
@@ -51,7 +51,7 @@ function makeTree() {
   put('repo/src/a.js', 500);
   put('repo/node_modules/pkg/README.md', 500);
   put('repo/.cache/c.md', 500);
-  put('repo/.git/discussion/topic.md');
+  put('repo/.git/conversation/topic.md');
   put('repo/.git/objects/x.md', 500);
   put('sib/other.md', 300);
   put('home-only.md', 50);
@@ -77,7 +77,7 @@ console.log('viewer-disk-search');
 
 const root = makeTree();
 try {
-  test('lists every band-viewable file most recently modified first, ties in walk order; pruned folders out, .git only via discussion', () => {
+  test('lists every band-viewable file most recently modified first, ties in walk order; pruned folders out, .git only via conversation', () => {
     const listed = paths(walk(path.join(root, 'repo'), '', 0, 100)).map((p) => path.relative(root, p));
     assert.deepStrictEqual(listed, [
       'repo/docs/guide.md',
@@ -86,7 +86,7 @@ try {
       'repo/notes.MARKDOWN',
       'repo/paper.pdf',
       'repo/docs/shot.PNG',
-      'repo/.git/discussion/topic.md',
+      'repo/.git/conversation/topic.md',
     ]);
   });
 

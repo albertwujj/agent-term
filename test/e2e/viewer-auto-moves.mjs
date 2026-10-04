@@ -2,9 +2,9 @@
 // the real PTY.
 //
 //   - A resumed conversation reprints its history; a handoff in it (here a
-//     discussion doc's path) does not open. Only output answering a turn the
+//     conversation doc's path) does not open. Only output answering a turn the
 //     user started opens one.
-//   - A discussion doc's path printed in answer opens the doc, full; a second
+//   - A conversation doc's path printed in answer opens the doc, full; a second
 //     one printed with it does not replace it, and a toast says it arrived.
 //   - Any input to the terminal rolls the viewer up, a one-key answer included.
 //   - A Send recedes the band to golden; it stays golden while the agent works
@@ -41,11 +41,11 @@ const repo = path.join(tmp, 'repo');
 fs.mkdirSync(repo);
 const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' }).toString().trim();
 git('init', '-q', '-b', 'main');
-const discussion = path.join(repo, '.git', 'discussion');
-fs.mkdirSync(discussion, { recursive: true });
-const doc = (title) => `# ${title}\n\nThe first paragraph of this discussion carries enough words to click on.\n\n`
+const conversation = path.join(repo, '.git', 'conversation');
+fs.mkdirSync(conversation, { recursive: true });
+const doc = (title) => `# ${title}\n\nThe first paragraph of this conversation doc carries enough words to click on.\n\n`
   + 'The second paragraph is here so the page has more than one block.\n';
-for (const name of ['replayed', 'first', 'second']) fs.writeFileSync(path.join(discussion, `${name}.md`), doc(name));
+for (const name of ['replayed', 'first', 'second']) fs.writeFileSync(path.join(conversation, `${name}.md`), doc(name));
 // The runbook the md send preflights, vendored where the host looks first.
 fs.mkdirSync(path.join(repo, 'ai', 'agent-threads', 'md'), { recursive: true });
 fs.writeFileSync(path.join(repo, 'ai', 'agent-threads', 'md', 'user-intent.md'), '# user intent (stub)\n');
@@ -58,20 +58,20 @@ const reviewPkg = (branch) => {
 };
 const replayedReview = reviewPkg('main');
 const laterReview = reviewPkg('later');
-const store = path.join(discussion, '.agent-threads', 'first-comments.json');
+const store = path.join(conversation, '.agent-threads', 'first-comments.json');
 
 const fake = path.join(tmp, 'fake-claude.cjs');
 fs.writeFileSync(fake, `
   const fs = require('node:fs');
   const path = require('node:path');
-  const discussion = ${JSON.stringify(discussion)};
+  const conversation = ${JSON.stringify(conversation)};
   const store = ${JSON.stringify(store)};
   const replayedReview = ${JSON.stringify(replayedReview)};
   const laterReview = ${JSON.stringify(laterReview)};
   const title = (t) => process.stdout.write('\\x1b]0;' + t + '\\x07');
   title('✳ Fake session');
   if (process.argv.includes('--resume')) {
-    process.stdout.write('Earlier in this conversation:\\r\\n' + path.join(discussion, 'replayed.md') + '\\r\\n'
+    process.stdout.write('Earlier in this conversation:\\r\\n' + path.join(conversation, 'replayed.md') + '\\r\\n'
       + 'Review: review://' + replayedReview + '\\r\\n');
   }
   let working = false;
@@ -83,7 +83,7 @@ fs.writeFileSync(fake, `
   function onLine(line) {
     if (/split please/.test(line)) {
       work((done) => setTimeout(() => {
-        process.stdout.write('\\r\\n' + path.join(discussion, 'first.md') + '\\r\\n' + path.join(discussion, 'second.md') + '\\r\\n');
+        process.stdout.write('\\r\\n' + path.join(conversation, 'first.md') + '\\r\\n' + path.join(conversation, 'second.md') + '\\r\\n');
         done();
       }, 300));
     } else if (/comments\\.json/.test(line) && !working) {
@@ -158,10 +158,10 @@ try {
     await band('md') === 'none' && await band('web') === 'none', [await band('md'), await band('web')]);
 
   await typeLine('split please');
-  check('a discussion doc printed in answer to a prompt opens, full', await waitBand('md', 'full', 8000) === 'full', await band('md'));
+  check('a conversation doc printed in answer to a prompt opens, full', await waitBand('md', 'full', 8000) === 'full', await band('md'));
   const title = await page.locator('.vb-shell.vb-md .vb-title').textContent();
   check('it is the first doc printed', title.endsWith('first.md'), title);
-  check('the second doc toasts instead of replacing it', await waitToast('a discussion doc', 3000));
+  check('the second doc toasts instead of replacing it', await waitToast('Agent posted a doc', 3000));
   await sleep(500);
   check('and the first stays on stage', (await page.locator('.vb-shell.vb-md .vb-title').textContent()).endsWith('first.md'));
 

@@ -31,7 +31,7 @@
 // below already walked it; '' for none), `budget` seconds of wall clock (0 =
 // no deadline), `cap` the most paths to print, `exts` a comma-separated list
 // of dotted lower-case extensions. Prune set and the .git rule (only
-// .git/discussion contributes) match CLICK_SEARCH_PRUNE in main.js.
+// .git/conversation contributes) match CLICK_SEARCH_PRUNE in main.js.
 //
 // Breadth-first, directories in sorted order: a tier that runs out of budget
 // has listed the shallow files of every folder in it (each sibling repo's
@@ -63,7 +63,7 @@ while queue:
         entries = sorted(os.scandir(d), key=lambda e: e.name)
     except OSError:
         continue
-    only = "discussion" if os.path.basename(d) == ".git" else None
+    only = "conversation" if os.path.basename(d) == ".git" else None
     for e in entries:
         try:
             is_dir = e.is_dir(follow_symlinks=False)

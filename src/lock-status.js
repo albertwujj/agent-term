@@ -5,7 +5,7 @@
 // Status only. The icon never pings, prompts, or interrupts an agent; the
 // protocol's own guards (agent-lock's acquire/release/switch-work refusals,
 // assert-head) are where "wrong" is caught. Design and the reasons for no
-// warnings: .git/discussion/lock-warnings.md.
+// warnings: .git/conversation/lock-warnings.md.
 //
 //   facts:  { lockHeld, owner: { branch, session } | null, headBranch }
 //           owner is the parsed .git/agent-lock-owner record; null when the

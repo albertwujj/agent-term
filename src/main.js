@@ -589,7 +589,7 @@ function pasteCommentMessage(body, { toPrompt = false } = {}) {
   return toPrompt ? writeAsBracketedPasteToPrompt(body) : writeAsBracketedPasteSubmission(body);
 }
 
-// The renderer auto-opens an agent's handoff (a review:// link, a discussion
+// The renderer auto-opens an agent's handoff (a review:// link, a conversation
 // doc) only in output that answers a turn the user started in this window: a
 // prompt typed or sent from the phone, a shell command, a Send from a viewer.
 // Launching a CLI and /resume disarm it until the next one, since what follows
@@ -3910,10 +3910,10 @@ async function getWSLCwd() {
 // match as a whole suffix (-path '*/src/foo.js'); a bare filename matches by
 // -name. Bulky trees are pruned so the sweep returns within its timeout, and a
 // timed-out find still yields the hits it printed before the kill.
-// .git is pruned by content, not by name: discussion docs live at
-// .git/discussion/<topic>.md by convention and must stay clickable, while the
+// .git is pruned by content, not by name: conversation docs live at
+// .git/conversation/<topic>.md by convention and must stay clickable, while the
 // rest of .git (objects, refs, the review runtime) stays out of every search.
-const CLICK_SEARCH_PRUNE = String.raw`\( -name node_modules -o -name .cache -o -name .npm -o -name Library -o \( -path '*/.git/*' ! -path '*/.git/discussion' ! -path '*/.git/discussion/*' \) \) -prune -o`;
+const CLICK_SEARCH_PRUNE = String.raw`\( -name node_modules -o -name .cache -o -name .npm -o -name Library -o \( -path '*/.git/*' ! -path '*/.git/conversation' ! -path '*/.git/conversation/*' \) \) -prune -o`;
 const CLICK_SEARCH_MAX_CHOICES = 8;
 // The markdown chooser filters as you type, so it can present a longer list of
 // same-named files than the fixed Alt-click chooser (where 8 is all that fits).
@@ -3937,7 +3937,7 @@ def sweep(top, skip, deadline):
             dirnames[:] = []
             continue
         if os.path.basename(dirpath) == ".git":
-            dirnames[:] = [d for d in dirnames if d == "discussion"]
+            dirnames[:] = [d for d in dirnames if d == "conversation"]
             continue
         dirnames[:] = [d for d in dirnames if d not in prune]
         if name in filenames:
@@ -4078,7 +4078,7 @@ async function markdownHomeSweep(root, rel) {
 // plain clicks used to silently take the first `find` hit. Absolute / ~ paths
 // name one file; a path with separators is specific enough to resolve directly.
 // Scope is the repo (cwd) tree plus its sibling folders, then home when those
-// miss (node_modules etc. pruned; .git contributes only .git/discussion); the
+// miss (node_modules etc. pruned; .git contributes only .git/conversation); the
 // show-every-candidate sweep stays reserved for the explicit Alt-click gesture.
 // A folder the terminal printed (folders, see mentionedFolderHits) is tried
 // ahead of the tree searches: for a path with separators it answers outright
@@ -4548,7 +4548,7 @@ ipcMain.on('review-viewer-closed', () => { stopReviewSync(); reviewDiffKeys.clea
 // lock/agent as a padlock in the chrome bar (src/chrome-bar.js). Status only:
 // no notice, no interrupt. The decision is pure (src/lock-status.js); this is
 // the git I/O, the holder-window lookup, and the poll. Design, and why there
-// are no warnings: .git/discussion/lock-warnings.md.
+// are no warnings: .git/conversation/lock-warnings.md.
 const LOCK_POLL_HELD_MS = 4000;   // cadence while there is something to show
 const LOCK_POLL_QUIET_MS = 12000; // cadence while there is not
 // A holder whose window produced no output for this long shows hollow

@@ -57,7 +57,7 @@ const {
   extractMentionedFolders,
 } = require('./mentioned-folders');
 const { isReviewPackagePath } = require('./review-package-path');
-const { isDiscussionDocPath } = require('./discussion-doc-path');
+const { isConversationDocPath } = require('./conversation-doc-path');
 const { userIsTyping, setTypingProbe, setAgentIdle } = require('./viewer-band');
 
 // Custom title-bar / chrome bar — replaces the old session-banner row and
@@ -432,9 +432,9 @@ const streamViewerCandidates = new ViewerStreamAccumulator({ limit: 100 });
 const reviewSightings = new Map();
 // Sightings waiting for a survey.
 const pendingReviewSurveys = new Set();
-// Discussion docs already sighted. Only a doc's first sighting is a handoff:
+// Conversation docs already sighted. Only a doc's first sighting is a handoff:
 // agents name their docs again in passing, so a later mention moves nothing.
-const discussionSightings = new Set();
+const conversationSightings = new Set();
 
 // Main's word on whether output now answers a turn the user started here
 // (setViewerAutoOpenArmed): a CLI reprinting a resumed conversation is not.
@@ -452,9 +452,9 @@ function captureViewerCandidates(data) {
       forgetRendererWrappedViewerValidation(entry);
       void ensureRendererWrappedViewerValidation(entry).promise;
     }
-    if (entry.kind === 'md' && isDiscussionDocPath(entry.key)) {
-      if (discussionSightings.has(entry.key)) continue;
-      discussionSightings.add(entry.key);
+    if (entry.kind === 'md' && isConversationDocPath(entry.key)) {
+      if (conversationSightings.has(entry.key)) continue;
+      conversationSightings.add(entry.key);
       if (viewerAutoOpenArmed) handoffs.push(entry);
       continue;
     }
@@ -537,15 +537,16 @@ function surveyReviewSightings() {
 }
 
 // An agent's handoff opens on its own, so the user needn't click it: a
-// review:// link (produce-review's) or a discussion doc's path (split's), on
-// its FIRST sighting, in output answering the user's turn (the capture site
-// checks both and filters example links; a review link's later sightings are
-// surveyed, and a new copy goes to maybeRevealReprintedReview). It never
+// review:// link (produce-review's) or a conversation doc's path
+// (continue-in-doc's), on its FIRST sighting, in output answering the user's
+// turn (the capture site checks both and filters example links; a review
+// link's later sightings are surveyed, and a new copy goes to
+// maybeRevealReprintedReview). It never
 // replaces a viewer already up, open or rolled up, and never lands while the
 // user is typing (viewer-band.js): either way a toast says it arrived, and the
 // printed link stays clickable. A path that does not exist is skipped
 // silently, never popped or toasted (the "md path is not valid" corner case).
-// One at a time, each waiting for the last to open, so a burst of discussion
+// One at a time, each waiting for the last to open, so a burst of conversation
 // paths opens the first and toasts the rest.
 let handoffQueue = Promise.resolve();
 function queueHandoffOpen(entry) {
@@ -562,7 +563,7 @@ async function openHandoff(entry) {
 }
 
 // Handoffs that arrived without opening, counted over a beat so a burst of
-// discussion paths reads as one toast.
+// doc paths reads as one toast.
 const skippedHandoffs = { review: 0, md: 0 };
 let skippedHandoffTimer = null;
 function noteSkippedHandoff(kind) {
@@ -575,7 +576,7 @@ function noteSkippedHandoff(kind) {
     skippedHandoffs.md = 0;
     const parts = [];
     if (review) parts.push(review === 1 ? 'a review' : `${review} reviews`);
-    if (md) parts.push(md === 1 ? 'a discussion doc' : `${md} discussion docs`);
+    if (md) parts.push(md === 1 ? 'a doc' : `${md} docs`);
     showToast(`Agent posted ${parts.join(' and ')} — click ${review + md === 1 ? 'the link' : 'a link'} to open`);
   }, 400);
 }

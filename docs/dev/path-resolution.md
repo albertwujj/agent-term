@@ -12,7 +12,7 @@ Both live in `src/main.js` and probe the disk only through the POSIX shell seam.
 
 ## Pruning
 
-One prune set serves the click resolvers and the viewer selector's disk walk (`src/viewer-disk-search.js`): `node_modules`, `.cache`, `.npm`, `Library`. `.git` is pruned by content rather than by name, so `.git/discussion` stays reachable while objects, refs, and the review runtime stay out of every search.
+One prune set serves the click resolvers and the viewer selector's disk walk (`src/viewer-disk-search.js`): `node_modules`, `.cache`, `.npm`, `Library`. `.git` is pruned by content rather than by name, so `.git/conversation` stays reachable while objects, refs, and the review runtime stay out of every search.
 
 ## Deadlines
 

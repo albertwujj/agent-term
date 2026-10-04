@@ -8,7 +8,7 @@ Click a file name or path the agent printed, and the terminal finds the file and
 
 **Several matches.** A bare name like `README.md` often exists in more than one place. One match opens at once; several are offered to choose from, the one under the session's directory first. Hold Alt (Option on a Mac) while clicking to be offered every match everywhere, which is how you reach a same-named file in another repo.
 
-**What is skipped.** Dependency and cache folders (`node_modules`, `.cache`, `.npm`, `Library`) and the contents of `.git`, except `.git/discussion`, where discussion docs live by convention. A search stops after a few seconds and offers what it has found by then.
+**What is skipped.** Dependency and cache folders (`node_modules`, `.cache`, `.npm`, `Library`) and the contents of `.git`, except `.git/conversation`, where conversation docs live by convention. A search stops after a few seconds and offers what it has found by then.
 
 **Without a click.** `Ctrl/Cmd+Shift+U` opens the viewer selector. Type part of a name and it lists matching files from the repo, its neighbours, and home, newest first ([open a viewer](viewer.md)).
 
