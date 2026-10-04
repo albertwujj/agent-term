@@ -33,7 +33,7 @@ assert.ok(!shell.classList.contains('vb-full'));
 // over the top half, just below it over the bottom half.
 const lean = () => document.querySelector('.vb-bar-lean.on');
 hoverBar(TOP);
-assert.ok(lean() && lean().classList.contains('up') && lean().style.top === '594px',
+assert.ok(lean() && lean().classList.contains('up') && lean().style.top === '588px',
   'hovering the top half at golden leans the bar up');
 assert.strictEqual(bar.title, 'Click to roll up');
 hoverBar(BOTTOM);
@@ -41,33 +41,31 @@ assert.ok(lean() && lean().classList.contains('down') && lean().style.top === '6
   'hovering the bottom half leans it down');
 assert.strictEqual(bar.title, 'Click for full size');
 lean().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-assert.ok(shell.classList.contains('vb-full'), 'the lean is part of the target: a click on it steps the same way');
-assert.ok(!lean(), 'a step drops the lean');
-clickBar(TOP); // back to golden for the steps below
-bar.dispatchEvent(new window.PointerEvent('pointerleave', { bubbles: true }));
-
-clickBar(BOTTOM);
 const fullHeight = shell.style.getPropertyValue('--vb-open-h');
-assert.ok(shell.classList.contains('vb-full'), "golden's bottom half steps to full");
+assert.ok(shell.classList.contains('vb-full'), 'the lean is part of the target: a click on it steps the same way');
 assert.ok(parseFloat(fullHeight) > parseFloat(goldenHeight));
+assert.ok(!lean(), 'a step drops the lean');
 assert.ok(document.querySelector('.vb-edge-catch.on'), 'at full the sliver below the bar joins it');
 hoverBar(BOTTOM);
-assert.ok(lean() && lean().classList.contains('up') && bar.title === 'Click to shrink',
+assert.ok(lean() && lean().classList.contains('up') && bar.title === 'Click to roll up',
   'at full the whole bar leans up, its only way');
 
+// At full a click anywhere rolls the band up: golden is the transitional size
+// a Send recedes to, not a stop on the way.
 clickBar(BOTTOM);
-assert.ok(!shell.classList.contains('vb-full'), 'at full a click anywhere steps back to golden');
-assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
+assert.ok(shell.classList.contains('hidden'), 'at full a click anywhere rolls the band up');
 assert.ok(!document.querySelector('.vb-edge-catch.on'), 'the sliver is only the bar at full');
-
+clickBar(TOP);
+assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'),
+  'a click anywhere on the handle brings it back, at its default size');
 clickBar(BOTTOM);
 assert.ok(shell.classList.contains('vb-full'));
 document.querySelector('.vb-edge-catch').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-assert.ok(!shell.classList.contains('vb-full') && shell.classList.contains('open'), 'a click on the sliver steps back to golden');
+assert.ok(shell.classList.contains('hidden'), 'a click on the sliver rolls it up too');
+clickBar(TOP);
 clickBar(TOP);
 assert.ok(shell.classList.contains('hidden'), "golden's top half rolls the band up");
 clickBar(TOP);
-assert.ok(shell.classList.contains('open'), 'a click anywhere on the handle brings it back');
 clickBar(BOTTOM);
 assert.ok(shell.classList.contains('vb-full'));
 
@@ -107,10 +105,11 @@ band.toggleFullSize();
 assert.ok(shell.classList.contains('open') && shell.classList.contains('vb-full'),
   'size toggle from the handle reveals at full');
 
-// A click on the bar at full steps back to golden, like the size chord.
+// A click on the bar at full rolls it up; the handle brings it back.
 clickBar(TOP);
-assert.ok(!shell.classList.contains('vb-full'));
-assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
+assert.ok(shell.classList.contains('hidden'));
+clickBar(TOP);
+assert.ok(shell.classList.contains('open'));
 
 // A step moves the bar out from under the pointer, so a click elsewhere right
 // after it (the rest of a habitual double-click) is swallowed, not delivered.
@@ -122,8 +121,8 @@ assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
   clickBar(BOTTOM);
   target.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
   assert.strictEqual(clicks, 0, 'a click just after a step is swallowed');
-  clickBar(TOP); // back to golden for what follows; the bar itself still takes clicks
-  assert.ok(!shell.classList.contains('vb-full'));
+  band.toggleFullSize(); // back to golden for what follows, by the size chord
+  assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'));
   target.remove();
 }
 

@@ -85,11 +85,7 @@ async function main() {
     check('no pill floating over the viewer', !(await pillOverBand()));
 
     console.log('3 — rolling the band up brings the pill back');
-    // The md band opens full: a click drops it to golden, then the bar's top
-    // half rolls it up.
-    await page.locator('.vb-shell.vb-md .vb-bar').click({ position: { x: 300, y: 5 } });
-    await page.waitForSelector('.vb-shell.vb-md.open:not(.vb-full)', { timeout: 5_000 });
-    await sleep(300);
+    // The md band opens full, where a click on the bar rolls it up.
     await page.locator('.vb-shell.vb-md .vb-bar').click({ position: { x: 300, y: 5 } });
     await page.waitForSelector('.vb-shell.vb-md.hidden', { timeout: 5_000 });
     await sleep(600); // the roll-up transition, then the pill re-arms

@@ -47,9 +47,9 @@ try {
 
   async function size(full) {
     if (await page.locator('.vb-shell.vb-md').evaluate((el) => el.classList.contains('vb-full')) !== full) {
-      // The bar steps: at full a click anywhere drops to golden; at golden its
-      // bottom half goes full. A step swallows clicks off the bar for a beat.
-      await page.locator('.vb-shell.vb-md .vb-bar').click({ position: { x: 200, y: 20 } });
+      // The size chord toggles golden⇄full (a click on the bar at full would
+      // roll it up instead).
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('viewer-shortcut', 'size'));
       await page.waitForTimeout(450);
     }
     assert.equal(await page.locator('.vb-shell.vb-md').evaluate((el) => el.classList.contains('vb-full')), full);

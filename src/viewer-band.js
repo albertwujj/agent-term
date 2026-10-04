@@ -180,8 +180,8 @@ function ensureBandStyles() {
                   backdrop-filter 280ms ease, flex-basis 200ms ease;
     }
     /* Hover lightens the bar and leans it toward where a click sends it:
-       thicker upward where a click rolls the band up or shrinks it, downward
-       where a click grows it or brings it back (bindBarGestures). The lean is
+       thicker upward where a click rolls the band up, downward where a click
+       takes it full or brings it back (bindBarGestures). The lean is
        its own layer, .vb-bar-lean, since the band clips whatever hangs below
        it; while it shows it is part of the click target. */
     .vb-bar.vb-hot { background-color: #55585e; }
@@ -598,10 +598,12 @@ function createViewerBand({
   }
 
   // Bar gestures: a CLICK steps the band's size by where it lands. At golden,
-  // the one size with somewhere to go both ways, the bar's top half steps it
-  // smaller (rolled up) and its bottom half bigger (full): a stepper, top up,
-  // bottom down. At full a click anywhere steps back to golden, and on the
-  // rolled-up handle a click anywhere brings the band back at its default size.
+  // the one size with somewhere to go both ways, the bar's top half rolls the
+  // band up and its bottom half takes it full: a stepper, top up, bottom down.
+  // At full a click anywhere rolls the band up — golden is the transitional
+  // size a Send recedes to, not a stop on the way (the size chord still
+  // reaches it) — and on the rolled-up handle a click anywhere brings the
+  // band back at its default size.
   // The halves are measured on the resting bar, so the hover lean never moves
   // the line between them. Hover lightens the bar and leans it toward where a
   // click sends it (.vb-bar-lean), and the lean takes clicks too, so the
@@ -611,7 +613,7 @@ function createViewerBand({
   // landing on the doc or the terminal. Clicks stopPropagation so they never
   // reach the comment gesture on the terminal text behind the bar; widgets
   // (.vb-btn) stop their own.
-  const LEAN_PX = 6;
+  const LEAN_PX = 12;
   const STEP_SETTLE_MS = 400;
   let lastStepAt = 0;
   let edgeCatch = null;
@@ -636,7 +638,7 @@ function createViewerBand({
   function stepByClick(zone) {
     lastStepAt = Date.now();
     if (state === 'hidden') { show(); return; }
-    setLevelByHand(Math.max(0, Math.min(2, currentLevel() + (zone === 'grow' ? 1 : -1))));
+    setLevelByHand(zone === 'grow' ? 2 : 0);
   }
   const onBarTarget = (el) => !!(el && el.closest && el.closest('.vb-bar, .vb-edge-catch, .vb-bar-lean'));
   function ensureLean() {
@@ -674,8 +676,7 @@ function createViewerBand({
     l.classList.toggle('on', on);
     bar.title = !on ? ''
       : state === 'hidden' ? 'Click to show'
-        : sizeMode === 'full' ? 'Click to shrink'
-          : zone === 'shrink' ? 'Click to roll up' : 'Click for full size';
+        : zone === 'shrink' ? 'Click to roll up' : 'Click for full size';
     l.title = bar.title;
   }
   // At full, the sliver between the bar and the window's bottom edge is part
@@ -687,7 +688,7 @@ function createViewerBand({
     if (!edgeCatch) {
       edgeCatch = document.createElement('div');
       edgeCatch.className = 'vb-edge-catch';
-      edgeCatch.title = 'Click to shrink';
+      edgeCatch.title = 'Click to roll up';
       edgeCatch.addEventListener('pointerenter', () => { if (state === 'open') setHot('shrink'); });
       edgeCatch.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
       edgeCatch.addEventListener('click', (e) => { e.stopPropagation(); stepByClick('shrink'); });

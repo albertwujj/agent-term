@@ -37,14 +37,8 @@ const viewer = createMarkdownViewer({
   platform: 'darwin',
 });
 
-// A click on the bar steps the band: at full anywhere to golden; at golden
-// the bottom half to full (jsdom lays nothing out, so y=5 is below the
-// bar's middle).
-const clickBar = (element) => element.dispatchEvent(new window.MouseEvent('click', {
-  bubbles: true,
-  cancelable: true,
-  clientY: 5,
-}));
+// The size chord: golden⇄full (a click on the bar at full rolls it up).
+const toggleSize = () => viewer.toggleFullSize();
 
 async function run() {
   await viewer.open({ filePath: '/fake/palette.md' });
@@ -53,7 +47,6 @@ async function run() {
   await new Promise((resolve) => requestAnimationFrame(resolve));
 
   const shell = document.querySelector('.vb-shell.vb-md');
-  const bar = shell.querySelector('.vb-bar');
 
   // The md band opens at full (its default), where the palette runs bright;
   // dropping to the golden split mutes it against the visible terminal.
@@ -63,14 +56,14 @@ async function run() {
     '#eef1f5',
   );
 
-  clickBar(bar);
+  toggleSize();
   assert.ok(!shell.classList.contains('vb-full'));
   assert.strictEqual(
     window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),
     '#dadde1',
   );
 
-  clickBar(bar);
+  toggleSize();
   assert.ok(shell.classList.contains('vb-full'));
   assert.strictEqual(
     window.getComputedStyle(shell).getPropertyValue('--md-surface').trim(),
