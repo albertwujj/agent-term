@@ -45,9 +45,9 @@ The terminal is a natural home for coding agents: text in, text out, with the sh
 
 An IDE or desktop app offers richer views and interactions than a text interface alone. Expanding the terminal lets AgentTerm add those capabilities while keeping your existing AI CLIs in the familiar text interface.
 
-As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several sessions at once. The expanded terminal supports that work visually, like an IDE: plans and reviews render in the window, where you direct the agents right on the page.
+As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several agents at once. The expanded terminal supports that work visually, like an IDE: plans and reviews render in the window, where you direct the agents right on the page.
 
-Richer views appear when needed, and the window returns to the terminal view when you finish. Persistent panels can compete with the session for your attention. Here the window is dedicated to your session, shaped by your work, and full screen if you like, resulting in fewer distractions ([one OS window per session](#one-os-window-per-session)).
+Richer views appear when needed, and the window returns to the terminal view when you finish. Persistent panels can compete with the agent conversation for your attention. Here the window is dedicated to one agent, shaped by your work, and full screen if you like, resulting in fewer distractions ([one OS window per agent](#one-os-window-per-session)).
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window.gif"><img src="docs/assets/viewer-window.gif" alt="An AgentTerm window in three states: a two-page document sharing the window with the agent conversation below, the document filling the window, and the document rolled up while a new prompt is typed"></a>
@@ -60,9 +60,11 @@ Some terminals combine support for AI CLIs with an agent and platform of their o
 
 <a name="one-os-window-per-session"></a>
 
-### Each agent session has its own OS window and identity
+<a name="each-agent-session-has-its-own-os-window-and-identity"></a>
 
-Why not tmux, or one manager app over every session? The OS already provides familiar, mature tools for arranging and switching windows: the taskbar, Dock, Mission Control, and alt-tab. Giving each session its own window and process lets AgentTerm build on those strengths and add what agent sessions need. Each session has a unique visual identity that helps you find it in the taskbar or Dock and recognize it when previewing or switching windows. To keep the taskbar or Dock easy to scan, AgentTerm hides sessions you haven't used recently; the [session picker](docs/sessions.md) brings them back.
+### Each agent has its own OS window and identity
+
+Why not tmux, or one manager app over every agent session? The OS already provides familiar, mature tools for arranging and switching windows: the taskbar, Dock, Mission Control, and alt-tab. Giving each session its own window and process lets AgentTerm build on those strengths and add what agent sessions need. Each session has a unique visual identity that helps you find it in the taskbar or Dock and recognize it when previewing or switching windows. To keep the taskbar or Dock easy to scan, AgentTerm hides sessions you haven't used recently; the [session picker](docs/sessions.md) brings them back.
 
 ### A stable interface between agent and terminal
 
