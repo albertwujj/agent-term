@@ -25,13 +25,12 @@ const TOP = 605;
 const BOTTOM = 620;
 const clickBar = (y) => bar.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, clientY: y }));
 const hoverBar = (y) => bar.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, clientY: y }));
-const doubleClickBar = (y) => {
-  clickBar(y);
-  clickBar(y);
-  bar.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientY: y }));
-};
-// A click at full or on the handle waits a beat for a double-click.
-const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
+// Cmd-click on macOS, Ctrl-click elsewhere (either key is taken); the hint
+// names the platform's own.
+const MOD_CLICK = /Mac/i.test((globalThis.navigator && globalThis.navigator.platform) || '') ? '⌘-click' : 'Ctrl-click';
+const modClickBar = (y) => bar.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, clientY: y, ctrlKey: true }));
+// Clicks act at once; this only lets a step's own settling run out.
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const goldenHeight = shell.style.getPropertyValue('--vb-open-h');
 assert.ok(shell.classList.contains('open'));
@@ -70,32 +69,31 @@ assert.ok(document.querySelector('.vb-edge-catch.on'), 'at full the sliver below
 hoverBar(BOTTOM);
 await new Promise((resolve) => setTimeout(resolve, 200));
 assert.ok(!lean() && bar.classList.contains('vb-hot')
-  && hint() === 'Click: roll up · Double-click: split view',
+  && hint() === `Click: roll up · ${MOD_CLICK}: split view`,
   'at full the whole bar is one target; it lightens, with no lean, since every click goes up');
 
-// At the two ends a click crosses to the other end — golden is the
-// transitional size a Send recedes to, not a stop on the way — after a beat
-// in which a double-click lands it on golden instead.
+// At the two ends a click crosses to the other end, at once — golden is the
+// transitional size a Send recedes to, not a stop on the way — and a
+// modifier-click lands on golden instead.
 clickBar(BOTTOM);
-assert.ok(shell.classList.contains('vb-full'), 'a click at full waits a beat for a double-click');
-await settle();
-assert.ok(shell.classList.contains('hidden'), 'then rolls the band up');
+assert.ok(shell.classList.contains('hidden'), 'a click at full rolls the band up, at once');
 assert.ok(!document.querySelector('.vb-edge-catch.on'), 'the sliver is only the bar at full');
 hoverBar(TOP);
 await new Promise((resolve) => setTimeout(resolve, 200));
-assert.ok(!lean() && hint() === 'Click: full size · Double-click: split view',
+assert.ok(!lean() && hint() === `Click: full size · ${MOD_CLICK}: split view`,
   'the handle has no lean either; every click opens it');
 clickBar(TOP);
 await settle();
 assert.ok(shell.classList.contains('vb-full'), 'a click on the handle opens it full');
-doubleClickBar(TOP);
-await settle();
-assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a double-click at full lands on golden');
+modClickBar(TOP);
+assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a modifier-click at full lands on golden');
 clickBar(BOTTOM);
 assert.ok(shell.classList.contains('hidden'), "golden's bottom half rolls the band up, at once");
-doubleClickBar(TOP);
-await settle();
-assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a double-click on the handle opens golden');
+modClickBar(TOP);
+assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a modifier-click on the handle opens golden');
+modClickBar(BOTTOM);
+assert.ok(shell.classList.contains('hidden'), 'at golden a modifier-click goes by the side clicked, like a plain one');
+modClickBar(TOP);
 // At golden the bar reaches past itself: a strip of terminal below it counts
 // as the terminal's side and, for a viewer whose page ends in an empty
 // margin, a strip above it as the viewer's.

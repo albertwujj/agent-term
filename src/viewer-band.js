@@ -673,8 +673,8 @@ function createViewerBand({
   // bar is one target and a click goes straight to the other end — full
   // rolls up, the rolled-up handle opens full — since golden is the
   // transitional size a Send recedes to, not a stop on the way; a
-  // DOUBLE-CLICK at either end lands on golden. So a click at an end waits a
-  // beat (END_CLICK_WAIT_MS) for a second one; at golden none waits.
+  // Cmd-click (Ctrl-click off macOS) at either end lands on golden instead.
+  // No click waits for another, so every click acts at once.
   // The halves are measured on the resting bar, so a hover band never moves
   // the line between them. Hover lightens the bar and, at golden, draws a
   // band on the pointer's side (.vb-bar-lean); the band takes clicks too, so
@@ -689,9 +689,9 @@ function createViewerBand({
   const REACH_PX = 20;
   const HINT_DELAY_MS = 150;
   const STEP_SETTLE_MS = 400;
-  const END_CLICK_WAIT_MS = 250;
+  const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '');
+  const MOD_CLICK = IS_MAC ? '⌘-click' : 'Ctrl-click';
   let lastStepAt = 0;
-  let endClickTimer = null;
   let edgeCatch = null;
   let reachBelow = null;
   let reachAbove = null;
@@ -721,22 +721,16 @@ function createViewerBand({
     setLevelByHand(level);
   }
   const atEnd = () => state === 'hidden' || (state === 'open' && sizeMode === 'full');
-  // At an end: a click crosses to the other end once no second click follows.
-  function clickAtEnd() {
-    if (endClickTimer) return; // the second click of a double; dblclick takes it
-    setHot(null);
-    const to = state === 'hidden' ? 2 : 0;
-    endClickTimer = setTimeout(() => { endClickTimer = null; stepTo(to); }, END_CLICK_WAIT_MS);
-  }
-  function doubleClickAtEnd() {
-    if (!endClickTimer && !atEnd()) return;
-    clearTimeout(endClickTimer);
-    endClickTimer = null;
-    stepTo(1);
-  }
-  function onClickAt(zone) {
-    if (atEnd()) clickAtEnd();
-    else stepTo(zone === 'grow' ? 2 : 0);
+  // At an end a click crosses to the other end, and a modifier-click lands on
+  // golden; at golden it goes by the side clicked, modifier or not.
+  function onClickAt(zone, e) {
+    if (atEnd()) {
+      const toGolden = !!(e && (e.metaKey || e.ctrlKey));
+      setHot(null);
+      stepTo(toGolden ? 1 : (state === 'hidden' ? 2 : 0));
+    } else {
+      stepTo(zone === 'grow' ? 2 : 0);
+    }
   }
   const onBarTarget = (el) => !!(el && el.closest && el.closest('.vb-bar, .vb-edge-catch, .vb-reach-below, .vb-reach-above, .vb-bar-lean'));
   function ensureLean() {
@@ -749,9 +743,9 @@ function createViewerBand({
       e.stopPropagation();
       const zone = lean.dataset.zone;
       setHot(null);
-      onClickAt(zone);
+      onClickAt(zone, e);
     });
-    lean.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); doubleClickAtEnd(); });
+    lean.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
     document.body.appendChild(lean);
     return lean;
   }
@@ -784,8 +778,8 @@ function createViewerBand({
     l.classList.toggle('on', leaning);
     // One grammar everywhere: each gesture named, then what it does.
     showHint(!on ? ''
-      : state === 'hidden' ? 'Click: full size · Double-click: split view'
-        : sizeMode === 'full' ? 'Click: roll up · Double-click: split view'
+      : state === 'hidden' ? `Click: full size · ${MOD_CLICK}: split view`
+        : sizeMode === 'full' ? `Click: roll up · ${MOD_CLICK}: split view`
           : zone === 'shrink' ? 'Click: roll up' : 'Click: full size');
   }
   // Keep the band's chevron under the pointer (centred, if it never moved).
@@ -822,7 +816,7 @@ function createViewerBand({
     el.addEventListener('pointerenter', (e) => { pointerX = e.clientX; setHot(zone); });
     el.addEventListener('pointermove', trackPointer);
     el.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
-    el.addEventListener('click', (e) => { e.stopPropagation(); onClickAt(zone); });
+    el.addEventListener('click', (e) => { e.stopPropagation(); onClickAt(zone, e); });
     el.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
     document.body.appendChild(el);
     return el;
@@ -850,8 +844,8 @@ function createViewerBand({
       edgeCatch.className = 'vb-edge-catch';
       edgeCatch.addEventListener('pointerenter', () => { if (state === 'open') setHot('shrink'); });
       edgeCatch.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
-      edgeCatch.addEventListener('click', (e) => { e.stopPropagation(); onClickAt('shrink'); });
-      edgeCatch.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); doubleClickAtEnd(); });
+      edgeCatch.addEventListener('click', (e) => { e.stopPropagation(); onClickAt('shrink', e); });
+      edgeCatch.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
       document.body.appendChild(edgeCatch);
     }
     const on = state === 'open' && sizeMode === 'full';
@@ -872,15 +866,14 @@ function createViewerBand({
     bar.addEventListener('click', (e) => {
       if (e.target.closest && e.target.closest('.vb-btn')) return;
       e.stopPropagation();
-      onClickAt(zoneAt(e.clientY));
+      onClickAt(zoneAt(e.clientY), e);
     });
-    // At golden a double-click is two clicks, each a step; either way it must
-    // not reach the doc's own double-click (select a word) behind the bar.
+    // A double-click is two clicks, each acting; it must not reach the doc's
+    // own double-click (select a word) behind the bar.
     bar.addEventListener('dblclick', (e) => {
       if (e.target.closest && e.target.closest('.vb-btn')) return;
       e.preventDefault();
       e.stopPropagation();
-      doubleClickAtEnd();
     });
     const swallowStray = (e) => {
       if (Date.now() - lastStepAt > STEP_SETTLE_MS || onBarTarget(e.target)) return;
