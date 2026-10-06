@@ -822,7 +822,9 @@ where the caret was left continues the run. A striking run hops older
 strikes, so erasing on through a sentence never brings back an earlier
 strike. A taking-back run stops at the end of the marks while the key is
 held; the next separate press strikes on. A selection takes back only when
-it holds no original text; with any, it strikes as before.
+it holds no original text; with any, it strikes as before. Neighbouring
+strikes join into one `<del>`, so a word erased char by char reaches the
+agent as one strike and a later run hops it in one press.
 
 The click caret counts struck text (on-screen offsets, which the review
 editor already used), so a click just past a strike holds the caret there,

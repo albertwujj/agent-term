@@ -67,15 +67,32 @@ function createMarkEngine({ beforeMutate } = {}) {
     r.collapse(true); s.removeAllRanges(); s.addRange(r);
   }
 
+  // Neighbouring strikes are one strike. Erasing char by char wraps each
+  // char on its own; joined, the run reads as one <del> to the agent and a
+  // later erase run hops it in one press. Text nodes keep their identity,
+  // so a caret anchored on struck text survives the join.
+  function joinStrikes(block) {
+    for (const del of block.querySelectorAll('del.md-pending-del')) {
+      if (!del.parentNode) continue; // already joined into the one before
+      let next = del.nextSibling;
+      while (next && next.nodeType === 1 && next.matches('del.md-pending-del')) {
+        while (next.firstChild) del.appendChild(next.firstChild);
+        next.remove();
+        next = del.nextSibling;
+      }
+    }
+  }
+
   function strikeInBlock(block, range, caretMode) {
     onMutate();
     // Deleting text you inserted — it was never in the document, so remove it.
     const ins = markWrapping(range.commonAncestorContainer, 'ins.md-pending-ins');
     if (ins && ins.contains(range.startContainer) && ins.contains(range.endContainer)) {
-      const sc = range.startContainer, so = range.startOffset;
+      const land = screenOffset(block, range.startContainer, range.startOffset);
       range.deleteContents();
-      if (!ins.textContent.length) { collapseCaret(ins, 'before'); ins.remove(); }
-      else collapseCaret(sc, so);
+      if (!ins.textContent.length) ins.remove();
+      joinStrikes(block); // the strikes either side of a removed insertion meet
+      caretAtScreenOffset(block, land);
       return;
     }
     const sc = range.startContainer, so = range.startOffset, ec = range.endContainer, eo = range.endOffset;
@@ -83,7 +100,10 @@ function createMarkEngine({ beforeMutate } = {}) {
     const walker = document.createTreeWalker(block, SHOW_TEXT, null);
     const touched = []; let n;
     while ((n = walker.nextNode())) { if (range.intersectsNode(n)) touched.push(n); }
-    let firstDel = null, lastDel = null;
+    // The caret settles at the edge of what this erase struck: the struck
+    // text itself, or for text struck earlier, its whole strike (so a ⌫
+    // against an old strike hops past it instead of dead-stopping).
+    let first = null, last = null;
     for (const tn of touched) {
       const s = (tn === sc) ? so : 0;
       const e = (tn === ec) ? eo : tn.data.length;
@@ -94,11 +114,8 @@ function createMarkEngine({ beforeMutate } = {}) {
       const parent = mid.parentNode;
       const struck = parent && parent.closest ? parent.closest('del.md-pending-del') : null;
       if (struck) {
-        // Already struck — no new mark, but it is part of the run the caret
-        // settles around, so a ⌫ against old struck text hops past it
-        // instead of dead-stopping.
-        if (!firstDel) firstDel = struck;
-        lastDel = struck;
+        if (!first) first = { node: mid, struck: true };
+        last = { node: mid, struck: true };
         continue;
       }
       const insHost = parent && parent.closest ? parent.closest('ins.md-pending-ins') : null;
@@ -111,10 +128,14 @@ function createMarkEngine({ beforeMutate } = {}) {
       del.className = 'md-pending-del';
       parent.insertBefore(del, mid);
       del.appendChild(mid);
-      if (!firstDel) firstDel = del;
-      lastDel = del;
+      if (!first) first = { node: mid };
+      last = { node: mid };
     }
-    if (lastDel) collapseCaret(caretMode === 'after' ? lastDel : firstDel, caretMode === 'after' ? 'after' : 'before');
+    joinStrikes(block);
+    if (!last) return;
+    const after = caretMode === 'after';
+    const edge = after ? last : first;
+    collapseCaret(edge.struck ? markWrapping(edge.node, 'del.md-pending-del') : edge.node, after ? 'after' : 'before');
   }
 
   // A caret parked inside struck text (arrow walks and clicks land there — the
@@ -239,6 +260,7 @@ function createMarkEngine({ beforeMutate } = {}) {
         unstrike(mid, mark);
       }
     }
+    joinStrikes(block); // the strikes either side of a removed insertion meet
     caretAtScreenOffset(block, land);
     return true;
   }

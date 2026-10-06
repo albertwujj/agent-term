@@ -69,7 +69,6 @@ try {
     await page.waitForTimeout(200);
   }
   // Paragraph n's marks: [struck] {inserted}, from the copy being edited.
-  // Each erase strikes its own char, so adjacent strikes read as one.
   async function marks(n) {
     return page.evaluate((n) => {
       const copies = [...document.querySelectorAll('.md-viewer-body p')].filter((p) => p.textContent.startsWith(`Paragraph ${n} `));
@@ -77,8 +76,7 @@ try {
       return p.innerHTML
         .replace(/<del class="md-pending-del">/g, '[').replace(/<\/del>/g, ']')
         .replace(/<ins class="md-pending-ins">/g, '{').replace(/<\/ins>/g, '}')
-        .replace(/<[^>]+>/g, '')
-        .replace(/\]\[/g, '');
+        .replace(/<[^>]+>/g, '');
     }, n);
   }
   async function backspaces(count) {
@@ -127,9 +125,9 @@ try {
   await backspaces(4); // strike "keep" (an older strike, mid-line)
   await clickAt(5, 3);
   await clickAt(4, end); // the paragraph's end
-  // Erase back through " the document flowing across lines.", hop the four
-  // struck chars of "keep", then strike two more.
-  await holdBackspace(' the document flowing across lines.'.length + 4 + 2);
+  // Erase back through " the document flowing across lines.", hop "keep" (one
+  // strike, though erased char by char) in one press, then strike two more.
+  await holdBackspace(' the document flowing across lines.'.length + 1 + 2);
   const through = await marks(4);
   assert.match(through, /text t\[o keep the document flowing across lines\.\]$/, `a striking run hops the older strike and strikes on: ${through}`);
   console.log('PASS a striking run hops an older strike instead of bringing it back');

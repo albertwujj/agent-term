@@ -82,7 +82,7 @@ const marks = (el) => el.innerHTML
   caretTo(el, 7);
   press(el);
   press(el);
-  check('erasing original text strikes it, the caret walking left', marks(el) === 'one t[w][o]' && caretOffset(el) === 5, marks(el));
+  check('erasing original text strikes it, the caret walking left', marks(el) === 'one t[wo]' && caretOffset(el) === 5, marks(el));
 }
 
 {
@@ -103,11 +103,12 @@ const marks = (el) => el.innerHTML
 {
   const el = block('one <del class="md-pending-del">two</del> three');
   caretTo(el, 13);
-  for (let i = 0; i < 6; i++) press(el); // "three", the space, then the strike
+  for (let i = 0; i < 6; i++) press(el); // "three" and the space
+  check('neighbouring strikes join into one', marks(el) === 'one [two three]' && el.querySelectorAll('del').length === 1, marks(el));
   press(el);
-  check('a striking run hops an older strike, never bringing it back', marks(el).startsWith('one [two]') && marks(el).endsWith('[e]'), marks(el));
+  check('a striking run hops an older strike in one press, never bringing it back', marks(el) === 'one [two three]' && caretOffset(el) === 4, marks(el));
   press(el);
-  check('and strikes on past it', marks(el) === 'one[ ][two][ ][t][h][r][e][e]', marks(el));
+  check('and strikes on past it', marks(el) === 'one[ two three]', marks(el));
 }
 
 {
@@ -126,7 +127,7 @@ const marks = (el) => el.innerHTML
 {
   const el = block('one <del class="md-pending-del">two</del> three');
   eraseSelection(el, 2, 9);
-  check('a selection holding original text strikes it and keeps the strike', marks(el) === 'on[e ][two][ t]hree', marks(el));
+  check('a selection holding original text strikes it and keeps the strike', marks(el) === 'on[e two t]hree', marks(el));
 }
 
 {
@@ -155,6 +156,15 @@ const marks = (el) => el.innerHTML
   caretTo(el, 4);
   press(el);
   check('no empty markup is left behind in the strike', el.innerHTML === 'a <del class="md-pending-del">x</del><strong>b</strong> e', el.innerHTML);
+}
+
+{
+  const el = block('<del class="md-pending-del">ab</del><ins class="md-pending-ins">X</ins><del class="md-pending-del">cd</del> e');
+  caretTo(el, 3);
+  press(el);
+  check('taking back an insertion between strikes joins them', marks(el) === '[abcd] e' && caretOffset(el) === 2, marks(el));
+  press(el, { backward: false });
+  check('the caret stays between them, where the insertion was', marks(el) === '[ab]c[d] e', marks(el));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
