@@ -1,11 +1,11 @@
-# Plan with it
+# Plan, write, and revise
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/doc-edit-loop.gif"><img src="assets/doc-edit-loop.gif" alt="the plan loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list"></a>
 <br><strong>Docs: what you propose and what the agent changes</strong>
 </p>
 
-Ask your agent to write the plan to a markdown file, then click its name, and the doc opens rendered in the viewer above the prompt ([what a click does](clicks.md)). The viewer turns markdown into a place you write English. A doc opens rendered and shows both your proposals and how the agent applies them: you [comment on any passage](comment.md) or edit the rendered text directly, and the agent processes and polishes. You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
+Ask your agent to write a plan or draft to a markdown file, then click its name, and the doc opens rendered in the viewer above the prompt ([what a click does](clicks.md)). The viewer turns markdown into a place you write English. A doc opens rendered and shows both your proposals and how the agent applies them: you [comment on any passage](comment.md) or edit the rendered text directly, and the agent processes and polishes. You write in the preview, never touching raw markdown or switching edit/preview modes, and the agent maintains the source.
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window.png"><img src="assets/viewer-window.png" alt="AgentTerm window with an illustrated two-page document, an agent reply beside the revised heading, and the terminal conversation below"></a>
@@ -22,7 +22,7 @@ It reads as a book: two pages side by side, short lines. Pages turn rather than 
 
 English is where the real planning happens: much of a design is settled in words before any code. A plan converges here the way code does: commented, revised in place, settled before anything is final.
 
-The same loop is a writing aid in its own right. An essay, notes, research, a post: the working directory organizes your context.
+**The same loop is a writing aid in its own right.** An essay, notes, research, a post: the working directory organizes your context.
 
 Editing supports new sections and blocks: Shift+Enter starts a new line on the rendered page, and the agent formats what you typed into headings, paragraphs and bullets.
 
