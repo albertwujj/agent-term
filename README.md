@@ -9,7 +9,7 @@
 
 <a id="demo"></a>
 
-AgentTerm is a full terminal where your existing and new AI CLI sessions run as usual. It turns each session's terminal window into a rich visual workspace for the new way of working with multiple agents, docs, and code *(autoplays after loading)*:
+AgentTerm is a full terminal where your existing and new AI CLI sessions run as usual. But it turns each session's terminal window into a rich visual workspace for the new way of working with multiple agents, docs, and code *(autoplays after loading)*:
 
 [![stills from the terminal: session tiles, the picker, commenting on output, writing on a plan, a curated review, and phone status and session views](docs/assets/hero-demo-971d228eea7d.gif)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-demo-971d228eea7d.gif)
 
