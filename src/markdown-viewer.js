@@ -3790,14 +3790,25 @@ function createMarkdownViewer({
     // or the fitted span still ends up cut at the page bottom.
     const bottomMargin = margin + getRenderedLineHeight();
     const base = pane === 'right' ? pageAdvance : 0;
+    // The scrollTops that keep the span inside both margins: at most topFit
+    // (its top below the top margin), at least bottomFit (its bottom above
+    // the bottom one).
+    const topFit = spanTop - base - margin;
+    const bottomFit = spanBottom - base - paneHeight + bottomMargin;
     let nextScrollTop = state.primaryPane.scrollTop;
-    const start = nextScrollTop + base;
-    const end = start + paneHeight;
-    if (spanTop < start + margin) {
-      nextScrollTop = Math.max(0, spanTop - base - margin);
-    } else if (spanBottom > end - bottomMargin) {
-      nextScrollTop = Math.max(0, spanBottom - base - paneHeight + bottomMargin);
+    if (bottomFit > topFit) {
+      // Taller than that window: no scrollTop meets both, and correcting
+      // whichever edge is out pushes the other out, so a composer refitting
+      // on every keystroke bounced its card between the two. Settle on one
+      // placement: the top margin while the whole span still clears a plain
+      // bottom margin, else the bottom, where the composer is typing.
+      nextScrollTop = spanBottom - spanTop <= paneHeight - 2 * margin ? topFit : bottomFit;
+    } else if (nextScrollTop > topFit) {
+      nextScrollTop = topFit;
+    } else if (nextScrollTop < bottomFit) {
+      nextScrollTop = bottomFit;
     }
+    nextScrollTop = Math.max(0, nextScrollTop);
     if (nextScrollTop !== state.primaryPane.scrollTop) {
       state.primaryPane.scrollTop = nextScrollTop;
       state.spreadGridTop = nextScrollTop; // keep the grid with the scrolled fit
