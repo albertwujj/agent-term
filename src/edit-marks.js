@@ -144,6 +144,135 @@ function createMarkEngine({ beforeMutate } = {}) {
     range.collapse(true);
   }
 
+  // The text nodes a range covers, each with its covered span and the mark
+  // it sits in (null: original text).
+  function coveredText(block, range) {
+    const SHOW_TEXT = (window.NodeFilter && window.NodeFilter.SHOW_TEXT) || 4;
+    const walker = document.createTreeWalker(block, SHOW_TEXT, null);
+    const parts = []; let n;
+    while ((n = walker.nextNode())) {
+      if (!range.intersectsNode(n)) continue;
+      const s = (n === range.startContainer) ? range.startOffset : 0;
+      const e = (n === range.endContainer) ? range.endOffset : n.data.length;
+      if (e > s) parts.push({ node: n, s, e, mark: markWrapping(n, 'del.md-pending-del, ins.md-pending-ins') });
+    }
+    return parts;
+  }
+
+  // Caret offsets counted in on-screen text, struck text included: a
+  // take-back moves nodes in and out of marks, so only the text count
+  // survives it as a landing point.
+  function screenOffset(block, node, offset) {
+    const SHOW_TEXT = (window.NodeFilter && window.NodeFilter.SHOW_TEXT) || 4;
+    const point = document.createRange();
+    point.setStart(node, offset);
+    point.collapse(true);
+    const walker = document.createTreeWalker(block, SHOW_TEXT, null);
+    let count = 0; let n;
+    while ((n = walker.nextNode())) {
+      if (n === node) return count + offset;
+      if (point.comparePoint(n, n.data.length) > 0) break;
+      count += n.data.length;
+    }
+    return count;
+  }
+
+  function caretAtScreenOffset(block, offset) {
+    const SHOW_TEXT = (window.NodeFilter && window.NodeFilter.SHOW_TEXT) || 4;
+    const walker = document.createTreeWalker(block, SHOW_TEXT, null);
+    let left = offset; let last = null; let n;
+    while ((n = walker.nextNode())) {
+      if (left < n.data.length) { collapseCaret(n, left); return; }
+      left -= n.data.length;
+      last = n;
+    }
+    if (last) collapseCaret(last, last.data.length);
+  }
+
+  // Lift one text node out of its strike: the del splits around it, and
+  // whatever wraps the node inside the del splits with it.
+  function unstrike(node, del) {
+    const parent = del.parentNode;
+    const next = del.nextSibling;
+    const tail = document.createRange();
+    tail.setStartAfter(node);
+    tail.setEnd(del, del.childNodes.length);
+    const rest = tail.extractContents();
+    const lift = document.createRange();
+    lift.setStartBefore(node);
+    lift.setEnd(del, del.childNodes.length);
+    parent.insertBefore(lift.extractContents(), next);
+    // The splits clone each wrapper on both sides; the sides the node left
+    // keep empty shells.
+    const dropShells = (root) => root.querySelectorAll('*').forEach((el) => { if (!el.textContent.length) el.remove(); });
+    dropShells(rest);
+    dropShells(del);
+    if (rest.textContent.length) {
+      const tailDel = document.createElement('del');
+      tailDel.className = 'md-pending-del';
+      tailDel.appendChild(rest);
+      parent.insertBefore(tailDel, next);
+    }
+    if (!del.textContent.length) del.remove();
+  }
+
+  // Erasing your own change takes it back: an insertion leaves, a strike
+  // comes back as plain text. Original text in the range is left alone.
+  // Returns whether anything changed.
+  function takeBackInBlock(block, range, caretMode) {
+    const parts = coveredText(block, range).filter((p) => p.mark);
+    if (!parts.length) return false;
+    onMutate();
+    const after = caretMode === 'after';
+    let land = after
+      ? screenOffset(block, range.endContainer, range.endOffset)
+      : screenOffset(block, range.startContainer, range.startOffset);
+    for (const { node, s, e, mark } of parts) {
+      let mid = node;
+      if (s > 0) mid = mid.splitText(s);
+      if (mid.data.length > (e - s)) mid.splitText(e - s);
+      if (mark.nodeName === 'INS') {
+        if (after) land -= mid.data.length; // removed text before the landing point
+        mid.remove();
+        if (!mark.textContent.length) mark.remove();
+      } else {
+        unstrike(mid, mark);
+      }
+    }
+    caretAtScreenOffset(block, land);
+    return true;
+  }
+
+  // ⌫/Delete. Erasing original text strikes it; erasing your own change
+  // takes it back. A run of erases (each landing where the caret was left)
+  // keeps the job its first erase found: a striking run hops older strikes,
+  // so erasing on through a passage never brings one back; a taking-back
+  // run stops at the end of the marks while the key is held, and the next
+  // press strikes on. A selection takes back only when it holds nothing
+  // original.
+  let run = null;
+  let keyRepeat = false;
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Backspace' || event.key === 'Delete') keyRepeat = !!event.repeat;
+  }, true);
+  function eraseInBlock(block, range, { backward = true, selection = false, repeat = keyRepeat } = {}) {
+    const caretMode = selection || !backward ? 'after' : 'before';
+    const s = editSel();
+    const continuing = !selection && !!run && run.backward === backward
+      && !!s && s.isCollapsed && s.anchorNode === run.node && s.anchorOffset === run.offset;
+    let mode = continuing ? run.mode
+      : (coveredText(block, range).some((p) => !p.mark) ? 'strike' : 'takeBack');
+    if (mode === 'takeBack' && !takeBackInBlock(block, range, caretMode)) {
+      if (repeat) return;
+      mode = 'strike';
+    }
+    if (mode === 'strike') strikeInBlock(block, range, caretMode);
+    const landed = editSel();
+    run = landed && landed.rangeCount
+      ? { backward, mode, node: landed.anchorNode, offset: landed.anchorOffset }
+      : null;
+  }
+
   function insertMarkedInBlock(text) {
     if (!text) return;
     const s = editSel(); if (!s || !s.rangeCount) return;
@@ -183,7 +312,7 @@ function createMarkEngine({ beforeMutate } = {}) {
     collapseCaret(el, 'after');
   }
 
-  return { strikeInBlock, escapeDelAtCaret, insertMarkedInBlock, insertLineBreakInBlock };
+  return { strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertLineBreakInBlock };
 }
 
 // Snapshot a block's marked content for the overlay: strip editing artifacts

@@ -291,8 +291,12 @@ function createCommitEditController(io) {
 
     const k = entryEvent ? entryEvent.key : '';
     if (entrySelection) {
+      if (k === 'Backspace' || k === 'Delete') {
+        engine.eraseInBlock(block, entrySelection, { backward: k === 'Backspace', selection: true, repeat: !!entryEvent.repeat });
+        return;
+      }
       engine.strikeInBlock(block, entrySelection, 'after');
-      if (k !== 'Backspace' && k !== 'Delete') engine.insertMarkedInBlock(k);
+      engine.insertMarkedInBlock(k);
       return;
     }
     const max = block.textContent.length; // current content: marks included on a revisit
@@ -304,7 +308,8 @@ function createCommitEditController(io) {
         if (a && b) {
           const r = document.createRange();
           r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset);
-          engine.strikeInBlock(block, r, 'before');
+          setCaret(block, caret);
+          engine.eraseInBlock(block, r, { backward: true, repeat: !!entryEvent.repeat });
         }
       } else setCaret(block, 0);
     } else if (k === 'Delete') {
@@ -312,7 +317,8 @@ function createCommitEditController(io) {
       if (a && b && (a.node !== b.node || a.offset !== b.offset)) {
         const r = document.createRange();
         r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset);
-        engine.strikeInBlock(block, r, 'after');
+        setCaret(block, caret);
+        engine.eraseInBlock(block, r, { backward: false, repeat: !!entryEvent.repeat });
       } else setCaret(block, caret);
     } else if (k === 'Enter') {
       setCaret(block, caret);
@@ -345,7 +351,7 @@ function createCommitEditController(io) {
           const r = document.createRange();
           r.setStart(sr.startContainer, sr.startOffset);
           r.setEnd(sr.endContainer, sr.endOffset);
-          engine.strikeInBlock(el, r, wasSelection ? 'after' : (t.indexOf('Forward') !== -1 ? 'after' : 'before'));
+          engine.eraseInBlock(el, r, { backward: t.indexOf('Forward') === -1, selection: wasSelection });
         }
         return;
       }

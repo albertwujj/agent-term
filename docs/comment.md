@@ -15,7 +15,7 @@ The best way to get familiar is to try it. In the terminal, a double-click selec
 
 ## Edit the text
 
-You can edit a [rendered plan](plan.md) or a [review's commit message](review.md) directly. The agent takes the edit as your intent; a note, if you attach one, makes the intent clearer.
+You can edit a [rendered plan](plan.md) or a [review's commit message](review.md) directly; erasing struck-through text brings it back. The agent takes the edit as your intent; a note, if you attach one, makes the intent clearer.
 
 ## Send now, or collect and send
 

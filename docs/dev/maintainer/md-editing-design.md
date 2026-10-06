@@ -809,6 +809,26 @@ swallowed every key page-wide and nothing closed it on click-away, which read
 as "typing to comment does nothing". Rebuilds are frozen while a reply is
 open, so a resize no longer rips the composer out from under the typist.
 
+## Erasing a strike takes it back (2026-10-06)
+
+Erasing your own change takes it back. Deleting an insertion already removed
+it; erasing struck text now restores it, since a strike is your change too.
+Before this the only ways back were ⌘Z, which steps back through every later
+action, and Revert, which drops the whole block. Erasing restores one strike
+in place, with the same key that made it.
+
+A run of erases keeps the job its first erase found. Each ⌫/Delete that lands
+where the caret was left continues the run. A striking run hops older
+strikes, so erasing on through a sentence never brings back an earlier
+strike. A taking-back run stops at the end of the marks while the key is
+held; the next separate press strikes on. A selection takes back only when
+it holds no original text; with any, it strikes as before.
+
+The click caret counts struck text (on-screen offsets, which the review
+editor already used), so a click just past a strike holds the caret there,
+even at a block's end, and the entry ⌫ reaches it. The rules live in
+`eraseInBlock` (edit-marks.js), shared by both hosts.
+
 ## Open questions
 
 - Default wording of the instruction template (tune against real agent behavior).

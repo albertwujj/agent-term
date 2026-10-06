@@ -1211,7 +1211,7 @@ function createMarkdownViewer({
     // decoration and the [Edit] envelope, keyed by the block's stable anchorId
     // (stable because the source is frozen). Value: { html, note }.
     blockOverlays: new Map(), // anchorId → { html, note }
-    pendingClickCaret: null, // rendered-text offset captured at the last block click
+    pendingClickCaret: null, // on-screen text offset (struck text counts) captured at the last block click
     hint: null,
     doc: null,
     spreadLayout: null,
@@ -2428,7 +2428,10 @@ function createMarkdownViewer({
     syncChangeAgeToStoreTurn(data);
   }
 
-  function getSearchableTextNodes(root) {
+  // { struck: true } counts struck text too: on-screen text, the editing
+  // caret's coordinates, since struck text stays on screen and ⌫ reaches it.
+  const ON_SCREEN = Object.freeze({ struck: true });
+  function getSearchableTextNodes(root, { struck = false } = {}) {
     if (!root) return { text: '', nodes: [] };
     const filter = window.NodeFilter || {
       SHOW_TEXT: 4,
@@ -2446,7 +2449,7 @@ function createMarkdownViewer({
         if (tagName === 'SCRIPT' || tagName === 'STYLE') return filter.FILTER_REJECT;
         // Struck "deleted" decorations are not document text (searching,
         // anchoring, and offsets must see only the real content).
-        if (parent.closest && parent.closest('del.md-pending-del, del.md-sent-del')) return filter.FILTER_REJECT;
+        if (!struck && parent.closest && parent.closest('del.md-pending-del, del.md-sent-del')) return filter.FILTER_REJECT;
         return filter.FILTER_ACCEPT;
       },
     });
@@ -2752,14 +2755,14 @@ function createMarkdownViewer({
   // decorations are excluded). Counting raw DOM text here instead shifted every
   // caret and selection highlight left on a block already carrying marks. A
   // position inside excluded text lands at the boundary before it.
-  function getTextOffsetWithin(root, container, offset) {
+  function getTextOffsetWithin(root, container, offset, textOptions) {
     if (!root || !container) return 0;
     try {
       const point = document.createRange();
       point.setStart(container, offset);
       point.collapse(true);
       let count = 0;
-      for (const segment of getSearchableTextNodes(root).nodes) {
+      for (const segment of getSearchableTextNodes(root, textOptions).nodes) {
         const value = String(segment.node.nodeValue || '');
         if (segment.node === container) return count + Math.max(0, Math.min(offset, value.length));
         if (point.comparePoint(segment.node, value.length) > 0) break;
@@ -2771,9 +2774,9 @@ function createMarkdownViewer({
     }
   }
 
-  function getTextPositionWithin(root, offset) {
+  function getTextPositionWithin(root, offset, textOptions) {
     if (!root || !Number.isFinite(offset)) return null;
-    const { nodes } = getSearchableTextNodes(root);
+    const { nodes } = getSearchableTextNodes(root, textOptions);
     const targetOffset = Math.max(0, offset);
     for (const segment of nodes) {
       if (targetOffset < segment.end) {
@@ -2792,10 +2795,10 @@ function createMarkdownViewer({
     };
   }
 
-  function createTextRangeWithin(root, start, end) {
+  function createTextRangeWithin(root, start, end, textOptions) {
     if (!root || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
-    const startPosition = getTextPositionWithin(root, start);
-    const endPosition = getTextPositionWithin(root, end);
+    const startPosition = getTextPositionWithin(root, start, textOptions);
+    const endPosition = getTextPositionWithin(root, end, textOptions);
     if (!startPosition || !endPosition) return null;
     try {
       const range = document.createRange();
@@ -3778,6 +3781,7 @@ function createMarkdownViewer({
     document.addEventListener('mouseup', swallowClick, { capture: true, once: true });
     const anchorId = getAnchorIdForTarget(pressed);
     const offset = point && point.anchorId === anchorId ? point.offset : null;
+    const caret = clickCaretOffset(pressed, event.clientX, event.clientY);
     // The edited block's other copy: the edit goes on there.
     if (anchorId === session.anchorId) {
       handoverEditingSession(pressed, offset != null ? offset : getSearchableTextLength(pressed));
@@ -3804,7 +3808,7 @@ function createMarkdownViewer({
       const twin = getCounterpartAnchorElement(target);
       if (twin && caretOffsetVisible(twin, offset)) target = twin;
     }
-    armBlockAt(target, offset, { link });
+    armBlockAt(target, caret, { link });
     return !!point;
   }
 
@@ -4723,9 +4727,9 @@ function createMarkdownViewer({
     return serializeMarkedBlock(el);
   }
 
-  function setCaretWithin(el, offset) {
+  function setCaretWithin(el, offset, textOptions) {
     const sel = window.getSelection && window.getSelection();
-    const at = getTextPositionWithin(el, Math.max(0, offset));
+    const at = getTextPositionWithin(el, Math.max(0, offset), textOptions);
     if (!sel || !at) return;
     try {
       const range = document.createRange();
@@ -4770,7 +4774,7 @@ function createMarkdownViewer({
   // The mark mutators live in edit-marks.js (shared with the review viewer's
   // commit-message editor); this host binds them to its per-action undo.
   const {
-    strikeInBlock, escapeDelAtCaret, insertMarkedInBlock, insertLineBreakInBlock,
+    strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertLineBreakInBlock,
   } = createMarkEngine({ beforeMutate: () => pushEditingUndo() });
   // ——— Action-by-action edit history ———
   // Native undo is blocked on the editing surface (it can't see the marks), so
@@ -4841,7 +4845,7 @@ function createMarkdownViewer({
           const r = document.createRange();
           r.setStart(sr.startContainer, sr.startOffset);
           r.setEnd(sr.endContainer, sr.endOffset);
-          strikeInBlock(el, r, wasSelection ? 'after' : (t.indexOf('Forward') !== -1 ? 'after' : 'before'));
+          eraseInBlock(el, r, { backward: t.indexOf('Forward') === -1, selection: wasSelection });
         }
         return;
       }
@@ -4925,7 +4929,13 @@ function createMarkdownViewer({
   }
 
   function openRenderedEditor(target, range, blockSource, entryEvent, clickCaret, entrySelection, entryText = null) {
-    const origRendered = getSearchableTextNodes(target).text;
+    // The block's original text: struck text is still the document's, an
+    // insertion is not. A revisit whose marks are all taken back is this
+    // text again, so it commits to no edit.
+    const origRendered = getSearchableTextNodes(target, ON_SCREEN).nodes
+      .filter(({ node }) => !node.parentElement.closest('ins.md-pending-ins'))
+      .map(({ node }) => node.nodeValue)
+      .join('');
     const anchorId = target.getAttribute('data-md-anchor-id') || '';
     const existing = state.blockOverlays.get(anchorId);
     state.editing = {
@@ -4958,7 +4968,7 @@ function createMarkdownViewer({
     const mutating = typed ? entryText.length > 0 : !!(entryEvent && isMutatingEntryKey(entryEvent));
     // The entry keystroke strikes/inserts in place, exactly like every keystroke
     // after it — with a selection (live or virtual-drag record), ⌫/Delete
-    // strikes the whole selection and a printable key types over it
+    // erases the whole selection and a printable key types over it
     // (strike + insert).
     if (mutating || typed) {
       const entryRange = resolveEntrySelectionRange(target, entrySelection);
@@ -4968,36 +4978,36 @@ function createMarkdownViewer({
           if (s) { s.removeAllRanges(); s.addRange(entryRange); }
           return;
         }
+        if (!typed && (k === 'Backspace' || k === 'Delete')) {
+          eraseInBlock(target, entryRange, { backward: k === 'Backspace', selection: true, repeat: !!entryEvent.repeat });
+          return;
+        }
         strikeInBlock(target, entryRange, 'after');
         if (typed) insertMarkedInBlock(entryText);
         else if (k === 'Enter') insertLineBreakInBlock();
-        else if (k !== 'Backspace' && k !== 'Delete') insertMarkedInBlock(k);
+        else insertMarkedInBlock(k);
         return;
       }
     }
-    const caret = Math.max(0, Math.min(
-      clickCaret != null ? clickCaret : origRendered.length,
-      origRendered.length,
-    ));
-    if (!mutating) {
-      setCaretWithin(target, caret);
-      return;
-    }
+    // The click caret counts struck text (it is on screen), so an entry ⌫
+    // just past a strike reaches the strike, as it would inside the editor.
+    const screenLength = getSearchableTextNodes(target, ON_SCREEN).text.length;
+    const caret = Math.max(0, Math.min(clickCaret != null ? clickCaret : screenLength, screenLength));
+    setCaretWithin(target, caret, ON_SCREEN);
+    if (!mutating) return;
     if (typed) {
-      setCaretWithin(target, caret);
       insertMarkedInBlock(entryText);
       return;
     }
-    if (k === 'Backspace') {
-      if (caret > 0) { const r = createTextRangeWithin(target, caret - 1, caret); if (r) strikeInBlock(target, r, 'before'); }
-      else setCaretWithin(target, 0);
-    } else if (k === 'Delete') {
-      const r = createTextRangeWithin(target, caret, caret + 1); if (r) strikeInBlock(target, r, 'after');
+    if (k === 'Backspace' || k === 'Delete') {
+      const backward = k === 'Backspace';
+      const r = backward
+        ? createTextRangeWithin(target, caret - 1, caret, ON_SCREEN)
+        : createTextRangeWithin(target, caret, caret + 1, ON_SCREEN);
+      if (r && !r.collapsed) eraseInBlock(target, r, { backward, repeat: !!entryEvent.repeat });
     } else if (k === 'Enter') {
-      setCaretWithin(target, caret);
       insertLineBreakInBlock();
     } else {
-      setCaretWithin(target, caret);
       insertMarkedInBlock(k);
     }
   }
@@ -6728,13 +6738,7 @@ function createMarkdownViewer({
     // Read the click position on the layout it was aimed at: folding an open
     // composer below moves the text under the pointer, and the hit-test
     // would then miss the block and hold its end instead.
-    let offset = null;
-    try {
-      const range = document.caretRangeFromPoint(event.clientX, event.clientY);
-      if (range && target.contains(range.startContainer)) {
-        offset = getTextOffsetWithin(target, range.startContainer, range.startOffset);
-      }
-    } catch {}
+    const caret = clickCaretOffset(target, event.clientX, event.clientY);
     if (state.activeCard) {
       if (getActiveMarkdownCommentText()) {
         queueActiveMarkdownCommentDraft();
@@ -6746,7 +6750,20 @@ function createMarkdownViewer({
         clearActiveTarget();
       }
     }
-    armBlockAt(target, offset, { link });
+    armBlockAt(target, caret, { link });
+  }
+
+  // Where a click puts the caret in a block, in on-screen text: a click just
+  // past a strike holds the caret past it, where ⌫ takes the strike back.
+  // Null when the hit-test misses the block.
+  function clickCaretOffset(target, x, y) {
+    try {
+      const range = document.caretRangeFromPoint(x, y);
+      if (range && target.contains(range.startContainer)) {
+        return getTextOffsetWithin(target, range.startContainer, range.startOffset, ON_SCREEN);
+      }
+    } catch {}
+    return null;
   }
 
   // Hold the click position; it materializes as the editor caret on the
@@ -6756,7 +6773,7 @@ function createMarkdownViewer({
   // end, explicitly — an invisible default reads as a caret that could be
   // anywhere.
   function armBlockAt(target, offset, { link = null } = {}) {
-    state.pendingClickCaret = offset != null ? offset : getSearchableTextNodes(target).text.length;
+    state.pendingClickCaret = offset != null ? offset : getSearchableTextNodes(target, ON_SCREEN).text.length;
     setActiveTarget(target, { link });
     showEditCaret(target, state.pendingClickCaret);
   }
@@ -6768,7 +6785,7 @@ function createMarkdownViewer({
   function showEditCaret(target, offset) {
     clearEditCaret();
     try {
-      const at = getTextPositionWithin(target, Math.max(0, offset));
+      const at = getTextPositionWithin(target, Math.max(0, offset), ON_SCREEN);
       if (!at || !at.node || at.node.nodeType !== 3) return;
       const caret = document.createElement('span');
       caret.className = 'md-edit-caret';
