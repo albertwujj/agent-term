@@ -23,8 +23,12 @@ try {
   await page.waitForSelector('.xterm-helper-textarea');
   await page.waitForTimeout(1200);
   if (await page.locator('.at-picker-overlay').count()) await page.keyboard.press('Escape');
-  await app.evaluate(({ BrowserWindow, ipcMain }, [doc, source]) => {
-    BrowserWindow.getAllWindows()[0].setSize(1500, 950);
+  // A paragraph has to fit on the right page at golden and on the left page at
+  // full, which takes a page taller than a laptop screen allows: macOS clamps
+  // a window to the work area. The viewport override lays the page out at the
+  // designed size on any display, for this session only.
+  await page.setViewportSize({ width: 1500, height: 922 });
+  await app.evaluate(({ ipcMain }, [doc, source]) => {
     globalThis.__queuedSends = [];
     for (const [channel, handler] of [
       ['read-markdown-file', () => ({ success: true, path: doc, content: source, mtimeMs: 1, size: source.length })],
