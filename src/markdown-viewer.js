@@ -3704,14 +3704,19 @@ function createMarkdownViewer({
     if (state.spreadLayout) state.spreadLayout.classList.remove('md-vdrag');
   }
 
+  // The release already acted; the click it produces must not act again.
+  function swallowClick() {
+    state.vdragConsumedClick = true;
+    setTimeout(() => { state.vdragConsumedClick = false; }, 0);
+  }
+
   function cancelVdrag() {
     const drag = state.vdrag;
     if (!drag) return false;
     const wasActive = drag.active;
     releaseVdrag(drag);
     if (wasActive) {
-      state.vdragConsumedClick = true;
-      setTimeout(() => { state.vdragConsumedClick = false; }, 0);
+      swallowClick();
       updateSelectionHighlights();
     }
     return wasActive;
@@ -3722,18 +3727,18 @@ function createMarkdownViewer({
     if (!drag) return;
     releaseVdrag(drag);
     if (!drag.active) return; // a plain click: the click event handles it
-    state.vdragConsumedClick = true;
-    setTimeout(() => { state.vdragConsumedClick = false; }, 0);
+    swallowClick();
     const record = buildVirtualSelectionRecord(drag.start, drag.focus || drag.start);
     updateSelectionHighlights(); // drop the live-drag paint
     if (record) activateSelectionFromRecord(record);
   }
 
   function handleVdragDown(event) {
-    if (event.button !== 0 || state.vdrag || state.editing || !band.isOpen()) return;
+    if (event.button !== 0 || state.vdrag || !band.isOpen()) return;
     if (event.target && event.target.closest
       && event.target.closest('.md-comment-card, .md-queued-comment-card, .md-pending-strip, .md-thread-card, .md-thread-waiting-line, button, textarea, input')) return;
     const point = resolveArticlePoint(event.clientX, event.clientY);
+    if (state.editing && !carryPressPastEdit(event, point)) return;
     if (!point) return;
     // Override only the third unmodified press in prose, before the browser
     // expands it to a paragraph. The existing mouseup/click path arms that
@@ -3755,6 +3760,52 @@ function createMarkdownViewer({
     };
     document.addEventListener('mousemove', handleVdragMove, true);
     document.addEventListener('mouseup', handleVdragUp, true);
+  }
+
+  // A press outside the live surface ends the edit (the surface and its strip
+  // stop their own presses short of here). Left to the browser, the blur
+  // commits mid-press, and the commit's re-layout detaches the pressed node:
+  // the click never lands, so no caret, and the keyboard is back on the
+  // prompt. The editing strip folding to its resting row also moves the text
+  // under the pointer. So the press resolves on the layout it was aimed at,
+  // the edit commits, and the press lands on the fresh layout by its logical
+  // spot. Returns whether the press goes on to start a drag.
+  function carryPressPastEdit(event, point) {
+    const session = state.editing;
+    const pressed = event.target && event.target.closest ? event.target.closest('[data-md-anchor-id]') : null;
+    if (!pressed || !state.spreadLayout || !state.spreadLayout.contains(pressed)) return false;
+    event.preventDefault(); // focus stays on the surface until the commit hands it on
+    document.addEventListener('mouseup', swallowClick, { capture: true, once: true });
+    const anchorId = getAnchorIdForTarget(pressed);
+    const offset = point && point.anchorId === anchorId ? point.offset : null;
+    // The edited block's other copy: the edit goes on there.
+    if (anchorId === session.anchorId) {
+      handoverEditingSession(pressed, offset != null ? offset : getSearchableTextLength(pressed));
+      updateEditingStripSeat();
+      return false;
+    }
+    const mark = event.target.closest('del.md-pending-del, ins.md-pending-ins');
+    const hunk = mark && mark.closest('[data-md-hunk-key]');
+    const link = event.target.closest('a[href]');
+    const article = isInSecondaryPane(pressed) ? state.secondaryArticle : state.article;
+    commitBlockEditor();
+    if (hunk) {
+      toggleHunkStrip(hunk.dataset.mdHunkKey);
+      return false;
+    }
+    if (link && isFollowModifier(event)) {
+      followLink(link);
+      return false;
+    }
+    let target = getArticleAnchorById(article, anchorId);
+    if (!target) return false;
+    // The fold can carry the pressed line across the seam, into the other copy.
+    if (offset != null && !caretOffsetVisible(target, offset)) {
+      const twin = getCounterpartAnchorElement(target);
+      if (twin && caretOffsetVisible(twin, offset)) target = twin;
+    }
+    armBlockAt(target, offset, { link });
+    return !!point;
   }
 
   function getProjectedOffsetTop(element) {
@@ -6674,6 +6725,16 @@ function createMarkdownViewer({
     }
 
     event.preventDefault();
+    // Read the click position on the layout it was aimed at: folding an open
+    // composer below moves the text under the pointer, and the hit-test
+    // would then miss the block and hold its end instead.
+    let offset = null;
+    try {
+      const range = document.caretRangeFromPoint(event.clientX, event.clientY);
+      if (range && target.contains(range.startContainer)) {
+        offset = getTextOffsetWithin(target, range.startContainer, range.startOffset);
+      }
+    } catch {}
     if (state.activeCard) {
       if (getActiveMarkdownCommentText()) {
         queueActiveMarkdownCommentDraft();
@@ -6685,22 +6746,17 @@ function createMarkdownViewer({
         clearActiveTarget();
       }
     }
-    // Hold the click position; it materializes as the editor caret on the
-    // first editing key (docs/dev/maintainer/md-editing-design.md). Surface it as a blinking
-    // caret so the edit start point is visible before you type.
-    state.pendingClickCaret = null;
-    try {
-      const range = document.caretRangeFromPoint(event.clientX, event.clientY);
-      if (range && target.contains(range.startContainer)) {
-        state.pendingClickCaret = getTextOffsetWithin(target, range.startContainer, range.startOffset);
-      }
-    } catch {}
-    // Hit-test miss (image, padding edge): the entry default is the block's
-    // end, so hold that explicitly and let the caret below show it — an
-    // invisible default reads as a caret that could be anywhere.
-    if (state.pendingClickCaret == null) {
-      state.pendingClickCaret = getSearchableTextNodes(target).text.length;
-    }
+    armBlockAt(target, offset, { link });
+  }
+
+  // Hold the click position; it materializes as the editor caret on the
+  // first editing key (docs/dev/maintainer/md-editing-design.md). Surface it as a blinking
+  // caret so the edit start point is visible before you type. A null offset
+  // (hit-test miss: image, padding edge) holds the entry default, the block's
+  // end, explicitly — an invisible default reads as a caret that could be
+  // anywhere.
+  function armBlockAt(target, offset, { link = null } = {}) {
+    state.pendingClickCaret = offset != null ? offset : getSearchableTextNodes(target).text.length;
     setActiveTarget(target, { link });
     showEditCaret(target, state.pendingClickCaret);
   }
