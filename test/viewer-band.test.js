@@ -38,7 +38,7 @@ assert.ok(shell.classList.contains('open'));
 assert.ok(!shell.classList.contains('vb-full'));
 
 // At golden the bar is one target: a click anywhere on it takes the viewer
-// full. Hover lightens it and names the click, a beat after the pointer
+// full. Hover lightens it and names the clicks, a beat after the pointer
 // arrives. Nothing hangs off the bar into the terminal; the terminal's own
 // click is the host's.
 const hint = () => {
@@ -50,7 +50,7 @@ assert.ok(bar.classList.contains('vb-hot'), 'hover lightens the bar');
 assert.ok(!document.querySelector('.vb-bar-lean, .vb-reach-below'), 'no band hangs off the bar');
 assert.strictEqual(hint(), '', 'the hint waits a beat');
 await new Promise((resolve) => setTimeout(resolve, 200));
-assert.strictEqual(hint(), 'Click: full size', 'the hint names the gesture and what it does');
+assert.strictEqual(hint(), `Click: full size · ${MOD_CLICK}: roll up`, 'the hint names each gesture and what it does');
 clickBar(BOTTOM);
 const fullHeight = shell.style.getPropertyValue('--vb-open-h');
 assert.ok(shell.classList.contains('vb-full'), "golden's bar goes full wherever it is clicked");
@@ -62,7 +62,7 @@ await new Promise((resolve) => setTimeout(resolve, 200));
 assert.strictEqual(hint(), `Click: roll up · ${MOD_CLICK}: split view`, 'at full the bar names both clicks');
 
 // At full and on the handle a click crosses to the other end, at once, and a
-// modifier-click lands on golden instead.
+// modifier-click lands on golden instead; at golden it rolls the band up.
 clickBar(BOTTOM);
 assert.ok(shell.classList.contains('hidden'), 'a click at full rolls the band up, at once');
 assert.ok(!document.querySelector('.vb-edge-catch.on'), 'the sliver is only the bar at full');
@@ -75,9 +75,7 @@ assert.ok(shell.classList.contains('vb-full'), 'a click on the handle opens it f
 modClickBar(TOP);
 assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a modifier-click at full lands on golden');
 modClickBar(TOP);
-assert.ok(shell.classList.contains('vb-full'), 'at golden a modifier-click goes full, like a plain one');
-clickBar(TOP);
-assert.ok(shell.classList.contains('hidden'));
+assert.ok(shell.classList.contains('hidden'), 'at golden a modifier-click rolls the band up');
 modClickBar(TOP);
 assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a modifier-click on the handle opens golden');
 // At golden, for a viewer whose page ends in an empty margin, a strip of it

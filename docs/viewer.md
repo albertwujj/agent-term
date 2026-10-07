@@ -22,6 +22,8 @@ In markdown, if you have a comment, reply or edit waiting to send, following a f
 
 ## Hide or resize
 
-`Ctrl/Cmd+Shift+O` hides the band and shows it again; `Ctrl/Cmd+Shift+I` switches between full size and a split with the terminal.
+`Ctrl/Cmd+Shift+O` hides the band and shows it again; `Ctrl/Cmd+Shift+I` switches between its two sizes.
 
-On its own, the band comes up full when the agent changes what it shows, splits when you send so you can watch the agent pick up, and hides when you type or click in the terminal. A band you hide yourself, a click in the terminal included, stays hidden through the agent's changes until you next type there.
+Clicking the bar at the band's bottom edge resizes it too. Hover over the bar and its right end names what each click does.
+
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-bar-hint.png"><img src="assets/viewer-bar-hint.png" width="599" alt="the pointing hand over the viewer's bottom bar at the split size, the bar lit, and at its right end: Click: full size · ⌘-click: roll up, beside the copy button and the close button"></a>

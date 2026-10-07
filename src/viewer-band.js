@@ -551,11 +551,11 @@ function createViewerBand({
   }
   function setWriting(on) { guestWriting = !!on; }
 
-  // Bar gestures: a click on the bar moves the band at once, one way at each
-  // size. The rolled-up handle opens full and full rolls up, a Cmd-click
-  // (Ctrl-click off macOS) landing either on golden instead; golden goes
-  // full, and the terminal below it is where a click rolls the band up (the
-  // host's). The bar's targets beyond itself join it: at full the sliver down
+  // Bar gestures: a click on the bar moves the band at once, and a Cmd-click
+  // (Ctrl-click off macOS) moves it to the other size left: the rolled-up
+  // handle opens full or golden, full rolls up or goes golden, golden goes
+  // full or rolls up. The terminal below golden rolls it up too (the host's).
+  // The bar's targets beyond itself join it: at full the sliver down
   // to the window's bottom edge (.vb-edge-catch), at golden a strip of the
   // viewer's empty bottom margin, where the viewer has one (.vb-reach-above).
   // Hover lightens the bar and names its click. A step moves the bar out from
@@ -577,11 +577,11 @@ function createViewerBand({
   function onBarClick(e) {
     lastStepAt = Date.now();
     setHot(false);
-    const toGolden = !!(e && (e.metaKey || e.ctrlKey));
-    if (state === 'hidden') applySize(toGolden ? 'golden' : 'full');
-    else if (sizeMode !== 'full') applySize('full');
-    else if (toGolden) applySize('golden');
-    else hide();
+    const mod = !!(e && (e.metaKey || e.ctrlKey));
+    if (state === 'hidden') applySize(mod ? 'golden' : 'full');
+    else if (sizeMode === 'full') { if (mod) applySize('golden'); else hide(); }
+    else if (mod) hide();
+    else applySize('full');
   }
   const onBarTarget = (el) => !!(el && el.closest && el.closest('.vb-bar, .vb-edge-catch, .vb-reach-above'));
   // Hover: lighten the bar and say what a click does, in one grammar
@@ -593,7 +593,7 @@ function createViewerBand({
     showHint(!hot ? ''
       : state === 'hidden' ? `Click: full size · ${MOD_CLICK}: split view`
         : sizeMode === 'full' ? `Click: roll up · ${MOD_CLICK}: split view`
-          : 'Click: full size');
+          : `Click: full size · ${MOD_CLICK}: roll up`);
   }
   // The in-bar hint: after HINT_DELAY_MS on first arrival; gone the moment
   // the pointer leaves.
