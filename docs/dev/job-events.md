@@ -11,8 +11,7 @@ Agents need no knowledge of any of this to benefit, and whatever
 re-engagement duty an agent's runbook imposes stands unchanged; everything
 here is insurance underneath it. Telling the agent is still useful: an
 agent that launches long jobs under `agent-job` can end its turn knowing
-the host will hand it the result once the job finishes and it has been
-idle since.
+the host will hand it the result once the job finishes and it is idle.
 
 ## What the host provides
 
@@ -72,29 +71,23 @@ liveness (`kill -0` on the filename pid) in the same read.
   in the window's chrome bar, with a count once more than one is running;
   the tooltip names the commands. This survives a session resume — the CLI's own task display
   is gone after a resume, but the jobs and their records are not.
-- An event for its session is delivered at most once, as a one-line
-  notice into the agent's input, and only to an agent that was idle when
-  the job finished and stays idle for the quiet period after it (two
-  minutes by default). An agent that was awake at the finish, or that woke
-  within the period, already has the result from its own environment (a
-  self-waking CLI's background-task notice, its own check) or is mid-turn,
-  where a queued notice would land after the turn as a stale second
-  report; its event is consumed silently instead. Awake is judged on
+- An event for its session is delivered once, as a one-line notice into
+  the agent's input, after the agent has been idle for the quiet period
+  (two minutes by default) past both the job's finish and its own last
+  output. A busy agent's report waits for its turn to end, so a job
+  launched out of the CLI's sight still reaches it. Idle is judged on
   substantive screen output: spinner frames, token counters, and
-  status-line repaints don't count as waking. A notice is held while
-  the user is mid-compose. Either way the event file is deleted once
-  decided.
+  status-line repaints don't count as activity. A notice is held while
+  the user is mid-compose. The event file is deleted on delivery.
 
-      [Notice from terminal host] Background job report: <msg> (ran 52m).
-      Ignore if already handled.
+      [Notice from terminal host] Background job report (as of 14:05):
+      <msg> (ran 52m). Ignore if already handled.
 
 - A start record whose process is gone with no event → a "gone without a
   completion report" notice quoting the record's `cmd`, under the same
-  idle discipline with the death detected at the poll. An agent active
-  around the detection most likely killed the job itself; its record is
-  consumed silently.
-- The notice carries no wall-clock times — the run duration is derived
-  from the timestamps; absolute times go to the host's logs.
+  idle discipline with the death detected at the poll.
+- The notice carries the clock time it was written and the run duration,
+  derived from the timestamps; the absolute times go to the host's logs.
 - Events persist until consumed. A spool file whose session window is gone
   for good is never claimed (each launch mints a fresh token) and ages out
   with the garbage collection (~7 days; behavior, not contract).

@@ -17,11 +17,11 @@
 //     recover — the viewport IS the complete state.
 //
 // Each update push also carries a `substantial` classification for the
-// host's "agent active" clock (job-watch's supersede gate): a scroll
+// host's "agent active" clock (job-watch's idle gate): a scroll
 // (baseY advanced — real lines entered scrollback) or a screen change
 // with enough new text rows is substantial; a near-duplicate repaint —
 // spinner frame, token counter, a status line clearing when a task
-// finishes — is churn and must not read as the agent waking (see
+// finishes — is churn and must not read as the agent working (see
 // isSubstantialChange in encoder.js). Buffer flips are substantial by
 // definition — main treats streamBufferFlip that way without a flag.
 //

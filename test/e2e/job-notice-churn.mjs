@@ -1,11 +1,10 @@
 // End-to-end regression test for the job-notice activity classifier:
 // a completion notice must DELIVER through ongoing status-line churn and
-// must stay SUPERSEDED under real scrolling output.
+// must be HELD under real scrolling output until that output stops.
 //
 // The regression pinned here end-to-end: a CLI repainting/clearing a status
-// line at the moment a background job finished used to read as "agent awake
-// at the finish" (any pty byte counted), and the notice was consumed as
-// superseded. The classified path is renderer buffer watcher → substantial
+// line read as agent activity (any pty byte counted), so a notice could sit
+// behind an idle CLI's repaints. The classified path is renderer buffer watcher → substantial
 // flag over preload IPC → main's lastAgentOutputTime → job-watch evaluate.
 // This drives the REAL app via Playwright's _electron: real shell, real
 // event spool, real 500ms buffer polls; the oracle is the main process's
@@ -18,12 +17,10 @@
 //     msg despite the ongoing repaints.
 //   Case B (control): screen pre-filled so scroll is active (the steady
 //     state of any real session) → quiet gap → event lands → real lines
-//     scroll in. Expect "[job-watch] superseded" naming the event file,
-//     and no notice.
+//     scroll in for 8s. Expect no notice while they scroll, then the
+//     notice once the output has stopped for the idle window.
 //
-// Sped up via env knobs: poll 1500ms, idle window 3000ms. The quiet gap
-// before each event (~8s) must exceed FINISH_MARGIN_MS (5s): substantial
-// output within 5s BEFORE the finish counts as awake at it.
+// Sped up via env knobs: poll 1500ms, idle window 3000ms.
 //
 // Run: npm run test:e2e   (builds the renderer first, then this)
 
@@ -108,41 +105,42 @@ async function main() {
     console.log('Case A — status-line churn must not eat the notice');
     const markA = mainLog.length;
     // One status row repaints in place every 400ms for ~24s; the event
-    // lands mid-churn at iteration 20 (~8s in, past FINISH_MARGIN with the
-    // repaints classifying as churn) — the exact output pattern
-    // (spinner/counter/stats repaints) that used to read as "agent awake".
+    // lands mid-churn at iteration 20 (~8s in) — the output pattern
+    // (spinner/counter/stats repaints) of a CLI that is idle but repainting.
     await runCmd(
       `( i=0; while [ $i -lt 60 ]; do i=$((i+1)); ` +
       `if [ $i -eq 20 ]; then ${writeEvent('churnjob-finished', '101')}; fi; ` +
       `printf '\\r\\033[2K* working %d' $i; sleep 0.4; done; echo )`);
     const noticeA = await waitForLog(/\[job-watch\] notice: job-report.*churnjob-finished/, 35_000, markA);
     check('notice delivered during churn', !!noticeA);
-    check('churn event was not superseded',
-      !mainLog.slice(markA).match(/\[job-watch\] superseded.*\.101\.event/));
 
-    // ---- Case B: real scrolling output still supersedes ----
-    console.log('Case B — scrolling output supersedes (control)');
+    // ---- Case B: real scrolling output holds the notice until it stops ----
+    console.log('Case B — scrolling output holds the notice (control)');
     await sleep(2500); // let case A's pasted notice echo and the prompt settle
     const markB = mainLog.length;
     // Fill the screen first so scroll is active — the steady state of any
-    // real session — then go quiet past FINISH_MARGIN before the event.
+    // real session — then go quiet before the event, and scroll after it.
+    // The stream's end is marked by a file, so the test knows when the
+    // output stopped.
+    const doneB = path.join(tmp, 'stream-done');
     await runCmd(
       `( j=0; while [ $j -lt 110 ]; do j=$((j+1)); echo "fill-$j"; done; ` +
       `sleep 8; ${writeEvent('streamjob-finished', '202')}; ` +
-      `i=0; while [ $i -lt 40 ]; do i=$((i+1)); echo "stream-line-$i"; sleep 0.2; done )`);
-    const supersededB = await waitForLog(/\[job-watch\] superseded.*\.202\.event/, 30_000, markB);
-    check('stream event superseded', !!supersededB);
-    await sleep(2000); // grace: a wrong notice would land within a poll
-    check('no notice for the stream event',
+      `i=0; while [ $i -lt 40 ]; do i=$((i+1)); echo "stream-line-$i"; sleep 0.2; done; ` +
+      `touch "${doneB}" )`);
+    for (const t0 = Date.now(); !fs.existsSync(doneB) && Date.now() - t0 < 30_000;) await sleep(100);
+    check('stream ran to its end', fs.existsSync(doneB));
+    check('no notice while the output scrolled',
       !mainLog.slice(markB).match(/\[job-watch\] notice: job-report.*streamjob-finished/));
+    const noticeB = await waitForLog(/\[job-watch\] notice: job-report.*streamjob-finished/, 15_000, markB);
+    check('notice delivered once the output stopped', !!noticeB);
 
     // ---- Case C: start record → running indicator → unreported death ----
     // A hand-written start record for a real short-lived process: while it
     // lives the indicator must report one running job; when it dies with no
     // completion event (no trap removes a hand-written record), the host
-    // must notice "gone without a completion report" — after the quiet
-    // period, since the death lands >FINISH_MARGIN after the last screen
-    // activity (the command echo).
+    // must notice "gone without a completion report" after the quiet
+    // period, with the run length known: this window saw the death.
     console.log('Case C — start record: running indicator, then unreported death');
     await sleep(2500);
     const markC = mainLog.length;
@@ -152,8 +150,9 @@ async function main() {
       `"$AGENT_SESSION_ID" "$(date -u +%FT%TZ)" "demo-job sleep 12" ` +
       `> "$d/$(date +%s).$p.started" )`);
     check('running job indicated', !!(await waitForLog(/\[job-watch\] running: 1/, 15_000, markC)));
-    const vanishedC = await waitForLog(/\[job-watch\] notice: job-vanished.*demo-job sleep 12/, 35_000, markC);
+    const vanishedC = await waitForLog(/\[job-watch\] notice: job-vanished.*demo-job sleep 12.*/, 35_000, markC);
     check('unreported death noticed', !!vanishedC);
+    check('a death the window watched has a known end', /"goneMs":\d+/.test(vanishedC ? vanishedC[0] : ''));
     check('indicator cleared after the death', !!(await waitForLog(/\[job-watch\] running: 0/, 10_000, markC)));
   } finally {
     await app.close();

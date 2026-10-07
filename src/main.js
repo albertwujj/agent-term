@@ -631,13 +631,12 @@ const titleActivity = createTitleActivityTracker({
 // above: only a SUBSTANTIAL screen change — real content, judged by
 // isSubstantialChange in stream/encoder.js — counts, so spinner frames,
 // token counters, and a status line clearing don't read as the agent
-// waking. (A CLI clearing its task-stats line at the exact moment a
-// background job finished is what used to consume the job's completion
-// notice as superseded.) Changes within USER_QUIET_MS of a keystroke are
+// working, and a CLI that repaints while idle cannot hold a job report
+// forever. Changes within USER_QUIET_MS of a keystroke are
 // the CLI echoing the composer, not the agent — see noteAgentScreenActivity.
 let lastAgentOutputTime = 0;
 // When this window's shell came up: a job that finished earlier counts as
-// finishing now for the nudge's quiet period (job-watch.js).
+// finishing then for the nudge's quiet period (job-watch.js).
 let ptyStartedAt = 0;
 let progressBarOn = false;
 let progressInterval = null;
@@ -4717,7 +4716,8 @@ function agentNoticeFor(m) {
   }
   if (m.kind === 'job-vanished') {
     const parts = m.items.map((it) =>
-      `"${it.command}"${it.startedMs ? ` (ran ~${fmtDuration(m.lastSeenMs - it.startedMs)})` : ''}`);
+      `"${it.command}"${!it.startedMs ? ''
+        : it.goneMs ? ` (ran ~${fmtDuration(it.goneMs - it.startedMs)})` : ' (run length unknown)'}`);
     return `${prefix} As of ${at}, a background job you started is gone without a completion report — ${parts.join(', ')}. Its result may be lost; re-establish it if still needed.`;
   }
   return `${prefix} As of ${at} — ${m.text}`;
@@ -4727,14 +4727,11 @@ function agentNoticeFor(m) {
 // Contract: docs/dev/job-events.md; pure logic + tests: job-watch.js. Each poll
 // reads the spool: completion events plus start records, whose liveness the
 // same shell read resolves with kill -0. Notices are bracketed-paste
-// submissions. A completion event is delivered only to an agent that was
-// idle when the job finished and stays idle JOB_IDLE_MS after it; an agent
-// awake at the finish, or woken within that window, already has the result
-// from its own environment (or is mid-turn, where a queued paste would land
-// late and read as a stale second report), so the event is consumed as
-// superseded. A start record whose process died with no event follows the
-// same discipline with the death detected at the poll; one with a live
-// process drives the chrome bar's background-jobs indicator.
+// submissions. A completion event is delivered once the agent has been quiet
+// JOB_IDLE_MS past both the finish and its own last activity; a busy agent's
+// report waits for its turn to end. A start record whose process died with
+// no event follows the same discipline with the death detected at the poll;
+// one with a live process drives the chrome bar's background-jobs indicator.
 const JOB_IDLE_MS = Number(process.env.AGENT_TERM_JOB_IDLE_MS) || 120_000;
 const JOB_POLL_MS = Number(process.env.AGENT_TERM_JOB_POLL_MS) || 60_000;
 // This window's session token (docs/dev/job-events.md; agent-lock records it as
@@ -4807,9 +4804,6 @@ async function pollJobWatch() {
     jobWatchPending = res.pending;
     jobWatchPrevPollAt = now;
     updateJobsIndicator(res.running);
-    if (res.superseded.length) {
-      log('[job-watch] superseded (agent active at or after the finish): ' + res.superseded.join(', '));
-    }
     if (res.remove.length) {
       await posixSh(`rm -f ${res.remove.map(shellEscape).join(' ')}`);
     }

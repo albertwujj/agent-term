@@ -59,35 +59,16 @@ test('parseSpool: an event without session or ts is dropped', () => {
 test('evaluate: no events, no starts → silence', () => {
   const r = jw.evaluate(inp());
   assert.equal(r.notice, null);
-  assert.deepEqual(r.superseded, []);
+  assert.deepEqual(r.remove, []);
   assert.deepEqual(r.running, []);
 });
 
-// --- completion events: idle at the finish, and quiet for quietMs after it ---
-
-test('evaluate: agent awake at the finish → event superseded, consumed, never pasted', () => {
-  // Finished 16 min ago; the agent produced output 1 min ago, so it was awake
-  // after the finish (mid-turn, or already told by its own environment).
-  const r = jw.evaluate(inp({ agentActiveAt: T0 - MIN, events: [ev()] }));
-  assert.equal(r.notice, null);
-  assert.deepEqual(r.superseded, [ev().file]);
-  assert.deepEqual(r.remove, [ev().file]);
-  assert.equal(r.pending.size, 0);
-});
-
-test('evaluate: output just before the finish counts as awake at it (margin)', () => {
-  const fin = T0 - 10 * MIN;
-  const awake = jw.evaluate(inp({ events: [ev({ tsMs: fin })], agentActiveAt: fin - 3000 }));
-  assert.deepEqual(awake.superseded, [ev().file]);
-  const asleep = jw.evaluate(inp({ events: [ev({ tsMs: fin })], agentActiveAt: fin - 8000 }));
-  assert.equal(asleep.notice.kind, 'job-report');
-});
+// --- completion events: quiet for quietMs past the finish and the last activity ---
 
 test('evaluate: idle since before the finish and quiet for quietMs → delivered at first sight', () => {
   const r = jw.evaluate(inp({ events: [ev()] })); // quiet 20 min, finished 16 min ago
   assert.equal(r.notice.kind, 'job-report');
   assert.deepEqual(r.remove, [ev().file]);
-  assert.deepEqual(r.superseded, []);
   assert.equal(r.pending.size, 0);
 });
 
@@ -103,15 +84,32 @@ test('evaluate: idle at the finish, quiet period not over → pending; delivered
   assert.equal(p2.pending.size, 0);
 });
 
-test('evaluate: idle at the finish but woke within the quiet period → superseded', () => {
+test('evaluate: agent busy at the finish → held, never consumed; delivered once quiet for quietMs', () => {
+  // Finished 16 min ago, mid-turn: output 1 min ago.
+  const p1 = jw.evaluate(inp({ agentActiveAt: T0 - MIN, events: [ev()] }));
+  assert.equal(p1.notice, null);
+  assert.deepEqual(p1.remove, []);
+  assert.equal(p1.pending.size, 1);
+  // Still working an hour later: still held.
+  const p2 = jw.evaluate(inp({ now: T0 + HOUR, agentActiveAt: T0 + HOUR - 10_000, events: [ev()], pending: p1.pending, prevPollAt: T0 }));
+  assert.equal(p2.notice, null);
+  assert.equal(p2.pending.size, 1);
+  // The turn ended; quiet for quietMs since → delivered.
+  const done = T0 + HOUR - 10_000;
+  const p3 = jw.evaluate(inp({ now: done + 2 * MIN, agentActiveAt: done, events: [ev()], pending: p2.pending, prevPollAt: T0 + HOUR }));
+  assert.equal(p3.notice.kind, 'job-report');
+  assert.deepEqual(p3.remove, [ev().file]);
+});
+
+test('evaluate: idle at the finish but woke within the quiet period → quiet restarts from that activity', () => {
   const young = ev({ tsMs: T0 - MIN });
   const p1 = jw.evaluate(inp({ agentActiveAt: T0 - 10 * MIN, events: [young] }));
-  assert.equal(p1.pending.size, 1);
-  // 30 s later the agent produced output (a self-waking CLI's notice, or a user prompt).
+  // 30 s later the agent produced output (a user prompt, or a CLI that tracked the job).
   const p2 = jw.evaluate(inp({ now: T0 + MIN, agentActiveAt: T0 + 30_000, events: [young], pending: p1.pending, prevPollAt: T0 }));
   assert.equal(p2.notice, null);
-  assert.deepEqual(p2.superseded, [young.file]);
-  assert.deepEqual(p2.remove, [young.file]);
+  assert.deepEqual(p2.remove, []);
+  const p3 = jw.evaluate(inp({ now: T0 + 30_000 + 2 * MIN, agentActiveAt: T0 + 30_000, events: [young], pending: p2.pending, prevPollAt: T0 + MIN }));
+  assert.equal(p3.notice.kind, 'job-report');
 });
 
 test('evaluate: clock skew — a ts before the previous poll is clamped to it; a future ts to now', () => {
@@ -126,31 +124,30 @@ test('evaluate: clock skew — a ts before the previous poll is clamped to it; a
   assert.equal(f.pending.get(future.file).finishedAt, T0);
 });
 
-test('evaluate: a job that finished before this window existed waits quietMs from the agent\'s last activity', () => {
+test('evaluate: a job that finished before this window existed waits quietMs past the window\'s start and the agent\'s last activity', () => {
   // Resumed session: the window came up 1 min ago, the job finished an hour
   // ago, and the CLI's startup burst (ending 50 s ago) is the only output.
   const old = ev({ tsMs: T0 - HOUR });
   const p1 = jw.evaluate(inp({ windowStartAt: T0 - MIN, agentActiveAt: T0 - 50_000, events: [old] }));
   assert.equal(p1.notice, null);
-  assert.deepEqual(p1.superseded, []);             // the startup burst is not "waking to it"
-  assert.equal(p1.pending.get(old.file).finishedAt, T0 - 50_000); // pinned to that burst
+  assert.equal(p1.pending.get(old.file).finishedAt, T0 - MIN); // counts as finishing when the window came up
   // Still quiet 2 min later → delivered.
   const p2 = jw.evaluate(inp({ now: T0 + 2 * MIN, windowStartAt: T0 - MIN, agentActiveAt: T0 - 50_000, events: [old], pending: p1.pending, prevPollAt: T0 }));
   assert.equal(p2.notice.kind, 'job-report');
-  // But NEW activity after the pin (a first prompt) supersedes, as for any event.
-  const p3 = jw.evaluate(inp({ now: T0 + MIN, windowStartAt: T0 - MIN, agentActiveAt: T0 + 20_000, events: [old], pending: p1.pending, prevPollAt: T0 }));
-  assert.deepEqual(p3.superseded, [old.file]);
 });
 
-test('evaluate: composing holds a ripe event; a submit afterwards supersedes it', () => {
+test('evaluate: composing holds a ripe event; after a submit it waits out the turn', () => {
   const held = jw.evaluate(inp({ composing: true, events: [ev()] }));
   assert.equal(held.notice, null);
   assert.deepEqual(held.remove, []);
   assert.equal(held.pending.get(ev().file).finishedAt, T0 - 16 * MIN);
-  // They submitted: the turn's output is agent activity after the finish.
-  const after = jw.evaluate(inp({ now: T0 + MIN, agentActiveAt: T0 + 40_000, events: [ev()], pending: held.pending, prevPollAt: T0 }));
-  assert.equal(after.notice, null);
-  assert.deepEqual(after.superseded, [ev().file]);
+  // They submitted: the turn's output holds the event...
+  const turn = jw.evaluate(inp({ now: T0 + MIN, agentActiveAt: T0 + 40_000, events: [ev()], pending: held.pending, prevPollAt: T0 }));
+  assert.equal(turn.notice, null);
+  assert.equal(turn.pending.size, 1);
+  // ...until the agent has been quiet for quietMs.
+  const after = jw.evaluate(inp({ now: T0 + 40_000 + 2 * MIN, agentActiveAt: T0 + 40_000, events: [ev()], pending: turn.pending, prevPollAt: T0 + MIN }));
+  assert.equal(after.notice.kind, 'job-report');
 });
 
 test('evaluate: composing holds; typing abandoned → delivers once the user is quiet', () => {
@@ -178,23 +175,19 @@ test('evaluate: dead start record, agent idle through the quiet period → job-v
   const p2 = jw.evaluate(inp({ now: T0 + 3 * MIN, agentActiveAt: T0 - 20 * MIN, starts: [gone], pending: p1.pending, prevPollAt: T0 }));
   assert.equal(p2.notice.kind, 'job-vanished');
   assert.match(p2.notice.items[0].command, /watch-build\.sh/);
+  assert.equal(p2.notice.items[0].goneMs, T0);    // run length ends at the detection, not the delivery
   assert.deepEqual(p2.remove, [gone.file]);
 });
 
-test('evaluate: agent active around the death → start record consumed silently (it likely killed the job)', () => {
+test('evaluate: agent active around the death → the record is held, then reported once quiet', () => {
   const gone = st({ alive: false });
-  const r = jw.evaluate(inp({ agentActiveAt: T0 - 2000, starts: [gone] }));
-  assert.equal(r.notice, null);
-  assert.deepEqual(r.superseded, [gone.file]);
-  assert.deepEqual(r.remove, [gone.file]);
-});
-
-test('evaluate: waking within the quiet period supersedes a dead start record', () => {
-  const gone = st({ alive: false });
-  const p1 = jw.evaluate(inp({ starts: [gone] }));
-  assert.equal(p1.pending.size, 1);
+  const p1 = jw.evaluate(inp({ agentActiveAt: T0 - 2000, starts: [gone] }));
+  assert.equal(p1.notice, null);
+  assert.deepEqual(p1.remove, []);
   const p2 = jw.evaluate(inp({ now: T0 + MIN, agentActiveAt: T0 + 30_000, starts: [gone], pending: p1.pending, prevPollAt: T0 }));
-  assert.deepEqual(p2.superseded, [gone.file]);
+  assert.equal(p2.notice, null);
+  const p3 = jw.evaluate(inp({ now: T0 + 30_000 + 2 * MIN, agentActiveAt: T0 + 30_000, starts: [gone], pending: p2.pending, prevPollAt: T0 + MIN }));
+  assert.equal(p3.notice.kind, 'job-vanished');
 });
 
 test('evaluate: an event from the same pid owns the job — the start record is cleaned, never a vanish', () => {
@@ -203,23 +196,28 @@ test('evaluate: an event from the same pid owns the job — the start record is 
   const r = jw.evaluate(inp({ events: [ev()], starts: [st({ alive: false })] }));
   assert.equal(r.notice.kind, 'job-report');
   assert.ok(r.remove.includes(st().file));
-  assert.deepEqual(r.superseded, []);
   assert.deepEqual(r.running, []);
 });
 
-test('evaluate: pre-window death (job from before a resume) is not superseded by the startup burst', () => {
+test('evaluate: pre-window death (job from before a resume) waits out the startup burst', () => {
   // Window up 1 min, startup burst 50 s ago, job started an hour ago and
   // died while no host was watching.
   const gone = st({ alive: false });
   const p1 = jw.evaluate(inp({ windowStartAt: T0 - MIN, agentActiveAt: T0 - 50_000, starts: [gone] }));
-  assert.deepEqual(p1.superseded, []);
+  assert.equal(p1.notice, null);
   assert.equal(p1.pending.size, 1);
-  // Still quiet after the period → the vanish notice fires.
   const p2 = jw.evaluate(inp({ now: T0 + 3 * MIN, windowStartAt: T0 - MIN, agentActiveAt: T0 - 50_000, starts: [gone], pending: p1.pending, prevPollAt: T0 }));
   assert.equal(p2.notice.kind, 'job-vanished');
-  // NEW activity instead → superseded.
-  const p3 = jw.evaluate(inp({ now: T0 + MIN, windowStartAt: T0 - MIN, agentActiveAt: T0 + 20_000, starts: [gone], pending: p1.pending, prevPollAt: T0 }));
-  assert.deepEqual(p3.superseded, [gone.file]);
+  assert.equal(p2.notice.items[0].goneMs, null);   // no host saw it die: run length unknown
+});
+
+test('evaluate: a death this window watched for has a known end, even for a job from before it', () => {
+  // A poll already completed in this window and saw the process alive; the
+  // next one finds it dead, so it died within that interval.
+  const gone = st({ alive: false });
+  const p1 = jw.evaluate(inp({ windowStartAt: T0 - 10 * MIN, prevPollAt: T0 - MIN, starts: [gone] }));
+  const p2 = jw.evaluate(inp({ now: T0 + 3 * MIN, windowStartAt: T0 - 10 * MIN, starts: [gone], pending: p1.pending, prevPollAt: T0 }));
+  assert.equal(p2.notice.items[0].goneMs, T0);
 });
 
 test('evaluate: one notice per poll — a ripe report wins; ripe gone records stay pending', () => {

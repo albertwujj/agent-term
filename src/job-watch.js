@@ -66,45 +66,37 @@ function oneLine(s, max = 200) {
 // SUBSTANTIAL screen change: real content, not spinner/status churn, and
 // not the user's own typing echo — classified in stream/renderer-watch.js),
 // composing (keys typed since the last submit), events, starts (this
-// session's only), pending (Map file → { finishedAt, awakeAfter, gone? }
-// from earlier polls), prevPollAt (the last completed poll, 0 if none),
-// windowStartAt (when this window's shell came up), quietMs }.
-// Returns { pending, notice|null, remove: [files], superseded: [files],
-// running: [{ cmd, startedMs }] }.
+// session's only), pending (Map file → { finishedAt } from earlier polls),
+// prevPollAt (the last completed poll, 0 if none), windowStartAt (when this
+// window's shell came up), quietMs }.
+// Returns { pending, notice|null, remove: [files], running: [{ cmd, startedMs }] }.
 //
-// Completion events deliver only to an agent that was idle WHEN the job
-// finished and stays idle for quietMs AFTER it. An agent that was awake at
-// the finish, or woke within the quiet period, learned of it from its own
-// environment (a self-waking CLI's background-task notice, its own check) or
-// is busy with something a queued notice would only confuse: a pasted notice
-// rides the CLI's input queue and lands after the running turn, as a stale
-// second report. Such an event is superseded: consumed, logged, never pasted.
-// "Awake" is judged on substantial screen output (agentActiveAt): a spinner
-// frame, token counter, or a status line clearing at the finish is churn,
-// not waking — a CLI wiping its task-stats display the moment the job ends
-// must not eat the report. The user composing holds a ripe event; if they
-// then submit, the turn's output supersedes it at the next poll.
+// A completion event is delivered once the agent has been quiet for quietMs
+// after both the job's finish and its own last activity, and the user is not
+// composing. Activity holds an event; nothing consumes one unread. A job
+// launched detached runs out of the CLI's sight, so the host is the only one
+// that will tell the agent, busy or not; a paste mid-turn would ride the
+// CLI's input queue, so the event waits for the turn to end instead. A CLI
+// that did track the job and told the agent itself makes the report a
+// duplicate, which the notice's "ignore if already handled" covers. Quiet is
+// judged on substantial screen output (agentActiveAt): a spinner frame,
+// token counter, or a status line repainting is churn, and counting it would
+// hold a report behind a CLI that repaints while idle.
 //
 // The finish time is the event's ts, clamped into (prevPollAt, now] (the file
 // was not in the spool at the previous poll; WSL's clock can be minutes off
-// after a host sleep). A job that finished before this window existed had no
-// agent here to be awake at it, and the resumed CLI's startup burst must not
-// read as waking to it: its finish is pinned to the agent's last activity at
-// first sight, so the quiet period runs from there and only NEW activity
-// supersedes. Fixed at first sight, so the quiet period is measured from one
-// point; `awakeAfter` is the activity threshold that supersedes.
+// after a host sleep) and to no earlier than windowStartAt (a job that
+// finished before this window existed counts as finishing when it came up).
+// Fixed at first sight, so the quiet period is measured from one point.
 //
 // A start record whose process is dead with no matching event enters the
-// same pipeline, with the death detected now: an agent active around the
-// detection most likely killed the job itself (or is mid-turn), so the
-// record is consumed silently; an agent idle through the quiet period gets
-// the "gone without a completion report" notice. A start record predating
-// this window (a job from before a resume that died while no host was
-// watching) is pinned like a pre-window event, so the resumed CLI's
-// startup burst does not eat it. Start records with a live process are
-// reported as running and left in the spool; their EXIT trap removes them.
-const FINISH_MARGIN_MS = 5000; // output this close before the finish = awake at it
-
+// same pipeline, its death detected now, and earns the "gone without a
+// completion report" notice. The poll that sees the death bounds it to one
+// poll interval, so the notice gives how long the job ran; a job from before
+// this window found dead at its first completed poll died while no host was
+// looking, at a time nobody knows (goneMs null). Start records with a live
+// process are reported as running and left in the spool; their EXIT trap
+// removes them.
 function evaluate(input) {
   const { now, composing, quietMs } = input;
   const agentActiveAt = input.agentActiveAt || 0;
@@ -115,36 +107,22 @@ function evaluate(input) {
   const pendingIn = input.pending || new Map();
   const pending = new Map();
   const remove = [];
-  const superseded = [];
   const running = [];
   let notice = null;
+  const ripe = (p) => !composing && now - Math.max(p.finishedAt, agentActiveAt) >= quietMs;
 
-  const ripe = [];
+  const ripeEvents = [];
   for (const e of events) {
-    let p = pendingIn.get(e.file);
-    if (!p) {
-      const lo = Math.max(prevPollAt, windowStartAt);
-      let finishedAt = Math.min(Math.max(e.tsMs, lo), now);
-      let awakeAfter = finishedAt - FINISH_MARGIN_MS;
-      if (e.tsMs < windowStartAt) {
-        finishedAt = Math.min(Math.max(finishedAt, agentActiveAt), now);
-        awakeAfter = finishedAt + 1;
-      }
-      p = { finishedAt, awakeAfter };
-    }
-    if (agentActiveAt >= p.awakeAfter) {
-      superseded.push(e.file);
-      remove.push(e.file);
-      continue;
-    }
-    if (now - p.finishedAt >= quietMs && !composing) { ripe.push(e); continue; }
-    pending.set(e.file, p);
+    const p = pendingIn.get(e.file)
+      || { finishedAt: Math.min(Math.max(e.tsMs, prevPollAt, windowStartAt), now) };
+    if (ripe(p)) ripeEvents.push(e);
+    else pending.set(e.file, p);
   }
-  if (ripe.length) {
-    for (const e of ripe) remove.push(e.file);
+  if (ripeEvents.length) {
+    for (const e of ripeEvents) remove.push(e.file);
     notice = {
       kind: 'job-report', notice: true,
-      items: ripe.map((e) => ({ msg: oneLine(e.msg), tsMs: e.tsMs, startedMs: e.startedMs })),
+      items: ripeEvents.map((e) => ({ msg: oneLine(e.msg), tsMs: e.tsMs, startedMs: e.startedMs })),
     };
   }
 
@@ -156,44 +134,27 @@ function evaluate(input) {
   for (const s of starts) {
     if (s.pid && eventPids.has(s.pid)) { remove.push(s.file); continue; }
     if (s.alive) { running.push({ cmd: s.cmd, startedMs: s.startedMs }); continue; }
-    let p = pendingIn.get(s.file);
-    if (!p) {
-      // Death detected this poll. For a job predating the window, only NEW
-      // activity supersedes (the resumed CLI's startup burst is not the
-      // agent reacting to a death it never saw).
-      const preWindow = s.startedMs && s.startedMs < windowStartAt;
-      p = {
-        finishedAt: now,
-        awakeAfter: preWindow ? agentActiveAt + 1 : now - FINISH_MARGIN_MS,
-        gone: { cmd: s.cmd, startedMs: s.startedMs },
-      };
-    }
-    if (agentActiveAt >= p.awakeAfter) {
-      superseded.push(s.file);
-      remove.push(s.file);
-      continue;
-    }
-    if (now - p.finishedAt >= quietMs && !composing) { ripeGone.push({ s, p }); continue; }
-    pending.set(s.file, p);
+    const p = pendingIn.get(s.file) || {
+      finishedAt: now,
+      unwatched: !prevPollAt && !(s.startedMs >= windowStartAt),
+    };
+    // One notice per poll: a ripe report going out this cycle leaves the
+    // gone records pending (still ripe) for the next one.
+    if (ripe(p) && !notice) ripeGone.push({ s, p });
+    else pending.set(s.file, p);
   }
   if (ripeGone.length) {
-    if (!notice) {
-      for (const { s } of ripeGone) remove.push(s.file);
-      notice = {
-        kind: 'job-vanished', notice: true, lastSeenMs: now,
-        items: ripeGone.map(({ s, p }) => ({
-          command: oneLine(s.cmd, 120),
-          startedMs: p.gone ? p.gone.startedMs : s.startedMs,
-        })),
-      };
-    } else {
-      // One notice per poll: a ripe report went out this cycle, so the
-      // gone records stay pending (still ripe) for the next one.
-      for (const { s, p } of ripeGone) pending.set(s.file, p);
-    }
+    for (const { s } of ripeGone) remove.push(s.file);
+    notice = {
+      kind: 'job-vanished', notice: true,
+      items: ripeGone.map(({ s, p }) => ({
+        command: oneLine(s.cmd, 120), startedMs: s.startedMs,
+        goneMs: p.unwatched ? null : p.finishedAt,
+      })),
+    };
   }
 
-  return { pending, notice, remove, superseded, running };
+  return { pending, notice, remove, running };
 }
 
-module.exports = { parseSpool, oneLine, evaluate, FINISH_MARGIN_MS };
+module.exports = { parseSpool, oneLine, evaluate };
