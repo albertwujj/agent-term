@@ -1,6 +1,6 @@
 # Long jobs
 
-A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard session with two bad options: the agent either sits watching it, blocking the terminal, or ends its turn and nobody is there when the job finishes, so the result sits until you notice.
+A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard session with two bad options: the agent either sits watching it, blocking the terminal, or ends its turn and never learns when the job finishes. The rest of the task is then dropped: a failure stays unfixed and the work meant to follow never starts.
 
 ## What agent-jobs is
 
