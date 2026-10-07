@@ -12,33 +12,28 @@
 // interaction identical across viewers and spares the band any comment
 // special-case. A future shared comment UI plugs into the same slot.
 //
-// Sizing: `share: 'major'` takes ~62vh (golden major), 'minor' ~38vh; the band's
-// bottom is grid-snapped to a terminal row so the row peeking below isn't chopped.
+// Sizing: full fills the viewport; golden, the split view, takes `share:
+// 'major'` ~62vh (golden major), 'minor' ~38vh. The band's bottom is
+// grid-snapped to a terminal row so the row peeking below isn't chopped.
 //
-// Automatic moves. The band moves on its own in three places, and nowhere else:
-// an agent's handoff opens a viewer (the host's auto-open), a Send recedes a
-// full band to golden so the terminal shows the agent picking it up (the
-// acknowledgment), and the band returns to full once the agent has answered
-// that Send. Everything else is the user's hand. One invariant covers all
-// three: no automatic move lands while the user is typing, in a viewer or in
-// the terminal — nothing moves the text being typed. userIsTyping() is that
-// check; the host registers what typing in the terminal means (setTypingProbe)
-// and calls it before its own automatic moves, and the return consults it here.
+// Automatic moves. Full and rolled up are where the band rests; golden only
+// ever waits for the agent. The band moves on its own in three cases:
+//   - The agent puts new content in (the host's auto-open of a handoff, or
+//     the open viewer's doc, threads or review changing): full. A band the
+//     user rolled up by hand stays rolled up until they act on the terminal
+//     again, since one turn often writes several times and each write would
+//     pull the band back over what they went to read (contentArrived).
+//   - A Send: a full band drops to golden so the terminal shows the agent
+//     picking it up, the acknowledgment (recede).
+//   - The user acts on the terminal, a key or a click: the band rolls up
+//     (the host's; withdraw and hide).
+// One invariant covers the agent's moves: none lands while the user is
+// typing, in a viewer or in the terminal, so nothing moves the text being
+// typed. userIsTyping() is that check; the host registers what typing in the
+// terminal means (setTypingProbe) and calls it before its own automatic moves.
 
 const VIEWER_BAND_STYLE_ID = 'viewer-band-style';
 const SHARE_FRACTION = { major: 0.62, minor: 0.38 };
-
-// The chevron in the bar's hover band, drawn by the pointer and pointing at
-// the bar: a click on either side pushes it away (see bindBarGestures).
-const CHEVRON_W = 18;
-function chevron(points, color) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CHEVRON_W}" height="12" viewBox="0 0 ${CHEVRON_W} 12">`
-    + `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" `
-    + 'stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-}
-const CHEVRON_DOWN = chevron('2,3 9,10 16,3', '#3f4652');
-const CHEVRON_UP = chevron('2,9 9,2 16,9', '#e5e7eb');
 
 // Text entry: where a keystroke lands as text. A focused one inside a band is
 // typing on the band's own terms, so the band needs no host probe for it.
@@ -48,32 +43,12 @@ function isTextEntry(el) {
   if (el.getAttribute && el.getAttribute('contenteditable') === 'true') return true;
   return el.tagName === 'INPUT' && !/^(?:button|checkbox|radio|submit|reset|range|color|file|image)$/i.test(el.type || '');
 }
-// Writing: a comment, reply or edit — a textarea or an editable block, not a
-// search field. Starting to write at golden settles the size there.
-function isWritingSurface(el) {
-  if (!el || el.nodeType !== 1) return false;
-  if (el.tagName === 'TEXTAREA' || el.isContentEditable) return true;
-  return !!(el.getAttribute && el.getAttribute('contenteditable') === 'true');
-}
-
 let typingProbe = null;
 function setTypingProbe(fn) { typingProbe = typeof fn === 'function' ? fn : null; }
 function userIsTyping() {
   const active = typeof document !== 'undefined' ? document.activeElement : null;
   if (active && active.closest && active.closest('.vb-shell') && isTextEntry(active)) return true;
   try { return !!(typingProbe && typingProbe()); } catch { return false; }
-}
-
-// Whether the CLI says its turn is over: true (idle), false (working), or null
-// when its title carries no such evidence. Window-wide, so it lives here and
-// every band re-checks its return when it changes.
-let agentIdle = null;
-const liveBands = new Set();
-function setAgentIdle(value) {
-  const next = value === true ? true : value === false ? false : null;
-  if (next === agentIdle) return;
-  agentIdle = next;
-  for (const band of liveBands) band.evaluateReturn();
 }
 
 function ensureBandStyles() {
@@ -183,58 +158,16 @@ function ensureBandStyles() {
          into the dimmed (greyed) terminal below it. */
       border-bottom: 1px solid rgba(0, 0, 0, 0.4);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      /* The bar is the band's bottom edge: a click steps its size by where
-         it lands (see bindBarGestures). */
+      /* The bar is the band's bottom edge: a click moves the band (see
+         bindBarGestures). */
       user-select: none; cursor: pointer;
       backdrop-filter: blur(0px) saturate(1) brightness(1);
       -webkit-backdrop-filter: blur(0px) saturate(1) brightness(1);
       transition: background-color 280ms ease, border-color 280ms ease,
                   backdrop-filter 280ms ease, flex-basis 200ms ease;
     }
-    /* Hover lightens the bar, and at golden draws a band on the side the
-       pointer is on, as far as the bar reaches there: above it, in the
-       viewer's shade, with a chevron by the pointer pointing down (a click
-       pushes the bar down, the viewer goes full); below it, in the
-       terminal's, with one pointing up (the bar goes up, the viewer rolls
-       away)
-       (bindBarGestures). The band is its own layer, .vb-bar-lean, since the
-       band clips whatever hangs below it; while it shows it is part of the
-       click target. */
+    /* Hover lightens the bar; it names its click in the hover hint. */
     .vb-bar.vb-hot { background-color: #55585e; }
-    .vb-bar-lean {
-      position: fixed; left: 0; right: 0; z-index: 8201; box-sizing: border-box;
-      cursor: pointer;
-      transform: scaleY(0); pointer-events: none;
-      transition: transform 110ms ease-out;
-    }
-    .vb-bar-lean.on { transform: scaleY(1); pointer-events: auto; }
-    .vb-bar-lean.above {
-      transform-origin: bottom;
-      background: #d3d6db ${CHEVRON_DOWN} no-repeat;
-      border-top: 1px solid rgba(100, 116, 139, 0.55);
-    }
-    .vb-bar-lean.below {
-      transform-origin: top;
-      background: #1f2228 ${CHEVRON_UP} no-repeat;
-      border-bottom: 1px solid rgba(0, 0, 0, 0.4);
-    }
-    /* As a band appears, its chevron slides a few pixels toward the bar and
-       settles: the push, said once in motion, never looping. */
-    .vb-bar-lean.above.nudge { animation: vb-nudge-down 220ms ease-out; }
-    .vb-bar-lean.below.nudge { animation: vb-nudge-up 220ms ease-out; }
-    @keyframes vb-nudge-down {
-      0% { background-position-y: calc(50% - 4px); }
-      60% { background-position-y: calc(50% + 1px); }
-      100% { background-position-y: 50%; }
-    }
-    @keyframes vb-nudge-up {
-      0% { background-position-y: calc(50% + 4px); }
-      60% { background-position-y: calc(50% - 1px); }
-      100% { background-position-y: 50%; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .vb-bar-lean.nudge { animation: none; }
-    }
     /* At full the bar stops a few pixels short of the window's bottom edge;
        that sliver joins the bar, so a pointer thrown to the edge lands on it. */
     .vb-edge-catch {
@@ -242,20 +175,15 @@ function ensureBandStyles() {
       cursor: pointer; display: none;
     }
     .vb-edge-catch.on { display: block; }
-    /* At golden the bar reaches past itself (REACH_PX), so its two sides
-       are easy to hit: below it into the terminal (roll the viewer up), and
-       above it into a viewer whose page ends in an empty margin (reachAbove:
-       the doc's; go full). Not over a review or web
-       page, whose bottom edge is live (its scrollbar included), nor under the
-       rolled-up handle, which sits on the terminal's first lines. The reach
-       above stands down while the user writes in the band: an edit's bubble
-       can pin itself into that margin. */
-    .vb-reach-below, .vb-reach-above {
-      position: fixed; left: 0; right: 0; cursor: pointer; display: none;
+    /* At golden the bar reaches up past itself (REACH_PX) into a viewer whose
+       page ends in an empty margin (reachAbove: the doc's), so it is easy to
+       hit. Not over a review or web page, whose bottom edge is live (its
+       scrollbar included). The reach stands down while the user writes in
+       the band: an edit's bubble can pin itself into that margin. */
+    .vb-reach-above {
+      position: fixed; left: 0; right: 0; z-index: 8201; cursor: pointer; display: none;
     }
-    .vb-reach-below { z-index: 8199; }
-    .vb-reach-above { z-index: 8201; }
-    .vb-reach-below.on, .vb-reach-above.on { display: block; }
+    .vb-reach-above.on { display: block; }
     body:has(.vb-shell textarea:focus, .vb-shell [contenteditable="true"]:focus) .vb-reach-above {
       pointer-events: none;
     }
@@ -383,7 +311,6 @@ function createViewerBand({
   share = 'major',
   bg = null,
   minHeight = 280,
-  defaultSize = 'golden', // 'golden' | 'full' — the open size a fresh reveal lands on
   closeTitle = 'Close',
   escToHide = true,   // false → the viewer drives Esc itself (e.g. md cancels an
                       // open comment card first, then hides via its own handler)
@@ -404,16 +331,14 @@ function createViewerBand({
   let content = null;
   let titleEl = null;
   let state = 'closed'; // 'closed' | 'hidden' | 'open'
-  let restSize = defaultSize === 'full' ? 'full' : 'golden';
-  let sizeMode = restSize; // open-height target: 'golden' (the major share) | 'full' (viewport)
+  let sizeMode = 'full'; // open-height target: 'golden' (the major share) | 'full' (viewport)
   const fraction = SHARE_FRACTION[share] || SHARE_FRACTION.major;
-  // The Send's round trip. recededForSend: the band sits at golden because a
-  // Send put it there, not the user's hand. returnArmed: that Send's answer
-  // brings full back. threads: the viewer's last report on its store,
-  // { answered, resolved }, or null until one arrives after the Send.
-  let recededForSend = false;
-  let returnArmed = false;
-  let threads = null;
+  // Rolled up by the user's hand: the agent's content leaves it rolled up
+  // until the user acts on the terminal (withdraw) or brings it back.
+  let heldUp = false;
+  // Writing in a guest page (a review's composer), which the host's focus
+  // check cannot see into: the viewer reports it (setWriting).
+  let guestWriting = false;
 
   // The band overlays the terminal, so its bottom edge is where visible terminal
   // starts. Anything the host anchors to a terminal row (the type-to-comment
@@ -471,16 +396,11 @@ function createViewerBand({
     hintEl = document.createElement('div');
     hintEl.className = 'vb-hover-hint';
     bar.append(barLeft, titleEl, hintEl, barRight, closeBtn);
-    // A click on the bar moves the band by where it lands; see bindBarGestures.
+    // A click on the bar moves the band; see bindBarGestures.
     bindBarGestures();
-    // Starting to write in the band (a comment, a reply, an edit) settles the
-    // size where it is: a return that landed later would re-flow the page under
-    // the next sentence. A guest page reports its own (cancelReturn).
-    shell.addEventListener('focusin', (e) => { if (isWritingSurface(e.target)) cancelReturn(); });
 
     shell.append(content, bar); // content above the bottom bar
     document.body.appendChild(shell);
-    liveBands.add(api);
     return api;
   }
 
@@ -496,7 +416,7 @@ function createViewerBand({
     return Math.round(grid.top + rows * cell - shellTop);
   }
   function collapsedHeight() { return gridSnapHeight(26, 1); }
-  // The golden major share (the split-view reading size).
+  // The golden major share (the split view).
   function goldenHeight() {
     const vh = window.innerHeight || 800;
     const shellTop = shell ? shell.getBoundingClientRect().top : 0;
@@ -544,9 +464,11 @@ function createViewerBand({
     try { focusTerminal(); } catch {}
   }
 
+  // Every reveal lands full, except a page opened over the split, which keeps it.
   function open() {
     mount();
-    endRoundTrip(); // a fresh page owes nothing to an earlier Send
+    if (!(state === 'open' && sizeMode === 'golden')) sizeMode = 'full';
+    heldUp = false;
     applyOpenSize();
     shell.classList.remove('hidden');
     shell.classList.add('open');
@@ -554,11 +476,22 @@ function createViewerBand({
     syncBarTargets();
     emitGeometryChange();
   }
-  // Roll up to just the bar handle, keeping content alive so showing is instant.
+  // Roll up to just the bar handle, keeping content alive so showing is
+  // instant. By the user's hand (Esc, the bar, the chord, a click on the
+  // terminal), so the agent's content leaves it rolled up.
   function hide() {
     if (state !== 'open') return;
-    endRoundTrip(); // the user put the band away; nothing brings it back on its own
-    sizeMode = restSize; // collapsing resets to the band's default size
+    heldUp = true;
+    rollUp();
+  }
+  // The user acted on the terminal (a key, To prompt): roll up, free to come
+  // back with the agent's next content, which answers what they did there.
+  function withdraw() {
+    heldUp = false;
+    if (state === 'open') rollUp();
+  }
+  function rollUp() {
+    sizeMode = 'full'; // the next reveal lands full
     snap(() => {
       shell.classList.remove('vb-full');
       shell.style.setProperty('--vb-collapsed-h', collapsedHeight() + 'px');
@@ -573,6 +506,7 @@ function createViewerBand({
   }
   function show() {
     if (state !== 'hidden') return;
+    heldUp = false;
     snap(() => {
       applyOpenSize();
       shell.classList.remove('hidden');
@@ -594,98 +528,42 @@ function createViewerBand({
     else { applyOpenSize(); emitGeometryChange(); }
   }
   // The size chord: golden⇄full while open; from the hidden handle it reveals
-  // at full — so toggle() reveals at the band's default size and this always
-  // lands full, whatever the default. Always the user's
-  // hand, so a size picked here holds: no automatic move overrides it.
+  // at full.
   function toggleFullSize() {
     if (state === 'closed' || !shell) return;
-    endRoundTrip();
     applySize(state === 'open' && sizeMode === 'full' ? 'golden' : 'full');
   }
   function isFull() { return state === 'open' && sizeMode === 'full'; }
 
-  // ---- The Send's round trip (see "Automatic moves" at the top) ----
-
-  function endRoundTrip() {
-    recededForSend = false;
-    returnArmed = false;
-    threads = null;
-  }
   // A Send hands the turn to the agent. At full size that leaves the user blind
   // to the pickup, so drop to golden: the terminal slides in underneath with
-  // the pasted prompt, the receipt. recede() alone is for a Send still being
-  // prepared (md waits there for agent-threads to be cloned); the Send itself
-  // calls recedeForSend(), which also arms the return.
+  // the pasted prompt, the receipt. Golden then waits for the agent's content.
   function recede() {
-    if (!isFull()) return;
-    applySize('golden');
-    recededForSend = true;
+    if (isFull()) applySize('golden');
   }
-  // Arms the return only when this Send (or the one it completes) receded the
-  // band: a band the user already sat at golden stays there.
-  function recedeForSend() {
-    recede();
-    if (!recededForSend) return;
-    returnArmed = true;
-    threads = null; // only a report made after this Send counts
-  }
-  // The viewer's store, after every snapshot: answered = no thread still waits
-  // on the agent (each is resolved, or ends with its reply); resolved = each is
-  // resolved.
-  function reportThreads(report) {
-    threads = report ? { answered: !!report.answered, resolved: !!report.resolved } : null;
-    evaluateReturn();
-  }
-  // Full comes back once the agent has answered everything and the CLI says
-  // its turn is over. Both, because a reply can land before the edits it
-  // describes (agent-threads lets the agent answer first, then act), and an
-  // idle CLI alone says nothing about the threads. A CLI whose title gives no
-  // idle evidence falls back to every thread resolved, the agent's explicit
-  // end-of-work mark. One-shot, and dropped rather than deferred when the user
-  // is typing: a size change landing later would be one they did not pick.
-  function evaluateReturn() {
-    if (!returnArmed || state !== 'open' || sizeMode !== 'golden' || !threads) return;
-    const done = agentIdle === null ? threads.resolved : (agentIdle && threads.answered);
-    if (!done) return;
-    endRoundTrip();
-    if (userIsTyping()) return;
+  // The agent put new content in the viewer: show it full. Never over the
+  // user's typing, nor out of a roll-up by hand.
+  function contentArrived() {
+    if (state === 'closed' || isFull()) return;
+    if (state === 'hidden' && heldUp) return;
+    if (guestWriting || userIsTyping()) return;
     applySize('full');
   }
-  // The user started writing: the size they are writing at is theirs, so the
-  // Send that follows from there arms nothing either.
-  function cancelReturn() { endRoundTrip(); }
+  function setWriting(on) { guestWriting = !!on; }
 
-  // Retarget the size fresh reveals land on — for a band whose default depends
-  // on what it hosts (the web band: review pages full, plain pages golden). A
-  // band already open keeps its current size; the new default takes effect from
-  // the next reveal.
-  function setDefaultSize(name) {
-    restSize = name === 'full' ? 'full' : 'golden';
-    if (state !== 'open') sizeMode = restSize;
-  }
-
-  // Bar gestures: a CLICK moves the band by where it lands, pushing the bar
-  // away from the side clicked. At golden, the one size with somewhere to go
-  // both ways, the viewer's side of the bar (its top half, and the reach
-  // above it) pushes the bar down and takes the viewer full; the terminal's
-  // side (its bottom half, and the reach below) pushes it up and rolls the
-  // viewer away. Click the side you want more of. At the two ends the whole
-  // bar is one target and a click goes straight to the other end — full
-  // rolls up, the rolled-up handle opens full — since golden is the
-  // transitional size a Send recedes to, not a stop on the way; a
-  // Cmd-click (Ctrl-click off macOS) at either end lands on golden instead.
-  // No click waits for another, so every click acts at once.
-  // The halves are measured on the resting bar, so a hover band never moves
-  // the line between them. Hover lightens the bar and, at golden, draws a
-  // band on the pointer's side (.vb-bar-lean); the band takes clicks too, so
-  // the target is as big as what lights up. Each click acts at once; a step
-  // moves the bar out from under the pointer, so clicks off the bar just
-  // after one (the rest of a habitual double-click) are swallowed rather than
-  // landing on the doc or the terminal. Clicks stopPropagation so they never
-  // reach the comment gesture on the terminal text behind the bar; widgets
-  // (.vb-btn) stop their own.
-  // How far past itself the bar reaches at golden, and so how far it leans:
-  // what lights up is what takes the click.
+  // Bar gestures: a click on the bar moves the band at once, one way at each
+  // size. The rolled-up handle opens full and full rolls up, a Cmd-click
+  // (Ctrl-click off macOS) landing either on golden instead; golden goes
+  // full, and the terminal below it is where a click rolls the band up (the
+  // host's). The bar's targets beyond itself join it: at full the sliver down
+  // to the window's bottom edge (.vb-edge-catch), at golden a strip of the
+  // viewer's empty bottom margin, where the viewer has one (.vb-reach-above).
+  // Hover lightens the bar and names its click. A step moves the bar out from
+  // under the pointer, so clicks off the bar just after one (the rest of a
+  // habitual double-click) are swallowed rather than landing on the doc or
+  // the terminal. Clicks stopPropagation so they never reach the comment
+  // gesture on the terminal text behind the bar; widgets (.vb-btn) stop their
+  // own.
   const REACH_PX = 20;
   const HINT_DELAY_MS = 150;
   const STEP_SETTLE_MS = 400;
@@ -693,107 +571,32 @@ function createViewerBand({
   const MOD_CLICK = IS_MAC ? '⌘-click' : 'Ctrl-click';
   let lastStepAt = 0;
   let edgeCatch = null;
-  let reachBelow = null;
   let reachAbove = null;
-  let lean = null;
   let hintEl = null;
   let hintTimer = null;
-  let pointerX = null; // where the band's chevron sits
-  function currentLevel() {
-    if (state === 'hidden') return 0;
-    return sizeMode === 'full' ? 2 : 1;
-  }
-  // The user's hand, so it ends any Send's round trip.
-  function setLevelByHand(level) {
-    if (level === 0) { hide(); return; }
-    endRoundTrip();
-    applySize(level === 2 ? 'full' : 'golden');
-  }
-  // What a click at this height does: 'shrink' or 'grow'.
-  function zoneAt(clientY) {
-    if (state === 'hidden') return 'grow';
-    if (sizeMode === 'full') return 'shrink';
-    const r = bar.getBoundingClientRect();
-    return clientY < r.top + r.height / 2 ? 'grow' : 'shrink';
-  }
-  function stepTo(level) {
+  function onBarClick(e) {
     lastStepAt = Date.now();
-    setLevelByHand(level);
+    setHot(false);
+    const toGolden = !!(e && (e.metaKey || e.ctrlKey));
+    if (state === 'hidden') applySize(toGolden ? 'golden' : 'full');
+    else if (sizeMode !== 'full') applySize('full');
+    else if (toGolden) applySize('golden');
+    else hide();
   }
-  const atEnd = () => state === 'hidden' || (state === 'open' && sizeMode === 'full');
-  // At an end a click crosses to the other end, and a modifier-click lands on
-  // golden; at golden it goes by the side clicked, modifier or not.
-  function onClickAt(zone, e) {
-    if (atEnd()) {
-      const toGolden = !!(e && (e.metaKey || e.ctrlKey));
-      setHot(null);
-      stepTo(toGolden ? 1 : (state === 'hidden' ? 2 : 0));
-    } else {
-      stepTo(zone === 'grow' ? 2 : 0);
-    }
-  }
-  const onBarTarget = (el) => !!(el && el.closest && el.closest('.vb-bar, .vb-edge-catch, .vb-reach-below, .vb-reach-above, .vb-bar-lean'));
-  function ensureLean() {
-    if (lean) return lean;
-    lean = document.createElement('div');
-    lean.className = 'vb-bar-lean';
-    lean.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
-    lean.addEventListener('pointermove', trackPointer);
-    lean.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const zone = lean.dataset.zone;
-      setHot(null);
-      onClickAt(zone, e);
-    });
-    lean.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
-    document.body.appendChild(lean);
-    return lean;
-  }
-  // Hover: lighten the bar, say what a click does, and at golden draw the
-  // band on the side of `zone` ('grow' the viewer's, above; 'shrink' the
-  // terminal's, below) — the band tells the sides apart; at the ends every
-  // click goes one way, so there is nothing to tell. null clears it.
-  function setHot(zone) {
+  const onBarTarget = (el) => !!(el && el.closest && el.closest('.vb-bar, .vb-edge-catch, .vb-reach-above'));
+  // Hover: lighten the bar and say what a click does, in one grammar
+  // everywhere: each gesture named, then what it does.
+  function setHot(on) {
     if (!bar) return;
-    const on = !!zone && (state === 'open' || state === 'hidden');
-    const leaning = on && !atEnd();
-    bar.classList.toggle('vb-hot', on);
-    const l = ensureLean();
-    if (leaning && (!l.classList.contains('on') || l.dataset.zone !== zone)) {
-      // A band appearing, or crossing to the other side: nudge its chevron.
-      l.classList.remove('nudge');
-      void l.offsetWidth; // restart the animation
-      l.classList.add('nudge');
-    }
-    if (leaning) {
-      // The viewer's side ('grow') is above the bar, the terminal's below.
-      const r = bar.getBoundingClientRect();
-      l.dataset.zone = zone;
-      l.classList.toggle('above', zone === 'grow');
-      l.classList.toggle('below', zone === 'shrink');
-      l.style.top = (zone === 'grow' ? r.top - REACH_PX : r.bottom) + 'px';
-      l.style.height = REACH_PX + 'px';
-      placeChevron();
-    }
-    l.classList.toggle('on', leaning);
-    // One grammar everywhere: each gesture named, then what it does.
-    showHint(!on ? ''
+    const hot = !!on && (state === 'open' || state === 'hidden');
+    bar.classList.toggle('vb-hot', hot);
+    showHint(!hot ? ''
       : state === 'hidden' ? `Click: full size · ${MOD_CLICK}: split view`
         : sizeMode === 'full' ? `Click: roll up · ${MOD_CLICK}: split view`
-          : zone === 'shrink' ? 'Click: roll up' : 'Click: full size');
+          : 'Click: full size');
   }
-  // Keep the band's chevron under the pointer (centred, if it never moved).
-  function trackPointer(e) {
-    pointerX = e.clientX;
-    placeChevron();
-  }
-  function placeChevron() {
-    if (!lean) return;
-    const x = pointerX == null ? (window.innerWidth || 0) / 2 : pointerX;
-    lean.style.backgroundPosition = `${Math.round(x - CHEVRON_W / 2)}px center`;
-  }
-  // The in-bar hint: after HINT_DELAY_MS on first arrival, then it follows
-  // the pointer across the bar at once; gone the moment the pointer leaves.
+  // The in-bar hint: after HINT_DELAY_MS on first arrival; gone the moment
+  // the pointer leaves.
   function showHint(text) {
     if (!hintEl) return;
     if (!text) {
@@ -806,67 +609,47 @@ function createViewerBand({
     if (hintEl.classList.contains('on') || hintTimer) return;
     hintTimer = setTimeout(() => { hintTimer = null; hintEl.classList.add('on'); }, HINT_DELAY_MS);
   }
-  // The bar's targets beyond itself: at full the sliver down to the window's
-  // bottom edge (.vb-edge-catch), at golden its reach (.vb-reach-below and,
-  // where the viewer allows it, .vb-reach-above). Every size change runs
-  // through here, so it also drops a hover lean the change has left behind.
-  function reachZone(cls, zone) {
+  function barTarget(cls) {
     const el = document.createElement('div');
     el.className = cls;
-    el.addEventListener('pointerenter', (e) => { pointerX = e.clientX; setHot(zone); });
-    el.addEventListener('pointermove', trackPointer);
-    el.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
-    el.addEventListener('click', (e) => { e.stopPropagation(); onClickAt(zone, e); });
+    el.addEventListener('pointerenter', () => setHot(true));
+    el.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(false); });
+    el.addEventListener('click', (e) => { e.stopPropagation(); onBarClick(e); });
     el.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
     document.body.appendChild(el);
     return el;
   }
+  // Every size change runs through here, so it also drops a hover the change
+  // has left behind.
   function syncBarTargets() {
     if (!shell) return;
-    setHot(null);
-    if (!reachBelow) reachBelow = reachZone('vb-reach-below', 'shrink');
-    if (!reachAbove && reachesAbove) reachAbove = reachZone('vb-reach-above', 'grow');
+    setHot(false);
+    if (!reachAbove && reachesAbove) reachAbove = barTarget('vb-reach-above');
+    if (!edgeCatch) edgeCatch = barTarget('vb-edge-catch');
+    // offsetTop, not the bounding box: the band slides in by a transform.
+    const bottom = () => shell.offsetTop + (parseFloat(shell.style.getPropertyValue('--vb-open-h')) || openHeight());
     const golden = state === 'open' && sizeMode !== 'full';
-    reachBelow.classList.toggle('on', golden);
-    if (reachAbove) reachAbove.classList.toggle('on', golden);
-    if (golden) {
-      // offsetTop, not the bounding box: the band slides in by a transform.
-      const bottom = shell.offsetTop + (parseFloat(shell.style.getPropertyValue('--vb-open-h')) || openHeight());
-      reachBelow.style.top = bottom + 'px';
-      reachBelow.style.height = REACH_PX + 'px';
-      if (reachAbove) {
-        reachAbove.style.top = (bottom - (bar.offsetHeight || 26) - REACH_PX) + 'px';
+    if (reachAbove) {
+      reachAbove.classList.toggle('on', golden);
+      if (golden) {
+        reachAbove.style.top = (bottom() - (bar.offsetHeight || 26) - REACH_PX) + 'px';
         reachAbove.style.height = REACH_PX + 'px';
       }
     }
-    if (!edgeCatch) {
-      edgeCatch = document.createElement('div');
-      edgeCatch.className = 'vb-edge-catch';
-      edgeCatch.addEventListener('pointerenter', () => { if (state === 'open') setHot('shrink'); });
-      edgeCatch.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
-      edgeCatch.addEventListener('click', (e) => { e.stopPropagation(); onClickAt('shrink', e); });
-      edgeCatch.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
-      document.body.appendChild(edgeCatch);
-    }
-    const on = state === 'open' && sizeMode === 'full';
-    edgeCatch.classList.toggle('on', on);
-    if (on) {
-      const height = parseFloat(shell.style.getPropertyValue('--vb-open-h')) || openHeight();
-      edgeCatch.style.top = (shell.offsetTop + height) + 'px';
-    }
+    const full = state === 'open' && sizeMode === 'full';
+    edgeCatch.classList.toggle('on', full);
+    if (full) edgeCatch.style.top = bottom() + 'px';
   }
 
   function bindBarGestures() {
     bar.addEventListener('pointermove', (e) => {
-      if (e.target.closest && e.target.closest('.vb-btn')) { setHot(null); return; }
-      pointerX = e.clientX;
-      setHot(zoneAt(e.clientY));
+      setHot(!(e.target.closest && e.target.closest('.vb-btn')));
     });
-    bar.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(null); });
+    bar.addEventListener('pointerleave', (e) => { if (!onBarTarget(e.relatedTarget)) setHot(false); });
     bar.addEventListener('click', (e) => {
       if (e.target.closest && e.target.closest('.vb-btn')) return;
       e.stopPropagation();
-      onClickAt(zoneAt(e.clientY), e);
+      onBarClick(e);
     });
     // A double-click is two clicks, each acting; it must not reach the doc's
     // own double-click (select a word) behind the bar.
@@ -887,8 +670,9 @@ function createViewerBand({
   // Full dismiss; the viewer's onClose frees content (GC the webview, etc.).
   function close() {
     if (state === 'closed' || !shell) return;
-    endRoundTrip();
-    sizeMode = restSize; // the next open is a fresh reveal, at the default size
+    sizeMode = 'full'; // the next open is a fresh reveal, at full
+    heldUp = false;
+    guestWriting = false;
     shell.classList.remove('open', 'hidden', 'vb-full');
     state = 'closed';
     syncBarTargets();
@@ -936,9 +720,9 @@ function createViewerBand({
   });
 
   const api = {
-    mount, open, hide, show, toggle, toggleFullSize, close, isOpen, isHidden, isFull, setDefaultSize,
+    mount, open, hide, withdraw, show, toggle, toggleFullSize, close, isOpen, isHidden, isFull,
     setTitle, makeBtn, flash,
-    recede, recedeForSend, reportThreads, evaluateReturn, cancelReturn,
+    recede, contentArrived, setWriting,
     get shell() { return shell; },
     get bar() { return bar; },
     get barLeft() { return barLeft; },
@@ -949,4 +733,4 @@ function createViewerBand({
   return api;
 }
 
-module.exports = { createViewerBand, userIsTyping, setTypingProbe, setAgentIdle };
+module.exports = { createViewerBand, userIsTyping, setTypingProbe };

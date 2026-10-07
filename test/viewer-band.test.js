@@ -11,15 +11,16 @@ Object.defineProperty(window, 'innerHeight', {
   value: 1000,
 });
 
-const { createViewerBand, userIsTyping, setTypingProbe, setAgentIdle } = require('../src/viewer-band');
+const { createViewerBand, userIsTyping, setTypingProbe } = require('../src/viewer-band');
 
 const band = createViewerBand({ name: 'test', reachAbove: true });
 band.open();
+band.toggleFullSize(); // the split view, by the size chord
 
 (async () => {
 const { shell, bar } = band;
-// The bar is a stepper. jsdom lays nothing out, so it sits where we say: its
-// top half is above y=613, its bottom half below.
+// jsdom lays nothing out, so the bar sits where we say. TOP and BOTTOM are
+// its two halves, which act the same.
 bar.getBoundingClientRect = () => ({ top: 600, bottom: 626, height: 26, left: 0, right: 800, width: 800 });
 const TOP = 605;
 const BOTTOM = 620;
@@ -36,90 +37,62 @@ const goldenHeight = shell.style.getPropertyValue('--vb-open-h');
 assert.ok(shell.classList.contains('open'));
 assert.ok(!shell.classList.contains('vb-full'));
 
-// At golden a click pushes the bar away from the side clicked: the viewer's
-// side (top half) takes the viewer full, the terminal's side (bottom half)
-// rolls it up. Hover draws a band on the pointer's side, as far as the bar
-// reaches there.
-const lean = () => document.querySelector('.vb-bar-lean.on');
-// The bar names what a click does, a beat after the pointer arrives, then
-// follows the pointer at once.
+// At golden the bar is one target: a click anywhere on it takes the viewer
+// full. Hover lightens it and names the click, a beat after the pointer
+// arrives. Nothing hangs off the bar into the terminal; the terminal's own
+// click is the host's.
 const hint = () => {
   const el = bar.querySelector('.vb-hover-hint.on');
   return el ? el.textContent : '';
 };
 hoverBar(BOTTOM);
-assert.ok(lean() && lean().classList.contains('below') && lean().style.top === '626px' && lean().style.height === '20px',
-  "hovering the bottom half at golden draws the terminal's band below the bar");
+assert.ok(bar.classList.contains('vb-hot'), 'hover lightens the bar');
+assert.ok(!document.querySelector('.vb-bar-lean, .vb-reach-below'), 'no band hangs off the bar');
 assert.strictEqual(hint(), '', 'the hint waits a beat');
 await new Promise((resolve) => setTimeout(resolve, 200));
-assert.strictEqual(hint(), 'Click: roll up', 'the hint names the gesture and what it does');
-hoverBar(TOP);
-assert.ok(lean() && lean().classList.contains('above') && lean().style.top === '580px',
-  "hovering the top half draws the viewer's band above it");
-assert.ok(lean().classList.contains('nudge'), 'a band crossing to the other side nudges its chevron again');
-bar.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, clientY: TOP, clientX: 400 }));
-assert.strictEqual(lean().style.backgroundPosition, '391px center', "the band's one chevron sits under the pointer");
-assert.strictEqual(hint(), 'Click: full size', 'once shown, the hint follows the pointer at once');
-lean().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+assert.strictEqual(hint(), 'Click: full size', 'the hint names the gesture and what it does');
+clickBar(BOTTOM);
 const fullHeight = shell.style.getPropertyValue('--vb-open-h');
-assert.ok(shell.classList.contains('vb-full'), 'the band is part of the target: a click on it acts the same way');
+assert.ok(shell.classList.contains('vb-full'), "golden's bar goes full wherever it is clicked");
 assert.ok(parseFloat(fullHeight) > parseFloat(goldenHeight));
-assert.ok(!lean(), 'a step drops the band');
+assert.ok(!bar.classList.contains('vb-hot'), 'a step drops the hover');
 assert.ok(document.querySelector('.vb-edge-catch.on'), 'at full the sliver below the bar joins it');
 hoverBar(BOTTOM);
 await new Promise((resolve) => setTimeout(resolve, 200));
-assert.ok(!lean() && bar.classList.contains('vb-hot')
-  && hint() === `Click: roll up · ${MOD_CLICK}: split view`,
-  'at full the whole bar is one target; it lightens, with no lean, since every click goes up');
+assert.strictEqual(hint(), `Click: roll up · ${MOD_CLICK}: split view`, 'at full the bar names both clicks');
 
-// At the two ends a click crosses to the other end, at once — golden is the
-// transitional size a Send recedes to, not a stop on the way — and a
+// At full and on the handle a click crosses to the other end, at once, and a
 // modifier-click lands on golden instead.
 clickBar(BOTTOM);
 assert.ok(shell.classList.contains('hidden'), 'a click at full rolls the band up, at once');
 assert.ok(!document.querySelector('.vb-edge-catch.on'), 'the sliver is only the bar at full');
 hoverBar(TOP);
 await new Promise((resolve) => setTimeout(resolve, 200));
-assert.ok(!lean() && hint() === `Click: full size · ${MOD_CLICK}: split view`,
-  'the handle has no lean either; every click opens it');
+assert.strictEqual(hint(), `Click: full size · ${MOD_CLICK}: split view`, 'the handle names both clicks');
 clickBar(TOP);
 await settle();
 assert.ok(shell.classList.contains('vb-full'), 'a click on the handle opens it full');
 modClickBar(TOP);
 assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a modifier-click at full lands on golden');
-clickBar(BOTTOM);
-assert.ok(shell.classList.contains('hidden'), "golden's bottom half rolls the band up, at once");
+modClickBar(TOP);
+assert.ok(shell.classList.contains('vb-full'), 'at golden a modifier-click goes full, like a plain one');
+clickBar(TOP);
+assert.ok(shell.classList.contains('hidden'));
 modClickBar(TOP);
 assert.ok(shell.classList.contains('open') && !shell.classList.contains('vb-full'), 'a modifier-click on the handle opens golden');
-modClickBar(BOTTOM);
-assert.ok(shell.classList.contains('hidden'), 'at golden a modifier-click goes by the side clicked, like a plain one');
-modClickBar(TOP);
-// At golden the bar reaches past itself: a strip of terminal below it counts
-// as the terminal's side and, for a viewer whose page ends in an empty
-// margin, a strip above it as the viewer's.
-const reachBelow = () => document.querySelector('.vb-reach-below.on');
+// At golden, for a viewer whose page ends in an empty margin, a strip of it
+// above the bar joins the bar.
 const reachAbove = () => document.querySelector('.vb-reach-above.on');
-assert.ok(reachBelow() && reachBelow().style.height === '20px', 'at golden the bar reaches 20px below');
-assert.ok(reachAbove() && reachAbove().style.height === '20px', 'and, where the viewer allows it, 20px above');
+assert.ok(reachAbove() && reachAbove().style.height === '20px', 'at golden the bar reaches 20px up');
 reachAbove().dispatchEvent(new window.PointerEvent('pointerenter'));
-assert.ok(lean() && lean().classList.contains('above'), "the pointer arriving from the page above draws the viewer's band");
+assert.ok(bar.classList.contains('vb-hot'), 'the reach lights the bar');
 reachAbove().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 assert.ok(shell.classList.contains('vb-full'), 'a click there takes the viewer full');
-assert.ok(!reachBelow() && !reachAbove(), 'at full the bar does not reach; the edge sliver takes over');
-band.toggleFullSize();
-reachBelow().dispatchEvent(new window.PointerEvent('pointerenter'));
-assert.ok(lean() && lean().classList.contains('below'), "the pointer arriving from the terminal draws the terminal's band");
-reachBelow().dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-assert.ok(shell.classList.contains('hidden'), 'a click there rolls the viewer up');
-assert.ok(!reachAbove() && !reachBelow(), 'nor does it reach from the rolled-up handle');
-clickBar(TOP);
-await settle();
-band.toggleFullSize();
-clickBar(TOP);
-assert.ok(shell.classList.contains('vb-full'), "golden's top half goes full, at once");
+assert.ok(!reachAbove(), 'at full the bar does not reach; the edge sliver takes over');
 document.querySelector('.vb-edge-catch').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 await settle();
-assert.ok(shell.classList.contains('hidden'), 'a click on the sliver rolls it up too');
+assert.ok(shell.classList.contains('hidden'), 'a click on the sliver rolls it up');
+assert.ok(!reachAbove(), 'nor does it reach from the rolled-up handle');
 clickBar(TOP);
 await settle();
 assert.ok(shell.classList.contains('vb-full'));
@@ -130,29 +103,27 @@ assert.ok(!shell.classList.contains('vb-full'));
 
 band.show();
 assert.ok(shell.classList.contains('open'));
-assert.ok(!shell.classList.contains('vb-full'));
-assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
-
-// The size chord (and the bar's double-click): golden⇄full while open; from the
-// hidden handle it reveals at full — so toggle() gives the reading split and
-// toggleFullSize() gives the full screen, each one press from the handle.
-band.toggleFullSize();
-assert.ok(shell.classList.contains('vb-full'), 'size toggle from golden is full');
-assert.ok(shell.classList.contains('open'));
+assert.ok(shell.classList.contains('vb-full'), 'a reveal lands full');
 assert.ok(band.isFull(), 'isFull reports the open-at-full state');
 
+// The size chord: golden⇄full while open; from the hidden handle it reveals
+// at full, like every reveal.
 band.toggleFullSize();
 assert.ok(!shell.classList.contains('vb-full'), 'size toggle from full is golden');
 assert.ok(shell.classList.contains('open'));
 assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
 assert.ok(!band.isFull(), 'golden is not full');
 
+band.toggleFullSize();
+assert.ok(shell.classList.contains('vb-full'), 'size toggle from golden is full');
+assert.ok(shell.classList.contains('open'));
+
+band.toggleFullSize();
 band.toggle();
 assert.ok(shell.classList.contains('hidden'), 'toggle from open is the handle');
 band.toggle();
 assert.ok(shell.classList.contains('open'), 'toggle from the handle reopens');
-assert.ok(!shell.classList.contains('vb-full'), 'at the golden reading height');
-assert.strictEqual(shell.style.getPropertyValue('--vb-open-h'), goldenHeight);
+assert.ok(shell.classList.contains('vb-full'), 'at full: golden is never where the band rests');
 
 band.hide();
 assert.ok(!band.isFull(), 'the handle is not full even before the size reset lands');
@@ -202,39 +173,27 @@ modal.remove();
 pressEsc();
 assert.ok(shell.classList.contains('hidden'), 'Esc hides the band once the modal is gone');
 
-// defaultSize: 'full' — a fresh reveal lands full-screen (the md band's mode:
-// opening a doc puts it on stage). Golden stays reachable by the size toggle,
-// and hide/show returns to full, the band's rest size.
-const fullBand = createViewerBand({ name: 'fulltest', defaultSize: 'full', escToHide: false });
+// Every reveal lands full: a fresh open, a show from the handle, an open
+// after a close. A page opened over the split keeps it.
+const fullBand = createViewerBand({ name: 'fulltest', escToHide: false });
 fullBand.open();
-assert.ok(fullBand.isFull(), 'a full-default band opens at full');
+assert.ok(fullBand.isFull(), 'a band opens at full');
 
 fullBand.toggleFullSize();
-assert.ok(!fullBand.isFull(), 'size toggle still drops to golden');
+assert.ok(!fullBand.isFull(), 'size toggle drops to golden');
 assert.ok(fullBand.shell.classList.contains('open'));
+fullBand.open();
+assert.ok(fullBand.shell.classList.contains('open') && !fullBand.isFull(), 'a page opened over the split keeps it');
 
 fullBand.hide();
 fullBand.show();
-assert.ok(fullBand.isFull(), 'reveal after hide returns to the full default');
+assert.ok(fullBand.isFull(), 'a reveal after hide is full');
 
 fullBand.toggleFullSize();
-assert.ok(!fullBand.isFull());
 fullBand.close();
 fullBand.open();
-assert.ok(fullBand.isFull(), 'a fresh open after close is back at the full default');
-
-// setDefaultSize — the web band retargets its default per page: review pages
-// full, plain pages golden. Open bands keep their current size; the new default
-// governs the next reveal.
-fullBand.setDefaultSize('golden');
-assert.ok(fullBand.isFull(), 'retargeting while open leaves the current size alone');
-fullBand.hide();
-fullBand.show();
-assert.ok(!fullBand.isFull(), 'the next reveal lands on the new golden default');
+assert.ok(fullBand.isFull(), 'a fresh open after close is full');
 fullBand.close();
-fullBand.setDefaultSize('full');
-fullBand.open();
-assert.ok(fullBand.isFull(), 'retargeting while closed takes effect on open');
 
 // Leaving the screen hands the keyboard back. A click in the band lands focus
 // on its shell (or a bar button, a composer, a webview guest); once the band
@@ -257,7 +216,6 @@ assert.ok(fullBand.isFull(), 'retargeting while closed takes effect on open');
   focusBand.hide();
   assert.strictEqual(focused, 1, 'a roll-up with focus on the shell hands it to the terminal');
   focusBand.show();
-  focusBand.toggleFullSize();
   focusBand.bar.querySelector('button').focus();
   focusBand.close();
   assert.strictEqual(focused, 2, 'a close with focus on a bar button hands it to the terminal');
@@ -276,111 +234,69 @@ assert.ok(fullBand.isFull(), 'retargeting while closed takes effect on open');
   assert.ok(!plain.isOpen());
 }
 
-// The Send's round trip. A Send at full recedes to golden (the terminal shows
-// the pickup) and arms the return; full comes back once the agent has
-// answered and the CLI says its turn is over — or, where the title gives no
-// idle evidence, once every thread is resolved. The user's hand, putting the
-// band away, and starting to write all end it; nothing moves while typing.
+// The automatic moves. The agent's new content brings the band up full, from
+// golden or the handle; a Send recedes full to golden; the user acting on
+// the terminal rolls it up (withdraw). A roll-up by hand holds through the
+// agent's content until the user acts on the terminal or brings it back, and
+// nothing moves while the user types.
 {
-  const rt = createViewerBand({ name: 'roundtrip', defaultSize: 'full', escToHide: false });
-  const answered = { answered: true, resolved: false };
-  const resolved = { answered: true, resolved: true };
-  const waiting = { answered: false, resolved: false };
-  const freshSend = () => { rt.close(); rt.open(); rt.recedeForSend(); };
-
-  setAgentIdle(false);
+  const rt = createViewerBand({ name: 'moves', escToHide: false });
   rt.open();
-  rt.reportThreads(resolved); // a report from before the Send
-  rt.recedeForSend();
+  rt.recede();
   assert.ok(rt.isOpen() && !rt.isFull(), 'a Send at full recedes to golden');
-  setAgentIdle(true);
-  assert.ok(!rt.isFull(), 'a report from before the Send does not count');
-  rt.reportThreads(waiting);
-  assert.ok(!rt.isFull(), 'threads still waiting on the agent keep golden');
-  setAgentIdle(false);
-  rt.reportThreads(answered);
-  assert.ok(!rt.isFull(), 'answered while the CLI still works keeps golden');
-  setAgentIdle(true);
-  assert.ok(rt.isFull(), 'answered and idle returns to full');
-  rt.toggleFullSize(); // the user drops to golden by hand
-  rt.reportThreads(resolved);
-  assert.ok(!rt.isFull(), 'the return is one-shot; a size picked by hand holds');
+  rt.recede();
+  assert.ok(rt.isOpen() && !rt.isFull(), 'a Send at golden stays there');
+  rt.contentArrived();
+  assert.ok(rt.isFull(), "the agent's content returns golden to full");
+  rt.contentArrived();
+  assert.ok(rt.isFull(), 'and leaves full alone');
 
-  // No idle evidence from the title: only every thread resolved returns.
-  freshSend();
-  setAgentIdle(null);
-  rt.reportThreads(answered);
-  assert.ok(!rt.isFull(), 'without idle evidence, answered alone keeps golden');
-  rt.reportThreads(resolved);
-  assert.ok(rt.isFull(), 'without idle evidence, all resolved returns to full');
+  rt.toggleFullSize(); // a split by hand, to watch the agent
+  rt.contentArrived();
+  assert.ok(rt.isFull(), 'a split by hand waits for the content too');
 
-  // A Send from golden the user chose arms nothing.
+  rt.withdraw(); // the user typed in the terminal
+  assert.ok(rt.isHidden(), 'acting on the terminal rolls the band up');
+  rt.contentArrived();
+  assert.ok(rt.isFull(), 'and the content answering it brings the band up full');
+
+  rt.hide(); // by hand: Esc, the bar, a click on the terminal
+  rt.contentArrived();
+  assert.ok(rt.isHidden(), 'a roll-up by hand holds through the content');
+  rt.withdraw(); // then the user types in the terminal
+  rt.contentArrived();
+  assert.ok(rt.isFull(), 'until the user acts on the terminal');
+  rt.hide();
+  rt.show();
   rt.toggleFullSize();
-  setAgentIdle(true);
-  rt.recedeForSend();
-  rt.reportThreads(resolved);
-  assert.ok(!rt.isFull(), 'a Send from a golden the user picked stays golden');
+  rt.contentArrived();
+  assert.ok(rt.isFull(), 'or brings the band back');
 
-  // The hand, putting the band away, and starting to write each end the trip.
-  freshSend();
-  rt.toggleFullSize(); rt.toggleFullSize(); // back to golden, by hand
-  rt.reportThreads(resolved);
-  assert.ok(!rt.isFull(), 'a hand resize cancels the return');
-  freshSend();
-  rt.hide(); rt.show();
-  assert.ok(rt.isFull(), 'a band put away comes back at its default size');
   rt.toggleFullSize();
-  rt.reportThreads(resolved);
-  assert.ok(!rt.isFull(), 'and owes nothing to the Send before');
-
-  freshSend();
-  const box = document.createElement('textarea');
-  rt.content.appendChild(box);
-  box.dispatchEvent(new window.FocusEvent('focusin', { bubbles: true }));
-  rt.reportThreads(resolved);
-  assert.ok(!rt.isFull(), 'starting to write at golden settles golden');
-  rt.recedeForSend(); // the Send written there
-  rt.reportThreads(resolved);
-  assert.ok(!rt.isFull(), 'and the Send written there arms nothing');
-
-  freshSend();
   const search = document.createElement('input');
   rt.content.appendChild(search);
-  search.dispatchEvent(new window.FocusEvent('focusin', { bubbles: true }));
   search.focus();
   assert.ok(userIsTyping(), 'a focused text field in a band is typing');
-  rt.reportThreads(resolved);
-  assert.ok(!rt.isFull(), 'no return lands while the user types');
+  rt.contentArrived();
+  assert.ok(!rt.isFull(), 'no content move lands while the user types');
   search.blur();
-  rt.reportThreads(resolved);
-  assert.ok(!rt.isFull(), 'a return dropped for typing is not deferred');
-
-  freshSend();
   let typing = true;
   setTypingProbe(() => typing);
   assert.ok(userIsTyping(), 'the host probe (terminal typing) counts');
-  rt.reportThreads(resolved);
-  assert.ok(!rt.isFull(), 'typing in the terminal blocks the return too');
+  rt.contentArrived();
+  assert.ok(!rt.isFull(), 'typing in the terminal holds it too');
   typing = false;
   setTypingProbe(null);
+  rt.setWriting(true); // a review composer in the guest page
+  rt.contentArrived();
+  assert.ok(!rt.isFull(), "writing in a guest page holds it, which the host's focus cannot see");
+  rt.setWriting(false);
+  rt.contentArrived();
+  assert.ok(rt.isFull(), 'the next content after the user stops lands');
 
-  // A Send still being prepared (md waiting on the agent-threads clone)
-  // recedes without arming; the Send that completes it arms the return.
-  rt.close(); rt.open();
-  rt.recede();
-  assert.ok(!rt.isFull(), 'the clone wait recedes');
-  rt.reportThreads(resolved);
-  assert.ok(!rt.isFull(), 'and arms nothing by itself');
-  rt.recedeForSend();
-  rt.reportThreads(resolved);
-  assert.ok(rt.isFull(), 'the Send it completes arms the return');
-
-  // Rolled up, the band stays put; nothing reveals it.
-  freshSend();
-  rt.hide();
-  rt.reportThreads(resolved);
-  assert.ok(rt.isHidden(), 'a rolled-up band stays rolled up');
   rt.close();
+  rt.contentArrived();
+  assert.ok(!rt.isOpen() && !rt.isHidden(), 'content never opens a closed band');
 }
 
 console.log('viewer-band test passed');

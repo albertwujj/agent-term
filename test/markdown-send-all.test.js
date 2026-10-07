@@ -5,10 +5,10 @@
 // the page stayed behind, though the comment composer's Send flushed them,
 // and no Send carried a reply draft resting in its card. Now every Send takes
 // everything waiting — queued comments, edits, resting reply drafts — in one
-// batch and one turn, and a link will not drop a resting draft either. Either way the Send recedes a full band to golden, the
-// receipt, and the band returns to full once the agent has answered and the
-// CLI says its turn is over (viewer-band.js; the decision is unit-tested in
-// viewer-band.test.js, the wiring from the store here).
+// batch and one turn, and a link will not drop a resting draft either. Either
+// way the Send recedes a full band to golden, the receipt, and the agent's
+// answer landing in the store brings full back (viewer-band.js; the decision
+// is unit-tested in viewer-band.test.js, the wiring from the store here).
 
 const { JSDOM } = require('jsdom');
 
@@ -31,7 +31,6 @@ dom.window.Range.prototype.getBoundingClientRect = dom.window.Range.prototype.ge
   || (() => ({ width: 10, height: 10, left: 0, right: 10, top: 0, bottom: 10 }));
 
 const { createMarkdownViewer } = require('../src/markdown-viewer');
-const { setAgentIdle } = require('../src/viewer-band');
 
 const FIXTURE = [
   '# Heading Words Here',
@@ -125,7 +124,6 @@ function check(name, cond, detail) {
 }
 
 async function run() {
-  setAgentIdle(true);
   await viewer.open({ filePath: '/fake/doc.md' });
   await sleep(40);
   check('a doc opens at full', isFull());
@@ -163,9 +161,7 @@ async function run() {
   check('the Send receded the band to golden', isGolden());
 
   // The agent answers both: the thread it was blocked on resolved, a reply on
-  // the new comment. The CLI still works, so golden holds; once it is idle,
-  // full comes back.
-  setAgentIdle(false);
+  // the new comment. Its answer is new content, so full comes back.
   store = {
     version: 1,
     turn: store.turn,
@@ -174,9 +170,7 @@ async function run() {
       : { ...t, messages: [...t.messages, { author: 'agent', body: 'Which word?', ts: 4, turn: store.turn }] })),
   };
   await sleep(1300); // the store poll
-  check('answered while the CLI works keeps golden', isGolden());
-  setAgentIdle(true);
-  check('answered and idle returns to full', isFull());
+  check("the agent's answer returns to full", isFull());
 
   // A reply with nothing waiting is a plain Send, and still the receipt.
   // The size chord twice: golden, then full again, by hand.

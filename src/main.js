@@ -1789,9 +1789,6 @@ function syncChromeState() {
     cli: detectedCli || null,
     prompt: firstPrompt || null,
     isWorking,
-    // The CLI's own word on its turn, from its title: true idle, false
-    // working, null no evidence. The viewer band's return to full reads it.
-    agentIdle: titleActivity.working === null ? null : !titleActivity.working,
     lock: lockState,
     jobs: jobsState,
   };
@@ -4466,12 +4463,15 @@ async function startReviewSync(pkg, repo, htmlPath) {
     // identical, so nothing would reload otherwise, and a reload would wipe the pulse baseline.
     // The agent's replies arrive as journal appends now, so the journal is watched the same
     // way — either file changing means the merged view the overlay renders has moved.
+    // The journal has one writer, the agent, so its change is the agent's new
+    // content, which brings the band up full (viewer-band.js).
     const cj = await fileHash(w.commentsPath);
     const aj = await fileHash(w.journalPath);
-    if ((cj && cj !== w.commentsHash) || (aj || '') !== (w.journalHash || '')) {
+    const agent = (aj || '') !== (w.journalHash || '');
+    if ((cj && cj !== w.commentsHash) || agent) {
       w.commentsHash = cj || w.commentsHash;
       w.journalHash = aj;
-      if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('review-comments-changed');
+      if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('review-comments-changed', { agent });
     }
   }, 2000);
 }

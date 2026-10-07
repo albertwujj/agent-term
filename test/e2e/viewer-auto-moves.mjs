@@ -7,8 +7,12 @@
 //   - A conversation doc's path printed in answer opens the doc, full; a second
 //     one printed with it does not replace it, and a toast says it arrived.
 //   - Any input to the terminal rolls the viewer up, a one-key answer included.
-//   - A Send recedes the band to golden; it stays golden while the agent works
-//     after answering, and returns to full once the CLI's title says idle.
+//   - A Send recedes the band to golden, and the agent's answer returns it to
+//     full.
+//   - The agent's write to the open doc brings the band up full: out of a
+//     roll-up by typing, and out of a split picked by hand. A band rolled up
+//     by hand stays up through the next write.
+//   - A click on the terminal under the split rolls the viewer up.
 //   - Typing in the viewer never resizes it.
 //   - A handoff arriving while the user types in the terminal does not open:
 //     a toast says it arrived.
@@ -75,6 +79,7 @@ fs.writeFileSync(fake, `
       + 'Review: review://' + replayedReview + '\\r\\n');
   }
   let working = false;
+  let writes = 0;
   function work(then) {
     working = true;
     title('◐ Fake session');
@@ -99,6 +104,15 @@ fs.writeFileSync(fake, `
         fs.writeFileSync(store, JSON.stringify(s, null, 2));
         setTimeout(done, 3000);
       }, 500));
+    } else if (/work (a while|twice)/.test(line)) {
+      // Write to the open doc, once or twice, then finish.
+      const twice = /twice/.test(line);
+      const write = (n) => fs.appendFileSync(path.join(conversation, 'first.md'), '\\nThe agent wrote this, write ' + n + '.\\n');
+      work((done) => {
+        setTimeout(() => write(++writes), 1500);
+        if (twice) setTimeout(() => write(++writes), 4500);
+        setTimeout(done, twice ? 5000 : 2500);
+      });
     } else if (/review later/.test(line)) {
       setTimeout(() => process.stdout.write('\\r\\nReview: review://' + laterReview + '\\r\\n'), 2500);
     }
@@ -188,9 +202,53 @@ try {
   };
   while (!answered() && Date.now() < answeredAt) await sleep(100);
   check('the fake agent answered', answered());
-  await sleep(1800); // the store poll has seen it; the CLI still works
-  check('answered while the agent works keeps golden', await band('md') === 'golden', await band('md'));
-  check('answered and idle returns to full', await waitBand('md', 'full', 5000) === 'full', await band('md'));
+  check("the agent's answer returns to full", await waitBand('md', 'full', 5000) === 'full', await band('md'));
+  await sleep(3500); // the fake's turn runs out
+
+  // The agent's write to the open doc is new content: full. Out of a roll-up
+  // by typing, since the write answers what was typed.
+  const docText = () => fs.readFileSync(path.join(conversation, 'first.md'), 'utf8');
+  await typeLine('work a while');
+  check('typing a prompt rolls the viewer up', await waitBand('md', 'hidden', 2000) === 'hidden', await band('md'));
+  check("the agent's write brings it up full", await waitBand('md', 'full', 6000) === 'full', await band('md'));
+  await sleep(1500);
+
+  // Out of a split picked by hand to watch the agent.
+  await typeLine('work a while');
+  await waitBand('md', 'hidden', 2000);
+  await page.locator('.vb-shell.vb-md .vb-bar').click({
+    position: { x: 300, y: 10 }, modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'],
+  });
+  check('a modifier-click on the handle opens the split', await waitBand('md', 'golden', 2000) === 'golden', await band('md'));
+  check("the split gives way to the agent's write", await waitBand('md', 'full', 6000) === 'full', await band('md'));
+  await sleep(1500);
+
+  // A band rolled up by hand stays up through the agent's next write.
+  await typeLine('work twice');
+  await waitBand('md', 'hidden', 2000);
+  check('the first write brings it up', await waitBand('md', 'full', 6000) === 'full', await band('md'));
+  await sleep(450); // a step swallows clicks off the bar for a beat
+  await page.locator('.vb-shell.vb-md .vb-bar').click({ position: { x: 300, y: 10 } });
+  check('the bar rolls it up by hand', await waitBand('md', 'hidden', 2000) === 'hidden', await band('md'));
+  const secondAt = Date.now() + 6000;
+  const writesInDoc = () => (docText().match(/The agent wrote this/g) || []).length;
+  while (writesInDoc() < 4 && Date.now() < secondAt) await sleep(100); // this turn's second, the fourth in all
+  await sleep(2500); // the doc poll has seen the second write
+  check('a roll-up by hand holds through the next write', await band('md') === 'hidden', await band('md'));
+
+  // A click on the terminal under the split rolls the viewer up.
+  await page.locator('.vb-shell.vb-md .vb-bar').click({ position: { x: 300, y: 10 } });
+  await waitBand('md', 'full', 2000);
+  await sleep(450);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('viewer-shortcut', 'size'));
+  await waitBand('md', 'golden', 2000);
+  // Halfway down the terminal below the band (a laptop clamps the window's height).
+  const terminalY = await page.evaluate(() => (document.querySelector('.vb-shell.vb-md').getBoundingClientRect().bottom + window.innerHeight) / 2);
+  await page.mouse.click(300, terminalY);
+  check('a click on the terminal rolls the split up', await waitBand('md', 'hidden', 2000) === 'hidden', await band('md'));
+  await page.locator('.vb-shell.vb-md .vb-bar').click({ position: { x: 300, y: 10 } });
+  await waitBand('md', 'full', 2000);
+  await sleep(450);
 
   // Typing in the viewer never resizes it.
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('viewer-shortcut', 'size'));

@@ -235,14 +235,13 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
       }
       // A review Send (every one is a Send all) hands the turn to the agent:
       // a full band recedes to golden so the terminal shows the pasted pointer,
-      // the receipt, and the return to full is armed (viewer-band.js). Only a
-      // Send moves the band; a banner nudge's toast is its own receipt, and To
-      // prompt rolls the band up through main's 'to-prompt'.
-      if (e.channel === 'rv-sent') band.recedeForSend();
-      // The guest reports its store after every snapshot; the band decides.
-      if (e.channel === 'rv-threads-state') band.reportThreads(e.args && e.args[0]);
-      // The user started writing in the page: the size they write at is theirs.
-      if (e.channel === 'rv-writing') band.cancelReturn();
+      // the receipt; the agent's answer brings full back (viewer-band.js).
+      // Only a Send moves the band; a banner nudge's toast is its own receipt,
+      // and To prompt rolls the band up through main's 'to-prompt'.
+      if (e.channel === 'rv-sent') band.recede();
+      // Writing in the page (a comment, a reply, the commit message): the
+      // agent's content waits until the user stops (viewer-band.js).
+      if (e.channel === 'rv-writing') band.setWriting(e.args && e.args[0]);
     });
     // Each finished load on a Microsoft login host is checked for a device-compliance block.
     view.addEventListener('did-finish-load', checkDeviceAuthBlock);
@@ -336,13 +335,10 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
   }
 
   // `review: true` marks a rendered review package (the renderer knows at the
-  // review:// seam). A review is a doc the user works in — like the md viewer,
-  // a fresh reveal takes the full screen. A plain clicked URL stays golden: a
-  // glance beside the session, not a takeover.
+  // review:// seam), which loads with the review preload.
   function open(rawUrl, { review = false } = {}) {
     const target = normalizeHttpUrl(rawUrl);
     if (!target) return false;
-    band.setDefaultSize(review ? 'full' : 'golden');
     entryUrl = target;
     blockedFired = false;
     if (destroyTimer) { clearTimeout(destroyTimer); destroyTimer = null; }
@@ -390,6 +386,9 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     if (band.isHidden()) band.flash();
     pingReviewRefresh();
   }
+  // The agent changed the review (a re-render, a reply): full, by the band's
+  // rule for the agent's content.
+  function contentArrived() { band.contentArrived(); }
 
   // Returning to the window nudges the overlay to re-read the comment store.
   window.addEventListener('focus', () => { if (band.isOpen()) pingReviewRefresh(); });
@@ -398,8 +397,10 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     open,
     reload,
     pingRefresh,
+    contentArrived,
     close: () => band.close(),
     hide: () => band.hide(),
+    withdraw: () => band.withdraw(),
     show: () => band.show(),
     toggle: () => band.toggle(),
     toggleFullSize: () => band.toggleFullSize(),

@@ -58,7 +58,7 @@ const {
 } = require('./mentioned-folders');
 const { isReviewPackagePath } = require('./review-package-path');
 const { isConversationDocPath } = require('./conversation-doc-path');
-const { userIsTyping, setTypingProbe, setAgentIdle } = require('./viewer-band');
+const { userIsTyping, setTypingProbe } = require('./viewer-band');
 
 // Custom title-bar / chrome bar — replaces the old session-banner row and
 // the Electron application menu. Mounts once on load and updates in place
@@ -74,9 +74,6 @@ streamIndicator.init();
 window.pty.onChromeState((payload) => {
   chromeBar.update(payload);
   currentCli = (payload && payload.cli) || null;
-  // The CLI's own word on its turn: a viewer band waiting to return to full
-  // after a Send re-checks when it changes (viewer-band.js).
-  setAgentIdle(payload ? payload.agentIdle : null);
   // A CLI is starting here: the launcher strip has done its job.
   if (currentCli) launcherBand.destroy();
   // Re-fit the terminal in case the chrome height was applied (mac fallback path).
@@ -953,16 +950,26 @@ if (typeof window.pty.onOlderCodeNotice === 'function') {
 // exactly the md viewer's model. Only an explicit ping (the agent printing the
 // review:// link again) moves the band: maybeRevealReprintedReview.
 if (window.pty && typeof window.pty.onReviewRerendered === 'function') {
+  // A re-render is the agent's new content: the band comes up full for it.
   window.pty.onReviewRerendered(() => {
-    try { if (webViewer && webViewer.isOpen && webViewer.isOpen()) webViewer.reload(); } catch {}
+    try {
+      if (!webViewer || !webViewer.isOpen || !webViewer.isOpen()) return;
+      webViewer.reload();
+      webViewer.contentArrived();
+    } catch {}
   });
 }
 // Comments-only change (an agent reply, no source edit) → refresh the overlay IN PLACE so the
 // reply surfaces and pulses, without a full reload (which would wipe the pulse baseline).
-// Same hands-off rule: while rolled up, pingRefresh flashes the handle instead of revealing.
+// While rolled up, pingRefresh flashes the handle. The agent's own words (its
+// journal moved) are new content, which brings the band up full.
 if (window.pty && typeof window.pty.onReviewCommentsChanged === 'function') {
-  window.pty.onReviewCommentsChanged(() => {
-    try { if (webViewer && webViewer.isOpen && webViewer.isOpen()) webViewer.pingRefresh(); } catch {}
+  window.pty.onReviewCommentsChanged(({ agent } = {}) => {
+    try {
+      if (!webViewer || !webViewer.isOpen || !webViewer.isOpen()) return;
+      webViewer.pingRefresh();
+      if (agent) webViewer.contentArrived();
+    } catch {}
   });
 }
 // Main auto-re-pinged an idle agent about unaddressed sent threads
@@ -1403,13 +1410,24 @@ function cancelTerminalFreeze(reason = 'cancel') {
 // Input to the terminal means the user's attention is back on it — roll up
 // any OPEN viewer to its handle (reversible; the content stays alive) so the terminal
 // is unobstructed and un-dimmed (the recede only applies while a viewer is open).
-// hide() is a no-op unless the viewer is open, so this only acts when one is showing.
-// The band overlays the terminal, so lifting it moves none of the text being
-// typed: the one layout change typing may cause (viewer-band.js).
+// The agent's next content may bring it back, since it answers what the user
+// typed (viewer-band.js withdraw). The band overlays the terminal, so lifting
+// it moves none of the text being typed: the one layout change typing may cause.
 function withdrawViewersOnInput() {
+  try { webViewer && webViewer.withdraw && webViewer.withdraw(); } catch {}
+  try { markdownViewer && markdownViewer.withdraw && markdownViewer.withdraw(); } catch {}
+}
+
+// A click on the terminal under an open viewer takes the user there, as a key
+// does: the band rolls up, by hand, so it stays up through the agent's next
+// content (viewer-band.js hide). The click goes on to what it landed on: a
+// link still opens, a drag still selects. The primary button only, and the
+// wheel scrolls the dimmed terminal without moving the band.
+container.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
   try { webViewer && webViewer.hide && webViewer.hide(); } catch {}
   try { markdownViewer && markdownViewer.hide && markdownViewer.hide(); } catch {}
-}
+}, true);
 
 // Typing in the terminal, for the band's no-automatic-move-while-typing rule:
 // a composing keystroke or paste in the last few seconds, the span main's

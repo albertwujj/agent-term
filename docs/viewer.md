@@ -22,4 +22,6 @@ In markdown, if you have a comment, reply or edit waiting to send, following a f
 
 ## Hide or resize
 
-`Ctrl/Cmd+Shift+O` hides the band and shows it again; `Ctrl/Cmd+Shift+I` switches between its two sizes.
+`Ctrl/Cmd+Shift+O` hides the band and shows it again; `Ctrl/Cmd+Shift+I` switches between full size and a split with the terminal.
+
+On its own, the band comes up full when the agent changes what it shows, splits when you send so you can watch the agent pick up, and hides when you type or click in the terminal. A band you hide yourself, a click in the terminal included, stays hidden through the agent's changes until you next type there.

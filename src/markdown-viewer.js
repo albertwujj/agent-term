@@ -1192,6 +1192,7 @@ function createMarkdownViewer({
     queuedComments: [],
     threadStore: null,
     threadStoreSig: '',
+    agentMarks: null, // agentMarks() of the last store read; null until the first after an open
     threadPollInFlight: false,
     threadRenderPending: false,
     threadReply: null,
@@ -1250,6 +1251,7 @@ function createMarkdownViewer({
     fileSignature: '',
     fileStatSignature: '',
     pendingRefreshResult: null,
+    pendingRefreshBeforeSend: false, // held when a Send went out (sentFromViewer)
     pendingRefreshSignature: '',
     pendingRefreshStatSignature: '',
     refreshPollTimer: null,
@@ -1273,12 +1275,6 @@ function createMarkdownViewer({
     share: 'major',
     bg: 'var(--md-surface)',
     minHeight: 220,
-    // Opening a doc puts it on stage, so a fresh reveal is full-screen. The
-    // golden split is the handoff state, and it arrives on its own: a Send
-    // recedes to it (the terminal receipt) and the agent's answer returns
-    // full (viewer-band.js). The web viewer keeps golden — a terminal URL is
-    // a glance beside the session, not a takeover.
-    defaultSize: 'full',
     // Each page ends in a 20px margin the text never enters (.md-spread-pane),
     // so at golden the bar may reach up into it.
     reachAbove: true,
@@ -2120,6 +2116,7 @@ function createMarkdownViewer({
     state.pendingRefreshResult = null;
     state.pendingRefreshSignature = '';
     state.pendingRefreshStatSignature = '';
+    state.pendingRefreshBeforeSend = false;
     state.refreshPulseStartedAt = 0;
     state.refreshPulseViewUpdated = true;
     state.refreshInFlight = false;
@@ -2256,11 +2253,15 @@ function createMarkdownViewer({
     if (!state.pendingRefreshResult || !isOpen() || hasBlockingMarkdownRefreshState()) return false;
     if (pendingRefreshWouldOrphanSeal()) return false;
     const result = state.pendingRefreshResult;
+    const beforeSend = state.pendingRefreshBeforeSend;
     state.pendingRefreshResult = null;
     state.pendingRefreshSignature = '';
     state.pendingRefreshStatSignature = '';
+    state.pendingRefreshBeforeSend = false;
     const applied = applyMarkdownReadResult(result, { preserveScroll: true });
     if (applied) markMarkdownRefreshViewUpdated();
+    // The doc changed on disk: the agent's new content (viewer-band.js).
+    if (applied && !beforeSend) band.contentArrived();
     return applied;
   }
 
@@ -2331,7 +2332,10 @@ function createMarkdownViewer({
       if (!statSignature) {
         throw new Error('Markdown refresh stat response is missing mtime/size');
       }
-      if (updateImageVersions(statResult.imageMtimes)) refreshEmbeddedImages();
+      if (updateImageVersions(statResult.imageMtimes)) {
+        refreshEmbeddedImages();
+        band.contentArrived(); // a regenerated image is the agent's new content too
+      }
       flushEmbeddedImageRefreshIfReady();
       const currentStatSignature = state.pendingRefreshStatSignature || state.fileStatSignature;
       if (statSignature === currentStatSignature) {
@@ -2357,6 +2361,7 @@ function createMarkdownViewer({
       state.pendingRefreshResult = result;
       state.pendingRefreshSignature = signature;
       state.pendingRefreshStatSignature = resultStatSignature || statSignature;
+      state.pendingRefreshBeforeSend = false; // read after any Send: new content
       schedulePendingMarkdownRefresh();
     } catch (error) {
       stopMarkdownAutoRefresh();
@@ -2401,10 +2406,15 @@ function createMarkdownViewer({
       state.threadStoreSig = sig;
       state.threadStore = result.data;
       syncChangeAgeToStoreTurn(result.data);
+      // The agent's new words are new content (viewer-band.js); the first read
+      // after an open only sets the baseline.
+      const marks = agentMarks(result.data);
+      const fromAgent = state.agentMarks !== null && marks > state.agentMarks;
+      state.agentMarks = marks;
       // A store update can answer a sealed edit, releasing a refresh that was
       // held waiting on it — apply it now so the resolve lands in one step.
       if (!applyPendingMarkdownRefreshIfReady()) scheduleThreadLayerRender();
-      reportThreadState();
+      if (fromAgent) band.contentArrived();
     } catch {} finally {
       state.threadPollInFlight = false;
     }
@@ -2425,6 +2435,7 @@ function createMarkdownViewer({
     if (!data) return;
     state.threadStore = data;
     state.threadStoreSig = JSON.stringify(data);
+    state.agentMarks = agentMarks(data);
     syncChangeAgeToStoreTurn(data);
   }
 
@@ -4229,6 +4240,7 @@ function createMarkdownViewer({
     state.replyDrafts.clear();
     state.threadStore = null;
     state.threadStoreSig = '';
+    state.agentMarks = null;
     state.threadRenderPending = false;
     state.resolvedExpanded = new Set();
     state.editing = null;
@@ -5503,9 +5515,8 @@ function createMarkdownViewer({
   // step, as a prompt, goes to the composer and the card waits, polling once
   // a second, until the clone lands and the send goes ahead on its own), send
   // without the guide, or cancel and keep the draft. The wait is part of the Send, so
-  // a full-size band recedes now, letting the terminal show the clone, and
-  // the Send that follows arms the return. Resolves to { runbook }, 'send',
-  // or 'cancel'.
+  // a full-size band recedes now, letting the terminal show the clone.
+  // Resolves to { runbook }, 'send', or 'cancel'.
   function askRunbookDecision(host, doc) {
     return new Promise((resolve) => {
       // Sent from a keyboard path with no composer in hand: the viewer's last
@@ -5642,12 +5653,11 @@ function createMarkdownViewer({
         const result = await submitMarkdownThreads({ docPath: doc, threads, followUps, batchKind, allowMissingRunbook, toPrompt });
         if (!result || !result.success) throw new Error((result && result.error) || 'Could not send the batch');
         adoptThreadStore(result.data);
-        // A Send recedes a full band to golden, the receipt, and arms the
-        // return to full for when the agent has answered. To prompt is the
-        // user's hand taking the layout instead: main's 'to-prompt' event rolls
-        // the band up, which ends the round trip.
-        if (!toPrompt) band.recedeForSend();
-        reportThreadState();
+        // A Send recedes a full band to golden, the receipt; the agent's
+        // answer brings full back (viewer-band.js). To prompt is the user
+        // taking the terminal instead: main's 'to-prompt' event rolls the
+        // band up.
+        if (!toPrompt) sentFromViewer();
       }
       if (reply) state.threadReply = null; // its holder vanishes in the re-render
       for (const { threadId } of followUps) {
@@ -5827,21 +5837,25 @@ function createMarkdownViewer({
     return msgs.length > 0 && msgs[msgs.length - 1].author === 'agent';
   }
 
-  // Where the agent stands on this document, reported to the band after every
-  // store snapshot for its return to full after a Send (viewer-band.js).
-  // answered: no thread still waits on the agent — each is resolved, or ends
-  // with its reply (an open thread the agent spoke last on is it blocked on
-  // the user, by the contract). resolved: each is resolved. The band pairs
-  // answered with the CLI's idle title, since a reply can land before the
-  // edits it describes, and falls back to resolved where the title says
-  // nothing.
-  function reportThreadState() {
-    const threads = (state.threadStore && Array.isArray(state.threadStore.threads))
-      ? state.threadStore.threads : [];
-    band.reportThreads({
-      answered: threads.length > 0 && threads.every((t) => isThreadResolved(t) || threadNeedsUser(t)),
-      resolved: threads.length > 0 && threads.every((t) => isThreadResolved(t)),
-    });
+  // A Send recedes the band (viewer-band.js). A doc refresh still held when it
+  // went out is the agent's earlier work, landing only now that the Send has
+  // released what held it: it must not take back the receipt.
+  function sentFromViewer() {
+    band.recede();
+    if (state.pendingRefreshResult) state.pendingRefreshBeforeSend = true;
+  }
+
+  // The agent's marks on the store: its messages and the threads it resolved
+  // (it owns `resolved`). A count, since main and the user only ever add
+  // the user's words and anchors.
+  function agentMarks(store) {
+    const threads = store && Array.isArray(store.threads) ? store.threads : [];
+    let marks = 0;
+    for (const t of threads) {
+      if (isThreadResolved(t)) marks += 1;
+      for (const m of (Array.isArray(t.messages) ? t.messages : [])) if (m && m.author === 'agent') marks += 1;
+    }
+    return marks;
   }
 
   // A block's resolved threads, newest first: the one you just finished is the
@@ -6448,8 +6462,7 @@ function createMarkdownViewer({
       // rests as the waiting line rather than staying expanded.
       state.expandedThreads.delete(thread.id);
       adoptThreadStore(result.data);
-      if (!toPrompt) band.recedeForSend();
-      reportThreadState();
+      if (!toPrompt) sentFromViewer();
       layoutSpread();
       if (typeof showToast === 'function') showToast('Reply sent');
     } catch (error) {
@@ -6596,6 +6609,7 @@ function createMarkdownViewer({
     state.replyDrafts.clear();
     state.threadStore = null;
     state.threadStoreSig = '';
+    state.agentMarks = null;
     state.threadRenderPending = false;
     state.resolvedExpanded = new Set();
     state.editing = null;
@@ -7257,6 +7271,7 @@ function createMarkdownViewer({
     closeSearch,
     getSearchSelectionText,
     hide: () => band.hide(),
+    withdraw: () => band.withdraw(),
     isOpen,
     // Visible on screen — narrower than isOpen(), which also counts the rolled-up
     // band (ownership for mutual exclusion). Search scope keys off this.

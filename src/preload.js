@@ -79,7 +79,7 @@ contextBridge.exposeInMainWorld('pty', {
   viewerFileExists: (filePath) => ipcRenderer.invoke('viewer-file-exists', filePath),
   // Main re-rendered the open review (package or source changed) → reload the viewer.
   onReviewRerendered: (cb) => ipcRenderer.on('review-rerendered', (e, payload) => cb(payload)),
-  onReviewCommentsChanged: (cb) => ipcRenderer.on('review-comments-changed', () => cb()),
+  onReviewCommentsChanged: (cb) => ipcRenderer.on('review-comments-changed', (e, payload) => cb(payload || {})),
   onStallReminder: (cb) => ipcRenderer.on('stall-reminder', (_event, payload) => cb(payload)),
   // Viewer closed → main stops the review auto-refresh poll/watch.
   reviewViewerClosed: () => ipcRenderer.send('review-viewer-closed'),

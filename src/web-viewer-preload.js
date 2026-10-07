@@ -661,39 +661,17 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     render();
     if (pulse && before) applyPulses(before);
     prevState = threadStateOf((store && store.threads) || []);
-    reportThreadState();
   }
 
-  // Tell the host where the agent stands after every store snapshot, for the
-  // band's return to full after a Send (viewer-band.js). answered: no thread
-  // still waits on the agent — each is resolved, or ends with its reply (an
-  // open thread the agent spoke last on is it blocked on the user, by the
-  // contract). resolved: each is resolved. The band pairs answered with the
-  // CLI's idle title, since a reply can land before the commit it describes,
-  // and falls back to resolved where the title says nothing.
-  function reportThreadState() {
-    const threads = (store && store.threads) || [];
-    const isResolved = function (t) { return t.status === 'resolved'; };
-    const isAnswered = function (t) {
-      if (isResolved(t)) return true;
-      const msgs = t.messages || [];
-      const last = msgs[msgs.length - 1];
-      return !!last && last.author === 'agent';
-    };
-    try {
-      ipcRenderer.sendToHost('rv-threads-state', {
-        answered: threads.length > 0 && threads.every(isAnswered),
-        resolved: threads.length > 0 && threads.every(isResolved),
-      });
-    } catch {}
-  }
-
-  // Starting to write — a comment, a reply, the commit message — tells the
-  // host, which leaves the band at the size the user is writing at.
+  // Writing — a comment, a reply, the commit message — tells the host, whose
+  // band holds the agent's content back until the user stops (viewer-band.js).
+  const isWritingTarget = function (el) { return !!el && (el.tagName === 'TEXTAREA' || el.isContentEditable); };
   document.addEventListener('focusin', function (e) {
-    const el = e.target;
-    if (el && (el.tagName === 'TEXTAREA' || el.isContentEditable)) {
-      try { ipcRenderer.sendToHost('rv-writing'); } catch {}
+    if (isWritingTarget(e.target)) { try { ipcRenderer.sendToHost('rv-writing', true); } catch {} }
+  }, true);
+  document.addEventListener('focusout', function (e) {
+    if (isWritingTarget(e.target) && !isWritingTarget(e.relatedTarget)) {
+      try { ipcRenderer.sendToHost('rv-writing', false); } catch {}
     }
   }, true);
 
@@ -1126,9 +1104,9 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
   // How every agent ping lands, Send and banner nudge alike: a failure toasts
   // the reason; success toasts okMsg and tells the host on `channel`.
   // Channels: 'rv-sent' (a Send — the host recedes a full band to golden so
-  // the pasted prompt, the receipt, shows in the terminal, and arms the
-  // return to full), 'rv-nudged' (a banner nudge — the toast is its receipt;
-  // the band stays), 'rv-to-prompt' (main's 'to-prompt' rolls the band up).
+  // the pasted prompt, the receipt, shows in the terminal), 'rv-nudged' (a
+  // banner nudge — the toast is its receipt; the band stays), 'rv-to-prompt'
+  // (main's 'to-prompt' rolls the band up).
   function pingFinished(res, channel, okMsg) {
     // The user canceled the missing-runbook dialog themselves — no toast.
     if (res && res.canceled) return false;
