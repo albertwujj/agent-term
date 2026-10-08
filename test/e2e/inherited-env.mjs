@@ -2,13 +2,17 @@
 // with the environment of the 2026-09-07 launch that lost its colors: a
 // launcher's tool shell had turned color off (NO_COLOR=1, COLORTERM emptied),
 // replaced pagers, pinned a locale, marked its session, and npm had added its
-// run-script variables and put node_modules/.bin first on PATH. Then reads
-// `env` back out of the terminal and asserts the shell got the terminal's own
-// identity and none of the launcher's settings (src/inheritable-env.js).
+// run-script variables and put node_modules/.bin first on PATH. The launch
+// also carries the console file a parent window opens for the window it
+// spawns. Then reads `env` back out of the terminal and asserts the shell got
+// the terminal's own identity and none of the launcher's settings or this
+// window's console file (src/inheritable-env.js).
 //
 // Run: npm run test:e2e   (builds the renderer first, then this)
 
 import { launchElectron } from './electron.mjs';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -40,6 +44,7 @@ async function main() {
       NO_COLOR: '1', COLOR: '0', COLORTERM: '', LC_ALL: 'C.UTF-8',
       PAGER: 'cat', GIT_PAGER: 'cat', GIT_EDITOR: 'true',
       CODEX_CI: '1', CLAUDECODE: '1', npm_lifecycle_event: 'start',
+      AGENT_TERM_CONSOLE_LOG: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-env-e2e-')), 'console.log'),
       PATH: `${path.join(APP_DIR, 'node_modules', '.bin')}:${process.env.PATH}`,
     },
     timeout: 45_000,
@@ -52,7 +57,7 @@ async function main() {
   // The echoed command line must not contain the marker, so it is assembled.
   const MARK = 'E2E-ENV-DONE';
   const command = [
-    "env | grep -E '^(NO_COLOR|COLOR|COLORTERM|LC_ALL|PAGER|GIT_PAGER|GIT_EDITOR|CODEX_CI|CLAUDECODE|npm_lifecycle_event|TERM_PROGRAM|TERM)=' | sort",
+    "env | grep -E '^(NO_COLOR|COLOR|COLORTERM|LC_ALL|PAGER|GIT_PAGER|GIT_EDITOR|CODEX_CI|CLAUDECODE|npm_lifecycle_event|AGENT_TERM_CONSOLE_LOG|TERM_PROGRAM|TERM)=' | sort",
     'case ":$PATH:" in *"/node_modules/.bin:"*) echo PATH-HAS-NPM-BIN;; *) echo PATH-CLEAN;; esac',
     'ps -o args= -p $$',
     "echo E2E-ENV-''DONE",
@@ -79,7 +84,7 @@ async function main() {
   check('TERM is the terminal\'s own', value('TERM') === 'xterm-256color');
   check('TERM_PROGRAM is the terminal\'s own', value('TERM_PROGRAM') === 'AgentTerm');
   check('COLORTERM declares truecolor over the launcher\'s empty value', value('COLORTERM') === 'truecolor');
-  for (const name of ['NO_COLOR', 'COLOR', 'CODEX_CI', 'CLAUDECODE', 'npm_lifecycle_event']) {
+  for (const name of ['NO_COLOR', 'COLOR', 'CODEX_CI', 'CLAUDECODE', 'npm_lifecycle_event', 'AGENT_TERM_CONSOLE_LOG']) {
     check(`${name} is gone`, value(name) === undefined);
   }
   // A profile may export these itself; the launcher's values must not survive.

@@ -44,7 +44,13 @@ const AGENT_SESSION = [
   'CODEX_MANAGED_PACKAGE_ROOT',
 ];
 
-const REMOVED = new Set([...PLAIN_OUTPUT, ...NPM_RUN_SCRIPT, ...AGENT_SESSION]);
+// What relaunch.js sets for the window it opens: the file that window's stdout
+// and stderr go to. It describes this process, not its shell, and a window
+// started from the shell (`npm run start`, an E2E test's Electron) would take
+// the file as its own console and trim it (watchOwnConsoleLog in main.js).
+const THIS_WINDOW = ['AGENT_TERM_CONSOLE_LOG'];
+
+const REMOVED = new Set([...PLAIN_OUTPUT, ...NPM_RUN_SCRIPT, ...AGENT_SESSION, ...THIS_WINDOW]);
 
 // PATH entries a launcher prepends for its own tools. Apple's system cryptex
 // is also named codex (/var/run/com.apple.security.cryptexd/codex.system/...)

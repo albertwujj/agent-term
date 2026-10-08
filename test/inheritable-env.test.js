@@ -78,6 +78,11 @@ test("git's prompt and editor overrides are dropped", () => {
   }
 });
 
+test("this window's console file is not handed to its shell", () => {
+  const out = inheritableEnv({ HOME: '/Users/me', AGENT_TERM_CONSOLE_LOG: '/logs/console-1-2-3.log' }, 'darwin');
+  assert.deepStrictEqual(out, { HOME: '/Users/me' });
+});
+
 test("the user's own session and configuration stay", () => {
   const own = {
     HOME: '/Users/me', USER: 'me', SHELL: '/bin/zsh', LANG: 'en_US.UTF-8', LC_CTYPE: 'UTF-8',

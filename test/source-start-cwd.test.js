@@ -25,21 +25,15 @@ test("npm's directory becomes the start directory, over an inherited one", () =>
     { INIT_CWD: '/work/here', AGENT_TERM_START_CWD: '/work/here', HOME: '/home/me' });
 });
 
-test("an outer window's console log is not adopted", () => {
-  const env = { INIT_CWD: '/work/here', AGENT_TERM_CONSOLE_LOG: '/logs/console-1.log', HOME: '/home/me' };
-  assert.deepStrictEqual(sourceLaunchEnv(env, 'darwin', fsApi),
-    { INIT_CWD: '/work/here', AGENT_TERM_START_CWD: '/work/here', HOME: '/home/me' });
-});
-
 test('without INIT_CWD nothing is overridden', () => {
-  const env = { AGENT_TERM_START_CWD: '/work/elsewhere', AGENT_TERM_CONSOLE_LOG: '/logs/console-1.log' };
+  const env = { AGENT_TERM_START_CWD: '/work/elsewhere' };
   assert.strictEqual(sourceLaunchEnv(env, 'darwin', fsApi), env);
 });
 
 test('the parent environment is never mutated', () => {
-  const env = { INIT_CWD: '/work/here', AGENT_TERM_CONSOLE_LOG: '/logs/console-1.log' };
+  const env = { INIT_CWD: '/work/here', AGENT_TERM_START_CWD: '/work/elsewhere' };
   sourceLaunchEnv(env, 'darwin', fsApi);
-  assert.deepStrictEqual(env, { INIT_CWD: '/work/here', AGENT_TERM_CONSOLE_LOG: '/logs/console-1.log' });
+  assert.deepStrictEqual(env, { INIT_CWD: '/work/here', AGENT_TERM_START_CWD: '/work/elsewhere' });
 });
 
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
