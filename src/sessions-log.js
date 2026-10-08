@@ -50,6 +50,7 @@ const {
   findAllTermRanges,
 } = require('./search-terms');
 const { currentGuiSession } = require('./gui-session');
+const { processStartTime } = require('./process-start');
 const { writeFileAtomicSync } = require('./atomic-file');
 const { isConversationTitle } = require('./ai-title');
 const { identityFromPrompts } = require('./session-identity');
@@ -89,6 +90,24 @@ function isSameBoot(a, b) {
 function isPidAlive(pid) {
   try { process.kill(pid, 0); return true; }
   catch (e) { return !!e && e.code === 'EPERM'; }   // EPERM means process exists but signal denied
+}
+
+// Whether a record's pid still names the process that wrote it. macOS hands a
+// freed pid out again within the hour, sooner while builds run, so a window
+// killed before it could release its record leaves a pid that can come to name
+// an unrelated process. That process would pass for the window: the picker
+// would bring it forward and close itself on a pick that shows nothing, and the
+// last-window check would count it as on screen. A process that started after
+// the record's processStartedAt is not its writer; the slack covers ps's
+// whole-second precision. Unknown (a record without processStartedAt, Windows,
+// a failed ps; see src/process-start.js) falls back to the pid alone.
+const PROCESS_START_SLACK_MS = 5000;
+
+function isRecordProcessAlive(record) {
+  if (!isPidAlive(record.pid)) return false;
+  if (typeof record.processStartedAt !== 'number') return true;
+  const started = processStartTime(record.pid);
+  return started === null || started <= record.processStartedAt + PROCESS_START_SLACK_MS;
 }
 
 // ---- paths ----
@@ -265,8 +284,10 @@ function activeFilePath(userDataDir, id) {
 //                 restarted (src/input-clock.js)
 //   touchedAt     wall-clock time of that restart
 //   processStartedAt when the window's process started, which dates the code
-//                 it runs; a hidden window older than the checkout's last
-//                 change resumes on the current code when brought back
+//                 it runs (a hidden window older than the checkout's last
+//                 change resumes on the current code when brought back) and
+//                 tells the window from a later process given its pid
+//                 (isRecordProcessAlive)
 //   token         the window's AGENT_SESSION_ID; lets a window find the holder of
 //                 agent-lock's lock/agent (its owner record stores the token)
 // The window-cap module hides stale windows and caps live sessions by
@@ -279,7 +300,7 @@ function writeActiveFile(userDataDir, id, payload) {
 
 // Whether `record` names a live process other than `pid`.
 function heldByAnotherLivePid(record, pid) {
-  return !!record && typeof record.pid === 'number' && record.pid !== pid && isPidAlive(record.pid);
+  return !!record && typeof record.pid === 'number' && record.pid !== pid && isRecordProcessAlive(record);
 }
 
 // Merge a partial update into the caller's own active file. Used by windows to
@@ -342,8 +363,9 @@ function findActiveByToken(userDataDir, token) {
 }
 
 // `record` is the result of readActiveFile (may be null). Returns true iff the
-// recorded process is still alive, was created during the current boot, and
-// its window still belongs to the live compositor session.
+// recorded process is still alive (and is still the one that wrote the record),
+// was created during the current boot, and its window still belongs to the
+// live compositor session.
 //
 // The compositor guard is what catches a window that died out from under a
 // surviving process (macOS WindowServer crash): the pid is alive and nothing
@@ -357,7 +379,7 @@ function isSessionActive(record, opts = {}) {
   if (!isSameBoot(record.bootTime, bootTime)) return false;
   const guiSession = (opts.guiSession !== undefined) ? opts.guiSession : currentGuiSession();
   if (guiSession && record.guiSession && record.guiSession !== guiSession) return false;
-  return isPidAlive(record.pid);
+  return isRecordProcessAlive(record);
 }
 
 // Whether a record may be deleted, which is a stricter question than whether
@@ -365,14 +387,15 @@ function isSessionActive(record, opts = {}) {
 // window only merges into an existing file, so a wrongly reaped record leaves a
 // live window invisible to the cap, the picker, and the last-window relaunch
 // check. Reap only on evidence the window is gone — a malformed record, a dead
-// pid, or a live pid whose window died with an earlier compositor session. A
+// pid, a pid now held by a process younger than the record, or a live pid
+// whose window died with an earlier compositor session. A
 // boot-stamp mismatch is not evidence (see BOOT_TIME_TOLERANCE_MS); such a
 // record is already skipped by isSessionActive and is reaped once its pid dies.
 function isSessionReapable(record, opts = {}) {
   if (!record || typeof record.pid !== 'number') return true;
   const guiSession = (opts.guiSession !== undefined) ? opts.guiSession : currentGuiSession();
   if (guiSession && record.guiSession && record.guiSession !== guiSession) return true;
-  return !isPidAlive(record.pid);
+  return !isRecordProcessAlive(record);
 }
 
 // Sweep the active/ directory and remove records whose window is provably gone.

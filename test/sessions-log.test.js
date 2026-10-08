@@ -320,6 +320,33 @@ test('isSessionActive: unstamped platform ignores the record stamp', () => {
   assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT, guiSession: null }), true);
 });
 
+// ---- pid reuse (a killed window's pid handed to a later process; see
+// isRecordProcessAlive) ----
+
+const OWN_START = Date.now() - Math.round(process.uptime() * 1000);
+
+if (process.platform === 'darwin') {
+  test('isSessionActive: the process that wrote the record is active', () => {
+    const rec = { pid: process.pid, bootTime: FROZEN_BOOT, processStartedAt: OWN_START };
+    assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT, guiSession: null }), true);
+  });
+
+  test('a pid now held by a younger process is neither active nor kept', (dir) => {
+    // The record's writer started an hour before the process that holds the pid now.
+    const rec = { pid: process.pid, bootTime: FROZEN_BOOT, processStartedAt: OWN_START - 60 * 60_000 };
+    assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT, guiSession: null }), false);
+    assert.strictEqual(log.isSessionReapable(rec, { guiSession: null }), true);
+    log.writeActiveFile(dir, 5, rec);
+    // The owner reclaims an id whose holder is gone rather than yielding to it.
+    assert.strictEqual(log.updateActiveFile(dir, 5, { hiddenAt: null }, process.pid + 1), 'unowned');
+  });
+}
+
+test('isSessionActive: a record without processStartedAt is judged by its pid', () => {
+  const rec = { pid: process.pid, bootTime: FROZEN_BOOT };
+  assert.strictEqual(log.isSessionActive(rec, { bootTime: FROZEN_BOOT, guiSession: null }), true);
+});
+
 test('gcActiveFiles cleans up stale entries', (dir) => {
   // alive (this process) + previous-boot dead pid + dead-pid + live pid whose
   // window died with a previous compositor session
