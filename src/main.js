@@ -2275,6 +2275,31 @@ function closeToHidden() {
   openFreshWindowIfNoneVisible();
 }
 
+// A session's window whose shell is back at its prompt holds no CLI: it
+// exited (an update it installed needs a restart), or a resume never got it
+// running. Hiding would keep a bare shell alive, so the close ends the
+// session as typing `exit` would, and a resume starts the CLI afresh. Asking
+// the shell takes a moment, so the close waits for the answer; an unknown
+// answer hides, which loses nothing.
+let closeEndsSession = false;
+let closeProbe = null;
+
+async function closeSessionWindow() {
+  let atPrompt = null;
+  try { atPrompt = await shellAtPrompt(); } catch (err) {
+    log('[auto-hide] shell probe failed: ' + (err && err.message));
+  }
+  if (!mainWindow || mainWindow.isDestroyed() || quitting) return;
+  if (atPrompt) {
+    log('[auto-hide] window closed with its shell at the prompt; closing session ' + sessionIndex);
+    closeEndsSession = true;
+    mainWindow.close();
+    return;
+  }
+  if (atPrompt === null) log('[auto-hide] could not tell whether session ' + sessionIndex + ' runs a CLI');
+  closeToHidden();
+}
+
 // One policy for every new window (Cmd/Ctrl+Shift+N, and the fresh window
 // that replaces the last one closed): an established session carries the
 // directory its agent was launched from; a launcher/shell with no captured
@@ -2648,9 +2673,9 @@ function createWindow() {
   mainWindow.on('focus', noteUserInput);
   mainWindow.on('focus', deliverOlderCodeNotice);
   mainWindow.on('close', (event) => {
-    if (quitting || !hidesOnClose()) return;
+    if (quitting || closeEndsSession || !hidesOnClose()) return;
     event.preventDefault();
-    closeToHidden();
+    if (!closeProbe) closeProbe = closeSessionWindow().finally(() => { closeProbe = null; });
   });
   // Windows ends the session by closing windows; those closes are real.
   mainWindow.on('session-end', () => { quitting = true; });
@@ -4569,6 +4594,32 @@ async function getPrimaryCwd() {
     }
   } catch {}
   return ptyStartingCwd();
+}
+
+// Whether the shell is at its prompt, running nothing: the terminal's
+// foreground process group is then the shell's own, since an interactive
+// shell gives every command it runs a group of its own. That holds for any
+// CLI, and background jobs leave the terminal to the shell. null when the
+// probe cannot tell (no controlling terminal reads as 0 or -1).
+async function shellAtPrompt() {
+  let r;
+  if (process.platform === 'win32') {
+    if (!wslPidFile) return null;
+    // /proc/<pid>/stat: pgrp and tpgid are the 3rd and 6th fields after the
+    // parenthesised command name, which may itself hold spaces.
+    r = await posixSh(
+      `pid=$(cat -- ${shellEscape(wslPidFile)}) && read -r stat < "/proc/$pid/stat" && ` +
+      'set -- ${stat##*) } && echo "$3 $6"',
+      { timeout: 3000 },
+    );
+  } else {
+    if (!ptyProcess || !ptyProcess.pid) return null;
+    r = await runProc('/bin/ps', ['-o', 'pgid=,tpgid=', '-p', String(ptyProcess.pid)], { timeout: 3000 });
+  }
+  if (r.code !== 0) return null;
+  const [pgid, tpgid] = lastLine(r.stdout).split(/\s+/).map(Number);
+  if (!(pgid > 0) || !(tpgid > 0)) return null;
+  return pgid === tpgid;
 }
 
 // Last non-empty stdout line: the probes run in a login shell, so profile /

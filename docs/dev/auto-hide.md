@@ -11,7 +11,7 @@ Every session is its own window, and a working day leaves several open that you 
 3. **Time away changes nothing.** Leaving the desk, sleep, a locked screen, or an afternoon in other apps hides no window. You return to the windows you left.
 4. **Nothing moves on its own.** The taskbar and Dock rearrange when you open a window, a change you are already making, and otherwise only to bring back finished work (goal 5). The window you are using and one whose agent is working stay.
 5. **Finished work surfaces.** A hidden session whose agent finishes a turn comes back into view.
-6. **Closing puts a session away; exit ends it.** Closing a session's window hides it at once, whatever its agent is doing. A session ends when you stop its agent and type `exit`, the one deliberate act that means done.
+6. **Closing puts a running session away.** Closing a session's window hides it at once, whatever its agent is doing. Once its CLI has exited, or never started, the window holds a bare shell, and closing it ends the session as typing `exit` does; resuming then starts the CLI afresh, which is how a CLI picks up an update it installed.
 7. **Bounded cost.** A hidden session costs what a visible one does, so a fixed number of live sessions holds the total to what that many open windows cost today.
 
 ## The clock
@@ -36,20 +36,20 @@ These windows stay:
 - the focused window;
 - a window whose agent is working, through the grace period after it stops.
 
-Closing a session's window hides it at once, with none of these exceptions: the close is your hand. A window with no session, such as a picker nobody used, has nothing to come back as, so it closes. Either way, closing the last visible window opens a fresh one on the picker, as closing the last window always has; typing `exit` is the way out without one.
+Closing a session's window hides it at once, with none of these exceptions: the close is your hand. A window with nothing to come back as closes: one with no session, such as a picker nobody used, and one whose shell is back at its prompt, running no CLI. Either way, closing the last visible window opens a fresh one on the picker, as closing the last window always has; typing `exit` is the way out without one.
 
 Hidden means gone from every surface a click or keystroke could reach: the screen, the taskbar or Dock, and Cmd/Alt+Tab.
 
 ## Coming back
 
-- **From the picker, instantly.** The picker lists a hidden session like any past one, since closing a window only puts it away; choosing it brings its window back in front. The window the picker opened in closes, since it was opened only to find that session.
+- **From the picker, instantly.** The picker lists a hidden session like any past one, since hiding only puts it away; choosing it brings its window back in front. The window the picker opened in closes, since it was opened only to find that session.
 - **On the current code.** A window brought back from the picker, or by the shortcut below, runs the code of the checkout as it is now: every window it opens takes the checkout's current state, and a window brought back counts as one. A hidden window whose process started before the checkout last changed therefore closes, and its session resumes in the picker's window through its CLI, with a banner saying why, since the window the user expected back did not come. That path is slower and leaves the old window's own state behind (scrollback, viewer band), so it is taken only when the code did change. Its one exception is a window whose agent is working: it comes back as it is, so the turn is not lost. A window returning on its own after a turn is also shown as it is. A window that comes back as it is on older code says so, once it is in front, until dismissed; windows that never hid stay quiet, since while you edit AgentTerm every open one would.
 - **From the shortcut, pressed twice.** Cmd/Ctrl+Shift+N opens the picker; pressed again with the picker in front, it brings back the hidden session used most recently in the picker's place, as if chosen from the list. With nothing hidden, the picker says so and stays.
 - **On its own, when its agent finishes a turn.** A hidden window takes no prompts, so any turn it runs was started without you: a job-watch nudge, a scheduled wakeup, a background task ending. The window returns to the taskbar or Dock without taking focus, with its timer restarted. It returns at the turn's end, when there is a result to read; at the start there is nothing to see yet.
 
 ## Cost
 
-Hidden sessions stay alive, including every closed one. At most 8 sessions stay alive, hidden and visible together: the most you would want as windows if none were hidden. Past that, the hidden session whose timer restarted longest ago closes: the same timer that hid it, with wall-clock time breaking ties among restarts while you were away. Visible windows are yours, so if you open more than 8 and use them, nothing closes until some hide. A closed session resumes through its CLI, as any closed session does.
+Hidden sessions stay alive, including every one hidden by a close. At most 8 sessions stay alive, hidden and visible together: the most you would want as windows if none were hidden. Past that, the hidden session whose timer restarted longest ago closes: the same timer that hid it, with wall-clock time breaking ties among restarts while you were away. Visible windows are yours, so if you open more than 8 and use them, nothing closes until some hide. A closed session resumes through its CLI, as any closed session does.
 
 The limit is a constant. Screen space and attention set it, and neither grows with RAM; a machine that runs 8 windows today already pays for 8 live sessions. No age limit applies: a session can wait days on a reply, and a wall-clock limit would end every hidden session overnight (goal 3).
 

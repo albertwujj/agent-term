@@ -27,7 +27,7 @@ On Windows each is its own taskbar button, labeled from the session's initial pr
 
 **A tile or a taskbar button is an effective visual signature for your session.** A tile like "[I'd](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/dock-tile.png)" looks thin at first, but its color and the first letters of your own prompt become familiar quickly.
 
-To keep the taskbar and Dock uncluttered, AgentTerm automatically hides sessions you have stopped using, based on your activity; the picker brings them back.
+To keep the taskbar and Dock uncluttered, AgentTerm automatically hides sessions you have stopped using, based on your activity, and closing a window hides its session while the CLI runs; the picker brings them back.
 
 ## Find and resume sessions
 

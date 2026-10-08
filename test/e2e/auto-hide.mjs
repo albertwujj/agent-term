@@ -19,6 +19,8 @@
 //      used most recently in its place; with none hidden, the picker stays
 //   9. a session the cap closed resumes from the picker through the CLI,
 //      with a banner saying why
+//  10. closing a session's window with its shell back at the prompt (the CLI
+//      exited) ends the session
 //
 // The input clock is advanced by rewriting its file; the working grace is
 // shortened through AGENT_TERM_WORKING_GRACE_MS. The cap check runs on the
@@ -201,7 +203,10 @@ try {
 
   // A working window stays, however stale.
   await page.evaluate(() => { const ta = document.querySelector('.xterm-helper-textarea'); if (ta) ta.focus(); });
-  await page.keyboard.type('for i in $(seq 6); do echo work $i; sleep 1; done');
+  // In a subshell, one foreground job holds the terminal for the whole loop,
+  // so the close in 7a cannot land between two sleeps with the shell at its
+  // prompt.
+  await page.keyboard.type('(for i in $(seq 6); do echo work $i; sleep 1; done)');
   await page.keyboard.press('Enter');
   await sleep(3000);
   hid = await hideNow();
@@ -365,6 +370,18 @@ const launchPicker = async () => {
       null, { timeout: 5000 }).then(() => true, () => false);
     check('a session the cap closed says so when it resumes', shown);
     check('and it resumes through the CLI', await f.page.evaluate(() => !!document.querySelector('.at-resume-hint')));
+
+    // 10. The CLI here is `true`, so the shell is back at its prompt at once.
+    await sleep(2000);
+    const closedBefore = sessionsLog.readLog(UD).filter(e => e.id === 6 && e.e === 'closed').length;
+    await f.app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].close(); }).catch(() => {});
+    const code = await Promise.race([f.exited, sleep(10_000).then(() => 'timeout')]);
+    check('closing a window whose CLI exited ends its session', code !== 'timeout', String(code));
+    check('the log says why', /window closed with its shell at the prompt; closing session 6/.test(f.log), f.log.slice(-400));
+    check('it is not hidden', !/hiding session 6/.test(f.log));
+    const closedAfter = sessionsLog.readLog(UD).filter(e => e.id === 6 && e.e === 'closed').length;
+    check('it is recorded as closed', closedAfter === closedBefore + 1, `${closedBefore} -> ${closedAfter}`);
+    check('its record is released', !sessionsLog.isSessionActive(sessionsLog.readActiveFile(UD, 6)));
   } finally {
     try { await f.app.close(); } catch {}
   }
