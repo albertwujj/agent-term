@@ -1,8 +1,9 @@
 // The agent's change brings a rolled-up md band up full on the page that
-// holds it; a band the user already had up (split or full) comes up full on
-// the page it was on. The doc is long, so each change lands off the page the
-// user was reading. Drives the real app; main's file reads are stubbed so the
-// test plays the agent by changing what they return.
+// holds it, a change to the doc or a reply on a thread; a band the user
+// already had up (split or full) comes up full on the page it was on. The doc
+// is long, so each change lands off the page the user was reading. Drives the
+// real app; main's file and store reads are stubbed so the test plays the
+// agent by changing what they return.
 //
 // Run: npm run test:e2e
 import { launchElectron } from './electron.mjs';
@@ -43,13 +44,21 @@ try {
     globalThis.__landDoc = { doc, content, mtimeMs };
   }, [DOC, content, mtimeMs]);
   await serve(source(), 1);
+  // One thread near the top, waiting on the agent.
+  const ANCHOR = 'Paragraph 2 of the document, long enough to fill lines of a page.';
+  const store = (agentSaid) => app.evaluate((_, [anchor, agentSaid]) => {
+    const messages = [{ author: 'user', body: 'Is this right?', ts: 1, turn: 1 }];
+    if (agentSaid) messages.push({ author: 'agent', body: agentSaid, ts: 2, turn: 1 });
+    globalThis.__landStore = { version: 1, turn: 1, threads: [{ id: 't1', anchor: { snippet: anchor }, messages }] };
+  }, [ANCHOR, agentSaid]);
+  await store(null);
   await app.evaluate(({ BrowserWindow, ipcMain }) => {
     BrowserWindow.getAllWindows()[0].setSize(1500, 950);
     const d = () => globalThis.__landDoc;
     for (const [channel, handler] of [
       ['read-markdown-file', () => ({ success: true, path: d().doc, content: d().content, mtimeMs: d().mtimeMs, size: d().content.length })],
       ['stat-markdown-file', () => ({ success: true, path: d().doc, mtimeMs: d().mtimeMs, size: d().content.length })],
-      ['md-read-threads', () => ({ success: true, data: { version: 1, turn: 1, threads: [] } })],
+      ['md-read-threads', () => ({ success: true, data: globalThis.__landStore })],
     ]) { ipcMain.removeHandler(channel); ipcMain.handle(channel, handler); }
   });
   const terminal = page.locator('.xterm-helper-textarea');
@@ -111,6 +120,19 @@ try {
   await page.waitForTimeout(500);
   check('on the page the user was reading', await onScreen(END));
   check('which does not turn to the change', !(await onScreen(TOP)));
+
+  // Rolled up again, the agent replies on the thread near the top: the band
+  // comes up on the page holding that thread.
+  console.log('A reply, out of a roll-up');
+  await terminal.focus();
+  await page.keyboard.type('x');
+  await page.keyboard.press('Control+U');
+  check('typing rolls the band up again', await waitBand('hidden', 2000) === 'hidden', await band());
+  await store('Yes, it is.');
+  check('the reply brings it up full', await waitBand('full', 5000) === 'full', await band());
+  await page.waitForTimeout(500);
+  check('on the page that holds the thread', await onScreen('Paragraph 2 '));
+  check('which left the end', !(await onScreen(END)));
 } finally {
   await app.close();
   fs.rmSync(tmp, { recursive: true, force: true });
