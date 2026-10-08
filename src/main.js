@@ -2177,7 +2177,7 @@ function exitAsSuperseded(reason) {
 // Compositor probe: exit as a ghost once the stamp this window was created
 // under no longer matches the live compositor. Returns whether an exit began.
 // An unknown probe never exits, since a live window must not die on a failed
-// pgrep; it is logged once per streak so a ghost probing blind still leaves a
+// probe; it is logged once per streak so a ghost probing blind still leaves a
 // trace in the disk log.
 // A blind probe never reaps: "unknown" is not "changed". Both blind states are
 // re-logged on an interval rather than once, because a ghost's signature is a

@@ -46,6 +46,18 @@ if (process.platform === 'darwin') {
   });
 }
 
+test('findWindowServerPid takes the first WindowServer by basename', () => {
+  const ps = [
+    '    1 /sbin/launchd',
+    '  412 /usr/libexec/WindowServerHelper',
+    '25479 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer',
+    '31002 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer',
+    '',
+  ].join('\n');
+  assert.strictEqual(guiSession.findWindowServerPid(ps), '25479');
+  assert.strictEqual(guiSession.findWindowServerPid('    1 /sbin/launchd\n'), null);
+});
+
 test('resetCache forces a fresh read', () => {
   const before = guiSession.currentGuiSession();
   guiSession.resetCache();

@@ -32,16 +32,22 @@ let probeFailureLogged = false;
 // its compositor. main.js reads this into the disk log instead.
 let lastProbeError = null;
 
-// One process spawn each for the pid and its start time; both outputs are a
-// single short line. Called at most once per CACHE_MS via currentGuiSession.
+// One process spawn each for the pid and its start time. Called at most once
+// per CACHE_MS via currentGuiSession.
+//
+// The pid comes from ps, never pgrep: pgrep reads the process table through
+// the sysmond service, which a ghost cannot reach once its session's
+// bootstrap namespace dies with the compositor ("sysmond service not found"),
+// so the probe would stay blind for exactly the processes it exists to catch.
+// ps reads it through sysctl.
 function readGuiSession() {
   if (process.platform !== 'darwin') return null;
   try {
-    const pid = execFileSync('/usr/bin/pgrep', ['-x', 'WindowServer'], {
+    const pid = findWindowServerPid(execFileSync('/bin/ps', ['-axo', 'pid=,comm='], {
       encoding: 'utf8', timeout: 2000,
-    }).split('\n')[0].trim();
-    if (!/^\d+$/.test(pid)) {
-      lastProbeError = `pgrep gave no WindowServer pid (${JSON.stringify(pid)})`;
+    }));
+    if (!pid) {
+      lastProbeError = 'ps listed no WindowServer process';
       return null;
     }
     const started = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', pid], {
@@ -63,6 +69,16 @@ function readGuiSession() {
   }
 }
 
+// First WindowServer in `ps -axo pid=,comm=` output (ascending pid, as pgrep
+// returned it). comm is the executable path; the match is on its basename.
+function findWindowServerPid(psOutput) {
+  for (const line of psOutput.split('\n')) {
+    const m = /^\s*(\d+)\s+(.+?)\s*$/.exec(line);
+    if (m && m[2].split('/').pop() === 'WindowServer') return m[1];
+  }
+  return null;
+}
+
 // TTL-cached read. Liveness checks run over every active file in a loop, so
 // the cache keeps a picker open or a gc sweep to a single probe.
 function currentGuiSession(opts = {}) {
@@ -80,6 +96,7 @@ function resetCache() {
 
 module.exports = {
   readGuiSession,
+  findWindowServerPid,
   currentGuiSession,
   resetCache,
   lastProbeError: () => lastProbeError,
