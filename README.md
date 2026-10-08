@@ -33,7 +33,9 @@ project, then launch AgentTerm there.
 
 Phone access, including recording and transcription, and IDE integration have [separate setup](docs/setup.md#phone-and-ide-integration).
 
-Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual. Explore the additions shown in the [demo above](#demo), and follow the [guides below](#where-to-go-next) to start using them.
+Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual.
+
+Press `Ctrl/Cmd+Shift+U` to find and open a Markdown file by name, even if it hasn’t appeared in the terminal. Explore other additions shown in the [demo above](#demo), and follow the [guides below](#where-to-go-next) to start using them.
 
 <a name="why-extend-the-terminal"></a>
 
