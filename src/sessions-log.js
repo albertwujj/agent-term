@@ -1,4 +1,4 @@
-// Sessions log + active-window registry + pending-recovery snapshot.
+// Sessions log + active-window registry.
 //
 // Three on-disk artifacts under <userData>/:
 //
@@ -34,14 +34,6 @@
 //     the marker exclusively, which is what makes ids unique across windows
 //     launching in the same instant; icon-counter is only the hint of where
 //     to start looking.
-//
-//   pending-recovery.json
-//     { bootTime, pendingIds: [number...] }
-//     Initialized at first read after a reboot — populated with all session
-//     ids that have started+cli+prompt but no closed event AND aren't currently
-//     active. Decremented as the user picks/dismisses sessions in the picker.
-//     Auto-recovery picker auto-shows while this set is non-empty (and the
-//     current Agent Term wasn't launched with --auto-relaunch).
 //
 // All operations are file-system based (no in-process state) so multiple
 // Agent Term instances can read/write concurrently. Writes use either
@@ -105,7 +97,6 @@ function paths(userDataDir) {
   return {
     log:     path.join(userDataDir, 'sessions.jsonl'),
     active:  path.join(userDataDir, 'active'),
-    pending: path.join(userDataDir, 'pending-recovery.json'),
     ids:     path.join(userDataDir, 'ids'),
     counter: path.join(userDataDir, 'icon-counter'),
   };
@@ -183,7 +174,7 @@ function listSessions(userDataDir) {
     if (typeof ev.id !== 'number') continue;
     let s = map.get(ev.id);
     if (!s) {
-      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, capturedBranches: [], closedAt: null, closedBy: null, lostAt: null, token: null };
+      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, capturedBranches: [], closedBy: null, token: null };
       map.set(ev.id, s);
     }
     s.lastEventAt = ev.t;
@@ -245,11 +236,10 @@ function listSessions(userDataDir) {
         break;
       // closedBy names what closed it when that was not the user: 'cap' for
       // the live-session cap closing it while hidden (window-cap.js).
-      case 'closed':  s.closedAt = ev.t; s.closedBy = ev.by || null; break;
-      // A loss leaves closedAt alone: the session is still open as far as the
-      // user is concerned, so recovery and the picker keep offering it. Its
-      // last end was the loss, so an earlier closedBy no longer applies.
-      case 'lost':    s.lostAt = ev.t; s.closedBy = null; break;
+      case 'closed':  s.closedBy = ev.by || null; break;
+      // The window died under a live process: its last end was the loss, so
+      // an earlier closedBy no longer applies.
+      case 'lost':    s.closedBy = null; break;
       // 'runid' and 'blockid' events are no-ops in the union model — the
       // hub auto-generates fresh runIds per process and the block concept
       // is gone. We don't strip them from disk (forward-compat); the fold
@@ -396,52 +386,6 @@ function gcActiveFiles(userDataDir, opts = {}) {
   }
 }
 
-// ---- pending-recovery snapshot ----
-
-// Read the snapshot. Returns { bootTime, pendingIds }; if absent or stale,
-// the caller is expected to re-initialize via initPendingRecoveryIfNeeded.
-function readPendingRecovery(userDataDir) {
-  const p = paths(userDataDir);
-  try { return JSON.parse(fs.readFileSync(p.pending, 'utf8')); }
-  catch { return null; }
-}
-
-function writePendingRecovery(userDataDir, snapshot) {
-  ensureDirs(userDataDir);
-  writeFileAtomicSync(paths(userDataDir).pending, JSON.stringify(snapshot));
-}
-
-// If the on-disk snapshot's bootTime differs from current, recompute the set:
-//   eligible = sessions with started + cli + prompt, no closed event,
-//              and not currently active (per active/<id>.json check).
-// Returns the (possibly newly initialized) snapshot.
-function initPendingRecoveryIfNeeded(userDataDir, opts = {}) {
-  const bootTime = opts.bootTime || currentBootTime();
-  const existing = readPendingRecovery(userDataDir);
-  if (existing && isSameBoot(existing.bootTime, bootTime)) return existing;
-
-  const sessions = listSessions(userDataDir);
-  const pendingIds = [];
-  for (const s of sessions) {
-    if (s.closedAt) continue;
-    if (!s.cli || !s.prompt) continue;
-    const rec = readActiveFile(userDataDir, s.id);
-    if (isSessionActive(rec, { bootTime, guiSession: opts.guiSession })) continue;
-    pendingIds.push(s.id);
-  }
-  const snapshot = { bootTime, pendingIds };
-  writePendingRecovery(userDataDir, snapshot);
-  return snapshot;
-}
-
-function removeFromPendingRecovery(userDataDir, id) {
-  const snap = readPendingRecovery(userDataDir);
-  if (!snap || !Array.isArray(snap.pendingIds)) return;
-  const next = snap.pendingIds.filter(x => x !== id);
-  if (next.length === snap.pendingIds.length) return;
-  writePendingRecovery(userDataDir, { ...snap, pendingIds: next });
-}
-
 // ---- compaction ----
 
 // Drop the sessions whose last event is older than RECENT_WINDOW_MS (or
@@ -493,19 +437,6 @@ function hasLiveRecords(userDataDir, opts = {}) {
 }
 
 // ---- public picker queries ----
-
-// Sessions visible in the auto-recovery picker: pending set, intersected with
-// the actual log (so a stale id in pending-recovery.json is dropped). Newest first.
-function autoRecoveryList(userDataDir, opts = {}) {
-  const snap = initPendingRecoveryIfNeeded(userDataDir, opts);
-  if (!snap.pendingIds || snap.pendingIds.length === 0) return [];
-  const want = new Set(snap.pendingIds);
-  const out = listSessions(userDataDir)
-    .filter(s => want.has(s.id))
-    .filter(s => s.cli && s.prompt && !s.closedAt);
-  out.sort((a, b) => b.lastEventAt - a.lastEventAt);
-  return out;
-}
 
 // Read all `title` events for a session id from the log, filtered for the
 // live-preview timeline:
@@ -687,13 +618,7 @@ module.exports = {
   isSessionActive,
   isSessionReapable,
   gcActiveFiles,
-  // pending
-  readPendingRecovery,
-  writePendingRecovery,
-  initPendingRecoveryIfNeeded,
-  removeFromPendingRecovery,
   // queries
-  autoRecoveryList,
   menuList,
   getRecentPromptsForSession,
   getRecentTitlesForSession,

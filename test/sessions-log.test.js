@@ -68,7 +68,6 @@ test('listSessions folds events by id', (dir) => {
   assert.strictEqual(s1.title, 'Old title');         // identity: first after the prompt
   assert.strictEqual(s1.lastTitle, 'New title');     // drift: last-wins
   assert.strictEqual(s1.prompt, 'Fix the auth bug');
-  assert.strictEqual(s1.closedAt, null);
 });
 
 test('listSessions folds cwd last-wins, defaults null', (dir) => {
@@ -79,14 +78,6 @@ test('listSessions folds cwd last-wins, defaults null', (dir) => {
   const sessions = log.listSessions(dir);
   assert.strictEqual(sessions.find(s => s.id === 1).cwd, '/home/u/repo');
   assert.strictEqual(sessions.find(s => s.id === 2).cwd, null);
-});
-
-test('closed event marks session closed', (dir) => {
-  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
-  log.appendEvent(dir, { e: 'closed',  id: 1 });
-  const s = log.listSessions(dir).find(x => x.id === 1);
-  assert.ok(s.closedAt > 0);
-  assert.strictEqual(s.closedBy, null);
 });
 
 test('closedBy follows the last end: the cap, then a loss or a plain close clears it', (dir) => {
@@ -349,98 +340,7 @@ test('gcActiveFiles keeps a live pid whose boot stamp drifted', (dir) => {
   assert.deepStrictEqual(log.listActiveIds(dir), [1]);
 });
 
-// ---- pending recovery ----
-
-test('initPendingRecoveryIfNeeded picks up orphans on first init', (dir) => {
-  // Two sessions: one with full chain (started+cli+prompt, no closed),
-  // one closed cleanly. Only the first should be pending.
-  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
-  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
-  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Investigate the timeout' });
-  log.appendEvent(dir, { e: 'started', id: 2, hue: 24 });
-  log.appendEvent(dir, { e: 'cli',     id: 2, cli: 'codex' });
-  log.appendEvent(dir, { e: 'prompt',  id: 2, prompt: 'Refactor middleware' });
-  log.appendEvent(dir, { e: 'closed',  id: 2 });
-
-  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
-  assert.strictEqual(snap.bootTime, FROZEN_BOOT);
-  assert.deepStrictEqual(snap.pendingIds, [1]);
-});
-
-test('initPendingRecoveryIfNeeded: active sessions are excluded', (dir) => {
-  log.appendEvent(dir, { e: 'started', id: 1 });
-  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
-  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Long enough prompt now' });
-  log.writeActiveFile(dir, 1, { pid: process.pid, bootTime: FROZEN_BOOT });
-
-  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
-  assert.deepStrictEqual(snap.pendingIds, []);
-});
-
-test('initPendingRecoveryIfNeeded: shell-only sessions (no cli) excluded', (dir) => {
-  log.appendEvent(dir, { e: 'started', id: 1 });
-  // No cli, no prompt — shell-only
-  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
-  assert.deepStrictEqual(snap.pendingIds, []);
-});
-
-test('initPendingRecoveryIfNeeded: same boot returns existing snapshot unchanged', (dir) => {
-  log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT, pendingIds: [99] });
-  // No log entries at all; existing snapshot should be returned intact.
-  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
-  assert.deepStrictEqual(snap.pendingIds, [99]);
-});
-
-test('initPendingRecoveryIfNeeded: a drifted stamp keeps the snapshot', (dir) => {
-  // Same boot, Windows-drifted stamp: recomputing here would resurrect
-  // already-resumed sessions as pending.
-  log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT - 60_000, pendingIds: [99] });
-  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
-  assert.deepStrictEqual(snap.pendingIds, [99]);
-});
-
-test('initPendingRecoveryIfNeeded: different boot recomputes', (dir) => {
-  log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT - 60 * 60_000, pendingIds: [99] });
-  log.appendEvent(dir, { e: 'started', id: 7 });
-  log.appendEvent(dir, { e: 'cli',     id: 7, cli: 'claude' });
-  log.appendEvent(dir, { e: 'prompt',  id: 7, prompt: 'New session prompt' });
-  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT });
-  assert.strictEqual(snap.bootTime, FROZEN_BOOT);
-  assert.deepStrictEqual(snap.pendingIds, [7]);
-});
-
-test('removeFromPendingRecovery decrements the set', (dir) => {
-  log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT, pendingIds: [1, 2, 3] });
-  log.removeFromPendingRecovery(dir, 2);
-  const snap = log.readPendingRecovery(dir);
-  assert.deepStrictEqual(snap.pendingIds, [1, 3]);
-});
-
-test('removeFromPendingRecovery on missing id is a no-op', (dir) => {
-  log.writePendingRecovery(dir, { bootTime: FROZEN_BOOT, pendingIds: [1, 2, 3] });
-  log.removeFromPendingRecovery(dir, 99);
-  assert.deepStrictEqual(log.readPendingRecovery(dir).pendingIds, [1, 2, 3]);
-});
-
 // ---- public picker queries ----
-
-test('autoRecoveryList returns full session objects, newest first', (dir) => {
-  // Two pending, one closed. Manually order timestamps so id 2 is newer.
-  log.appendEvent(dir, { e: 'started', id: 1 });
-  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
-  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Fix the auth bug now' });
-  // sleep one ms to ensure ordering
-  const wait = Date.now() + 2; while (Date.now() < wait) {}
-  log.appendEvent(dir, { e: 'started', id: 2 });
-  log.appendEvent(dir, { e: 'cli',     id: 2, cli: 'codex' });
-  log.appendEvent(dir, { e: 'prompt',  id: 2, prompt: 'Investigate the timeout' });
-
-  const list = log.autoRecoveryList(dir, { bootTime: FROZEN_BOOT });
-  assert.strictEqual(list.length, 2);
-  assert.strictEqual(list[0].id, 2);   // newer first
-  assert.strictEqual(list[1].id, 1);
-  assert.strictEqual(list[0].cli, 'codex');
-});
 
 test('menuList includes closed and active with isActive flag', (dir) => {
   log.appendEvent(dir, { e: 'started', id: 1 });
@@ -772,21 +672,6 @@ test('releaseActiveFile deletes only the caller\'s own record', (dir) => {
   assert.strictEqual(log.releaseActiveFile(dir, 8, process.pid), false);
   assert.ok(log.readActiveFile(dir, 8));
   assert.strictEqual(log.releaseActiveFile(dir, 9, process.pid), false);
-});
-
-// ---- lost sessions ----
-
-test('a lost event leaves the session open: recovery and the picker keep offering it', (dir) => {
-  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
-  log.appendEvent(dir, { e: 'cli', id: 1, cli: 'claude' });
-  log.appendEvent(dir, { e: 'prompt', id: 1, prompt: 'fix the build' });
-  log.appendEvent(dir, { e: 'lost', id: 1 });
-  const s = log.listSessions(dir).find(x => x.id === 1);
-  assert.strictEqual(s.closedAt, null);
-  assert.ok(typeof s.lostAt === 'number');
-  const snap = log.initPendingRecoveryIfNeeded(dir, { bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI });
-  assert.deepStrictEqual(snap.pendingIds, [1]);
-  assert.deepStrictEqual(log.autoRecoveryList(dir, { bootTime: FROZEN_BOOT, guiSession: FROZEN_GUI }).map(x => x.id), [1]);
 });
 
 // ---- compaction while other windows are live ----

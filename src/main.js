@@ -2149,8 +2149,8 @@ function checkLiveCap() {
 // Both exit. The registry is settled first, then the log line, then the quit:
 // nothing on this path may depend on the window, which is the one component
 // known to be broken. app.exit is the backstop should the Cocoa quit path
-// stall without a compositor. A ghost records `lost`, which the picker and
-// recovery treat as an open session; `closed` would read as the user's choice.
+// stall without a compositor. A ghost records `lost`: the user did not close
+// it, so `closed` would misstate how it ended.
 // A superseded window records nothing: the session continues in its successor.
 let headlessExitStarted = false;
 

@@ -196,6 +196,15 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
       : null;
     if (preloadUrl) view.setAttribute('preload', preloadUrl);
     // Persistent partition → clear an SSO wall once; cookies survive teardown.
+    // Every window is its own Electron process on the one shared userData
+    // profile, and the cookie store (SQLite) is read and written live by all of
+    // them, so a login in one window holds in the others. Chromium's LevelDB
+    // stores lock to the first process that opens them instead, so every later
+    // window logs `service_worker_storage.cc ... Failed to delete the database:
+    // Database IO error` at startup, once for the default session and once for
+    // this partition. That is harmless: AgentTerm uses none of those stores,
+    // and a site in the viewer only loses its service worker. A per-window
+    // storage path would silence it and cost the shared login.
     view.setAttribute('partition', 'persist:webviewer');
     // Keep allowpopups: it's what routes a target=_blank / window.open through
     // main's window-open handler, which denies the window and sends the URL to the
