@@ -28,7 +28,7 @@
     <rect x="112" y="12" width="496" height="104" rx="8" fill="#f6f3f8" stroke="#aaa0b5" stroke-width="1.2"/>
     <text class="name" x="360" y="41">Agent guides</text>
     <text class="detail" x="360" y="66">Editable Markdown · companion repos</text>
-    <text class="detail" x="360" y="92" style="font-size: 15px">agent-threads: curated reviews and document feedback</text>
+    <text class="detail" x="360" y="92" style="font-size: 15px">Curated reviews, document feedback, and more</text>
   </g>
   <g transform="translate(0 136)">
 
