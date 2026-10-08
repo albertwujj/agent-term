@@ -1188,6 +1188,7 @@ def split_prose_run(lines):
 
 
 _HEADING_RE = re.compile(r'<h([1-6])((?:\s[^>]*)?)>(.*?)</h\1>', re.S)
+_DECISION_RE = re.compile(r'^\[(unconfirmed|confirmed)\]\s+(?=Decision:\s*\S)')
 
 
 def _decorate_headings(html_out, nav_links, sec_n):
@@ -1199,9 +1200,23 @@ def _decorate_headings(html_out, nav_links, sec_n):
             return m.group(0)
         sec_n[0] += 1
         sid = f"sec-{sec_n[0]}"
-        label = re.sub(r"<[^>]+>", "", inner).strip()
         cls = "toc-link" if level == "2" else "toc-link toc-sub"
-        nav_links.append(f'<a class="{cls}" href="#{sid}">{label}</a>')
+        decision = _DECISION_RE.match(inner)
+        state_attrs = ""
+        if decision:
+            # Only the bracketed state becomes a status mark. Keep the authored
+            # heading words and inline markup, so quoted headings stay anchored
+            # when the user settles (or reopens) the decision.
+            inner = inner[decision.end():]
+            state = decision[1]
+            decision_cls = f"rv-decision rv-decision-{state}"
+            cls += f" {decision_cls}"
+            label = html.unescape(re.sub(r"<[^>]+>", "", inner)).strip()
+            accessible = html.escape(f"{label} — {state}", quote=True)
+            state_attrs = f' aria-label="{accessible}"'
+            attrs += f' class="{decision_cls}"{state_attrs}'
+        label = re.sub(r"<[^>]+>", "", inner).strip()
+        nav_links.append(f'<a class="{cls}" href="#{sid}"{state_attrs}>{label}</a>')
         return f'<h{level}{attrs} id="{sid}">{inner}</h{level}>'
     return _HEADING_RE.sub(repl, html_out)
 
@@ -1451,6 +1466,18 @@ background:var(--canvas);border:1px solid var(--border);border-radius:6px;paddin
 .sec-head .md-render h2{font-size:17px}
 .sec-head .md-render h3,.sec-head .md-render h4,.sec-head .md-render h5,.sec-head .md-render h6{font-size:15px}
 .sec-head+.card{margin-top:8px}
+/* A decision keeps its wording and geometry when its authored marker changes.
+   CSS supplies the status glyph so it never becomes part of a quoted anchor. */
+.rv-decision{--decision-bg:#fff4ce;--decision-fg:#694d00;--decision-border:#bf8700}
+.rv-decision-confirmed{--decision-bg:#dafbe1;--decision-fg:#116329;--decision-border:#2da44e}
+.rv-decision::before{content:"○";display:inline-block;width:1.15em;margin-right:.35em;
+text-align:center;font-weight:700}
+.rv-decision-confirmed::before{content:"✓"}
+.toc-link.rv-decision{border-left:3px solid var(--decision-border);padding-left:5px;
+font-weight:600;white-space:normal;background:var(--decision-bg);color:var(--decision-fg)}
+.toc-link.toc-sub.rv-decision{padding-left:17px}
+.prose-region .md-render .rv-decision{border:0;border-left:4px solid var(--decision-border);
+border-radius:5px;padding:9px 12px;background:var(--decision-bg);color:var(--decision-fg)}
 /* Context block (:::code): the agent's text where the old side would be, the unchanged
    code in the new side's column. 50% | 48px + rest reproduces the split table's columns
    exactly (code width = W/2 - 48 on both), so code is one width page-wide. overflow:clip

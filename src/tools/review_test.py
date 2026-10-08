@@ -87,6 +87,53 @@ class SplitDiffLayout(unittest.TestCase):
         self.assertIn('data-side="new" data-line="1"', rendered)
 
 
+class DecisionHeadings(unittest.TestCase):
+    def render(self, text):
+        nav = []
+        body = review._decorate_headings(review.md_render(text), nav, [0])
+        return body, "\n".join(nav)
+
+    def test_state_changes_keep_visible_text_ids_and_inline_formatting(self):
+        results = []
+        for state in ("unconfirmed", "confirmed"):
+            body, nav = self.render(
+                f'## [{state}] Decision: **link lifetime** & `<expiry>`\n\n'
+                '### [unconfirmed] Decision: nested decision\n\n## Ordinary heading')
+            self.assertIn(f'class="rv-decision rv-decision-{state}"', body)
+            self.assertIn('Decision: <strong>link lifetime</strong>', body)
+            self.assertIn('<code>&lt;expiry&gt;</code>', body)
+            self.assertIn(f'aria-label="Decision: link lifetime &amp; &lt;expiry&gt; — {state}"', body)
+            self.assertIn('class="toc-link toc-sub rv-decision rv-decision-unconfirmed"', nav)
+            self.assertIn('href="#sec-3">Ordinary heading</a>', nav)
+            self.assertIn('id="sec-1"', body)
+            results.append((review._visible_text(body), review._visible_text(nav)))
+        self.assertEqual(results[0], results[1])
+
+    def test_only_literal_heading_markers_are_decisions(self):
+        for text in ('## [confirmed] Decision:', '## [unknown] Decision: expiry',
+                     '## `[unconfirmed] Decision:` example', '## Decision: ordinary',
+                     '[unconfirmed] Decision: a paragraph',
+                     '## Ordinary [confirmed] Decision: words'):
+            body, nav = self.render(text)
+            self.assertNotIn('rv-decision', body + nav, text)
+
+    def test_heading_quote_survives_settlement_and_reopening(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / 'review-comments.json'
+            store.write_text(json.dumps({'threads': [{
+                'id': 'decision-comment',
+                'anchor': {'path': '(note 1)', 'snippet': 'Decision: link lifetime'},
+                'messages': [{'author': 'user', 'body': 'Use 90 days.'}],
+            }]}))
+            original = store.read_bytes()
+            for state in ('confirmed', 'unconfirmed'):
+                body, _ = self.render(f'## [{state}] Decision: link lifetime')
+                review.reanchor_comments(store, {}, review._visible_text(body))
+                verdict = json.loads((Path(tmp) / 'review-reanchor.json').read_text())
+                self.assertEqual(verdict['threads'][0]['anchor_status'], 'ok')
+                self.assertEqual(store.read_bytes(), original)
+
+
 class DirectiveErrors(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
