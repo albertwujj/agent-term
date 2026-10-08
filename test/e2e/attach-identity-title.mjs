@@ -71,11 +71,11 @@ const PROMPT = 'please add retry logic to the uploader';
 // user's, and the default types the bare command the way the user would in
 // the shell. Only the picker and strip paths go through the launch-command
 // rewrite, so the codex scenarios below can tell "we supplied the setting"
-// from "we didn't".
-async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch = false, stripLaunch = false, seed = [] } = {}) {
+// from "we didn't". `args` adds Electron switches to the launch.
+async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch = false, stripLaunch = false, seed = [], args = [] } = {}) {
   const UD = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-attach-e2e-')));
   for (const event of seed) sessionsLog.appendEvent(UD, event);
-  const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR], timeout: 45_000 });
+  const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', ...args, `--user-data-dir=${UD}`, APP_DIR], timeout: 45_000 });
   const page = await app.firstWindow();
   await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });
   await sleep(1500);
@@ -291,10 +291,23 @@ console.log('9 — only selected prompt references reach preview and deep search
   const target = 'https://review.example/c/team/repo/+/10427036/2';
   const fixture = path.join(APP_DIR, 'test/fixtures/prompt-completion-cli.py');
   const fake = `python3 '${fixture.replace(/'/g, "'\\''")}';`;
-  const { events, session } = await runScenario('rendered-completion', fake,
-    ['@pr-rev', target, '@guide', 'more detail'], { cli: 'agent' });
-  const prompts = events.filter(e => e.e === 'prompt');
+  // Capture samples the rendered composer at the selecting and submitting
+  // Enter, and a person presses either one only after seeing the line it
+  // acts on. Typing and pressing Enter in the same few milliseconds outruns
+  // the echo: the sample shows `→ @`, so the query is rightly dropped. Wait
+  // for the row instead. Reading rows needs xterm's DOM renderer, which
+  // macOS always uses; denying the GPU makes Windows fall back to it.
+  const typeUntilShown = (typed, shown) => async page => {
+    await page.keyboard.type(typed);
+    await page.waitForFunction(text => [...document.querySelectorAll('.xterm-rows > div')]
+      .some(row => (row.textContent || '').replace(/\u00a0/g, ' ').trim() === '→ ' + text), shown, { timeout: 5_000 });
+  };
   const expected = ['@ai/gerrit/pr-review.md ' + target, '@docs/guide.md more detail'];
+  const { events, session } = await runScenario('rendered-completion', fake, [
+    typeUntilShown('@pr-rev', '@pr-rev'), typeUntilShown(target, expected[0]),
+    typeUntilShown('@guide', '@guide'), typeUntilShown('more detail', expected[1]),
+  ], { cli: 'agent', args: ['--disable-gpu'] });
+  const prompts = events.filter(e => e.e === 'prompt');
   check('only the two actual submissions are captured, with selected paths',
     JSON.stringify(prompts.map(p => p.prompt)) === JSON.stringify(expected), JSON.stringify(prompts));
   check('the saved identity includes the first selected path', session && session.prompt === expected[0], JSON.stringify(session));

@@ -6,7 +6,8 @@
 //      one and a recently used one are left alone
 //   2. a stale window asked to hide leaves the screen (and, on macOS, the Dock)
 //   3. a picker's 'show' brings it back in front with its timer restarted
-//   4. a turn its agent finishes while hidden brings it back without focus
+//   4. a turn its agent finishes while hidden brings it back without taking
+//      focus from the app in front
 //   5. past MAX_LIVE live sessions, a hidden window whose timer is among the
 //      oldest closes itself and is recorded as closed
 //   6. a fresh window whose picker brings a live session forward closes once
@@ -71,6 +72,20 @@ sessionsLog.writeActiveFile(UD, 5, heldHere({ token: 'tok5', touchedClock: 100, 
 sessionsLog.writeActiveFile(UD, 7, heldHere({ token: 'tok7', touchedClock: 100, touchedAt: Date.now(), lastWorkingAt: Date.now() + 3600e3, hiddenAt: null }));
 sessionsLog.writeActiveFile(UD, 8, heldHere({ token: 'tok8', touchedClock: 500, touchedAt: Date.now(), lastWorkingAt: 0, hiddenAt: null }));
 
+// The app a person works in while this window hides and comes back. On macOS
+// focus follows the active app: blur() leaves AgentTerm active, and once its
+// window hides, macOS alone picks what comes to the front, so whether a
+// return took focus would depend on the desktop. Elsewhere blur() hands focus
+// to the window manager, as a click on another window does.
+const foreground = process.platform === 'darwin' ? await launchElectron({
+  executablePath: ELECTRON_BIN,
+  args: ['--no-sandbox', `--user-data-dir=${fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-foreground-e2e-'))}`,
+    path.join(APP_DIR, 'test/fixtures/foreground-app.js')],
+  timeout: 45_000,
+}) : null;
+if (foreground) await foreground.firstWindow();
+const foregroundFocused = () => foreground.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused());
+
 const app = await launchElectron({
   executablePath: ELECTRON_BIN,
   args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR],
@@ -95,7 +110,17 @@ const windowState = () => app.evaluate(({ app, BrowserWindow }) => {
   const w = BrowserWindow.getAllWindows()[0];
   return { visible: w.isVisible(), focused: w.isFocused(), dock: app.dock ? app.dock.isVisible() : null };
 });
-const blur = () => app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].blur(); });
+async function focusElsewhere() {
+  if (!foreground) return app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].blur(); });
+  await foreground.evaluate(({ app, BrowserWindow }) => {
+    app.focus({ steal: true });
+    BrowserWindow.getAllWindows()[0].focus();
+  });
+  for (const t0 = Date.now(); Date.now() - t0 < 5000; await sleep(100)) {
+    if (await foregroundFocused() && !(await windowState()).focused) return;
+  }
+  throw new Error('the foreground app never took focus');
+}
 
 try {
   const page = await app.firstWindow();
@@ -119,7 +144,7 @@ try {
   // 2. Stale, idle, unfocused: it hides when asked.
   const hideNow = async () => {
     advanceClock();
-    await blur();
+    await focusElsewhere();
     const from = mainLog.length;
     control(6, 'hide');
     return waitForLog(/hiding session 6|staying: [a-z ]+/, 5000, from);
@@ -169,6 +194,7 @@ try {
   rec6 = sessionsLog.readActiveFile(UD, 6);
   check('it is on screen again', state.visible === true, JSON.stringify(state));
   check('it came back without taking focus', state.focused === false, JSON.stringify(state));
+  if (foreground) check('the app in front kept focus', await foregroundFocused());
   check('registry marks it visible again', rec6 && !rec6.hiddenAt, JSON.stringify(rec6));
   check('a window on the current code comes back without the older-code notice',
     !(await page.evaluate(() => document.body.innerText.includes('code changed since this window started'))));
@@ -217,6 +243,7 @@ try {
   check('by the cap', sessionsLog.readLog(UD).some(e => e.id === 6 && e.e === 'closed' && e.by === 'cap'));
 } finally {
   try { await app.close(); } catch {}
+  if (foreground) try { await foreground.close(); } catch {}
 }
 
 // 6. A picker window hands over to the session it found, then closes. The
