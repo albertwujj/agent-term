@@ -21,7 +21,7 @@ Right-click a taskbar button or Dock tile and choose Start or resume session, or
 
 ## Switch to the right running session
 
-[![A button or tile per session: pick the one you meant. Enlarged Mac Dock tiles and Windows taskbar buttons; background session content is blurred.](assets/hero-session-switching.gif?v=b72a52be9265)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-session-switching.gif?v=b72a52be9265)
+[![A button or tile per session: pick the one you meant. Enlarged Mac Dock tiles and Windows taskbar buttons; background session content is blurred.](assets/hero-session-switching.gif?v=a9758d65f110)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-session-switching.gif?v=a9758d65f110)
 
 On Windows each is its own taskbar button, labeled from the session's initial prompt in a color locked to the session, with a working indicator and a live preview of what it is doing. On a Mac each is its own Dock tile, in the session's color with the first letters of its initial prompt, and a bar beneath it while the agent works; right-click a tile for the session's name. Run each session full screen and a Mission Control swipe shows every session at once, its initial prompt pinned at the top.
 
