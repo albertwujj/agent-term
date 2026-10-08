@@ -102,6 +102,8 @@ Below are just examples. Follow the links to explore more features.
 
 ## How it works
 
+[![Multiple AgentTerm instances on macOS and Windows/WSL use editable agent guides, with optional external IDE integration and one shared hub for phone or browser access.](docs/assets/architecture.svg)](docs/assets/architecture.svg)
+
 AgentTerm runs your existing AI CLI in a full terminal, using Electron for the window, xterm.js for terminal emulation, and node-pty for the shell connection. The host parses terminal output for file references and recognized conventions, and keeps track of mentioned documents even when the CLI redraws the screen.
 
 Those references connect the conversation to host capabilities. A Markdown path identifies a document the host can render. A `review://` reference can trigger validation, rendering, and automatic opening of a review. Document viewing and review build on this mechanism. Guide files tell agents how to follow these conventions. For example, [agent-threads](https://github.com/albertwujj/agent-threads) provides the guides and file protocol for document and review feedback.
