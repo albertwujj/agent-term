@@ -2260,8 +2260,13 @@ function createMarkdownViewer({
     state.pendingRefreshBeforeSend = false;
     const applied = applyMarkdownReadResult(result, { preserveScroll: true });
     if (applied) markMarkdownRefreshViewUpdated();
-    // The doc changed on disk: the agent's new content (viewer-band.js).
-    if (applied && !beforeSend) band.contentArrived();
+    // The doc changed on disk: the agent's new content. Land on its first
+    // change, the one this refresh flashes highest in the document.
+    if (applied && !beforeSend) {
+      const first = state.changeFlashRecords.slice()
+        .sort((a, b) => (a.sourceStartLine || 0) - (b.sourceStartLine || 0))[0];
+      agentContentArrived(first ? () => resolveChangeRecordAnchor(state.article, first) : null);
+    }
     return applied;
   }
 
@@ -2334,7 +2339,7 @@ function createMarkdownViewer({
       }
       if (updateImageVersions(statResult.imageMtimes)) {
         refreshEmbeddedImages();
-        band.contentArrived(); // a regenerated image is the agent's new content too
+        agentContentArrived(null); // a regenerated image is the agent's new content too
       }
       flushEmbeddedImageRefreshIfReady();
       const currentStatSignature = state.pendingRefreshStatSignature || state.fileStatSignature;
@@ -2406,15 +2411,21 @@ function createMarkdownViewer({
       state.threadStoreSig = sig;
       state.threadStore = result.data;
       syncChangeAgeToStoreTurn(result.data);
-      // The agent's new words are new content (viewer-band.js); the first read
-      // after an open only sets the baseline.
+      // The agent's new words are new content; the first read after an open
+      // only sets the baseline. Land on the highest thread they went to.
       const marks = agentMarks(result.data);
-      const fromAgent = state.agentMarks !== null && marks > state.agentMarks;
+      const answered = state.agentMarks === null ? []
+        : (result.data.threads || []).filter((t) => (marks.get(t.id) || 0) > (state.agentMarks.get(t.id) || 0));
       state.agentMarks = marks;
       // A store update can answer a sealed edit, releasing a refresh that was
       // held waiting on it — apply it now so the resolve lands in one step.
       if (!applyPendingMarkdownRefreshIfReady()) scheduleThreadLayerRender();
-      if (fromAgent) band.contentArrived();
+      if (answered.length) {
+        agentContentArrived(() => answered
+          .map((t) => resolveThreadTarget(state.article, t))
+          .filter(Boolean)
+          .sort((a, b) => getElementTopInPrimaryArticle(a) - getElementTopInPrimaryArticle(b))[0]);
+      }
     } catch {} finally {
       state.threadPollInFlight = false;
     }
@@ -2599,9 +2610,14 @@ function createMarkdownViewer({
     if (!match || !state.primaryPane) return;
     const mark = getPrimarySearchMark(match);
     const anchor = getArticleAnchorById(state.article, match.anchorId);
-    const target = mark || anchor;
-    if (!target) return;
+    bringIntoSpread(mark || anchor);
+  }
 
+  // Show `target`, an element of the primary article, on one of the spread's
+  // two pages: left alone when either page already holds it, otherwise the
+  // spread jumps so it sits a third of the way down the left page.
+  function bringIntoSpread(target) {
+    if (!target || !state.primaryPane) return;
     const targetTop = getElementTopInPrimaryArticle(target);
     const paneTop = state.primaryPane.scrollTop;
     const paneHeight = state.primaryPane.clientHeight || 0;
@@ -5845,17 +5861,31 @@ function createMarkdownViewer({
     if (state.pendingRefreshResult) state.pendingRefreshBeforeSend = true;
   }
 
-  // The agent's marks on the store: its messages and the threads it resolved
-  // (it owns `resolved`). A count, since main and the user only ever add
-  // the user's words and anchors.
+  // The agent's marks on the store, per thread: its messages and whether it
+  // resolved the thread (it owns `resolved`). Counts, since main and the user
+  // only ever add the user's words and anchors.
   function agentMarks(store) {
     const threads = store && Array.isArray(store.threads) ? store.threads : [];
-    let marks = 0;
+    const marks = new Map();
     for (const t of threads) {
-      if (isThreadResolved(t)) marks += 1;
-      for (const m of (Array.isArray(t.messages) ? t.messages : [])) if (m && m.author === 'agent') marks += 1;
+      let n = isThreadResolved(t) ? 1 : 0;
+      for (const m of (Array.isArray(t.messages) ? t.messages : [])) if (m && m.author === 'agent') n += 1;
+      marks.set(t.id, n);
     }
     return marks;
+  }
+
+  // The agent's new content brings the band up (viewer-band.js). Out of a
+  // roll-up the user was in the terminal, so the spread also turns to the
+  // content: `target` resolves the element to show once the reveal has laid
+  // the spread out at full height. A band already up, split or full, is being
+  // read, and stays on its page; the change flashes wherever it is.
+  function agentContentArrived(target) {
+    if (band.contentArrived() !== 'revealed' || typeof target !== 'function') return;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!band.isOpen() || state.activeTarget || state.activeCard) return;
+      bringIntoSpread(target());
+    }));
   }
 
   // A block's resolved threads, newest first: the one you just finished is the

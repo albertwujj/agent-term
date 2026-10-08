@@ -955,7 +955,7 @@ if (window.pty && typeof window.pty.onReviewRerendered === 'function') {
     try {
       if (!webViewer || !webViewer.isOpen || !webViewer.isOpen()) return;
       webViewer.reload();
-      webViewer.contentArrived();
+      webViewer.contentArrived({ reloaded: true });
     } catch {}
   });
 }

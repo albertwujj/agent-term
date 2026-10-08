@@ -542,12 +542,16 @@ function createViewerBand({
     if (isFull()) applySize('golden');
   }
   // The agent put new content in the viewer: show it full. Never over the
-  // user's typing, nor out of a roll-up by hand.
+  // user's typing, nor out of a roll-up by hand. Says what it did, so the
+  // viewer can bring the content into view where the user was not reading:
+  // 'revealed' (out of the roll-up), 'grown' (from the split), or null.
   function contentArrived() {
-    if (state === 'closed' || isFull()) return;
-    if (state === 'hidden' && heldUp) return;
-    if (guestWriting || userIsTyping()) return;
+    if (state === 'closed' || isFull()) return null;
+    if (state === 'hidden' && heldUp) return null;
+    if (guestWriting || userIsTyping()) return null;
+    const from = state;
     applySize('full');
+    return from === 'hidden' ? 'revealed' : 'grown';
   }
   function setWriting(on) { guestWriting = !!on; }
 

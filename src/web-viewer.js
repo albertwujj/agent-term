@@ -387,8 +387,26 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     pingReviewRefresh();
   }
   // The agent changed the review (a re-render, a reply): full, by the band's
-  // rule for the agent's content.
-  function contentArrived() { band.contentArrived(); }
+  // rule for the agent's content. Out of a roll-up the user was in the
+  // terminal, so the page also scrolls to the first thing that pulses, once
+  // the page has drawn it: after the reload a re-render brings, or at once
+  // for a reply, which re-renders in place. A band already up is being read
+  // and stays where it is.
+  const LAND_TRIES = 24;
+  const LAND_EVERY_MS = 250;
+  const LAND_ON_PULSE = "(() => { const el = document.querySelector('.rv-pulse'); "
+    + "if (!el) return false; el.scrollIntoView({ block: 'center' }); return true; })()";
+  function contentArrived({ reloaded = false } = {}) {
+    if (band.contentArrived() !== 'revealed' || !view) return;
+    const target = view;
+    const land = (tries) => {
+      if (view !== target || !band.isOpen() || tries <= 0) return;
+      Promise.resolve(target.executeJavaScript(LAND_ON_PULSE)).catch(() => false)
+        .then((done) => { if (!done) setTimeout(() => land(tries - 1), LAND_EVERY_MS); });
+    };
+    if (reloaded) target.addEventListener('did-finish-load', () => land(LAND_TRIES), { once: true });
+    else land(LAND_TRIES);
+  }
 
   // Returning to the window nudges the overlay to re-read the comment store.
   window.addEventListener('focus', () => { if (band.isOpen()) pingReviewRefresh(); });
