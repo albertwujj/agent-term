@@ -68,7 +68,9 @@ Some terminals combine support for AI CLIs with an agent and platform of their o
 
 ### Each agent has its own OS window and identity
 
-Why not tmux, or one manager app over every agent session? The OS already provides familiar, mature tools for arranging windows and switching between tasks: the taskbar, Dock, Mission Control, and alt-tab. Giving each session its own window and process lets AgentTerm build on those strengths and add what agent sessions need. Each session has a unique visual identity that helps you find it in the taskbar or Dock and recognize it when previewing or switching windows. To keep the taskbar or Dock easy to scan, AgentTerm hides sessions you haven't used recently; the [session picker](docs/sessions.md) brings them back.
+Tools like tmux and manager apps hold every agent session in one window. AgentTerm gives each session its own window instead, since the OS already provides familiar, mature tools for arranging windows and switching between tasks: the taskbar, Dock, Mission Control, and alt-tab. Separate windows and processes let AgentTerm build on those strengths and add what agent sessions need. Each session has a unique visual identity that helps you find it in the taskbar or Dock and recognize it when previewing or switching windows. To keep the taskbar or Dock easy to scan, AgentTerm hides sessions you haven't used recently; the [session picker](docs/sessions.md) brings them back.
+
+A manager app that oversees agents across machines can still be used: AgentTerm already sends each session's state to the [phone view](docs/phone.md), and a connector could share it with a manager too.
 
 ### A stable interface between agent and terminal
 
