@@ -66,7 +66,9 @@ Some terminals combine support for AI CLIs with an agent and platform of their o
 
 <a name="each-agent-session-has-its-own-os-window-and-identity"></a>
 
-### Each agent has its own OS window and identity
+<a name="each-agent-has-its-own-os-window-and-identity"></a>
+
+### Each agent gets its own OS window and identity
 
 Tools like tmux and manager apps hold every agent session in one window. AgentTerm gives each session its own window instead, since the OS already provides familiar, mature tools for arranging windows and switching between tasks: the taskbar, Dock, Mission Control, and alt-tab. Separate windows and processes let AgentTerm build on those strengths and add what agent sessions need. Each session has a unique visual identity that helps you find it in the taskbar or Dock and recognize it when previewing or switching windows. To keep the taskbar or Dock easy to scan, AgentTerm hides sessions you haven't used recently; the [session picker](docs/sessions.md) brings them back.
 
