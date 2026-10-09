@@ -3,7 +3,6 @@ const {
   navigationNeedsDelay,
   hasNavigationModifier,
   matchForPress,
-  markedLength,
   opensImmediately,
 } = require('../src/terminal-nav-destination');
 
@@ -193,43 +192,6 @@ check('both doc and code-context rows arm; only code waits before navigating', (
   assert.strictEqual(matchForPress(codeRow, { ctrlKey: true }), codeRow);
   assert.strictEqual(navigationNeedsDelay(mdRow), false);
   assert.strictEqual(navigationNeedsDelay(codeRow), true);
-});
-
-const marked = (patternName, text) => text.slice(0, markedLength(m(patternName, text)));
-
-// An IDE jump lands on the line, so the reference is the file AND the line and
-// the whole span stays marked and clickable, as it always was.
-check('an IDE source reference stays one whole span', () => {
-  assert.strictEqual(marked('file_line', 'src/sessions-log.js:213'), 'src/sessions-log.js:213');
-  assert.strictEqual(marked('file_line_col', 'src/renderer.js:42:15'), 'src/renderer.js:42:15');
-  assert.strictEqual(marked('paren_line', 'src/main.js(42)'), 'src/main.js(42)');
-  assert.strictEqual(marked('paren_line', 'a.py(100-200, 300-400)'), 'a.py(100-200, 300-400)');
-  assert.strictEqual(marked('github_line', 'src/main.js#L42-L50'), 'src/main.js#L42-L50');
-});
-
-// The md viewer opens the document; the line adds nothing to name, so the mark
-// stops at the document and the qualifier is ordinary selectable text.
-check('a doc reference is marked without its line', () => {
-  assert.strictEqual(marked('file_line', 'README.md:42'), 'README.md');
-  assert.strictEqual(marked('file_line', 'notes.md:~10-~20'), 'notes.md');
-  assert.strictEqual(marked('file_line_col', 'page.htm:3:1'), 'page.htm');
-  assert.strictEqual(marked('paren_line', 'notes.html(12)'), 'notes.html');
-  assert.strictEqual(marked('github_line', 'docs/a.md#L4'), 'docs/a.md');
-});
-
-check('a reference that is its own whole name is left alone', () => {
-  // No path to trim down to: the reference IS the thing being named.
-  assert.strictEqual(marked('line_ref', 'line 1384'), 'line 1384');
-  assert.strictEqual(marked('comment_line_ref', '# :344'), '# :344');
-  assert.strictEqual(marked('python_traceback', 'File "app/run.py", line 42'), 'File "app/run.py", line 42');
-});
-
-check('a match with no line reference keeps its whole mark', () => {
-  assert.strictEqual(marked('url', 'https://example.com/x:8080'), 'https://example.com/x:8080');
-  assert.strictEqual(marked('plain_file', 'src/renderer.js'), 'src/renderer.js');
-  assert.strictEqual(marked('plain_file', 'README.md'), 'README.md');
-  assert.strictEqual(marked('camel_pascal_symbol', 'isSessionActive'), 'isSessionActive');
-  assert.strictEqual(markedLength(null), 0);
 });
 
 console.log(`\n${passed} passed, 0 failed`);

@@ -15,7 +15,7 @@ const { NOTICE_DWELL_MS, shouldNoticeAltScreen, altScreenNotice } = require('./a
 
 // Which AI CLI this window is running, as main last reported it.
 let currentCli = null;
-const { navigationNeedsDelay, opensImmediately, matchForPress, markedLength, CONTEXT_PATH_PATTERNS } = require('./terminal-nav-destination');
+const { navigationNeedsDelay, opensImmediately, matchForPress, CONTEXT_PATH_PATTERNS } = require('./terminal-nav-destination');
 const {
   DEFAULT_SELECTION_CONTEXT_LINES,
   buildTerminalCommentBatchMessage,
@@ -6148,9 +6148,7 @@ function getClickableMatchAtMouseEvent(event) {
   for (const match of matches) {
     if (overlapsSpan(match, claimed)) continue;
     match.bufferRow = logicalStart;
-    // The hit region is the marked span, so what is underlined is what responds.
-    // On README.md:42 that is README.md; the :42 is ordinary text you can select.
-    if (charOffset >= match.start && charOffset < match.start + markedLength(match)) {
+    if (charOffset >= match.start && charOffset < match.end) {
       return stampContextPath(match);
     }
   }
@@ -6181,9 +6179,7 @@ function createDecoration(bufferLineIndex, match) {
   }
 
   let adjustedCol = col;
-  // The mark stops at the path; a trailing :42 is an argument to the jump, not
-  // part of the name. Hit testing is unaffected, so the qualifier still clicks.
-  let adjustedWidth = Math.min(markedLength(match), terminal.cols - col);
+  let adjustedWidth = Math.min(match.text.length, terminal.cols - col);
 
   if (match.trimToContent) {
     const trimLine = buffer.getLine(currentRow);

@@ -256,12 +256,23 @@ async function main() {
     check('and so is its line, the same one reference', await cursorOver(ide, '213', true) === 'pointer');
     check('the IDE path is also a target without the modifier', await cursorOver(ide, 'src/sessions-log.js', false) === 'pointer');
 
-    // The md viewer opens the document, so the line is not part of what is named.
-    const doc = `open ${path.join(FIXTURES, 'e2e-md-links.md')}:42 now`;
+    // The md viewer lands on the block holding the line, so a doc's file:line is
+    // one reference too.
+    const doc = `open ${path.join(FIXTURES, 'e2e-md-links.md')}:4 now`;
     await runCmd(`printf '%s\\n' '${doc}'`);
     await sleep(1200);
     check('a doc is a target on a plain click', await cursorOver(doc, 'e2e-md-links.md', false) === 'pointer');
-    check('and its line is ordinary text', await cursorOver(doc, '42', false) === '');
+    check('and so is its line', await cursorOver(doc, ':4', false) === 'pointer');
+
+    const mdLine = await wordTarget(doc, ':4');
+    const beforeLine = await timingReads();
+    await page.mouse.click(mdLine.x, mdLine.y);
+    await page.waitForSelector('.vb-shell.vb-md.open .md-landing-target', { timeout: 10_000 });
+    check('a click on the line opens the md viewer without a delay', await timingReads() === beforeLine);
+    const landed = await page.evaluate(() => document.querySelector('.vb-shell.vb-md .md-landing-target')?.textContent || '');
+    check('and lands on the block holding that line', landed.includes('in one paragraph'), landed);
+    await page.locator('.vb-shell.vb-md .vb-close').click();
+    await sleep(500);
 
     const mdTarget = await wordTarget(doc, 'e2e-md-links.md');
     const mdDragEnd = await wordTarget(doc, 'open');
