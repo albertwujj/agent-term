@@ -47,14 +47,16 @@ The terminal is a natural home for coding agents: text in, text out, with the sh
 
 An IDE or desktop app offers richer views and interactions than a text interface alone. Expanding the terminal lets AgentTerm add those capabilities while keeping your existing AI CLIs in the familiar text interface.
 
-As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several agents at once. The expanded terminal supports that work visually, like an IDE: plans and reviews render in the window, where you direct the agents right on the page.
+As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several agents at once. The expanded terminal supports that work visually, like an IDE.
 
-Richer views appear when needed, and the window returns to the terminal view when you finish. Persistent panels can compete with the agent conversation for your attention. Here the window is dedicated to one agent, shaped by your work, and full screen if you like, resulting in fewer distractions ([one OS window per agent](#one-os-window-per-session)).
+AgentTerm controls both the terminal and the visual pages in it, so it can coordinate presentation, focus, and feedback. A document or review takes the center when needed and gets out of the way as your focus shifts. Your edits and comments go back to the same agent, with its replies and changes shown in place.
 
 <p align="center">
-<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window.gif"><img src="docs/assets/viewer-window.gif" alt="An AgentTerm window in three states: a two-page document sharing the window with the agent conversation below, the document filling the window, and the document rolled up while a new prompt is typed"></a>
-<br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts.
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window-changes-fe7db82478.gif"><img src="docs/assets/viewer-window-changes-fe7db82478.gif" alt="An AgentTerm window in three states: document feedback beside the conversation, the revised document filling the window with green change highlights and an inline agent reply, and the document rolled up while typing"></a>
+<br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts. In the fully open frame, the agent’s changes are highlighted in green.
 </p>
+
+Persistent panels can compete with the agent conversation for your attention. Here the window is dedicated to one agent, shaped by your work, and full screen if you like, resulting in fewer distractions ([one OS window per agent](#one-os-window-per-session)).
 
 A vendor's desktop app moves the conversation out of the terminal and into an interface built around its own agent and workflow. With AgentTerm, you keep your choice of AI CLIs in the terminal's familiar text interface.
 
