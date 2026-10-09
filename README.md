@@ -43,7 +43,7 @@ Once a window opens, [resume your previous session](docs/sessions.md#resume-an-e
 
 If you are a terminal fan and want to get straight to it, skip ahead to [what AgentTerm adds](#whats-added-so-far).
 
-The terminal is a natural home for coding agents: text in, text out, with the shell, git, and other tools one command away. Claude Code and Codex started there; Cursor and Copilot added CLIs alongside their IDE interfaces.
+The terminal is a natural home for coding agents: text in, text out, with the shell and repo close by. Claude Code and Codex started there; Cursor and Copilot added CLIs alongside their IDE interfaces.
 
 An IDE or desktop app offers richer views and interactions than a text interface alone. Expanding the terminal lets AgentTerm add those capabilities while keeping your existing AI CLIs in the familiar text interface.
 
