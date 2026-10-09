@@ -77,6 +77,9 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     closeTitle: 'Close (free memory)',
     getTerminalGrid,
     focusTerminal,
+    // Main reads an open review every 2s, and a re-render runs inside a read.
+    settleMs: 2500,
+    onAgentContent: landOnAgentContent,
     // Rolling up hides the page, so its find bar — absolutely positioned over the
     // band — must not stay floating over the collapsed strip.
     onHide: () => closeFind(),
@@ -395,25 +398,30 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     if (band.isHidden()) band.flash();
     pingReviewRefresh();
   }
-  // The agent changed the review (a re-render, a reply): full, by the band's
-  // rule for the agent's content. Out of a roll-up the user was in the
-  // terminal, so the page also scrolls to the first thing that pulses, once
-  // the page has drawn it: after the reload a re-render brings, or at once
-  // for a reply, which re-renders in place. A band already up is being read
-  // and stays where it is.
+  // The agent changed the review (a re-render, a reply): the band comes up
+  // full once the agent is through, which is when no thread the user sent
+  // still waits on it (viewer-band.js agentWrote). Main reads `waiting` off
+  // the review's thread store with each change.
+  function agentWrote({ waiting = false } = {}) { band.agentWrote({ waiting }); }
+  // Out of a roll-up the user was in the terminal, so the page also scrolls
+  // to the first thing that pulses, once the page has drawn it: after a
+  // reload still in flight, or at once, since a reply re-renders in place. A
+  // band already up is being read and stays where it is.
   const LAND_TRIES = 24;
   const LAND_EVERY_MS = 250;
   const LAND_ON_PULSE = "(() => { const el = document.querySelector('.rv-pulse'); "
     + "if (!el) return false; el.scrollIntoView({ block: 'center' }); return true; })()";
-  function contentArrived({ reloaded = false } = {}) {
-    if (band.contentArrived() !== 'revealed' || !view) return;
+  function landOnAgentContent(moved) {
+    if (moved !== 'revealed' || !view) return;
     const target = view;
     const land = (tries) => {
       if (view !== target || !band.isOpen() || tries <= 0) return;
       Promise.resolve(target.executeJavaScript(LAND_ON_PULSE)).catch(() => false)
         .then((done) => { if (!done) setTimeout(() => land(tries - 1), LAND_EVERY_MS); });
     };
-    if (reloaded) target.addEventListener('did-finish-load', () => land(LAND_TRIES), { once: true });
+    let loading = false;
+    try { loading = target.isLoading(); } catch {}
+    if (loading) target.addEventListener('did-finish-load', () => land(LAND_TRIES), { once: true });
     else land(LAND_TRIES);
   }
 
@@ -424,7 +432,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     open,
     reload,
     pingRefresh,
-    contentArrived,
+    agentWrote,
     close: () => band.close(),
     hide: () => band.hide(),
     withdraw: () => band.withdraw(),

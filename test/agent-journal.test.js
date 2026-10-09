@@ -3,6 +3,7 @@ const {
   journalPathForStore,
   parseJournal,
   mergeStoreWithJournal,
+  threadAwaitsAgent,
   threadHasAgentEvents,
 } = require('../src/agent-journal');
 
@@ -85,7 +86,7 @@ check('journal replies interleave with store follow-ups by ts', () => {
   assert.strictEqual(last.author, 'user');
 });
 
-check('a user follow-up newer than the journal resolved reopens; an older one stays answered', () => {
+check('a user follow-up newer than the journal status takes it back; an older one stays answered', () => {
   const store = {
     threads: [
       { id: 'late-follow-up', messages: [
@@ -101,8 +102,23 @@ check('a user follow-up newer than the journal resolved reopens; an older one st
     { thread: 'answered', body: 'done', ts: 50 },
     { thread: 'answered', status: 'resolved', ts: 51 },
   ]);
-  assert.strictEqual(merged.threads[0].status, 'open');      // follow-up IS the reopen
+  assert.strictEqual(merged.threads[0].status, undefined);   // follow-up IS the reopen
   assert.strictEqual(merged.threads[1].status, 'resolved');  // resolution postdates the words
+});
+
+check('the agent\'s reply to a follow-up leaves it reopened until its status', () => {
+  const store = { threads: [{ id: 't1', messages: [
+    { author: 'user', body: 'q', ts: 10 },
+    { author: 'user', body: 'and another thing', ts: 40 },
+  ] }] };
+  const blocked = [{ thread: 't1', body: 'which thing?', status: 'open', ts: 20 }];
+  assert.strictEqual(mergeStoreWithJournal(store, blocked).threads[0].status, undefined,
+    'a follow-up takes back a blocked status too');
+  const explained = blocked.concat([{ thread: 't1', body: 'Adding it now.', ts: 50 }]);
+  assert.strictEqual(mergeStoreWithJournal(store, explained).threads[0].status, undefined,
+    'the reply explains the edit to come');
+  const done = explained.concat([{ thread: 't1', status: 'resolved', ts: 60 }]);
+  assert.strictEqual(mergeStoreWithJournal(store, done).threads[0].status, 'resolved');
 });
 
 check('a status event without ts loses to any timestamped user words', () => {
@@ -110,7 +126,7 @@ check('a status event without ts loses to any timestamped user words', () => {
     threads: [{ id: 't1', messages: [{ author: 'user', body: 'q', ts: 10 }] }],
   };
   const merged = mergeStoreWithJournal(store, [{ thread: 't1', status: 'resolved' }]);
-  assert.strictEqual(merged.threads[0].status, 'open');
+  assert.strictEqual(merged.threads[0].status, undefined);
 });
 
 check('threadHasAgentEvents is what seals a thread against Discard', () => {
@@ -135,13 +151,34 @@ check('store threads carry no status field; the merge derives everything', () =>
     ] }] },
     [{ thread: 't1', status: 'resolved', ts: 20 }],
   );
-  assert.strictEqual(reopened.threads[0].status, 'open');
+  assert.strictEqual(reopened.threads[0].status, undefined);
 });
 
 check('an empty or missing journal merges to the store as-is', () => {
   const store = { turn: 2, threads: [{ id: 't1', messages: [] }] };
   assert.deepStrictEqual(mergeStoreWithJournal(store, []), store);
   assert.deepStrictEqual(mergeStoreWithJournal(store, parseJournal('')), store);
+});
+
+check('a thread waits on the agent until it sets a status on the user\'s sent word', () => {
+  const sent = { author: 'user', body: 'q', ts: 10, turn: 1 };
+  const store = { turn: 1, threads: [{ id: 't1', messages: [sent] }] };
+  assert.strictEqual(threadAwaitsAgent(mergeStoreWithJournal(store, []).threads[0]), true);
+  // A reply alone explains the edit to come: still the agent's.
+  const replied = mergeStoreWithJournal(store, [{ thread: 't1', body: 'Tightening it.', ts: 20 }]);
+  assert.strictEqual(threadAwaitsAgent(replied.threads[0]), true);
+  const blocked = mergeStoreWithJournal(store, [{ thread: 't1', body: 'which one?', status: 'open', ts: 20 }]);
+  assert.strictEqual(threadAwaitsAgent(blocked.threads[0]), false);
+  const resolved = mergeStoreWithJournal(store, [{ thread: 't1', status: 'resolved', ts: 20 }]);
+  assert.strictEqual(threadAwaitsAgent(resolved.threads[0]), false);
+  // A follow-up after the resolve reopens it, waiting again.
+  const followed = mergeStoreWithJournal(
+    { turn: 2, threads: [{ id: 't1', messages: [sent, { author: 'user', body: 'more', ts: 30, turn: 2 }] }] },
+    [{ thread: 't1', status: 'resolved', ts: 20 }],
+  );
+  assert.strictEqual(threadAwaitsAgent(followed.threads[0]), true);
+  // An unsent review draft has asked the agent nothing.
+  assert.strictEqual(threadAwaitsAgent({ id: 't2', messages: [{ author: 'user', body: 'draft', ts: 40 }] }), false);
 });
 
 console.log(`agent-journal: ${passed} checks passed`);

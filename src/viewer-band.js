@@ -19,10 +19,11 @@
 // Automatic moves. Full and rolled up are where the band rests; golden only
 // ever waits for the agent. The band moves on its own in three cases:
 //   - The agent puts new content in (the host's auto-open of a handoff, or
-//     the open viewer's doc, threads or review changing): full. A band the
-//     user rolled up by hand stays rolled up until they act on the terminal
-//     again, since one turn often writes several times and each write would
-//     pull the band back over what they went to read (contentArrived).
+//     the open viewer's doc, threads or review changing): full, once the
+//     agent is through with it (agentWrote). A band the user rolled up by
+//     hand stays rolled up until they act on the terminal again, since one
+//     turn often writes several times and each write would pull the band
+//     back over what they went to read (contentArrived).
 //   - A Send: a full band drops to golden so the terminal shows the agent
 //     picking it up, the acknowledgment (recede).
 //   - The user acts on the terminal, a key or a click: the band rolls up
@@ -34,6 +35,8 @@
 
 const VIEWER_BAND_STYLE_ID = 'viewer-band-style';
 const SHARE_FRACTION = { major: 0.62, minor: 0.38 };
+// The md viewer reads its doc and its threads once a second each.
+const AGENT_SETTLE_MS = 1500;
 
 // Text entry: where a keystroke lands as text. A focused one inside a band is
 // typing on the band's own terms, so the band needs no host probe for it.
@@ -323,6 +326,11 @@ function createViewerBand({
                       // its shell, a bar button, a composer, a webview guest)
   reachAbove: reachesAbove = false, // the content's bottom edge is an empty
                       // margin the bar may reach into (see .vb-reach-above)
+  settleMs = AGENT_SETTLE_MS, // how long the agent's writes rest before the
+                      // band moves for them: longer than the viewer's polls
+  onAgentContent,     // (moved) once a wait on the agent's writes ends:
+                      // contentArrived's answer, or null when the user's
+                      // own move or a Send ended it first (agentWrote)
 } = {}) {
   let shell = null;
   let bar = null;
@@ -467,6 +475,7 @@ function createViewerBand({
   // Every reveal lands full, except a page opened over the split, which keeps it.
   function open() {
     mount();
+    dropAgentWait();
     if (!(state === 'open' && sizeMode === 'golden')) sizeMode = 'full';
     heldUp = false;
     applyOpenSize();
@@ -481,6 +490,7 @@ function createViewerBand({
   // terminal), so the agent's content leaves it rolled up.
   function hide() {
     if (state !== 'open') return;
+    dropAgentWait();
     heldUp = true;
     rollUp();
   }
@@ -518,6 +528,7 @@ function createViewerBand({
     if (typeof onShow === 'function') onShow();
   }
   function toggle() {
+    dropAgentWait();
     if (state === 'open') hide();
     else if (state === 'hidden') show();
   }
@@ -531,6 +542,7 @@ function createViewerBand({
   // at full.
   function toggleFullSize() {
     if (state === 'closed' || !shell) return;
+    dropAgentWait();
     applySize(state === 'open' && sizeMode === 'full' ? 'golden' : 'full');
   }
   function isFull() { return state === 'open' && sizeMode === 'full'; }
@@ -539,6 +551,7 @@ function createViewerBand({
   // to the pickup, so drop to golden: the terminal slides in underneath with
   // the pasted prompt, the receipt. Golden then waits for the agent's content.
   function recede() {
+    dropAgentWait();
     if (isFull()) applySize('golden');
   }
   // The agent put new content in the viewer: show it full. Never over the
@@ -554,6 +567,39 @@ function createViewerBand({
     return from === 'hidden' ? 'revealed' : 'grown';
   }
   function setWriting(on) { guestWriting = !!on; }
+
+  // The agent writes a turn in steps: thread by thread, its edit and then
+  // its answer (contract.md), so its first write is seldom the whole of it.
+  // The band moves for the agent's content once the agent is through: no
+  // thread the user sent still waits on its answer (`waiting`, the viewer's
+  // read of its thread store), and the writes have rested for settleMs, so
+  // the viewer's polls have read every file the last write touched. Until
+  // then each write shows where the band is, in the split or as the handle's
+  // flash. The user moving the band, or a Send, ends the wait: what came in
+  // before it is theirs now. A key in the terminal leaves it running (a
+  // permission prompt's answer is part of the agent's turn); the typing
+  // itself holds the move.
+  let agentWaitPending = false;
+  let agentSettleTimer = null;
+  function agentWrote({ waiting = false } = {}) {
+    if (state === 'closed') return;
+    agentWaitPending = true;
+    clearTimeout(agentSettleTimer);
+    agentSettleTimer = waiting ? null : setTimeout(agentSettled, settleMs);
+  }
+  function agentSettled() {
+    agentSettleTimer = null;
+    agentWaitPending = false;
+    const moved = contentArrived();
+    if (typeof onAgentContent === 'function') onAgentContent(moved);
+  }
+  function dropAgentWait() {
+    clearTimeout(agentSettleTimer);
+    agentSettleTimer = null;
+    if (!agentWaitPending) return;
+    agentWaitPending = false;
+    if (typeof onAgentContent === 'function') onAgentContent(null);
+  }
 
   // Bar gestures: a click on the bar moves the band at once, and a Cmd-click
   // (Ctrl-click off macOS) moves it to the other size left: the rolled-up
@@ -579,6 +625,7 @@ function createViewerBand({
   let hintEl = null;
   let hintTimer = null;
   function onBarClick(e) {
+    dropAgentWait();
     lastStepAt = Date.now();
     setHot(false);
     const mod = !!(e && (e.metaKey || e.ctrlKey));
@@ -673,6 +720,7 @@ function createViewerBand({
   }
   // Full dismiss; the viewer's onClose frees content (GC the webview, etc.).
   function close() {
+    dropAgentWait();
     if (state === 'closed' || !shell) return;
     sizeMode = 'full'; // the next open is a fresh reveal, at full
     heldUp = false;
@@ -726,7 +774,7 @@ function createViewerBand({
   const api = {
     mount, open, hide, withdraw, show, toggle, toggleFullSize, close, isOpen, isHidden, isFull,
     setTitle, makeBtn, flash,
-    recede, contentArrived, setWriting,
+    recede, contentArrived, agentWrote, setWriting,
     get shell() { return shell; },
     get bar() { return bar; },
     get barLeft() { return barLeft; },

@@ -1,8 +1,10 @@
 // The agent's change brings a rolled-up review up full, scrolled to what it
 // changed; a review the user already had up (split) comes up full where it
 // was. The review is long and both changes land near its end: a reply on a
-// thread there (the agent's journal), and new diff lines (a re-render).
-// Drives the real app and the real review render.
+// thread there (the agent's journal), and new diff lines (a re-render). While
+// a sent thread waits on the agent, its explanation and its commit hold the
+// band; its status brings it up. Drives the real app and the real review
+// render.
 //
 // Run: npm run test:e2e
 import { execFileSync } from 'node:child_process';
@@ -46,7 +48,8 @@ fs.writeFileSync(path.join(dir, 'main-comments.json'), JSON.stringify({
   }],
 }, null, 2));
 const journal = path.join(dir, 'main-agent.jsonl');
-const reply = (body) => fs.appendFileSync(journal, JSON.stringify({ thread: 't1', body, ts: Date.now(), turn: 1 }) + '\n');
+const reply = (body, status) => fs.appendFileSync(journal,
+  JSON.stringify({ thread: 't1', body, ...(status ? { status } : {}), ts: Date.now(), turn: 1 }) + '\n');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let failures = 0;
@@ -116,7 +119,7 @@ try {
   // A reply out of a roll-up: up full, scrolled to the reply.
   console.log('A reply, out of a roll-up');
   check('typing rolls the review up', await rollUpByTyping(), await band());
-  reply('Yes, this is where it goes.');
+  reply('Should it sit above instead?', 'open');
   check('the reply brings it up full', await waitFor(async () => (await band()) === 'full', 8000), await band());
   check('scrolled to the pulsing reply', await waitFor(() => inView('.rv-pulse'), 8000));
   check('which left the top', (await inReview('scrollY')) > 200, await inReview('scrollY'));
@@ -127,7 +130,7 @@ try {
   await toTop();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('viewer-shortcut', 'size'));
   check('the size chord splits', await waitFor(async () => (await band()) === 'golden', 2000), await band());
-  reply('And one more note.');
+  reply('And one more note.', 'open');
   check('the reply takes it full', await waitFor(async () => (await band()) === 'full', 8000), await band());
   await sleep(1500);
   check('the review stays at the top', (await inReview('scrollY')) < 1, await inReview('scrollY'));
@@ -146,6 +149,32 @@ try {
     const pulsing = await inReview('(document.querySelector("td.code.add.rv-pulse") || {}).textContent || ""');
     return /const c = 3/.test(pulsing) && await inView('td.code.add.rv-pulse');
   }, 10_000));
+
+  // The user follows up on the thread (a send stamps its turn). The agent
+  // explains, commits, then sets the status: the band holds through the
+  // explanation and the re-render, and the status brings it up on what pulses.
+  console.log('Explanation, commit, then status, out of a roll-up');
+  const storePath = path.join(dir, 'main-comments.json');
+  const s = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+  s.turn = 2;
+  s.threads[0].messages.push({ author: 'user', body: 'And the next one?', ts: Date.now(), turn: 2 });
+  fs.writeFileSync(storePath, JSON.stringify(s, null, 2));
+  await sleep(2500); // main's poll has read the follow-up
+  await toTop();
+  check('typing rolls the review up once more', await rollUpByTyping(), await band());
+  reply('Adding d after c.');
+  await sleep(6000); // main's poll, and more than the rest after it
+  check('the explanation alone holds the band', await band() === 'hidden', await band());
+  fs.appendFileSync(path.join(repo, 'f.js'), 'export const d = 4;\n');
+  git('commit', '-qam', 'Add d');
+  fs.writeFileSync(pkg, pkgText(git('rev-parse', 'HEAD')));
+  check('the review re-renders', await waitFor(() => inReview('/const d = 4/.test(document.body.textContent)'), 15_000));
+  await sleep(4000); // past the rest after the re-render
+  check('the re-render holds the band while the thread waits', await band() === 'hidden', await band());
+  reply('Added d. Should c go as well?', 'open');
+  check('the status brings it up full', await waitFor(async () => (await band()) === 'full', 8000), await band());
+  check('scrolled to what pulses', await waitFor(() => inView('.rv-pulse'), 8000));
+  check('which left the top', (await inReview('scrollY')) > 200, await inReview('scrollY'));
 } finally {
   await app.close().catch(() => {});
   fs.rmSync(tmp, { recursive: true, force: true });

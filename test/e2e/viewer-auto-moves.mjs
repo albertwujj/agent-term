@@ -92,26 +92,24 @@ fs.writeFileSync(fake, `
         done();
       }, 300));
     } else if (/comments\\.json/.test(line) && !working) {
-      // Answer every thread waiting on the agent, then keep working a while.
+      // Resolve every thread waiting on the agent in its journal, then keep
+      // working a while.
       work((done) => setTimeout(() => {
         const s = JSON.parse(fs.readFileSync(store, 'utf8'));
-        for (const t of s.threads) {
-          const last = t.messages[t.messages.length - 1];
-          if ((t.status || 'open') === 'open' && last.author === 'user') {
-            t.messages.push({ author: 'agent', body: 'Tightened.', ts: Date.now(), turn: s.turn });
-          }
-        }
-        fs.writeFileSync(store, JSON.stringify(s, null, 2));
+        const lines = s.threads.filter((t) => t.messages[t.messages.length - 1].author === 'user')
+          .map((t) => JSON.stringify({ thread: t.id, body: 'Tightened.', status: 'resolved', ts: Date.now(), turn: s.turn }) + '\\n');
+        fs.appendFileSync(store.replace(/-comments\\.json$/, '-agent.jsonl'), lines.join(''));
         setTimeout(done, 3000);
       }, 500));
     } else if (/work (a while|twice)/.test(line)) {
-      // Write to the open doc, once or twice, then finish.
+      // Write to the open doc, once or twice, then finish. Twice, the writes
+      // sit further apart than the band's rest, so each moves it on its own.
       const twice = /twice/.test(line);
       const write = (n) => fs.appendFileSync(path.join(conversation, 'first.md'), '\\nThe agent wrote this, write ' + n + '.\\n');
       work((done) => {
         setTimeout(() => write(++writes), 1500);
-        if (twice) setTimeout(() => write(++writes), 4500);
-        setTimeout(done, twice ? 5000 : 2500);
+        if (twice) setTimeout(() => write(++writes), 7000);
+        setTimeout(done, twice ? 7500 : 2500);
       });
     } else if (/review later/.test(line)) {
       setTimeout(() => process.stdout.write('\\r\\nReview: review://' + laterReview + '\\r\\n'), 2500);
@@ -197,7 +195,7 @@ try {
   check('a Send recedes the band to golden', await waitBand('md', 'golden', 3000) === 'golden', await band('md'));
   const answeredAt = Date.now() + 8000;
   const answered = () => {
-    try { return JSON.parse(fs.readFileSync(store, 'utf8')).threads.every((t) => t.messages.at(-1).author === 'agent'); }
+    try { return /"status":"resolved"/.test(fs.readFileSync(store.replace(/-comments\.json$/, '-agent.jsonl'), 'utf8')); }
     catch { return false; }
   };
   while (!answered() && Date.now() < answeredAt) await sleep(100);
@@ -230,7 +228,7 @@ try {
   await sleep(450); // a step swallows clicks off the bar for a beat
   await page.locator('.vb-shell.vb-md .vb-bar').click({ position: { x: 300, y: 10 } });
   check('the bar rolls it up by hand', await waitBand('md', 'hidden', 2000) === 'hidden', await band('md'));
-  const secondAt = Date.now() + 6000;
+  const secondAt = Date.now() + 8000;
   const writesInDoc = () => (docText().match(/The agent wrote this/g) || []).length;
   while (writesInDoc() < 4 && Date.now() < secondAt) await sleep(100); // this turn's second, the fourth in all
   await sleep(2500); // the doc poll has seen the second write

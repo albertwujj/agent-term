@@ -297,6 +297,61 @@ fullBand.close();
   assert.ok(!rt.isOpen() && !rt.isHidden(), 'content never opens a closed band');
 }
 
+// The agent's writes move the band once the agent is through: no thread the
+// user sent still waits on it, and the writes have rested. The user's own
+// move, or a Send, ends the wait.
+{
+  const ended = [];
+  const SETTLE = 30;
+  const rt = createViewerBand({ name: 'wait', escToHide: false, settleMs: SETTLE, onAgentContent: (moved) => ended.push(moved) });
+  const rest = (ms = SETTLE + 20) => new Promise((resolve) => setTimeout(resolve, ms));
+  rt.open();
+  rt.recede(); // a Send: the split waits for the agent
+  rt.agentWrote({ waiting: true }); // the doc edit, its answer still to come
+  await rest();
+  assert.ok(!rt.isFull(), 'a write while a sent thread waits on the agent leaves the split');
+  rt.agentWrote({ waiting: false }); // the answer
+  assert.ok(!rt.isFull(), 'the last answer waits for the writes to rest');
+  await rest(SETTLE / 2);
+  rt.agentWrote({ waiting: false }); // a write right behind it
+  await rest(SETTLE / 2 + 5);
+  assert.ok(!rt.isFull(), 'each write starts the rest over');
+  await rest();
+  assert.ok(rt.isFull(), 'then the band comes up full');
+  assert.deepStrictEqual(ended, ['grown'], 'and says how it moved');
+
+  rt.withdraw(); // typed in the terminal
+  rt.agentWrote({ waiting: false });
+  await rest();
+  assert.ok(rt.isFull(), 'out of a roll-up too');
+  assert.deepStrictEqual(ended.slice(1), ['revealed']);
+
+  rt.recede();
+  rt.agentWrote({ waiting: true });
+  rt.withdraw(); // a key in the terminal, mid-turn
+  assert.ok(rt.isHidden());
+  rt.agentWrote({ waiting: false });
+  await rest();
+  assert.ok(rt.isFull(), 'a key in the terminal leaves the wait running');
+  assert.deepStrictEqual(ended.slice(2), ['revealed']);
+
+  rt.recede();
+  rt.agentWrote({ waiting: false });
+  rt.recede(); // a second Send before the rest ran out
+  await rest();
+  assert.ok(!rt.isFull(), 'a Send ends the wait');
+  rt.agentWrote({ waiting: false });
+  rt.hide(); // by hand, mid-wait
+  await rest();
+  assert.ok(rt.isHidden(), "the user's move ends it");
+  assert.deepStrictEqual(ended.slice(3), [null, null], 'each ending says nothing moved');
+
+  rt.close();
+  rt.agentWrote({ waiting: false });
+  await rest();
+  assert.strictEqual(ended.length, 5, 'a closed band waits on nothing');
+}
+
 console.log('viewer-band test passed');
 })().catch((err) => { console.error(err); process.exit(1); });
 

@@ -161,15 +161,18 @@ async function run() {
   check('the Send receded the band to golden', isGolden());
 
   // The agent answers both: the thread it was blocked on resolved, a reply on
-  // the new comment. Its answer is new content, so full comes back.
+  // the new comment. Its answer is new content and leaves no thread waiting
+  // on it, so full comes back once its writes rest.
   store = {
     version: 1,
     turn: store.turn,
     threads: store.threads.map((t) => (t.id === 't-needs'
       ? { ...t, status: 'resolved', messages: [...t.messages, { author: 'agent', body: 'Done.', ts: 4, turn: store.turn }] }
-      : { ...t, messages: [...t.messages, { author: 'agent', body: 'Which word?', ts: 4, turn: store.turn }] })),
+      : { ...t, status: 'open', messages: [...t.messages, { author: 'agent', body: 'Which word?', ts: 4, turn: store.turn }] })),
   };
   await sleep(1300); // the store poll
+  check('the split waits out the rest', isGolden());
+  await sleep(1600); // viewer-band.js AGENT_SETTLE_MS
   check("the agent's answer returns to full", isFull());
 
   // A reply with nothing waiting is a plain Send, and still the receipt.

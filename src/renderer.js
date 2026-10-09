@@ -950,25 +950,27 @@ if (typeof window.pty.onOlderCodeNotice === 'function') {
 // exactly the md viewer's model. Only an explicit ping (the agent printing the
 // review:// link again) moves the band: maybeRevealReprintedReview.
 if (window.pty && typeof window.pty.onReviewRerendered === 'function') {
-  // A re-render is the agent's new content: the band comes up full for it.
-  window.pty.onReviewRerendered(() => {
+  // A re-render is the agent's new content: the band comes up full once the
+  // agent is through (web-viewer.js agentWrote).
+  window.pty.onReviewRerendered(({ waiting } = {}) => {
     try {
       if (!webViewer || !webViewer.isOpen || !webViewer.isOpen()) return;
       webViewer.reload();
-      webViewer.contentArrived({ reloaded: true });
+      webViewer.agentWrote({ waiting });
     } catch {}
   });
 }
 // Comments-only change (an agent reply, no source edit) → refresh the overlay IN PLACE so the
 // reply surfaces and pulses, without a full reload (which would wipe the pulse baseline).
 // While rolled up, pingRefresh flashes the handle. The agent's own words (its
-// journal moved) are new content, which brings the band up full.
+// journal moved) are new content, which brings the band up full once the
+// agent is through.
 if (window.pty && typeof window.pty.onReviewCommentsChanged === 'function') {
-  window.pty.onReviewCommentsChanged(({ agent } = {}) => {
+  window.pty.onReviewCommentsChanged(({ agent, waiting } = {}) => {
     try {
       if (!webViewer || !webViewer.isOpen || !webViewer.isOpen()) return;
       webViewer.pingRefresh();
-      if (agent) webViewer.contentArrived();
+      if (agent) webViewer.agentWrote({ waiting });
     } catch {}
   });
 }

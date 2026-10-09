@@ -917,13 +917,18 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     // in a diff the card beside the code is the context you just sent; an
     // EARLIER wave is old context and folds to a one-line row (click to read
     // back), the way md's waiting rows rest. Recency does the tidying.
-    const userLast = (t.status || 'open') === 'open' && !!last && (last.author || 'user') === 'user';
+    // Awaiting the agent: no status on the user's sent words (the merged
+    // status, agent-journal.js). The agent's reply alone keeps it waiting: it
+    // explains the commit to come, and the status comes last (contract.md).
+    // `open` is blocked on the user, their move.
+    const userLast = !t.status && !!last && (last.author || 'user') === 'user';
     const needsSend = threadNeedsSend(t);
-    const waiting = userLast && !needsSend;
-    // Covered by a send older than the latest one: old context, folds to a line.
+    const waiting = !t.status && !needsSend;
+    // Covered by a send older than the latest one: old context, folds to a
+    // line, unless the agent has explained itself there since.
     const sentTurn = maxUserTurn(t);
     const earlierWave = sentTurn > 0 && sentTurn < storeTurn();
-    if (waiting && earlierWave && !expandedSet.has(t.id)) {
+    if (waiting && userLast && earlierWave && !expandedSet.has(t.id)) {
       div.classList.add('rv-collapsed', 'rv-waiting');
       div.innerHTML = '<button class="rv-waiting-head" title="Sent — awaiting agent. Click to open">'
         + '<span class="rv-waiting-tag">sent</span>' + esc(threadGist(t, '(sent)')) + '</button>';

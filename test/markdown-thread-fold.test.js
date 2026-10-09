@@ -66,7 +66,6 @@ const store = {
       id: 't-waiting',
       anchor: { snippet: 'Second paragraph carries the thread awaiting the agent.' },
       anchor_status: 'ok',
-      status: 'open',
       messages: [{ author: 'user', body: 'Take a look at the second one.', ts: 3, turn: 2 }],
     },
     // Three resolved on one block, stored out of time order (a re-anchor can
@@ -201,6 +200,7 @@ async function run() {
   clickBlock('Third paragraph');
   await sleep(20);
   store.threads[1].messages.push({ author: 'agent', body: 'Which half?', ts: 4, turn: 3 });
+  store.threads[1].status = 'open'; // blocked on the user
   await sleep(1400); // one poll tick
   check('the agent reply is held while the block is armed', !find('.md-thread-card.needs-user'));
   document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));

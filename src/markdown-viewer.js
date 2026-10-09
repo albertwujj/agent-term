@@ -14,6 +14,7 @@ const { findSentenceRange } = require('./sentence-selection');
 const { createViewerBand } = require('./viewer-band');
 const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isMac, isPasteCommentShortcut } = require('./comment-ui');
 const { AGENT_THREADS_CLONE_PROMPT } = require('./loop-install');
+const { threadAwaitsAgent } = require('./agent-journal');
 const {
   isPlainCommentKey,
   isCommentEntryKey,
@@ -1193,6 +1194,7 @@ function createMarkdownViewer({
     threadStore: null,
     threadStoreSig: '',
     agentMarks: null, // agentMarks() of the last store read; null until the first after an open
+    agentLandTargets: [], // what the agent's writes since the band last moved went to (agentWrote)
     threadPollInFlight: false,
     threadRenderPending: false,
     threadReply: null,
@@ -1281,6 +1283,7 @@ function createMarkdownViewer({
     closeTitle: 'Close markdown viewer',
     escToHide: false,
     focusTerminal,
+    onAgentContent: landOnAgentContent,
     getTerminalGrid: () => {
       const m = typeof getTerminalMetrics === 'function' ? getTerminalMetrics() : null;
       if (!m || !Number.isFinite(m.top) || !Number.isFinite(m.height) || !Number.isFinite(m.rows) || m.rows <= 0) return null;
@@ -2260,12 +2263,12 @@ function createMarkdownViewer({
     state.pendingRefreshBeforeSend = false;
     const applied = applyMarkdownReadResult(result, { preserveScroll: true });
     if (applied) markMarkdownRefreshViewUpdated();
-    // The doc changed on disk: the agent's new content. Land on its first
-    // change, the one this refresh flashes highest in the document.
+    // The doc changed on disk: the agent's new content. Its first change is
+    // the one this refresh flashes highest in the document.
     if (applied && !beforeSend) {
       const first = state.changeFlashRecords.slice()
         .sort((a, b) => (a.sourceStartLine || 0) - (b.sourceStartLine || 0))[0];
-      agentContentArrived(first ? () => resolveChangeRecordAnchor(state.article, first) : null);
+      agentWrote(first ? () => resolveChangeRecordAnchor(state.article, first) : null);
     }
     return applied;
   }
@@ -2339,7 +2342,7 @@ function createMarkdownViewer({
       }
       if (updateImageVersions(statResult.imageMtimes)) {
         refreshEmbeddedImages();
-        agentContentArrived(null); // a regenerated image is the agent's new content too
+        agentWrote(null); // a regenerated image is the agent's new content too
       }
       flushEmbeddedImageRefreshIfReady();
       const currentStatSignature = state.pendingRefreshStatSignature || state.fileStatSignature;
@@ -2412,7 +2415,7 @@ function createMarkdownViewer({
       state.threadStore = result.data;
       syncChangeAgeToStoreTurn(result.data);
       // The agent's new words are new content; the first read after an open
-      // only sets the baseline. Land on the highest thread they went to.
+      // only sets the baseline. They went to the threads whose marks grew.
       const marks = agentMarks(result.data);
       const answered = state.agentMarks === null ? []
         : (result.data.threads || []).filter((t) => (marks.get(t.id) || 0) > (state.agentMarks.get(t.id) || 0));
@@ -2420,12 +2423,7 @@ function createMarkdownViewer({
       // A store update can answer a sealed edit, releasing a refresh that was
       // held waiting on it — apply it now so the resolve lands in one step.
       if (!applyPendingMarkdownRefreshIfReady()) scheduleThreadLayerRender();
-      if (answered.length) {
-        agentContentArrived(() => answered
-          .map((t) => resolveThreadTarget(state.article, t))
-          .filter(Boolean)
-          .sort((a, b) => getElementTopInPrimaryArticle(a) - getElementTopInPrimaryArticle(b))[0]);
-      }
+      for (const t of answered) agentWrote(() => resolveThreadTarget(state.article, t));
     } catch {} finally {
       state.threadPollInFlight = false;
     }
@@ -4257,6 +4255,7 @@ function createMarkdownViewer({
     state.threadStore = null;
     state.threadStoreSig = '';
     state.agentMarks = null;
+    state.agentLandTargets = [];
     state.threadRenderPending = false;
     state.resolvedExpanded = new Set();
     state.editing = null;
@@ -5841,16 +5840,31 @@ function createMarkdownViewer({
   }
 
   // Does this thread need the user? That is the only question the page's one
-  // colour answers now. An open thread the agent has spoken last on is blocked
-  // on them — the single thing here that wants action. A thread still awaiting
-  // the agent needs nothing from them, and resolved needs nothing from anyone.
+  // colour answers now. A thread the agent set `open` on the user's last word
+  // is blocked on them (the merged status, agent-journal.js) — the single
+  // thing here that wants action. A thread still awaiting the agent needs
+  // nothing from them, and resolved needs nothing from anyone.
   // ("Whose turn" was the clock model's question; amber meant awaiting-agent and
   // green meant your-move, which painted the one card demanding action in the
   // colour that says all-clear.)
   function threadNeedsUser(thread) {
-    if (thread.status === 'resolved') return false;
+    return thread.status === 'open';
+  }
+
+  // The agent has replied to the user's last word and set no status yet: its
+  // reply explains the edit that follows it, and the status comes last
+  // (contract.md). Still the agent's, but there is something to read.
+  function threadAgentExplaining(thread) {
+    if (thread.status) return false;
     const msgs = Array.isArray(thread.messages) ? thread.messages : [];
     return msgs.length > 0 && msgs[msgs.length - 1].author === 'agent';
+  }
+
+  // An open thread shows its full card while it needs the user, while the
+  // agent's explanation waits on its status, or once opened by hand; awaiting
+  // the agent otherwise, it rests as a line.
+  function openThreadShowsCard(thread) {
+    return threadNeedsUser(thread) || threadAgentExplaining(thread) || state.expandedThreads.has(thread.id);
   }
 
   // A Send recedes the band (viewer-band.js). A doc refresh still held when it
@@ -5861,30 +5875,43 @@ function createMarkdownViewer({
     if (state.pendingRefreshResult) state.pendingRefreshBeforeSend = true;
   }
 
-  // The agent's marks on the store, per thread: its messages and whether it
-  // resolved the thread (it owns `resolved`). Counts, since main and the user
-  // only ever add the user's words and anchors.
+  // The agent's marks on the store, per thread: its messages and whether a
+  // status of its own stands (it owns the status). Counts, since main and the
+  // user only ever add the user's words and anchors.
   function agentMarks(store) {
     const threads = store && Array.isArray(store.threads) ? store.threads : [];
     const marks = new Map();
     for (const t of threads) {
-      let n = isThreadResolved(t) ? 1 : 0;
+      let n = t.status ? 1 : 0;
       for (const m of (Array.isArray(t.messages) ? t.messages : [])) if (m && m.author === 'agent') n += 1;
       marks.set(t.id, n);
     }
     return marks;
   }
 
-  // The agent's new content brings the band up (viewer-band.js). Out of a
-  // roll-up the user was in the terminal, so the spread also turns to the
-  // content: `target` resolves the element to show once the reveal has laid
-  // the spread out at full height. A band already up, split or full, is being
-  // read, and stays on its page; the change flashes wherever it is.
-  function agentContentArrived(target) {
-    if (band.contentArrived() !== 'revealed' || typeof target !== 'function') return;
+  // The agent wrote into the doc or its threads: the band comes up once the
+  // agent is through, which is when no thread the user sent still waits on
+  // it (viewer-band.js agentWrote). `target` resolves the element the write
+  // went to.
+  function agentWrote(target) {
+    if (typeof target === 'function') state.agentLandTargets.push(target);
+    const threads = (state.threadStore && Array.isArray(state.threadStore.threads)) ? state.threadStore.threads : [];
+    band.agentWrote({ waiting: threads.some(threadAwaitsAgent) });
+  }
+
+  // Out of a roll-up the user was in the terminal, so the spread also turns
+  // to the highest place the agent's writes went to, once the reveal has laid
+  // it out at full height. A band already up, split or full, is being read,
+  // and stays on its page; the changes flash wherever they are.
+  function landOnAgentContent(moved) {
+    const targets = state.agentLandTargets;
+    state.agentLandTargets = [];
+    if (moved !== 'revealed' || !targets.length) return;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (!band.isOpen() || state.activeTarget || state.activeCard) return;
-      bringIntoSpread(target());
+      const highest = targets.map((target) => target()).filter(Boolean)
+        .sort((a, b) => getElementTopInPrimaryArticle(a) - getElementTopInPrimaryArticle(b))[0];
+      bringIntoSpread(highest);
     }));
   }
 
@@ -6057,12 +6084,11 @@ function createMarkdownViewer({
   }
 
   // An open thread's flow element: blocked-on-you renders the full card (it is
-  // the worklist — folding it would hide the one thing that needs the user);
-  // awaiting-the-agent rests as a one-line row until clicked open.
+  // the worklist — folding it would hide the one thing that needs the user),
+  // and so does the agent's explanation ahead of its edit; awaiting the agent
+  // otherwise rests as a one-line row until clicked open.
   function buildOpenThreadElement(thread, lost, opts) {
-    if (threadNeedsUser(thread) || state.expandedThreads.has(thread.id)) {
-      return buildThreadCard(thread, lost, opts);
-    }
+    if (openThreadShowsCard(thread)) return buildThreadCard(thread, lost, opts);
     return buildWaitingThreadLine(thread);
   }
 
@@ -6079,10 +6105,11 @@ function createMarkdownViewer({
     card.addEventListener('mousedown', (event) => event.stopPropagation());
     card.addEventListener('dblclick', (event) => event.stopPropagation());
     // A waiting or resolved card is the read-back state of its resting row, so
-    // its whole surface folds back on click. Guarded: buttons and the reply
+    // its whole surface folds back on click; the agent's explanation waiting on
+    // its status has no row to fold to. Guarded: buttons and the reply
     // composer keep their clicks, and a text-selection drag is reading, not
     // folding.
-    if (waiting || thread.status === 'resolved') {
+    if ((waiting && !threadAgentExplaining(thread)) || thread.status === 'resolved') {
       card.addEventListener('click', (event) => {
         if (event.target.closest && event.target.closest('button, .md-thread-reply')) return;
         const sel = window.getSelection && window.getSelection();
@@ -6303,7 +6330,7 @@ function createMarkdownViewer({
           const el = stampKeepKey(buildOpenThreadElement(thread, !target), `thread:${thread.id}`);
           // Card-on-show is buildOpenThreadElement's own condition: the
           // readback highlight exists exactly when a full card does.
-          if (target && (threadNeedsUser(thread) || state.expandedThreads.has(thread.id))) {
+          if (target && openThreadShowsCard(thread)) {
             anchorRanges.push(...createThreadAnchorRanges(target, thread));
           }
           if (target) insertCommentFlowElementAfterTarget(target, el);
@@ -6640,6 +6667,7 @@ function createMarkdownViewer({
     state.threadStore = null;
     state.threadStoreSig = '';
     state.agentMarks = null;
+    state.agentLandTargets = [];
     state.threadRenderPending = false;
     state.resolvedExpanded = new Set();
     state.editing = null;

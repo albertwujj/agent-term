@@ -23,14 +23,12 @@ const STALL_MAX_AGE_MS = 30 * 60 * 1000;
 // send is the send itself, not the user typing afterward.
 const SEND_INPUT_EPSILON_MS = 1500;
 
-// A covered thread still needing the agent: open, with the user's word last.
-// Resolved is done; an agent reply that left it open is "blocked on the user"
-// — the user's move, so it never counts as a stall.
+// A covered thread still needing the agent: no status set on the user's last
+// word (the merged view's `status`, agent-journal.js). Resolved is done, and
+// open is blocked on the user, their move, so neither is a stall; a reply
+// with no status yet is the agent mid-thread, its edit still to come.
 function threadUnaddressed(t) {
-  if (!t || (t.status || 'open') !== 'open') return false;
-  const msgs = t.messages || [];
-  const last = msgs[msgs.length - 1];
-  return !!last && (last.author || 'user') === 'user';
+  return !!t && !t.status && (t.messages || []).some((m) => (m.author || 'user') === 'user');
 }
 
 // One tick of one watch.

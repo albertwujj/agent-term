@@ -118,6 +118,7 @@ const {
   journalPathForStore,
   parseJournal,
   mergeStoreWithJournal,
+  threadAwaitsAgent,
   threadHasAgentEvents,
 } = require('./agent-journal');
 const { decideStall, unaddressedCount, STALL_IDLE_MS } = require('./comment-stall');
@@ -4444,11 +4445,23 @@ async function syncReview() {
     if (h && h !== w.htmlHash) {
       w.htmlHash = h;
       if (mainWindow && mainWindow.webContents) {
-        mainWindow.webContents.send('review-rerendered', { htmlPath: w.htmlPath });
+        mainWindow.webContents.send('review-rerendered', { htmlPath: w.htmlPath, waiting: await reviewAwaitsAgent(w) });
       }
     }
   } catch { /* transient edit/render races: the next signal re-renders */ }
   finally { w.busy = false; }
+}
+
+// Whether a thread the user sent on the open review still waits on the agent,
+// which holds the band's move for the agent's writes (viewer-band.js
+// agentWrote). An unreadable store holds nothing.
+async function reviewAwaitsAgent(w) {
+  try {
+    const { merged } = await mergedCommentStore(await fsPathFromPosix(w.commentsPath));
+    return merged.threads.some(threadAwaitsAgent);
+  } catch {
+    return false;
+  }
 }
 
 async function startReviewSync(pkg, repo, htmlPath) {
@@ -4489,14 +4502,16 @@ async function startReviewSync(pkg, repo, htmlPath) {
     // The agent's replies arrive as journal appends now, so the journal is watched the same
     // way — either file changing means the merged view the overlay renders has moved.
     // The journal has one writer, the agent, so its change is the agent's new
-    // content, which brings the band up full (viewer-band.js).
+    // content, which brings the band up full once the agent is through
+    // (viewer-band.js agentWrote).
     const cj = await fileHash(w.commentsPath);
     const aj = await fileHash(w.journalPath);
     const agent = (aj || '') !== (w.journalHash || '');
     if ((cj && cj !== w.commentsHash) || agent) {
       w.commentsHash = cj || w.commentsHash;
       w.journalHash = aj;
-      if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('review-comments-changed', { agent });
+      const waiting = agent && await reviewAwaitsAgent(w);
+      if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('review-comments-changed', { agent, waiting });
     }
   }, 2000);
 }

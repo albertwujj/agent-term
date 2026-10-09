@@ -90,21 +90,40 @@ function mergeStoreWithJournal(store, events) {
       t.anchor_status = e.anchor_status;
     }
   }
-  // Status is a race between the two files, settled by time: a user follow-up
-  // written to the store AFTER the agent's journal `resolved` is the reopen
-  // (the follow-up IS the reopen — contract.md), while a `resolved` that came
-  // after the follow-up answers it and stands. A status event without ts
-  // counts as old, so the user's newer words win the ambiguous case.
+  // The merged `status` is the agent's disposition of the user's last word:
+  // `resolved`, or `open` for blocked on the user. Status is a race between the
+  // two files, settled by time: a user message written to the store AFTER the
+  // agent's status takes it back (a follow-up IS the reopen — contract.md),
+  // leaving no status, so the thread is the agent's again even once it
+  // replies, since its reply explains the edit and the status comes last.
+  // A status that came after the user's words answers them and stands. A
+  // status event without ts counts as old, so the user's newer words win the
+  // ambiguous case.
   for (const t of view.threads) {
-    if (t.status !== 'resolved' || !statusTs.has(t.id)) continue;
-    const msgs = t.messages || [];
-    const last = msgs[msgs.length - 1];
-    if (last && (last.author || 'user') === 'user'
-        && Number.isFinite(last.ts) && last.ts > statusTs.get(t.id)) {
-      t.status = 'open';
-    }
+    if (!statusTs.has(t.id)) continue;
+    const u = lastUserMessage(t);
+    if (u && Number.isFinite(u.ts) && u.ts > statusTs.get(t.id)) delete t.status;
   }
   return view;
+}
+
+function lastUserMessage(t) {
+  const msgs = Array.isArray(t && t.messages) ? t.messages : [];
+  for (let i = msgs.length - 1; i >= 0; i -= 1) {
+    if (msgs[i] && (msgs[i].author || 'user') === 'user') return msgs[i];
+  }
+  return null;
+}
+
+// Does this thread, in the merged view, still wait on the agent? The user's
+// last word is sent and the agent has set no status since: a send stamps the
+// turn on every user message it hands over (an unstamped one is a review
+// draft the agent has not been asked about). Its reply alone leaves the
+// thread waiting. When none waits, the agent's turn on the threads is over
+// (contract.md).
+function threadAwaitsAgent(t) {
+  const u = lastUserMessage(t);
+  return !!u && Number.isFinite(u.turn) && !t.status;
 }
 
 // Has the agent said or set anything on this thread? What seals a thread
@@ -114,4 +133,4 @@ function threadHasAgentEvents(events, threadId) {
   return Array.isArray(events) && events.some((e) => e.thread === threadId);
 }
 
-module.exports = { journalPathForStore, parseJournal, mergeStoreWithJournal, threadHasAgentEvents };
+module.exports = { journalPathForStore, parseJournal, mergeStoreWithJournal, threadAwaitsAgent, threadHasAgentEvents };

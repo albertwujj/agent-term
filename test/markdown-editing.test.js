@@ -83,7 +83,6 @@ let store = {
     title: '',
     anchor: { snippet: 'Tail paragraph', context: '', wholeBlock: false, heading: '' },
     anchor_status: 'ok',
-    status: 'open',
     messages: [{ author: 'user', body: '[Edit]\nTail paragraph<del> junk</del>\n[/Edit]', ts: 1, turn: 1 }],
   }],
 };
@@ -113,7 +112,6 @@ const viewer = createMarkdownViewer({
         title: '',
         anchor: t.anchor,
         anchor_status: 'ok',
-        status: 'open',
         messages: [
           { author: 'user', body: t.body, ts: 1, turn: store.turn },
           ...(t.note ? [{ author: 'user', body: t.note, ts: 1, turn: store.turn }] : []),

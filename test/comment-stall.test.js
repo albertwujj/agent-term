@@ -20,16 +20,17 @@ const answered = (id) => ({ id, messages: [
   { author: 'user', body: 'q', ts: 1 }, { author: 'agent', body: 'a', ts: 2 },
 ] });
 const resolved = (id) => ({ ...answered(id), status: 'resolved' });
+const blocked = (id) => ({ ...answered(id), status: 'open' });
 
-check('unaddressed = open with the user\'s word last; blocked and resolved are not stalls', () => {
+check('unaddressed = no status on the user\'s word; blocked and resolved are not stalls', () => {
   assert.strictEqual(threadUnaddressed(open('a')), true);
-  // New stores omit `status` entirely — absent reads as open.
-  assert.strictEqual(threadUnaddressed({ id: 'a', messages: [{ author: 'user', body: 'q', ts: 1 }] }), true);
-  // An agent reply that left the thread open is "blocked on the user" — the
-  // user's move, never a stall.
-  assert.strictEqual(threadUnaddressed(answered('a')), false);
+  // A reply with no status yet is the agent mid-thread: its edit and status
+  // are still to come.
+  assert.strictEqual(threadUnaddressed(answered('a')), true);
+  // Blocked on the user is their move, never a stall.
+  assert.strictEqual(threadUnaddressed(blocked('a')), false);
   assert.strictEqual(threadUnaddressed(resolved('a')), false);
-  assert.strictEqual(unaddressedCount([open('a'), answered('b'), open('c')]), 2);
+  assert.strictEqual(unaddressedCount([open('a'), blocked('b'), open('c')]), 2);
 });
 
 const SEND = 100000;
@@ -66,8 +67,12 @@ check('the send\'s own paste is inside the epsilon, so it never reads as user in
   assert.strictEqual(decideStall({ sendTime: SEND }, e), 'remind');
 });
 
-check('every covered thread addressed (replied-open or resolved) → done', () => {
-  assert.strictEqual(decideStall({ sendTime: SEND }, env({ coveredThreads: [answered('a'), resolved('b')] })), 'done');
+check('every covered thread addressed (blocked or resolved) → done', () => {
+  assert.strictEqual(decideStall({ sendTime: SEND }, env({ coveredThreads: [blocked('a'), resolved('b')] })), 'done');
+});
+
+check('a covered thread replied to without its status is still a stall', () => {
+  assert.strictEqual(decideStall({ sendTime: SEND }, env({ coveredThreads: [answered('a'), resolved('b')] })), 'remind');
 });
 
 check('covered ids that vanished (discarded) drop out; none left → done', () => {
