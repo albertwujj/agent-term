@@ -89,6 +89,13 @@ check('a reconstructed markdown segment uses its full viewer target', () => {
   }), false);
 });
 
+check('one range of a multi-range doc reference opens without a delay', () => {
+  const range = { patternName: 'paren_line', text: '10-20', viewerTarget: 'notes.md' };
+  assert.strictEqual(navigationNeedsDelay(range), false);
+  const codeRange = { patternName: 'paren_line', text: '10-20', viewerTarget: 'src/main.py' };
+  assert.strictEqual(navigationNeedsDelay(codeRange), true);
+});
+
 // An OS open gets the same cancellable delay as an IDE jump.
 check('a handoff to the OS uses a delayed plain click', () => {
   assert.strictEqual(navigationNeedsDelay(m('plain_file', 'src/renderer.js')), true);

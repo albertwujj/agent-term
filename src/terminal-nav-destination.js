@@ -39,7 +39,9 @@ const PLAIN_CLICK_PATTERN_NAMES = new Set(['url', 'image_attachment']);
 // the destination. Everywhere else the path comes from context — a diff header
 // above, a backward scan for the enclosing file — and an extension appearing in
 // the line is just text: `+ see README.md for details` is a diff line that
-// navigates to code, not a link to a document.
+// navigates to code, not a link to a document. When a match is only a piece of
+// its path — one row of a path the CLI wrapped, one range of
+// notes.md(10-20, 30-40) — `viewerTarget` carries the whole path in its place.
 const PATH_IS_THE_TEXT = new Set([
   'plain_file',
   'wsl_unc_path',

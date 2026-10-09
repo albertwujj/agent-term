@@ -274,6 +274,20 @@ async function main() {
     await page.locator('.vb-shell.vb-md .vb-close').click();
     await sleep(500);
 
+    // Each range of a multi-range reference is its own target, carrying the doc.
+    const ranges = `see ${path.join(FIXTURES, 'e2e-md-links.md')}(1-1, 3-4) too`;
+    await runCmd(`printf '%s\\n' '${ranges}'`);
+    await sleep(1200);
+    const range = await wordTarget(ranges, '3-4');
+    const beforeRange = await timingReads();
+    await page.mouse.click(range.x, range.y);
+    await page.waitForSelector('.vb-shell.vb-md.open .md-landing-target', { timeout: 10_000 });
+    check('one range of a doc reference opens the md viewer without a delay', await timingReads() === beforeRange);
+    const rangeLanded = await page.evaluate(() => document.querySelector('.vb-shell.vb-md .md-landing-target')?.textContent || '');
+    check('and lands on the block holding its first line', rangeLanded.includes('in one paragraph'), rangeLanded);
+    await page.locator('.vb-shell.vb-md .vb-close').click();
+    await sleep(500);
+
     const mdTarget = await wordTarget(doc, 'e2e-md-links.md');
     const mdDragEnd = await wordTarget(doc, 'open');
     await page.mouse.move(mdTarget.x, mdTarget.y);

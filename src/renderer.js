@@ -5702,7 +5702,10 @@ const patterns = [
         }];
       }
 
-      // Multi-reference mode: split by ", " and create one sub-match per group
+      // Multi-reference mode: split by ", " and create one sub-match per group.
+      // A group's text is only its range, so each one carries the path as its
+      // viewer target: the click rule reads the destination from it, and
+      // notes.md(10-20, 30-40) opens the md viewer as notes.md(12) does.
       const groups = inner.split(/,\s*/);
       const subMatches = [];
       let searchFrom = parenIndex + 1; // position within fullMatch after '('
@@ -5713,6 +5716,7 @@ const patterns = [
           text: group,
           start: matchIndex + groupStart,
           end: matchIndex + groupStart + group.length,
+          viewerTarget: filePath,
           action: async (_match, options) => {
             await navigateToFileLine(filePath, line, null, options);
           },
@@ -5887,6 +5891,7 @@ function parseRow(text) {
               start: sub.start,
               end: sub.end,
               ...matchBase,
+              viewerTarget: sub.viewerTarget,
               action: sub.action || pattern.action,
             });
           }
