@@ -54,4 +54,4 @@ The windows still coordinate through small files. Each window publishes its pid,
 
 I switch between agents all day with the moves I use for every other app: a glance at the Dock, a click, Cmd-Tab. My agents sit where the rest of my work sits. As I do more and more of my work with agents, this setup has proven intuitive and helpful, and it's a pleasure to use every day.
 
-[AgentTerm](https://github.com/albertwujj/agent-term) is open source (MIT) and runs on macOS and Windows/WSL with Claude Code, Codex, Cursor CLI and other AI CLIs. The windows are one part of it; the [README](https://github.com/albertwujj/agent-term#whats-added-so-far) lists the rest, from commenting on agent output to curated code reviews. Next in this series: why AgentTerm has no installer or package, and why that makes it easier to use.
+The windows are one part of AgentTerm, alongside commenting on agent output, curated code reviews and more. Next in this series: why AgentTerm has no installer or package, and why that makes it easier to use.
