@@ -48,6 +48,8 @@ The windows still coordinate through small files. Each window publishes its pid,
 
 **Memory.** Each session currently keeps a full Electron instance, even while hidden. A small host process owning each session's terminal would let a hidden session release it and cost a few tens of MB, and I'll build that when there's a need. Today, on my 8 GB Mac, a window I'm not using holds about 110 to 150 MB of RAM, plus its CLI; Activity Monitor shows more, since it counts compressed memory at full size. My Mac and my Windows machine both handle it well. Hidden sessions could all stay alive, but then their memory would keep growing, so I set a limit of 8 live sessions, hidden and visible together; past that, the hidden session idle the longest closes, and resumes through its CLI when I pick it.
 
+**Prompts that start alike.** A prompt that opens with a URL, a file path or an @-mention would put the same letters on every tile or button, such as "http", so AgentTerm skips to the part that differs: the last part of a URL, or a file name without its directories. More heuristics can be added as needed. In the rare case of a collision, different colors help separate them.
+
 **Seams with the OS.** Windows can put back the app's default icon after the machine sleeps, so AgentTerm reapplies the session's icon on wake. On macOS, one system process, the window server, draws the windows of every app. If it crashes, every window disappears at once, while AgentTerm's own process, with its shell and agent, can keep running with nothing on screen. AgentTerm notices the window server restarted, closes the windowless process, and lets me resume the session from the picker in a fresh window.
 
 ## Why it was worth it
