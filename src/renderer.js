@@ -16,6 +16,7 @@ const { NOTICE_DWELL_MS, shouldNoticeAltScreen, altScreenNotice } = require('./a
 // Which AI CLI this window is running, as main last reported it.
 let currentCli = null;
 const { navigationNeedsDelay, opensImmediately, matchForPress, CONTEXT_PATH_PATTERNS } = require('./terminal-nav-destination');
+const { getBorderedContentSpan, parseDiffLineText, diffLineContinuedAt, diffBodyTop, diffMinusTarget } = require('./diff-rows');
 const {
   DEFAULT_SELECTION_CONTEXT_LINES,
   buildTerminalCommentBatchMessage,
@@ -3141,6 +3142,7 @@ document.addEventListener('keydown', handleSelectionCommentHintKeydown, true);
 // clicks on IDE/OS targets wait for another press to declare selection intent.
 // Nothing here prevents xterm's native selection events or freezes output.
 function decorationNavigationContext(match) {
+  if (match.patternName === 'diff_line') return diffLineFileContext(match);
   if (match.patternName === 'diff_block') return findCursorDiffHeader(match.bufferRow);
   if (match.patternName === 'line_ref') return resolveLineRefFileContext(match.bufferRow, match.start, match.end);
   if (CONTEXT_PATH_PATTERNS.has(match.patternName) || match.patternName.endsWith('_symbol')) {
@@ -4223,22 +4225,6 @@ function hasLeadingLineRefContext(line, index) {
   return /\b[Ll]ines?\s+~?\d+(?:\s*-\s*~?\d+)?(?:,\s*~?\d+(?:\s*-\s*~?\d+)?)?\s+(?:in|of)\s+["'`]?$/i.test(prefix);
 }
 
-function getBorderedContentSpan(text) {
-  const left = /^\s*[│┃|]\s/.exec(text);
-  if (!left) return null;
-
-  const start = left[0].length;
-  let end = text.length;
-  const right = /\s+[│┃|]\s*$/.exec(text.substring(start));
-  if (right) end = start + right.index;
-
-  return {
-    content: text.substring(start, end),
-    start,
-    end,
-  };
-}
-
 function getCursorDiffContentSpan(text) {
   const bordered = getBorderedContentSpan(text);
   if (bordered) return bordered;
@@ -4278,25 +4264,6 @@ function getSourceRowContentSpan(text) {
   const content = text.trimStart();
   if (!content || text.length - content.length < 4) return null;
   return { content, start: text.length - content.length, end: text.length };
-}
-
-// A changed line allows content flush against the marker (`628 -*prose`), so the
-// marker branch uses \s* after the marker; a context line has no marker, so it still
-// requires \s{2,} to separate the number from content (keeps `42hello` from matching).
-const STRICT_DIFF_LINE_REGEX = /^\s{2,}(\d+)(?:\s([+-])\s*|\s{2,})(\S.*)$/;
-const INNER_DIFF_LINE_REGEX = /^\s*(\d+)(?:\s([+-])\s*|\s{2,})(\S.*)$/;
-
-function parseDiffLineText(text, { allowInner = false } = {}) {
-  const bordered = getBorderedContentSpan(text);
-  const source = bordered ? bordered.content : text;
-  const m = (bordered || allowInner ? INNER_DIFF_LINE_REGEX : STRICT_DIFF_LINE_REGEX).exec(source);
-  if (!m) return null;
-
-  return {
-    lineNum: parseInt(m[1], 10),
-    marker: m[2],
-    codeText: m[3].trim(),
-  };
 }
 
 const CURSOR_DIFF_HEADER_REGEX = /^(\S.*?)\s+\+\d+(?:\s+-\d+)?$/;
@@ -5284,20 +5251,42 @@ function findFileContext(bufferRow, charOffset) {
   return null;
 }
 
-// For minus lines: scan forward to find next non-minus diff line
-function findMinusTarget(bufferRow) {
-  const buffer = terminal.buffer.active;
-  for (let r = bufferRow + 1; r <= Math.min(buffer.length - 1, bufferRow + 100); r++) {
-    const line = buffer.getLine(r);
-    if (!line) continue;
-    const text = line.translateToString();
-    const parsed = parseDiffLineText(text);
-    if (!parsed) continue;
-    if (parsed.marker !== '-') {
-      return { lineNum: parsed.lineNum, codeText: parsed.codeText };
-    }
-  }
-  return null;
+// A diff_line match's numbered row, parsed: the row itself, or for a piece of
+// a line the CLI wrapped, the numbered row above it.
+function diffLineHead(match) {
+  if (match.diffHead) return match.diffHead;
+  const parsed = parseDiffLineText(match.text, { allowInner: true });
+  return parsed && { row: match.bufferRow, ...parsed };
+}
+
+// The file a diff line edits, named by the header above the diff's body. The
+// scan starts above the body because the body is the file's own text: a path
+// in it is content, like the `</strong>` that reads as /strong or a doc's link
+// to comment.md.
+function diffLineFileContext(match) {
+  const head = diffLineHead(match);
+  const top = head && diffBodyTop(terminal.buffer.active, head.row);
+  return top == null ? null : findFileContext(top);
+}
+
+// A row with no number that goes on with the diff line above it is that
+// line's target, as its numbered row is.
+function diffWrappedRowMatch(row, text) {
+  const continued = diffLineContinuedAt(terminal.buffer.active, row);
+  if (!continued) return null;
+  const pattern = patterns.find((candidate) => candidate.name === 'diff_line');
+  return {
+    text: text.slice(continued.start, continued.end),
+    start: continued.start,
+    end: continued.end,
+    bufferRow: row,
+    diffHead: continued.head,
+    patternName: pattern.name,
+    action: pattern.action,
+    style: pattern.style,
+    trimToContent: pattern.trimToContent,
+    priority: 'high',
+  };
 }
 
 // Scan backward (bounded, within the enclosing box) for a Cursor diff header.
@@ -5348,20 +5337,19 @@ const patterns = [
       }];
     },
     action: async (match, options) => {
-      const parsed = parseDiffLineText(match.text, { allowInner: true });
-      if (!parsed) return;
-      const lineNum = parsed.lineNum;
-      const marker = parsed.marker; // '+', '-', or undefined (context)
-      const codeText = parsed.codeText;
+      const head = diffLineHead(match);
+      if (!head) return;
+      const { lineNum, codeText } = head;
+      const marker = head.marker; // '+', '-', or undefined (context)
 
-      const filePath = findFileContext(match.bufferRow, match.start);
+      const filePath = diffLineFileContext(match);
       if (!filePath) {
         showToast('Could not determine file path');
         return;
       }
 
       if (marker === '-') {
-        const target = findMinusTarget(match.bufferRow);
+        const target = diffMinusTarget(terminal.buffer.active, head.row);
         if (target) {
           // A deleted line resolves forward to the surviving line at the deletion
           // point; flag it 'anchor' so the viewer flashes it blue, matching how the
@@ -6105,14 +6093,7 @@ function stampContextPath(match) {
     match.contextPath = contextPathCache.get(key);
     return match;
   }
-  let contextPath;
-  if (match.patternName === 'diff_block') {
-    contextPath = findCursorDiffHeader(match.bufferRow);
-  } else if (match.patternName === 'line_ref') {
-    contextPath = resolveLineRefFileContext(match.bufferRow, match.start, match.end);
-  } else {
-    contextPath = findFileContext(match.bufferRow, match.start);
-  }
+  const contextPath = decorationNavigationContext(match);
   if (contextPathCache.size >= CONTEXT_PATH_CACHE_MAX) contextPathCache.clear();
   contextPathCache.set(key, contextPath);
   match.contextPath = contextPath;
@@ -6149,10 +6130,7 @@ function getClickableMatchAtMouseEvent(event) {
   if (!text) return null;
 
   const charOffset = getLogicalLineOffset(buffer, logicalStart, bufferRow, col);
-  const matches = parseRow(text);
-  for (const match of matches) {
-    if (overlapsSpan(match, claimed)) continue;
-    match.bufferRow = logicalStart;
+  for (const match of logicalLineMatches(logicalStart, text, claimed)) {
     if (charOffset >= match.start && charOffset < match.end) {
       return stampContextPath(match);
     }
@@ -6422,17 +6400,27 @@ function decorateRendererWrappedTargetRow(buffer, row) {
   return endRow;
 }
 
-// Decorations for the pattern matches on one logical line, except those that
-// overlap a `claimed` span (offsets into `text`).
+// The matches on one logical line, except those that overlap a `claimed` span
+// (offsets into `text`). A wrapped piece of a diff line is one match over its
+// row, as the numbered row is, but only the rows above can tell it is one.
+function logicalLineMatches(row, text, claimed = []) {
+  let wrapped = diffWrappedRowMatch(row, text);
+  if (wrapped && overlapsSpan(wrapped, claimed)) wrapped = null;
+  const spans = wrapped ? [...claimed, wrapped] : claimed;
+  const matches = parseRow(text).filter((match) => !overlapsSpan(match, spans));
+  for (const match of matches) match.bufferRow = row;
+  return wrapped ? [wrapped, ...matches] : matches;
+}
+
+// Decorations for the matches on one logical line.
 function logicalLineDecorations(row, text, claimed = []) {
-  const matches = parseRow(text).filter((match) => !overlapsSpan(match, claimed));
+  const matches = logicalLineMatches(row, text, claimed);
   if (matches.length > 0) {
     debug(`  Found ${matches.length} matches:`, matches.map((m) => m.text));
   }
 
   const rowDecorations = [];
   for (const match of matches) {
-    match.bufferRow = row;
     // diff_block lines are only real when a diff header sits above them in the same
     // box; gate here (needs the buffer) so non-diff "│ - bullet" boxes aren't decorated.
     if (match.patternName === 'diff_block' && !findCursorDiffHeader(match.bufferRow)) continue;

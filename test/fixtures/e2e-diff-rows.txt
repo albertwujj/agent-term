@@ -1,0 +1,24 @@
+● Update(test/fixtures/e2e-diff-review.md)
+  ⎿  Added 1 line, removed 1 line
+       5  <br><strong>Code: what you propose</strong>
+       6  </p>
+       7
+       8 -When the agent finishes, it prepares your review, with trade
+         --offs flagged; [Comment inline](comment.md), on the code and
+         - on its reasoning.
+       8 +When the agent finishes, it prepares your review, with each 
+         +trade-off it chose flagged as a decision you can confirm; [C
+         +omment inline](comment.md), on the code and on its reasoning
+         +.
+       9
+      10  You can ask the agent to expand any part, with the parts tha
+          t most need your judgment first.
+
+● Update(test/fixtures/e2e-diff-code.js)
+  ⎿  Added 1 line, removed 1 line
+      41    const message = summaryHeading(threads);
+      42 -  return formatReviewSummary(threads, { includeResolved: fal
+         -se, order: 'newest-first' });
+      42 +  return formatReviewSummary(threads, { includeResolved: tru
+         +e, order: 'newest-first', limit: 20 });
+      43  }
