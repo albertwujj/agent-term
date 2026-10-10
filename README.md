@@ -70,7 +70,7 @@ Some terminals combine support for AI CLIs with an agent and platform of their o
 
 ### Each agent gets its own OS window and identity
 
-Tools like tmux and manager apps hold every agent session in one window. AgentTerm gives each session its own window instead, since the OS already provides familiar, mature tools for arranging windows and switching between tasks: the taskbar, Dock, Mission Control, and alt-tab. Separate windows and processes let AgentTerm build on those strengths and add what agent sessions need. Each session has a unique visual identity that helps you find it in the taskbar or Dock and recognize it when previewing or switching windows. To keep the taskbar or Dock easy to scan, AgentTerm hides sessions you haven't used recently; the [session picker](docs/sessions.md) brings them back.
+Tools like tmux and manager apps hold every agent session in one window. AgentTerm gives each session its own window instead, since the OS already provides familiar, mature tools for arranging windows and switching between tasks: the taskbar, Dock, Mission Control, and alt-tab. Separate windows and processes let AgentTerm build on those strengths and add what agent sessions need. Each session has a unique visual identity that helps you find it in the taskbar or Dock and recognize it when previewing or switching windows. To keep the taskbar or Dock easy to scan, AgentTerm hides sessions you haven't used recently; the [session picker](docs/sessions.md) brings them back. [The essay on this decision](essays/own-os-window.md) goes deeper, including its challenges.
 
 A manager app that oversees agents across machines can still be used: AgentTerm already sends each session's state to the [phone view](docs/phone.md), and a connector could share it with a manager too.
 
@@ -127,6 +127,8 @@ Follow the [suite guides](docs/suite.md#using-the-components) to start using the
 Add [phone access](docs/phone.md) when you want to continue remotely, or [IDE integration](docs/ide.md) if you use an IDE. These have separate setup; phone voice input also needs recording and transcription configured on the hub.
 
 **Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
+
+The [essays](essays/README.md) explain the design decisions behind AgentTerm, one per essay.
 
 ## Contributing
 
