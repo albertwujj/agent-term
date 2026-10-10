@@ -104,6 +104,9 @@ check('a user follow-up newer than the journal status takes it back; an older on
   ]);
   assert.strictEqual(merged.threads[0].status, undefined);   // follow-up IS the reopen
   assert.strictEqual(merged.threads[1].status, 'resolved');  // resolution postdates the words
+  // The status's time survives being taken back: what the agent had acted on.
+  assert.strictEqual(merged.threads[0].status_ts, 21);
+  assert.strictEqual(merged.threads[1].status_ts, 51);
 });
 
 check('the agent\'s reply to a follow-up leaves it reopened until its status', () => {

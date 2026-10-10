@@ -86,7 +86,7 @@ try {
       rects: [...headings, ...nav, document.querySelector('section.file')].map(rect),
       ids: headings.map(e => e.id), links: nav.map(e => e.getAttribute('href')),
       color: getComputedStyle(headings[0]).backgroundColor,
-      mark: getComputedStyle(headings[0], '::before').content,
+      mark: getComputedStyle(headings[0].querySelector('.rv-decision-mark'), '::before').content,
       aria: headings[0].getAttribute('aria-label'),
       inlineFormat: headings[0].querySelector('strong')?.textContent,
       nestedIndent: getComputedStyle(nav[1]).paddingLeft,

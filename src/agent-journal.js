@@ -98,9 +98,12 @@ function mergeStoreWithJournal(store, events) {
   // replies, since its reply explains the edit and the status comes last.
   // A status that came after the user's words answers them and stands. A
   // status event without ts counts as old, so the user's newer words win the
-  // ambiguous case.
+  // ambiguous case. The status's time stays on the view as `status_ts` even
+  // when it is taken back, so a reader can still tell which of the user's
+  // words the agent had acted on (decision-confirm.js).
   for (const t of view.threads) {
     if (!statusTs.has(t.id)) continue;
+    t.status_ts = statusTs.get(t.id);
     const u = lastUserMessage(t);
     if (u && Number.isFinite(u.ts) && u.ts > statusTs.get(t.id)) delete t.status;
   }

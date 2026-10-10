@@ -5,7 +5,7 @@
 <br><strong>Code: what you propose and what the agent changes</strong>
 </p>
 
-When the agent finishes, it prepares your review: it hands you the parts that need your judgment, ordered and explained with trade-offs flagged, and leaves out what doesn't need it: the routine changes (renames, imports, boilerplate) and what you already settled during the session. [Comment inline](comment.md), on the code *and* on its reasoning; it edits and replies in the thread, with the latest version shown in real time.
+When the agent finishes, it prepares your review: it hands you the parts that need your judgment, ordered and explained, with each trade-off it chose flagged as a decision you can confirm in one click, and leaves out what doesn't need it: the routine changes (renames, imports, boilerplate) and what you already settled during the session. [Comment inline](comment.md), on the code *and* on its reasoning; it edits and replies in the thread, with the latest version shown in real time.
 
 You can ask the agent to expand any part, or include all changes in the review, with the parts that most need your judgment first.
 

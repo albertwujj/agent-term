@@ -32,6 +32,7 @@ const { ipcRenderer } = require('electron');
 const { normWS, nearestHeading, toast, createComposer, toPromptAction, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
 const { createCommitEditController } = require('./review-commit-edit');
 const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
+const { confirmBody, isConfirmMessage, pendingConfirm } = require('./decision-confirm');
 const { installWebViewerPreloadCommon } = require('./web-viewer-preload-common');
 
 installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
@@ -281,13 +282,13 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     document.addEventListener('mousedown', function (e) {
       if (e.detail < 2 || !e.target || !e.target.closest) return;
       if (!e.target.closest('.md-render, #commit')) return;
-      if (e.target.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox, .md-rendered-editing, .rv-edit-compose')) return;
+      if (e.target.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox, .md-rendered-editing, .rv-edit-compose, .rv-decision-mark')) return;
       e.preventDefault();
     });
     document.addEventListener('dblclick', function (e) {
       const t = e.target;
       if (!t || !t.closest || !t.closest('.md-render, #commit')) return;
-      if (t.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox, .md-rendered-editing, .rv-edit-compose')) return;
+      if (t.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox, .md-rendered-editing, .rv-edit-compose, .rv-decision-mark')) return;
       const block = enclosingBlock(t);
       if (!block) return;
       e.preventDefault();
@@ -607,6 +608,9 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
 
   // --- render threads ---
   let anchorRanges = []; // each placed region thread's exact anchored text Range
+  // Thread id -> the block placeRegionThread seated it under, rebuilt each
+  // render: how a decision heading knows which threads are about it.
+  let seatedAt = new Map();
 
   // --- change pulse: on an EXTERNAL refresh (rv-refresh = the agent wrote to the store),
   // briefly highlight just what changed vs the previous render — new messages (agent replies)
@@ -699,12 +703,14 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
   function render() {
     document.querySelectorAll('.rv-row, .rv-filehdr-thread, .rv-quote-thread').forEach(function (e) { e.remove(); });
     anchorRanges = [];
+    seatedAt = new Map();
     const threads = (store && store.threads) || [];
     // Unresolved commit-message edits re-strike their block in place (the marks
     // ARE the edit); their cards then skip the redundant diff body.
     if (commitEdit) commitEdit.decorateEditThreads(threads);
     for (let i = 0; i < threads.length; i++) placeThread(threads[i]);
     highlightRanges('cu-anchor', anchorRanges); // mark each comment's exact text, not the whole block
+    decorateDecisions();
   }
 
   function placeThread(t) {
@@ -777,7 +783,9 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     // A real highlight → drop the redundant quote from the card; no highlight → keep it.
     box.appendChild(threadCard(t, !!range));
     if (block && block.parentNode) {
-      if (range) anchorRanges.push(range);
+      // A tick needs no highlight: its heading's own mark already shows it.
+      if (range && !confirmOnly(t)) anchorRanges.push(range);
+      seatedAt.set(t.id, block);
       block.parentNode.insertBefore(box, block.nextSibling);
       return;
     }
@@ -843,7 +851,9 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     const first = (t.messages || []).find(function (m) { return (m.author || 'user') === 'user'; }) || (t.messages || [])[0];
     const parsed = first && (first.author || 'user') === 'user' ? parseEditEnvelope(first.body) : null;
     let raw;
-    if (parsed && parsed.kind === 'merged') {
+    if (isConfirmMessage(first)) {
+      raw = 'Confirmed';
+    } else if (parsed && parsed.kind === 'merged') {
       raw = 'Edit: ' + normWS(parsed.segments
         .filter(function (s) { return s.kind !== 'del'; })
         .map(function (s) { return s.text; }).join(''));
@@ -882,6 +892,10 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       if (i === 0 && editParsed) {
         return '<div class="rv-msg rv-user rv-edit-body" data-rv-edit-slot="1"><span class="rv-who">You</span></div>';
       }
+      if (isConfirmMessage(m)) {
+        return '<div class="rv-msg rv-user rv-confirm-msg"><span class="rv-who">You</span>'
+          + '<span class="rv-confirm-word">✓ confirmed</span></div>';
+      }
       return '<div class="rv-msg rv-' + (m.author || 'user') + '"><span class="rv-who">'
         + (m.author === 'agent' ? 'Agent' : 'You') + '</span>' + esc(m.body) + '</div>';
     }).join('');
@@ -900,8 +914,10 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     // since nothing resolved while you were watching.
     // Set membership against the last send's snapshot — "was it already closed
     // when I last handed work over?" The badge still folds it by hand any time.
+    // The answer is the agent's word after yours; a resolution with none (a
+    // decision confirm, recorded in the package itself) has nothing to read.
     const resolvedUnread = resolved && !!sessionFirstTurn && !resolvedAtSend.has(t.id)
-      && !collapsedSet.has(t.id);
+      && !collapsedSet.has(t.id) && !!last && last.author === 'agent';
     if (resolved && !expandedSet.has(t.id) && !resolvedUnread) {
       div.classList.add('rv-collapsed');
       div.innerHTML = '<button class="rv-resolved-head" title="Show thread">'
@@ -962,7 +978,9 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     // Before the first send this is still a draft, even though click-away has
     // parked it in the store. Reopen that draft for revision; after send, the
     // same action becomes a follow-up because conversation is append-only.
-    const editable = discardable && !editParsed;
+    // A confirm is a tick, not text to revise: its thread adds words instead.
+    const hasConfirm = (t.messages || []).some(isConfirmMessage);
+    const editable = discardable && !editParsed && !hasConfirm;
     div.innerHTML = badge + lost + moved + quote + msgs
       + '<div class="rv-thread-actions">'
       + '<button class="rv-link" data-act="' + (editable ? 'edit' : 'comment') + '">' + (editable ? 'Edit' : 'Comment') + '</button>'
@@ -991,12 +1009,116 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     const toPromptBtn = div.querySelector('[data-act=toprompt]');
     if (toPromptBtn) toPromptBtn.onclick = function () { sendThread(null, { toPrompt: true }); };
     const discardBtn = div.querySelector('[data-act=discard]');
-    if (discardBtn) discardBtn.onclick = function () { discardThread(t.id, editParsed ? 'Edit' : 'Comment'); };
+    if (discardBtn) discardBtn.onclick = function () { discardThread(t.id, editParsed ? 'Edit' : confirmOnly(t) ? 'Confirm' : 'Comment'); };
     const collapseBtn = div.querySelector('[data-act=collapse]');
     if (collapseBtn) collapseBtn.onclick = function () {
       expandedSet.delete(t.id); collapsedSet.add(t.id); renderAndTrack(false);
     };
     return div;
+  }
+
+  // --- decision headings: the circle is the one-click confirm (decision-confirm.js) ---
+  // review.py draws the authored state with a CSS glyph; on a live review the
+  // glyph moves onto an empty button in the same box, so the heading's text,
+  // anchors and geometry stay what review.py made. Shown state = the authored
+  // marker, or confirmed while a confirm of yours waits on the agent. The ○
+  // confirms; your own un-sent ✓ takes it back; every other mark is a record.
+  let decisionBusy = false;
+
+  function decorateDecisions() {
+    const heads = document.querySelectorAll('.md-render :is(h1,h2,h3,h4,h5,h6).rv-decision');
+    heads.forEach(function (h) {
+      if (!h.dataset.rvAuthored) {
+        h.dataset.rvAuthored = h.classList.contains('rv-decision-confirmed') ? 'confirmed' : 'unconfirmed';
+      }
+      let mark = h.querySelector(':scope > .rv-decision-mark');
+      if (!mark) {
+        mark = document.createElement('button');
+        mark.type = 'button';
+        mark.className = 'rv-decision-mark';
+        mark.addEventListener('mousedown', function (e) { e.preventDefault(); }); // no focus ring or selection on click
+        mark.addEventListener('click', onDecisionMark);
+        h.insertBefore(mark, h.firstChild);
+        h.classList.add('rv-decision-live');
+      }
+      let pending = null;
+      threadsSeatedAt(h).forEach(function (t) {
+        const m = pendingConfirm(t);
+        if (m) pending = { threadId: t.id, msg: m };
+      });
+      const state = pending || h.dataset.rvAuthored === 'confirmed' ? 'confirmed' : 'unconfirmed';
+      showDecisionState(h, state);
+      const act = state === 'unconfirmed' ? 'confirm'
+        : (pending && !Number.isFinite(pending.msg.turn)) ? 'retract' : '';
+      mark.dataset.act = act;
+      mark.dataset.threadId = act === 'retract' ? pending.threadId : '';
+      mark.disabled = !act;
+      mark.title = act === 'confirm' ? 'Confirm' : act === 'retract' ? 'Take back' : '';
+      mark.setAttribute('aria-label', act === 'confirm' ? 'Confirm decision'
+        : act === 'retract' ? 'Take back confirmation' : 'Confirmed');
+    });
+  }
+
+  // A thread that is nothing but the user's tick.
+  function confirmOnly(t) {
+    const msgs = t.messages || [];
+    return msgs.length > 0 && msgs.every(isConfirmMessage);
+  }
+
+  function threadsSeatedAt(block) {
+    return ((store && store.threads) || []).filter(function (t) { return seatedAt.get(t.id) === block; });
+  }
+
+  // The heading and its outline entry show one state; the accessible names
+  // end in it, as review.py wrote them.
+  function showDecisionState(h, state) {
+    const toc = h.id ? document.querySelector('#toc a[href="#' + CSS.escape(h.id) + '"]') : null;
+    [h, toc].forEach(function (el) {
+      if (!el) return;
+      el.classList.toggle('rv-decision-confirmed', state === 'confirmed');
+      el.classList.toggle('rv-decision-unconfirmed', state !== 'confirmed');
+      const label = el.getAttribute('aria-label');
+      if (label) el.setAttribute('aria-label', label.replace(/ — (un)?confirmed$/, ' — ' + state));
+    });
+  }
+
+  function onDecisionMark(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const mark = e.currentTarget;
+    // The second click of a double-click would take the tick straight back.
+    if (decisionBusy || mark.disabled || e.detail > 1) return;
+    if (mark.dataset.act === 'confirm') confirmDecision(mark.parentElement);
+    else if (mark.dataset.act === 'retract') settleDecision(
+      ipcRenderer.invoke('rv-retract-confirm', { commentsUrl: commentsUrl, threadId: mark.dataset.threadId }),
+      'Could not take back');
+  }
+
+  // A conversation still open on the heading takes the confirm as its next
+  // word, so the heading keeps one card (question, answer, tick). Otherwise
+  // the confirm is a new thread anchored exactly as a double-click on the
+  // heading would anchor a comment. No send: it rides the next one.
+  function confirmDecision(h) {
+    const text = normWS(h.textContent);
+    const host = threadsSeatedAt(h).filter(function (t) { return t.status !== 'resolved'; }).pop();
+    settleDecision(host
+      ? ipcRenderer.invoke('rv-add-message', { commentsUrl: commentsUrl, threadId: host.id, author: 'user', body: confirmBody(text) })
+      : ipcRenderer.invoke('rv-add-thread', { commentsUrl: commentsUrl, body: confirmBody(text), anchor: {
+          path: regionPathOf(h), snippet: text.slice(0, 400), wholeBlock: true, heading: nearestHeading(h),
+          context: snippetAmbiguous(text, h.textContent) ? text.slice(0, 600) : '',
+        } }),
+      'Could not confirm');
+  }
+
+  // The heading turning (or returning) is the receipt, so success is silent.
+  function settleDecision(request, failMsg) {
+    decisionBusy = true;
+    request.then(function (res) {
+      decisionBusy = false;
+      if (!res || !res.success) { toast((res && res.error) || failMsg); return; }
+      store = res.data;
+      renderAndTrack(false);
+    }, function () { decisionBusy = false; toast(failMsg); });
   }
 
   function openReply(div, threadId) {
@@ -1262,6 +1384,19 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       '.rv-thread .md-pending-diff-old{color:#9f1239;background:rgba(244,63,94,.08)}',
       '.rv-thread .md-pending-diff-new{color:#1a7f37;background:rgba(26,127,55,.08)}',
       '.rv-edit-inplace{color:#6e7781;font-style:italic}',
+      // --- decision confirm: the status glyph's own box, now a button ---
+      '.rv-decision.rv-decision-live::before{content:none}',
+      '.rv-decision-mark{position:relative;display:inline-block;width:1.15em;margin:0 .35em 0 0;padding:0;border:0;',
+      'background:none;color:inherit;font:inherit;font-weight:700;line-height:inherit;text-align:center;cursor:pointer}',
+      '.rv-decision-mark::before{content:"○"}',
+      '.rv-decision-confirmed>.rv-decision-mark::before{content:"✓"}',
+      '.rv-decision-mark:disabled{cursor:default}',
+      // Hover previews the act: a tick lands in the circle; your own tick fades.
+      '.rv-decision-unconfirmed>.rv-decision-mark:not(:disabled):hover::after{content:"✓";position:absolute;inset:0;',
+      'color:#1a7f37;transform:scale(.6)}',
+      '.rv-decision-confirmed>.rv-decision-mark:not(:disabled):hover::before{opacity:.4}',
+      '.rv-decision-mark:focus-visible{outline:2px solid #0969da;outline-offset:1px;border-radius:3px}',
+      '.rv-confirm-word{color:#1a7f37;font-weight:600}',
     ].join('');
     document.head.appendChild(st);
   }

@@ -121,6 +121,7 @@ const {
   threadAwaitsAgent,
   threadHasAgentEvents,
 } = require('./agent-journal');
+const { isConfirmMessage } = require('./decision-confirm');
 const { decideStall, unaddressedCount, STALL_IDLE_MS } = require('./comment-stall');
 const {
   orderedRunbookCandidates,
@@ -5271,6 +5272,30 @@ ipcMain.handle('rv-add-message', async (event, { commentsUrl, threadId, body } =
       // The reopen is derived, never written: this follow-up postdates any
       // journal `resolved`, so the merge's recency rule reopens the thread.
       t.messages.push({ author: 'user', body: text, ts: Date.now() });
+      await saveCommentStore(p, store);
+      return { success: true, data: mergeStoreWithJournal(store, await readJournalEvents(p)) };
+    } catch (e) { return { success: false, error: e.message }; }
+  });
+});
+
+// Take back a decision confirm (decision-confirm.js) no send has covered.
+// Only that message goes: a confirm that joined a conversation on the heading
+// leaves the conversation as it was, and a thread that held nothing else goes
+// with it. An unstamped user message is one the agent was never asked about.
+ipcMain.handle('rv-retract-confirm', async (event, { commentsUrl, threadId } = {}) => {
+  const p = commentsPathFromUrl(commentsUrl);
+  if (!validCommentsPath(p)) return { success: false, error: 'not a comments store' };
+  return withCommentsLock(p, async () => {
+    try {
+      const store = await loadCommentStore(p);
+      const i = store.threads.findIndex((x) => x.id === threadId);
+      if (i === -1) return { success: false, error: 'thread not found' };
+      const msgs = store.threads[i].messages || [];
+      const j = msgs.findLastIndex(isConfirmMessage);
+      if (j === -1) return { success: false, error: 'no confirm to take back' };
+      if (Number.isFinite(msgs[j].turn)) return { success: false, error: 'already sent to the agent — reply instead' };
+      msgs.splice(j, 1);
+      if (!msgs.length) store.threads.splice(i, 1);
       await saveCommentStore(p, store);
       return { success: true, data: mergeStoreWithJournal(store, await readJournalEvents(p)) };
     } catch (e) { return { success: false, error: e.message }; }
