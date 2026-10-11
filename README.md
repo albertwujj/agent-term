@@ -52,7 +52,7 @@ As agents take on more implementation, traditional IDE functions take a back sea
 AgentTerm controls both the terminal and the visual pages in it, so it can coordinate presentation, focus, and feedback. A document or review takes the center when needed and gets out of the way as your focus shifts. Your edits and comments go back to the same agent, with its replies and changes shown in place.
 
 <p align="center">
-<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window-changes-fe7db82478.gif"><img src="docs/assets/viewer-window-changes-fe7db82478.gif" alt="An AgentTerm window in three states: document feedback beside the conversation, the revised document filling the window with green change highlights and an inline agent reply, and the document rolled up while typing"></a>
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window-changes-86df8ad3f2.gif"><img src="docs/assets/viewer-window-changes-86df8ad3f2.gif" alt="An AgentTerm window in three states: document feedback beside the conversation, the revised document filling the window with green change highlights and an inline agent reply, and the document rolled up while typing"></a>
 <br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts. In the fully open frame, the agent’s changes are highlighted in green.
 </p>
 
