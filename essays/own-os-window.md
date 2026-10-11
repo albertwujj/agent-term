@@ -68,4 +68,6 @@ Hidden sessions could all stay alive, but then their memory would add up, so I s
 
 I switch between agents all day as I do with every other app: a glance at the Dock, a click, Cmd-Tab. My agents sit where the rest of my work sits, each with a distinct identity. As my sessions accumulate, I keep track of them and avoid having so many in view at the same time that I get confused. It's a pleasure to use every day.
 
-The windows are one of many parts of AgentTerm, alongside commenting on agent output and curated code reviews. Next in this series: why AgentTerm skips an installer or package, and how it still runs like an installed app. Running from source makes it easy to personalize: change the code with agents, open a new window, and use the improvement right away.
+The windows are one of many parts of AgentTerm, alongside commenting on agent output and curated code reviews. [Try it and tinker with it](../README.md#quick-start). For a CLI session you started outside AgentTerm, the first prompt you send after resuming it here becomes the terminal session's initial prompt.
+
+Next in this series: why AgentTerm skips an installer or package, and how it still runs like an installed app. Running from source makes it easy to personalize: change the code with agents, open a new window, and use the improvement right away.
