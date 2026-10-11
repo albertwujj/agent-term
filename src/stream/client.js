@@ -60,13 +60,16 @@ function sleep(ms) {
 }
 
 class StreamClient {
-  constructor({ onStateChange, getRegistration, getIsWorking, onInputs, onVoiceInputs } = {}) {
+  constructor({ onStateChange, getRegistration, getIsWorking, getTouchedAt, onInputs, onVoiceInputs } = {}) {
     this.onStateChange = onStateChange || (() => {});
     // Returns the current RunMeta. Used to recover when the hub forgets
     // us (restart, eviction) and starts returning 404 — we re-register.
     this.getRegistration = getRegistration || (() => null);
     // Returns the source's "AI is working" bool. Stamped on heartbeats.
     this.getIsWorking = getIsWorking || (() => false);
+    // Returns when the session last drew the user (ms epoch). Stamped on
+    // heartbeats; the viewer orders a machine's sessions by it.
+    this.getTouchedAt = getTouchedAt || (() => null);
     // Receives viewer-submitted prompts drained from heartbeat responses.
     this.onInputs = onInputs || (() => {});
     // Receives voice-origin transcripts (hub /voice, kept in a separate
@@ -216,7 +219,7 @@ class StreamClient {
     this._enqueue({
       method: 'POST',
       path: `/runs/${this.runId}/heartbeat`,
-      body: { isWorking: !!this.getIsWorking() },
+      body: { isWorking: !!this.getIsWorking(), touchedAt: this.getTouchedAt() },
     });
   }
 

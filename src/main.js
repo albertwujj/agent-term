@@ -1956,8 +1956,9 @@ function noteUserInput() {
 }
 
 // Something here wants the user's eye without their acting in this window (it
-// opened, it was chosen in a picker, its agent finished a turn): restart the
-// timer at the current reading and leave the clock alone.
+// opened, it was chosen in a picker, its agent finished a turn, the phone
+// viewer sent it input): restart the timer at the current reading and leave
+// the clock alone.
 function restartWindowTimer() {
   try {
     touchedClock = getInputClock().read();
@@ -2503,6 +2504,9 @@ function createWindow() {
     // on each heartbeat so the viewer's working indicator stays accurate
     // even during quiet stretches when no block is being pushed.
     getIsWorking: () => computeIsWorking(),
+    // The window's auto-hide timer, so the viewer ranks sessions the way
+    // auto-hide keeps them in view (docs/dev/auto-hide.md).
+    getTouchedAt: () => touchedAt,
     // Inputs drain from heartbeat response; write each to the PTY as
     // plain typed characters followed by a CR. NOT bracketed paste:
     // Claude's "paste-then-CR-outside-paste = submit" is Claude-specific,
@@ -2516,6 +2520,7 @@ function createWindow() {
     // malicious client could POST anything to /input; defense in depth.
     onInputs: (inputs) => {
       if (!ptyProcess) return;
+      restartWindowTimer();
       for (const raw of inputs) {
         if (typeof raw !== 'string' || raw.length === 0) continue;
         // Raw key event (viewer-side ↑/↓/Enter button) — input starts
@@ -2557,6 +2562,7 @@ function createWindow() {
     // there first.
     onVoiceInputs: (transcripts) => {
       if (!ptyProcess) return;
+      restartWindowTimer();
       for (const raw of transcripts) {
         if (typeof raw !== 'string') continue;
         const transcript = raw.replace(/[\r\n]+/g, ' ').trim();

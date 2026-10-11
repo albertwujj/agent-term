@@ -22,8 +22,10 @@ Agent activity leaves the clock alone. Agents run while you are away, and a cloc
 
 A window's own timer restarts when:
 
-- you focus it or give it input;
+- you focus it or give it input, here or from the phone viewer;
 - its agent finishes a turn. An agent that finishes while you are away leaves its window a full interval once you return.
+
+The phone viewer lists the sessions waiting on you by this timer, most recent first.
 
 A window is stale after about 60 minutes of this clock without either, and hides at the next opening (below). The number is a starting point, tuned by use.
 
