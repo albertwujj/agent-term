@@ -4,7 +4,7 @@
 
 My agent sessions accumulate. A few are active at any moment, one fixing a bug, another with a plan I haven't read yet, and I switch between them all day. Many more are waiting, some on a reply to an email I sent. I keep all of them, because almost any of them may need me again: a finished fix can have follow-ups days later.
 
-Most tools for this put every session inside one window: panes in tmux, tabs in a terminal, a sidebar or a grid in a manager app. A separate terminal window per agent gets closer, but those windows all look alike, and each moves on to the next task after a Ctrl-C. In AgentTerm, the window is the session: each one runs in its own process, with its own Dock tile on macOS or taskbar button on Windows. The tile, the window itself and its previews are each designed so I can tell my agents apart at a glance.
+Most tools for this put every session inside one window: panes in tmux, tabs in a terminal, a sidebar or a grid in a manager app. A separate terminal window per agent gets closer, but those windows all look alike, and each moves on to the next task after a Ctrl-C. **In AgentTerm, the window is the session: each one runs in its own process, with its own Dock tile on macOS or taskbar button on Windows.** The tile, the window itself and its previews are each designed so I can tell my agents apart at a glance.
 
 [![Enlarged Mac Dock tiles and Windows taskbar buttons, one per session; background session content is blurred.](../docs/assets/hero-session-switching.gif?v=bd822b091be5)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-session-switching.gif?v=bd822b091be5)
 
@@ -28,9 +28,9 @@ A Dock tile or taskbar button normally stands for an app, so every terminal wind
 
 The identity carries into the window and its previews. My opening prompts stay pinned at the top of the window, so agents stay distinct in Mission Control. On Windows, hovering a taskbar button shows a card with the first prompt, my latest prompts, the CLI's titles and more, in large text. It replaces the usual shrunken screenshot, a blur of the terminal's latest output in tiny text. On both systems, a mark under the tile or button shows which agents are working.
 
-## Automatic: no manual renaming or grouping
+## Automatic: no renaming or grouping required
 
-Many tools ask me to name sessions or arrange them into projects and workspaces. In AgentTerm, the color and the label come automatically. I never rename a session or sort it into folders or groups; its identity is there from my first prompt.
+Many tools ask me to name sessions or arrange them into projects and workspaces. In AgentTerm, the color and the label come automatically. I never need to rename a session or sort it into folders or groups; its identity is there from my first prompt. Renaming and grouping can be added for anyone who wants them.
 
 Finding an old session needs no grouping either. A session leaves many clues as it runs, and the session picker searches the ones it collects, such as my later prompts. More can be collected, for example the files its agent touched, and the search can grow to use them.
 
@@ -38,9 +38,11 @@ Finding an old session needs no grouping either. A session leaves many clues as 
 
 ## A process per session
 
-Each window is a separate AgentTerm process, with its own renderer, shell and agent below it. A window that hangs or crashes takes only its own session with it. There is no central daemon to fail.
+Each window is a separate AgentTerm process, with its own renderer, shell and agent below it. A window that hangs or crashes takes only its own session with it. They don't depend on a central daemon.
 
 The windows self-coordinate, communicating through small files. Each window publishes its pid, boot time, idle timer and hidden state in its own file. To ask another window to act, a process drops a small file into a directory that window watches, and the window rechecks its own state before acting. Every write uses the usual atomic file rename. Files suit this better than direct IPC: coordination is fully asynchronous and crash-resilient by construction.
+
+A central manager can still complement the windows: each one already streams to [a hub I host](https://github.com/albertwujj/agent-stream-hub), which shows them on my phone, across all my machines.
 
 ## The challenges
 
