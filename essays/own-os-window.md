@@ -68,4 +68,4 @@ Hidden sessions could all stay alive, but then their memory would add up, so I s
 
 I switch between agents all day as I do with every other app: a glance at the Dock, a click, Cmd-Tab. My agents sit where the rest of my work sits, each with a distinct identity. As my sessions accumulate, I keep track of them and avoid having so many in view at the same time that I get confused. It's a pleasure to use every day.
 
-The windows are one of many parts of AgentTerm, alongside commenting on agent output and curated code reviews. Next in this series: why AgentTerm has no installer or package, and why that makes it easier to use.
+The windows are one of many parts of AgentTerm, alongside commenting on agent output and curated code reviews. Next in this series: why AgentTerm skips an installer or package, and how it still runs like an installed app. Running from source makes it easy to personalize: change the code with agents, open a new window, and use the improvement right away.
