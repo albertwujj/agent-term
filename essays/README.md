@@ -1,4 +1,4 @@
-# Essays — Rethinking what a terminal should be for AI CLIs
+# Essays — Rethink what a terminal should be for AI CLIs
 
 I use AI CLIs for coding, writing and planning, and that changes what I want from a terminal. Each essay explores one design decision behind AgentTerm, based on more than eight months of daily use.
 
