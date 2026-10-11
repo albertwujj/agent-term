@@ -53,7 +53,7 @@ AgentTerm controls both the terminal and the visual pages in it, so it can coord
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window-changes-86df8ad3f2.gif"><img src="docs/assets/viewer-window-changes-86df8ad3f2.gif" alt="An AgentTerm window in three states: document feedback beside the conversation, the revised document filling the window with green change highlights and an inline agent reply, and the document rolled up while typing"></a>
-<br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts. In the fully open frame, the agent’s changes are highlighted in green.
+<br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts. Green highlights show the agent’s changes in response to your feedback.
 </p>
 
 Persistent panels can compete with the agent conversation for your attention. Here the window is dedicated to one agent, shaped by your work, and full screen if you like, resulting in fewer distractions ([one OS window per agent](#one-os-window-per-session)).
