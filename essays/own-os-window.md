@@ -4,7 +4,7 @@
 
 My agent sessions accumulate. A few are active at any moment, one fixing a bug, another with a plan I haven't read yet, and I switch between them all day. Many more are waiting, some on a reply to an email I sent. I keep all of them, because almost any of them may need me again: a finished fix can have follow-ups days later.
 
-Most tools for this put every session inside one window: panes in tmux, tabs in a terminal, a sidebar or a grid in a manager app. A separate terminal window per agent gets closer, but those windows all look alike, and each moves on to the next task after a Ctrl-C. In AgentTerm, **the window is the session: each one runs in its own process, with its own Dock tile or taskbar button**, on macOS and Windows. The tile, the window itself and its previews are each designed so I can tell my agents apart at a glance.
+Most tools put every session inside one window: panes in tmux, tabs in a terminal, a sidebar or a grid in a manager app. A separate terminal window per agent gets closer, but those windows all look alike, and each moves on to the next task after a Ctrl-C. In AgentTerm, **the window is the session: each one runs in its own process, with its own Dock tile or taskbar button**, on macOS and Windows. The tile, the window itself and its previews are each designed so I can tell my agents apart at a glance.
 
 [![Enlarged Mac Dock tiles and Windows taskbar buttons, one per session; background session content is blurred.](../docs/assets/hero-session-switching.gif?v=bd822b091be5)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-session-switching.gif?v=bd822b091be5)
 
@@ -16,7 +16,7 @@ When each agent is a window, all of those tools work on agents directly. Snappin
 
 ## An identity for each agent
 
-A Dock tile or taskbar button normally stands for an app, so every terminal window running a coding agent sits under the terminal's one tile. AgentTerm turns that around and gives each agent its own tile, showing two things I can recognize at a glance.
+Normally there is one Dock tile or taskbar button per app, so all terminals running different coding agents sit under one terminal tile. AgentTerm gives each agent its own tile, showing two things I can recognize at a glance.
 
 **A color.** Each new session takes the color farthest from the colors of the sessions already open, on a wheel tuned so the colors read as plain red, green, blue, orange or purple. They make agents easy to tell apart, and they are pleasant to look at, so I'm at ease and focused.
 
