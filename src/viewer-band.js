@@ -128,8 +128,10 @@ function ensureBandStyles() {
     .vb-shell.hidden .vb-bar-left, .vb-shell.hidden .vb-bar-right,
     .vb-shell.hidden .vb-title { display: none; }
     .vb-shell.hidden .vb-close {
+      /* Keep the lower bar's button size: auto shrinks the hit target to the
+         glyph and shifts its centre towards the window edge when rolled up. */
       margin: 0; padding: 0; border: none; background: transparent;
-      width: auto; height: auto; color: #aab1ba; font-size: 12px; line-height: 1;
+      color: #aab1ba; font-size: 12px; line-height: 1;
       opacity: 0; transition: opacity 160ms ease, color 160ms ease;
     }
     .vb-shell.hidden .vb-bar:hover .vb-close { opacity: 1; }
