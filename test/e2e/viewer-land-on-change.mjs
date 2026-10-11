@@ -85,6 +85,12 @@ try {
     while (got !== want && Date.now() < until) { await page.waitForTimeout(100); got = await band(); }
     return got;
   };
+  const unseen = () => page.locator('.vb-shell.vb-md.vb-unseen').count().then(Boolean);
+  const waitSeen = async () => {
+    const until = Date.now() + 2500;
+    while (await unseen() && Date.now() < until) await page.waitForTimeout(100);
+    return !(await unseen());
+  };
   // On one of the two pages, under nothing: what the user can see.
   const onScreen = (text) => page.evaluate((text) => {
     for (const p of document.querySelectorAll('.md-viewer-body p')) {
@@ -116,11 +122,17 @@ try {
   await serve(source({ end: END }), 2);
   await page.waitForTimeout(4000); // the doc poll, and more than the rest after it
   check('the change holds the band while the thread waits', await band() === 'hidden', await band());
+  check('the hidden change leaves an unseen indicator', await unseen());
+  await page.waitForTimeout(6500); // past the existing nine-second flash
+  check('the indicator survives the flash ending', await unseen());
+  check('with a persistent edge on the rolled-up handle', await page.locator('.vb-md .vb-bar').evaluate((bar) =>
+    getComputedStyle(bar).boxShadow !== 'none' && bar.getAnimations().every((a) => a.playState === 'finished')));
   await store('Yes, it is.');
   check('the resolve brings it up full', await waitBand('full', 5000) === 'full', await band());
   await page.waitForTimeout(500);
   check('on the page that holds the thread', await onScreen('Paragraph 2 '));
   check('which left the change below', !(await onScreen(END)));
+  check('an off-page change remains unseen after expansion', await unseen());
 
   // Nothing waits now: a change at the end brings the band up on its page.
   console.log('A change with nothing waiting, out of a roll-up');
@@ -131,6 +143,7 @@ try {
   await page.waitForTimeout(500);
   check('on the page that holds the change', await onScreen(LATER));
   check('which left the first page', !(await onScreen('Paragraph 0 ')));
+  check('showing the changes clears the indicator', await waitSeen());
 
   // At the split the user is reading: the change takes the band full, on the
   // page it was on.
@@ -143,6 +156,39 @@ try {
   await page.waitForTimeout(500);
   check('on the page the user was reading', await onScreen(LATER));
   check('which does not turn to the change', !(await onScreen(TOP)));
+  check('the off-page update lights the open band too', await unseen());
+  await page.locator('.primary .md-page-viewport').evaluate((pane) => { pane.scrollTop = 0; });
+  check('turning to that update clears the indicator', await waitSeen());
+
+  // A write arrives during a terminal correction. Its blocked move is consumed,
+  // but the notification survives Enter and the typing timeout.
+  await terminal.focus();
+  await page.keyboard.type('correction draft');
+  await serve(source({ top: 'Corrected top paragraph.', end: `${END}\n\n${LATER}` }), 5);
+  await page.waitForTimeout(4000);
+  check('typing holds the viewer rolled up with an indicator', await band() === 'hidden' && await unseen());
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(2500);
+  check('Enter does not retry the blocked expansion', await band() === 'hidden' && await unseen());
+  await page.locator('.vb-md .vb-bar').click({ position: { x: 300, y: 10 } });
+  check('manually displaying the correction clears the indicator', await waitSeen());
+
+  // A new user follow-up is not an agent update. The later agent reply sits
+  // behind a folded row, whose summary still shows the earlier answer.
+  await app.evaluate(() => {
+    delete globalThis.__landStore.threads[0].status;
+    globalThis.__landStore.threads[0].messages.push({ author: 'user', body: 'One correction.', ts: 3, turn: 2 });
+  });
+  await page.waitForTimeout(1500);
+  check('the user follow-up does not mark an agent update', !(await unseen()));
+  await app.evaluate(() => {
+    globalThis.__landStore.threads[0].status = 'resolved';
+    globalThis.__landStore.threads[0].messages.push({ author: 'agent', body: 'Captured that correction.', ts: 4, turn: 2 });
+  });
+  await page.waitForTimeout(1500);
+  check('a later reply stays unseen behind the folded summary', await unseen());
+  await page.locator('.primary .md-thread-resolved-line').click();
+  check('opening the thread displays the reply and clears it', await waitSeen());
 } finally {
   await app.close();
   fs.rmSync(tmp, { recursive: true, force: true });

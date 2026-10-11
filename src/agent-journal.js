@@ -83,6 +83,12 @@ function mergeStoreWithJournal(store, events) {
     if (e.status === 'open' || e.status === 'resolved') {
       t.status = e.status;
       statusTs.set(t.id, Math.max(statusTs.get(t.id) || 0, Number.isFinite(e.ts) ? e.ts : 0));
+      // A follow-up reopens the conversation, not an already completed edit.
+      // Keep resolution history on the merged view, independently of the
+      // current disposition. It is derived from the journal, never stored.
+      if (e.status === 'resolved') {
+        t.resolved_ts = Math.max(t.resolved_ts || 0, Number.isFinite(e.ts) ? e.ts : 0);
+      }
     }
     if (typeof e.title === 'string') t.title = e.title;
     if (e.anchor && typeof e.anchor === 'object') t.anchor = { ...(t.anchor || {}), ...e.anchor };
@@ -129,6 +135,10 @@ function threadAwaitsAgent(t) {
   return !!u && Number.isFinite(u.turn) && !t.status;
 }
 
+function threadHasBeenResolved(t) {
+  return !!t && (t.status === 'resolved' || Number.isFinite(t.resolved_ts));
+}
+
 // Has the agent said or set anything on this thread? What seals a thread
 // against Discard: journal events mean the agent has it, even when the
 // store's own messages are still wholly the user's.
@@ -136,4 +146,4 @@ function threadHasAgentEvents(events, threadId) {
   return Array.isArray(events) && events.some((e) => e.thread === threadId);
 }
 
-module.exports = { journalPathForStore, parseJournal, mergeStoreWithJournal, threadAwaitsAgent, threadHasAgentEvents };
+module.exports = { journalPathForStore, parseJournal, mergeStoreWithJournal, threadAwaitsAgent, threadHasBeenResolved, threadHasAgentEvents };

@@ -96,6 +96,7 @@ try {
     if (s.classList.contains('open')) return s.classList.contains('vb-full') ? 'full' : 'golden';
     return s.classList.contains('hidden') ? 'hidden' : 'closed';
   });
+  const unseen = () => page.locator('.vb-shell.vb-web.vb-unseen').count().then(Boolean);
   // Whether the selector's first match is inside the review's viewport.
   const inView = (selector) => inReview(`(() => {
     const el = document.querySelector(${JSON.stringify(selector)});
@@ -123,6 +124,7 @@ try {
   check('the reply brings it up full', await waitFor(async () => (await band()) === 'full', 8000), await band());
   check('scrolled to the pulsing reply', await waitFor(() => inView('.rv-pulse'), 8000));
   check('which left the top', (await inReview('scrollY')) > 200, await inReview('scrollY'));
+  check('displaying the agent reply clears its unseen indicator', await waitFor(async () => !(await unseen()), 3000));
   await sleep(10_000); // the reply's pulse runs out
 
   // A reply at the split: up full, where the user was.
@@ -135,6 +137,9 @@ try {
   await sleep(1500);
   check('the review stays at the top', (await inReview('scrollY')) < 1, await inReview('scrollY'));
   await sleep(9000);
+  check('an off-screen reply stays indicated after its flash', await unseen());
+  await inReview('document.querySelector(".rv-thread[data-rv-tid=\\"t1\\"]").scrollIntoView({ block: "center" })');
+  check('scrolling to the reply clears the indicator', await waitFor(async () => !(await unseen()), 3000));
 
   // New diff lines out of a roll-up: the review re-renders and reloads, then
   // scrolls to the first new line.
@@ -165,12 +170,14 @@ try {
   reply('Adding d after c.');
   await sleep(6000); // main's poll, and more than the rest after it
   check('the explanation alone holds the band', await band() === 'hidden', await band());
+  check('a hidden explanation remains indicated', await unseen());
   fs.appendFileSync(path.join(repo, 'f.js'), 'export const d = 4;\n');
   git('commit', '-qam', 'Add d');
   fs.writeFileSync(pkg, pkgText(git('rev-parse', 'HEAD')));
   check('the review re-renders', await waitFor(() => inReview('/const d = 4/.test(document.body.textContent)'), 15_000));
   await sleep(4000); // past the rest after the re-render
   check('the re-render holds the band while the thread waits', await band() === 'hidden', await band());
+  check('unseen content survives a guest reload while hidden', await unseen());
   reply('Added d. Should c go as well?', 'open');
   check('the status brings it up full', await waitFor(async () => (await band()) === 'full', 8000), await band());
   check('scrolled to what pulses', await waitFor(() => inView('.rv-pulse'), 8000));

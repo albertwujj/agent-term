@@ -20,6 +20,7 @@ global.window = dom.window;
 global.document = dom.window.document;
 
 const { createCommitEditController } = require('../src/review-commit-edit');
+const { mergeStoreWithJournal } = require('../src/agent-journal');
 
 const SUBJECT = 'Fix limiter rounding';
 const P1 = 'The polling utilizes a timer to refill tokens.';
@@ -171,6 +172,21 @@ async function run() {
   // — resolved / gone threads restore the block —
   ctl.decorateEditThreads([]);
   check('removing the thread restores the block verbatim', p1.innerHTML === P1, p1.innerHTML);
+
+  // Resolving can mean keeping the current text after considering an edit.
+  // A later refinement must not re-strike that completed suggestion even when
+  // its original text still matches the current commit message.
+  const resolvedEvents = [{ thread: 'e1', status: 'resolved', ts: 10 }];
+  const completed = mergeStoreWithJournal({ threads: [editThread] }, resolvedEvents).threads[0];
+  placed = ctl.decorateEditThreads([completed]);
+  check('a completed commit edit leaves the current text clean', !placed.has('e1') && p1.innerHTML === P1);
+  const refining = mergeStoreWithJournal({ threads: [{ ...editThread, messages: [
+    ...editThread.messages, { author: 'user', body: 'Try a shorter phrase instead.', ts: 20 },
+  ] }] }, resolvedEvents).threads[0];
+  placed = ctl.decorateEditThreads([refining]);
+  check('a follow-up reopens the commit conversation', !refining.status);
+  check('a follow-up does not restore the completed commit edit', !placed.has('e1') && p1.innerHTML === P1);
+  ctl.decorateEditThreads([]);
 
   // — revisit: a pending user-only edit re-enters in place —
   needsSendFlag = true;

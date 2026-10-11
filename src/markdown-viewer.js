@@ -12,9 +12,10 @@ const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { findSentenceRange } = require('./sentence-selection');
 const { createViewerBand } = require('./viewer-band');
+const { createUnseenTracker, elementIsShown } = require('./viewer-updates');
 const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isMac, isPasteCommentShortcut } = require('./comment-ui');
 const { AGENT_THREADS_CLONE_PROMPT } = require('./loop-install');
-const { threadAwaitsAgent } = require('./agent-journal');
+const { threadAwaitsAgent, threadHasBeenResolved } = require('./agent-journal');
 const {
   isPlainCommentKey,
   isCommentEntryKey,
@@ -1195,6 +1196,7 @@ function createMarkdownViewer({
     threadStoreSig: '',
     agentMarks: null, // agentMarks() of the last store read; null until the first after an open
     agentLandTargets: [], // what the agent's writes since the band last moved went to (agentWrote)
+    unseenTargets: new Map(), // resolvers survive page flips and DOM rebuilds
     threadPollInFlight: false,
     threadRenderPending: false,
     threadReply: null,
@@ -1302,6 +1304,34 @@ function createMarkdownViewer({
     },
     onClose: () => { teardownMarkdown(); if (typeof onClose === 'function') onClose(); },
   });
+
+  const unseen = createUnseenTracker((on) => band.setUnseen(on));
+  let unseenRaf = 0;
+  function noteUnseen(key, resolve) {
+    state.unseenTargets.set(key, resolve);
+    unseen.add(key);
+    checkUnseenSoon();
+  }
+  function checkUnseenSoon() {
+    if (unseenRaf || !state.unseenTargets.size) return;
+    unseenRaf = requestAnimationFrame(() => {
+      unseenRaf = 0;
+      if (!band.isOpen() || document.visibilityState === 'hidden'
+          || state.threadRenderPending || state.imageRefreshPending) return;
+      for (const [key, resolve] of state.unseenTargets) {
+        const shown = [state.article, state.secondaryArticle].some((article) => {
+          const pane = article && article.parentElement;
+          return pane && elementIsShown(resolve(article), pane.getBoundingClientRect());
+        });
+        if (shown) { state.unseenTargets.delete(key); unseen.seen(key); }
+      }
+    });
+  }
+  document.addEventListener('viewer-band-geometry', (e) => {
+    if (e.detail.name === 'md') checkUnseenSoon();
+  });
+  document.addEventListener('visibilitychange', checkUnseenSoon);
+  window.addEventListener('focus', checkUnseenSoon);
 
   function ensureMounted() {
     if (state.shell) return;
@@ -1710,6 +1740,7 @@ function createMarkdownViewer({
     const insetRight = Math.max(0, Math.round(paneRect.right - colRect.right));
     placeSeamRule(state.secondaryVeil, state.secondaryPane, gutterOverlap, lineH, insetLeft, insetRight);
     placeSeamRule(state.primaryVeil, state.primaryPane, flipOverlap, lineH, insetLeft, insetRight);
+    checkUnseenSoon();
   }
 
   // ── Keep-together for the comment apparatus ────────────────────────────
@@ -2265,10 +2296,17 @@ function createMarkdownViewer({
     if (applied) markMarkdownRefreshViewUpdated();
     // The doc changed on disk: the agent's new content. Its first change is
     // the one this refresh flashes highest in the document.
-    if (applied && !beforeSend) {
-      const first = state.changeFlashRecords.slice()
-        .sort((a, b) => (a.sourceStartLine || 0) - (b.sourceStartLine || 0))[0];
-      agentWrote(first ? () => resolveChangeRecordAnchor(state.article, first) : null);
+    if (applied) {
+      const records = state.changeFlashRecords.slice();
+      for (const record of records) {
+        noteUnseen(`doc:${record.anchorId || record.sourceStartLine}`,
+          (article) => resolveChangeRecordAnchor(article, record) || article.firstElementChild);
+      }
+      if (!records.length) noteUnseen('doc:unlocated', (article) => article.firstElementChild);
+      if (!beforeSend) {
+        const first = records.sort((a, b) => (a.sourceStartLine || 0) - (b.sourceStartLine || 0))[0];
+        agentWrote(first ? () => resolveChangeRecordAnchor(state.article, first) : null);
+      }
     }
     return applied;
   }
@@ -2288,8 +2326,8 @@ function createMarkdownViewer({
   // generated it). True when a known image's mtime moved, i.e. the file was
   // rewritten after we fetched it.
   function updateImageVersions(imageMtimes) {
-    if (!imageMtimes || typeof imageMtimes !== 'object') return false;
-    let changed = false;
+    if (!imageMtimes || typeof imageMtimes !== 'object') return [];
+    const changed = [];
     for (const [path, mtime] of Object.entries(imageMtimes)) {
       const prev = state.imageVersions.get(path);
       if (!Number.isFinite(mtime)) {
@@ -2300,7 +2338,7 @@ function createMarkdownViewer({
       }
       if (prev === mtime) continue;
       state.imageVersions.set(path, mtime);
-      if (prev !== undefined) changed = true;
+      if (prev !== undefined) changed.push(path);
     }
     return changed;
   }
@@ -2340,8 +2378,14 @@ function createMarkdownViewer({
       if (!statSignature) {
         throw new Error('Markdown refresh stat response is missing mtime/size');
       }
-      if (updateImageVersions(statResult.imageMtimes)) {
+      const changedImages = updateImageVersions(statResult.imageMtimes);
+      if (changedImages.length) {
         refreshEmbeddedImages();
+        for (const path of changedImages) noteUnseen(`image:${path}`, (article) =>
+          Array.from(article.querySelectorAll('img')).find((img) => {
+            try { return decodeURIComponent(new URL(img.src).pathname) === path; } catch { return false; }
+          }));
+        band.flash();
         agentWrote(null); // a regenerated image is the agent's new content too
       }
       flushEmbeddedImageRefreshIfReady();
@@ -2415,15 +2459,30 @@ function createMarkdownViewer({
       state.threadStore = result.data;
       syncChangeAgeToStoreTurn(result.data);
       // The agent's new words are new content; the first read after an open
-      // only sets the baseline. They went to the threads whose marks grew.
+      // only sets the baseline. Ignore the user's follow-up clearing a status.
       const marks = agentMarks(result.data);
       const answered = state.agentMarks === null ? []
-        : (result.data.threads || []).filter((t) => (marks.get(t.id) || 0) > (state.agentMarks.get(t.id) || 0));
+        : (result.data.threads || []).filter((t) => {
+          const now = marks.get(t.id), before = state.agentMarks.get(t.id);
+          return now && ((now.messages !== (before ? before.messages : '[]'))
+            || (now.status && now.status !== (before && before.status)));
+        });
       state.agentMarks = marks;
       // A store update can answer a sealed edit, releasing a refresh that was
       // held waiting on it — apply it now so the resolve lands in one step.
       if (!applyPendingMarkdownRefreshIfReady()) scheduleThreadLayerRender();
-      for (const t of answered) agentWrote(() => resolveThreadTarget(state.article, t));
+      for (const t of answered) {
+        const messages = t.messages || [];
+        const index = messages.findLastIndex((m) => m.author === 'agent');
+        noteUnseen(`thread:${t.id}`, (article) => {
+          const row = article.querySelector(`[data-md-keep-key="${escapeSelectorValue(`thread:${t.id}`)}"]`);
+          if (!row) return null;
+          if (index < 0) return row; // status-only update
+          return row.querySelector(`[data-md-message-index="${index}"]`);
+        });
+        agentWrote(() => resolveThreadTarget(state.article, t));
+      }
+      if (answered.length) band.flash();
     } catch {} finally {
       state.threadPollInFlight = false;
     }
@@ -4256,6 +4315,8 @@ function createMarkdownViewer({
     state.threadStoreSig = '';
     state.agentMarks = null;
     state.agentLandTargets = [];
+    state.unseenTargets.clear();
+    unseen.reset();
     state.threadRenderPending = false;
     state.resolvedExpanded = new Set();
     state.editing = null;
@@ -5825,18 +5886,13 @@ function createMarkdownViewer({
     return !!(first && first.author === 'user' && parseEditEnvelope(first.body));
   }
 
-  // Un-consumed edit threads render IN PLACE as sent diffs (the pending view
-  // continuing through its lifecycle). Consumption today = the agent replied;
-  // agent_seen_turn joins as a second signal when the enumeration tool lands.
-  // An edit is consumed when it is APPLIED, which only `resolved` says. The
-  // agent replying while still blocked has changed nothing — the suggestion is
-  // still pending, so its block stays sealed and keeps showing the marks. (This
-  // used to ask "has the agent spoken?", the same inference the agent now
-  // declares for us; a blocked reply silently unsealed the block and the user's
-  // marks vanished from the page.)
+  // Sent edits stay in place until the agent resolves them. That completion
+  // survives a follow-up reopening the conversation: its old suggestion must
+  // never cover the current document again. A reply without any resolution
+  // still leaves the original edit pending.
   function isUnconsumedEditThread(thread) {
     if (!isEditThread(thread)) return false;
-    return thread.status !== 'resolved';
+    return !threadHasBeenResolved(thread);
   }
 
   // Does this thread need the user? That is the only question the page's one
@@ -5876,15 +5932,14 @@ function createMarkdownViewer({
   }
 
   // The agent's marks on the store, per thread: its messages and whether a
-  // status of its own stands (it owns the status). Counts, since main and the
-  // user only ever add the user's words and anchors.
+  // status of its own stands (it owns the status). Content signatures also
+  // notice a corrected reply or a status-only update.
   function agentMarks(store) {
     const threads = store && Array.isArray(store.threads) ? store.threads : [];
     const marks = new Map();
     for (const t of threads) {
-      let n = t.status ? 1 : 0;
-      for (const m of (Array.isArray(t.messages) ? t.messages : [])) if (m && m.author === 'agent') n += 1;
-      marks.set(t.id, n);
+      const messages = (Array.isArray(t.messages) ? t.messages : []).filter((m) => m && m.author === 'agent');
+      if (messages.length || t.status) marks.set(t.id, { status: t.status || '', messages: JSON.stringify(messages) });
     }
     return marks;
   }
@@ -6029,6 +6084,7 @@ function createMarkdownViewer({
       who.textContent = 'agent';
       text.append(who);
       text.append(document.createTextNode(clean(reply.body)));
+      text.setAttribute('data-md-message-index', msgs.indexOf(reply));
     }
     if (!text.textContent) text.textContent = clean(first);
     line.append(text);
@@ -6149,6 +6205,7 @@ function createMarkdownViewer({
       const msg = msgs[i];
       const row = document.createElement('div');
       row.className = 'md-thread-msg';
+      row.setAttribute('data-md-message-index', i);
       if (msg.author === 'agent') {
         const who = document.createElement('span');
         who.className = 'who';
@@ -6668,6 +6725,8 @@ function createMarkdownViewer({
     state.threadStoreSig = '';
     state.agentMarks = null;
     state.agentLandTargets = [];
+    state.unseenTargets.clear();
+    unseen.reset();
     state.threadRenderPending = false;
     state.resolvedExpanded = new Set();
     state.editing = null;

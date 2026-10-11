@@ -12,10 +12,51 @@ Object.defineProperty(window, 'innerHeight', {
 });
 
 const { createViewerBand, userIsTyping, setTypingProbe } = require('../src/viewer-band');
+const { createUnseenTracker, elementIsShown } = require('../src/viewer-updates');
+
+// Host-held baselines survive guest reloads; visibility never implies a reveal.
+{
+  let lit = false;
+  const updates = createUnseenTracker((on) => { lit = on; });
+  const a = { key: 'a', shown: true }, b = { key: 'b', shown: true };
+  updates.update('doc', [a], false);
+  assert.ok(!lit, 'the first read is a baseline');
+  updates.update('doc', [a, b], false);
+  assert.ok(lit, 'a hidden update lights the handle even with guest-visible rects');
+  updates.update('doc', [a, b], false);
+  assert.ok(lit, 'reloads and repeat snapshots do not consume an unseen update');
+  updates.update('doc', [a, { ...b, shown: false }], true);
+  assert.ok(lit, 'opening on another page leaves the update unseen');
+  updates.update('doc', [a, b], true);
+  assert.ok(!lit, 'displaying the update clears it');
+  updates.update('threads', [], true);
+  updates.update('threads', [{ key: 'agent reply', shown: false }], true);
+  updates.update('doc', [a], true, { deletions: true });
+  assert.ok(lit, 'a visible document update does not consume a folded reply');
+  updates.update('threads', [{ key: 'agent reply', shown: true }], true);
+  assert.ok(!lit, 'displaying the reply clears the last update');
+  updates.update('doc', [], false);
+  updates.reset();
+  updates.update('doc', [b], false);
+  assert.ok(!lit, 'a different document starts from a fresh baseline');
+
+  const clip = { top: 0, bottom: 100, left: 0, right: 100 };
+  const el = (rects) => ({ getClientRects: () => rects });
+  assert.ok(!elementIsShown(el([]), clip), 'folded content has no visible rect');
+  assert.ok(!elementIsShown(el([{ top: 99, bottom: 119, left: 0, right: 30, width: 30, height: 20 }]), clip),
+    'a one-pixel sliver does not count as displayed');
+  assert.ok(elementIsShown(el([{ top: 80, bottom: 100, left: 0, right: 30, width: 30, height: 20 }]), clip));
+}
 
 const band = createViewerBand({ name: 'test', reachAbove: true });
 band.open();
 band.toggleFullSize(); // the split view, by the size chord
+band.setUnseen(true);
+band.hide();
+band.show();
+assert.ok(band.shell.classList.contains('vb-unseen'), 'moves alone do not acknowledge content');
+band.setUnseen(false);
+band.toggleFullSize(); // back to the split for the gesture tests
 
 (async () => {
 const { shell, bar } = band;

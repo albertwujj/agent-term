@@ -4,6 +4,7 @@ const {
   parseJournal,
   mergeStoreWithJournal,
   threadAwaitsAgent,
+  threadHasBeenResolved,
   threadHasAgentEvents,
 } = require('../src/agent-journal');
 
@@ -130,6 +131,28 @@ check('a status event without ts loses to any timestamped user words', () => {
   };
   const merged = mergeStoreWithJournal(store, [{ thread: 't1', status: 'resolved' }]);
   assert.strictEqual(merged.threads[0].status, undefined);
+});
+
+check('resolution history survives a refinement reopening the conversation', () => {
+  const store = { threads: [{ id: 't1', messages: [
+    { author: 'user', body: '[Edit] original suggestion [/Edit]', ts: 10, turn: 1 },
+    { author: 'user', body: 'refine the result', ts: 40, turn: 2 },
+  ] }] };
+  const completed = [{ thread: 't1', body: 'Done.', status: 'resolved', ts: 20 }];
+  const refining = mergeStoreWithJournal(store, completed).threads[0];
+  assert.strictEqual(refining.status, undefined);
+  assert.strictEqual(refining.resolved_ts, 20);
+  assert.strictEqual(threadHasBeenResolved(refining), true);
+  assert.strictEqual(threadAwaitsAgent(refining), true);
+  assert.strictEqual(store.threads[0].resolved_ts, undefined, 'completion is derived, never written to the user store');
+  const blockedAgain = mergeStoreWithJournal(store, completed.concat([
+    { thread: 't1', body: 'Which refinement?', status: 'open', ts: 50 },
+  ])).threads[0];
+  assert.strictEqual(blockedAgain.status, 'open');
+  assert.strictEqual(threadHasBeenResolved(blockedAgain), true);
+  assert.strictEqual(threadHasBeenResolved(mergeStoreWithJournal(store, [
+    { thread: 't1', body: 'Which original edit?', status: 'open', ts: 20 },
+  ]).threads[0]), false, 'a blocked reply does not complete the original edit');
 });
 
 check('threadHasAgentEvents is what seals a thread against Discard', () => {

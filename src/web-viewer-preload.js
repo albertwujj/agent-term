@@ -34,6 +34,7 @@ const { createCommitEditController } = require('./review-commit-edit');
 const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
 const { confirmBody, isConfirmMessage, pendingConfirm } = require('./decision-confirm');
 const { installWebViewerPreloadCommon } = require('./web-viewer-preload-common');
+const { elementIsShown } = require('./viewer-updates');
 
 installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
 
@@ -101,6 +102,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     const pageUrl = location.href.replace(/[?#].*$/, '');
     commentsUrl = pageUrl.replace(/\.html$/i, '-comments.json');
     if (!commentsUrl || commentsUrl === pageUrl) return;
+    captureUpdateContent(); // before comment/edit decorations alter the page
     injectStyles();
     ensureQuoteUI();
     bindGutter();
@@ -112,6 +114,10 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     // Host pings this when the window regains focus, so agent replies / status
     // changes written to disk show up without a manual reload.
     ipcRenderer.on('rv-refresh', function () { load({ pulse: true }); });
+    ipcRenderer.on('rv-check-updates', reportUpdatesSoon);
+    document.addEventListener('scroll', reportUpdatesSoon, true);
+    window.addEventListener('resize', reportUpdatesSoon);
+    document.addEventListener('visibilitychange', reportUpdatesSoon);
     // The host mirrors its agent-working state here so awaiting rows can pulse
     // while the agent runs — the guest can't see the host's PTY heuristics.
     ipcRenderer.on('rv-working', function (_e, on) {
@@ -620,6 +626,47 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
   // (This is the in-place path only; a full page reload starts prevState=null → no first-render
   // flash. Diff-line pulse on reload is the follow-up scope.)
   let prevState = null; // { msgKeys:Set, status:Map } from the last render, or null before the first
+  let updateContent = [];
+  let updatesTimer = 0;
+  function captureUpdateContent() {
+    const counts = new Map();
+    updateContent = Array.from(document.querySelectorAll(
+      'section[data-path] .md-render > *, td.code[data-side], #commit .commit-subject, #commit .commit-body p'
+    )).map(function (el) {
+      const section = el.closest('section[data-path]');
+      const path = section ? (section.dataset.path || '').replace(/^\(note \d+\)$/, '(note)') : '(commit message)';
+      const images = Array.from(el.querySelectorAll('img')).map(function (img) { return img.getAttribute('src'); });
+      const base = JSON.stringify([path, el.tagName, el.dataset.side || '', normWS(el.textContent), images]);
+      const n = counts.get(base) || 0;
+      counts.set(base, n + 1);
+      return { key: base + '\0' + n, el: el };
+    });
+  }
+  function reportUpdatesSoon() {
+    if (updatesTimer || !commentsUrl) return;
+    // Long reviews can contain thousands of lines. Coalesce scrolling and
+    // resize reports instead of sending a full snapshot every animation frame.
+    updatesTimer = setTimeout(function () {
+      updatesTimer = 0;
+      const clip = { top: 0, left: 0, bottom: innerHeight, right: innerWidth };
+      const shown = function (el) { return elementIsShown(el, clip); };
+      const content = updateContent.map(function (item) { return { key: item.key, shown: shown(item.el) }; });
+      const threads = [];
+      ((store && store.threads) || []).forEach(function (t) {
+        const sel = (window.CSS && CSS.escape) ? CSS.escape(String(t.id)) : t.id;
+        const card = document.querySelector('.rv-thread[data-rv-tid="' + sel + '"]');
+        const rows = card ? card.querySelectorAll('.rv-msg') : [];
+        (t.messages || []).forEach(function (m, i) {
+          if (m.author === 'agent') threads.push({ key: msgKey(t.id, m), shown: shown(rows[i]) });
+        });
+        if (t.status) threads.push({ key: 'status\0' + t.id + '\0' + t.status, shown: shown(card) });
+      });
+      try {
+        ipcRenderer.sendToHost('rv-updates', { review: commentsUrl, scope: 'content', items: content });
+        if (prevState) ipcRenderer.sendToHost('rv-updates', { review: commentsUrl, scope: 'threads', items: threads });
+      } catch {}
+    }, 100);
+  }
 
   function msgKey(tid, m) {
     return tid + ' ' + ((m && m.author) || 'user') + ' ' + ((m && m.ts) || '') + ' ' + ((m && m.body) || '');
@@ -665,6 +712,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     render();
     if (pulse && before) applyPulses(before);
     prevState = threadStateOf((store && store.threads) || []);
+    reportUpdatesSoon();
   }
 
   // Writing — a comment, a reply, the commit message — tells the host, whose

@@ -62,6 +62,8 @@ function ensureBandStyles() {
     .vb-shell {
       /* Expanded bar colour; the collapsed hover frost derives from it. */
       --vb-bar: #4a4d53;
+      --vb-rest-bar: var(--vb-bar);
+      --vb-rest-border: var(--at-hue, rgba(100, 116, 139, 0.85));
       /* Edge-vignette colour: a neutral near-black, so the content's top/bottom edges
          read as a soft dark recess (depth on the light surface). A session-hue tint
          was tried and dropped — it muddied the edge rather than helping. To bring a
@@ -110,6 +112,7 @@ function ensureBandStyles() {
     }
     .vb-shell.hidden .vb-content { pointer-events: none; }
     .vb-shell.hidden .vb-bar {
+      --vb-rest-bar: transparent;
       flex-basis: var(--vb-collapsed-h, 26px);
       /* Park the ✕ at the right corner — the whole strip is the click-to-expand
          target, so a centered ✕ is easy to hit by mistake (it closes, not expands). */
@@ -171,6 +174,18 @@ function ensureBandStyles() {
     }
     /* Hover lightens the bar; it names its click in the hover hint. */
     .vb-bar.vb-hot { background-color: #55585e; }
+    /* A quiet trace of the existing blue flash, held until the changed
+       content is displayed. The rolled-up handle stays findable afterwards. */
+    .vb-shell.vb-unseen .vb-bar {
+      --vb-rest-bar: color-mix(in srgb, var(--vb-bar) 92%, #2c517f);
+      --vb-rest-border: color-mix(in srgb, var(--vb-bar) 65%, #58a6ff);
+      background: var(--vb-rest-bar);
+      box-shadow: inset 0 2px var(--vb-rest-border);
+    }
+    .vb-shell.hidden.vb-unseen .vb-bar {
+      --vb-rest-bar: color-mix(in srgb, #26313f 65%, transparent);
+    }
+    .vb-shell.vb-unseen .vb-bar.vb-hot { background: #55585e; }
     /* At full the bar stops a few pixels short of the window's bottom edge;
        that sliver joins the bar, so a pointer thrown to the edge lands on it. */
     .vb-edge-catch {
@@ -293,7 +308,7 @@ function ensureBandStyles() {
       }
     }
     @keyframes vb-refresh-bar {
-      0%, 100% { background: var(--vb-bar); border-top-color: var(--at-hue, rgba(100, 116, 139, 0.85)); }
+      0%, 100% { background: var(--vb-rest-bar); border-top-color: var(--vb-rest-border); }
       16% { background: #2c517f; border-top-color: rgba(88, 166, 255, 1); }
       40% { background: #26313f; border-top-color: rgba(56, 139, 253, 0.9); }
     }
@@ -725,6 +740,7 @@ function createViewerBand({
     sizeMode = 'full'; // the next open is a fresh reveal, at full
     heldUp = false;
     guestWriting = false;
+    setUnseen(false);
     shell.classList.remove('open', 'hidden', 'vb-full');
     state = 'closed';
     syncBarTargets();
@@ -735,6 +751,12 @@ function createViewerBand({
   function isOpen() { return state === 'open'; }
   function isHidden() { return state === 'hidden'; }
   function setTitle(t) { if (titleEl) titleEl.textContent = t || ''; }
+  function setUnseen(on) {
+    if (!shell) return;
+    shell.classList.toggle('vb-unseen', !!on);
+    if (on) bar.setAttribute('aria-description', 'Unseen updates');
+    else bar.removeAttribute('aria-description');
+  }
 
   // Fire-and-forget refresh pulse for simple viewers (e.g. the review webview after
   // an auto-reload). md instead drives .vb-refreshed itself, holding the pulse until
@@ -773,7 +795,7 @@ function createViewerBand({
 
   const api = {
     mount, open, hide, withdraw, show, toggle, toggleFullSize, close, isOpen, isHidden, isFull,
-    setTitle, makeBtn, flash,
+    setTitle, makeBtn, flash, setUnseen,
     recede, contentArrived, agentWrote, setWriting,
     get shell() { return shell; },
     get bar() { return bar; },

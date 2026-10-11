@@ -18,6 +18,7 @@
 // Electron-free: the host supplies IO; esbuild bundles this into the preload.
 
 const { createComposer, normWS , toPromptAction } = require('./comment-ui');
+const { threadHasBeenResolved } = require('./agent-journal');
 const {
   isCommentEntryKey,
   isEditEntryKey,
@@ -518,7 +519,7 @@ function createCommitEditController(io) {
   }
 
   // ——— rendering stored edit threads in place ———
-  // An unresolved [Edit] thread whose original text still matches a commit
+  // An unfinished [Edit] thread whose original text still matches a commit
   // block re-strikes that block: text+del segments must reproduce the block
   // verbatim (commit blocks are plain text, so the reconstruction is exact).
   // Pending (un-sent) edits wear the amber/rose marks; sent ones slate.
@@ -532,7 +533,7 @@ function createCommitEditController(io) {
     revisitInfo.clear();
     const blocks = commitBlocks();
     for (const t of (threads || [])) {
-      if ((t.status || 'open') === 'resolved') continue;
+      if (threadHasBeenResolved(t)) continue;
       if (t.anchor_status === 'lost') continue;
       const first = t.messages && t.messages[0];
       if (!first || (first.author || 'user') !== 'user') continue;

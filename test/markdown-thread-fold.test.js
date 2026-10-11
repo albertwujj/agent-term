@@ -33,6 +33,7 @@ dom.window.Range.prototype.getBoundingClientRect = dom.window.Range.prototype.ge
   || (() => ({ width: 10, height: 10, left: 0, right: 10, top: 0, bottom: 10 }));
 
 const { createMarkdownViewer } = require('../src/markdown-viewer');
+const { mergeStoreWithJournal, threadAwaitsAgent } = require('../src/agent-journal');
 
 const FIXTURE = [
   '# Heading Words Here',
@@ -48,7 +49,7 @@ const FIXTURE = [
 
 // A resolved thread (rests as a line, click opens the card) and one still
 // awaiting the agent (the other row shape).
-const store = {
+let store = {
   version: 1,
   turn: 2,
   threads: [
@@ -107,14 +108,20 @@ const store = {
 };
 
 const noop = () => {};
+let liveSource = FIXTURE;
+let addReply = null;
+let documentWrites = 0;
 const viewer = createMarkdownViewer({
-  readMarkdownFile: async () => ({ success: true, path: '/fake/doc.md', content: FIXTURE, mtimeMs: 1, size: FIXTURE.length }),
-  statMarkdownFile: async () => ({ success: true, mtimeMs: 1, size: FIXTURE.length }),
+  readMarkdownFile: async () => ({ success: true, path: '/fake/doc.md', content: liveSource, mtimeMs: 1, size: liveSource.length }),
+  statMarkdownFile: async () => ({ success: true, mtimeMs: 1, size: liveSource.length }),
   submitMarkdownThreads: async () => ({ success: true, data: store }),
   preflightMarkdownRunbook: async () => ({ runbook: '/fake/agent-threads/md/user-intent.md' }),
   readMarkdownThreads: async () => ({ success: true, data: store }),
-  addMarkdownThreadMessage: async () => ({ success: true, data: store }),
-  writeMarkdownFile: async () => ({ success: true, path: '/fake/doc.md', mtimeMs: 1, size: 0 }),
+  addMarkdownThreadMessage: async (args) => {
+    if (addReply) addReply(args);
+    return { success: true, data: store };
+  },
+  writeMarkdownFile: async () => { documentWrites++; return { success: true, path: '/fake/doc.md', mtimeMs: 1, size: 0 }; },
   showToast: noop,
   openURL: noop,
   getTerminalMetrics: () => ({ cols: 80, rows: 24, cellWidth: 8, cellHeight: 16 }),
@@ -269,6 +276,54 @@ async function run() {
   await sleep(20);
   check('the card folds to the line with its tail', shape().join() === 'line' && tail() === '+2 more', [shape(), tail()]);
 
+  viewer.close();
+  // Reopen a completed edit through the actual Reply / Send gestures. The
+  // journal re-anchors the thread to the agent's updated text. A follow-up
+  // reopens the conversation, but must never put its old edit over that text.
+  const updated = 'The document now uses clear wording.';
+  liveSource = '# Refine\n\n' + updated;
+  const raw = { version: 1, turn: 1, threads: [{
+    id: 'edit-refine', anchor: { snippet: 'The document utilizes clear wording.' },
+    messages: [{ author: 'user', body: '[Edit] The document <del>utilizes</del><ins>uses</ins> clear wording. [/Edit]', ts: 10, turn: 1 }],
+  }] };
+  const journal = [{ thread: 'edit-refine', body: 'Changed it to uses.', status: 'resolved',
+    anchor: { snippet: updated }, ts: 20, turn: 1 }];
+  store = mergeStoreWithJournal(raw, journal);
+  addReply = ({ threadId, body }) => {
+    raw.turn++;
+    raw.threads.find((t) => t.id === threadId).messages.push({ author: 'user', body, ts: 30, turn: raw.turn });
+    store = mergeStoreWithJournal(raw, journal);
+  };
+  await viewer.open({ filePath: '/fake/doc.md' });
+  await sleep(40);
+  check('the completed edit shows the updated document', find('p').textContent === updated);
+  clickSel('.md-thread-resolved-line');
+  await sleep(20);
+  click(Array.from(find('.md-thread-card').querySelectorAll('button')).find((b) => b.textContent === 'Reply'));
+  const replyBox = find('.md-thread-reply textarea');
+  replyBox.value = 'Please refine that wording further.';
+  replyBox.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  click(Array.from(find('.md-thread-reply').querySelectorAll('button')).find((b) => b.textContent.startsWith('Send')));
+  await sleep(40);
+  check('the refinement is appended and awaits the agent', threadAwaitsAgent(store.threads[0])
+    && store.threads[0].messages.at(-1).body === replyBox.value);
+  check('replying keeps the agent-updated text in both pages',
+    Array.from(document.querySelectorAll('.md-viewer-body')).every((a) => a.querySelector('p')?.textContent === updated));
+  check('replying does not restore a sent edit over the document', !find('.md-pending-diff.sent, .md-sealed'));
+  check('replying writes no document content', documentWrites === 0);
+  viewer.close();
+  await viewer.open({ filePath: '/fake/doc.md' });
+  await sleep(40);
+  check('the refinement preserves the updated text after reopening', find('p')?.textContent === updated);
+  viewer.close();
+
+  // A blocked edit was never completed: its suggestion still belongs in place
+  // while the user clarifies it. An agent reply alone must not consume it.
+  liveSource = '# Refine\n\nThe document utilizes clear wording.';
+  store = mergeStoreWithJournal(raw, [{ thread: 'edit-refine', body: 'Which wording?', status: 'open', ts: 20 }]);
+  await viewer.open({ filePath: '/fake/doc.md' });
+  await sleep(40);
+  check('an unfinished edit still shows its sent marks after clarification', !!find('p.md-sealed del.md-sent-del'));
   viewer.close();
   console.log(`\n--- Results: ${passed} passed, ${failed} failed ---`);
   process.exit(failed ? 1 : 0);

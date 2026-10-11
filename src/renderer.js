@@ -579,9 +579,8 @@ function noteSkippedHandoff(kind) {
   }, 400);
 }
 
-// A review:// printed AGAIN is the agent's explicit "look at this" ping — the only
-// signal that moves the band (a content change merely flashes it; see the
-// review-rerendered handler). It reveals the current review from its rolled-up
+// A review:// printed AGAIN is the agent's explicit "look at this" ping, which
+// also overrides a manual roll-up. It reveals the current review from its rolled-up
 // handle, or re-opens it after a ✕. Repaint noise is the hazard: a TUI re-emitting
 // bytes already on screen is byte-identical to a deliberate re-print, and
 // repaints come in every shape — a full-screen TUI redrawing each frame, an
@@ -946,10 +945,9 @@ if (typeof window.pty.onOlderCodeNotice === 'function') {
 
 // Auto-refresh: main re-rendered the open review (its package .md changed) →
 // reload the viewer so the update shows, with comments re-anchored across it.
-// The band STAYS where the user left it: reload()'s chrome pulse — the bar
-// while open, the slim top handle while rolled up — is the whole announcement,
-// exactly the md viewer's model. Only an explicit ping (the agent printing the
-// review:// link again) moves the band: maybeRevealReprintedReview.
+// New content also follows the shared band rules: reveal once the agent is
+// through, while respecting typing and a manual roll-up. Unseen updates keep
+// the handle highlighted until displayed.
 if (window.pty && typeof window.pty.onReviewRerendered === 'function') {
   // A re-render is the agent's new content: the band comes up full once the
   // agent is through (web-viewer.js agentWrote).

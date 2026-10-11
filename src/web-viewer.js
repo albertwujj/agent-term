@@ -10,6 +10,7 @@
 // Requires webviewTag:true on the host BrowserWindow (set in main.js).
 
 const { createViewerBand } = require('./viewer-band');
+const { createUnseenTracker } = require('./viewer-updates');
 const { isFindShortcut } = require('./search-shortcut');
 
 function normalizeHttpUrl(raw) {
@@ -84,12 +85,24 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     // band — must not stay floating over the collapsed strip.
     onHide: () => closeFind(),
     onClose: () => {
+      unseen.reset();
       closeFind();
       if (destroyTimer) clearTimeout(destroyTimer);
       destroyTimer = setTimeout(() => { destroyView(); destroyTimer = null; }, 200);
       if (typeof onClose === 'function') onClose();
     },
   });
+  const unseen = createUnseenTracker((on) => band.setUnseen(on));
+  let updateReview = null;
+  function askUpdateVisibility() {
+    if (!view) return;
+    try { view.send('rv-check-updates'); } catch {}
+  }
+  document.addEventListener('viewer-band-geometry', (e) => {
+    if (e.detail.name === 'web') askUpdateVisibility();
+  });
+  document.addEventListener('visibilitychange', askUpdateVisibility);
+  window.addEventListener('focus', askUpdateVisibility);
 
   function refreshNav() {
     if (!view) return;
@@ -254,6 +267,15 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
       // Writing in the page (a comment, a reply, the commit message): the
       // agent's content waits until the user stops (viewer-band.js).
       if (e.channel === 'rv-writing') band.setWriting(e.args && e.args[0]);
+      if (e.channel === 'rv-updates' && (band.isOpen() || band.isHidden())) {
+        const report = e.args && e.args[0];
+        if (!report || typeof report.review !== 'string' || !Array.isArray(report.items)) return;
+        if (updateReview !== report.review) { unseen.reset(); updateReview = report.review; }
+        const canSee = band.isOpen() && document.visibilityState !== 'hidden';
+        const changed = unseen.update(report.scope, report.items, canSee,
+          { deletions: report.scope === 'content' });
+        if (changed) band.flash();
+      }
     });
     // Each finished load on a Microsoft login host is checked for a device-compliance block.
     view.addEventListener('did-finish-load', checkDeviceAuthBlock);
@@ -351,6 +373,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
   function open(rawUrl, { review = false } = {}) {
     const target = normalizeHttpUrl(rawUrl);
     if (!target) return false;
+    if (!review || (entryUrl && entryUrl !== target)) { unseen.reset(); updateReview = null; }
     entryUrl = target;
     blockedFired = false;
     if (destroyTimer) { clearTimeout(destroyTimer); destroyTimer = null; }

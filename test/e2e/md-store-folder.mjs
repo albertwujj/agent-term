@@ -5,7 +5,8 @@
 // dotfile next to every commented document. The folder is the .DS_Store shape:
 // one name, ignored once in a global gitignore. This drives the real IPC path
 // (renderer -> main -> fs), so it covers the directory creation that the first
-// comment on a document now depends on.
+// comment on a document now depends on, and completion history surviving a
+// follow-up through those same files and IPC paths.
 
 import { launchElectron } from './electron.mjs';
 import * as fs from 'node:fs';
@@ -38,7 +39,8 @@ async function main() {
 
   const app = await launchElectron({
     executablePath: ELECTRON_BIN,
-    args: ['--no-sandbox', APP_DIR],
+    args: ['--no-sandbox', `--user-data-dir=${path.join(scratch, 'userdata')}`, APP_DIR],
+    env: { ...process.env, AGENT_TERM_START_CWD: scratch, TMUX: '', STY: '', ZELLIJ: '' },
     timeout: 45_000,
   });
   const page = await app.firstWindow();
@@ -83,6 +85,54 @@ async function main() {
     const after = JSON.parse(fs.readFileSync(expected, 'utf8'));
     check('both threads are in the one store', after.threads.length === 2, after.threads.length);
     check('no stray store beside the document', fs.readdirSync(scratch).filter((f) => f.endsWith('-comments.json')).length === 0);
+
+    console.log('a refinement preserves an already completed edit');
+    const refineDoc = path.join(scratch, 'refine.md');
+    const applied = 'The document now uses clear wording.';
+    const appliedSource = '# Refine\n\n' + applied + '\n';
+    fs.writeFileSync(refineDoc, appliedSource);
+    const refineStore = path.join(scratch, '.agent-threads', 'refine-comments.json');
+    const openedAt = Date.now() - 10000;
+    fs.writeFileSync(refineStore, JSON.stringify({ version: 1, turn: 1, threads: [{
+      id: 'edit-refine', anchor: { snippet: 'The document utilizes clear wording.' },
+      messages: [{ author: 'user', body: '[Edit] The document <del>utilizes</del><ins>uses</ins> clear wording. [/Edit]', ts: openedAt, turn: 1 }],
+    }] }));
+    fs.writeFileSync(refineStore.replace('-comments.json', '-agent.jsonl'), JSON.stringify({
+      thread: 'edit-refine', body: 'Changed it to uses.', status: 'resolved',
+      anchor: { snippet: applied }, ts: openedAt + 1000, turn: 1,
+    }) + '\n');
+    const terminal = page.locator('.xterm-helper-textarea');
+    const openRefinement = async () => {
+      await terminal.focus();
+      await page.keyboard.press('Control+C');
+      await page.keyboard.type(`echo ${refineDoc}`);
+      await page.keyboard.press('Enter');
+      await sleep(700);
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('open-recent-viewer-url'));
+      await page.waitForSelector('.vb-md.open .primary [data-md-keep-key="thread:edit-refine"]');
+    };
+    await openRefinement();
+    await page.locator('.primary .md-thread-resolved-line[data-md-keep-key="thread:edit-refine"]').click();
+    await page.locator('.primary .md-thread-card button').filter({ hasText: /^Reply$/ }).click();
+    await page.locator('.primary .md-thread-reply textarea').fill('Refine that wording further.');
+    await page.locator('.primary .md-thread-reply textarea').press('Enter');
+    await page.waitForSelector('.vb-md .primary .md-thread-waiting-line');
+    const readRefinement = await page.evaluate(async (docPath) => window.pty.mdReadThreads({ docPath }), refineDoc);
+    check('the follow-up reopens the conversation through real IPC', readRefinement.success
+      && !readRefinement.data.threads[0].status
+      && readRefinement.data.threads[0].messages.at(-1).body === 'Refine that wording further.');
+    check('the document keeps the applied text in both viewer pages', await page.locator('.vb-md .md-viewer-body').evaluateAll((articles, applied) =>
+      articles.every((a) => a.querySelector('p')?.textContent === applied && !a.querySelector('.md-sealed, .md-pending-diff.sent')), applied));
+    check('the source file is unchanged by the reply', fs.readFileSync(refineDoc, 'utf8') === appliedSource);
+    await page.locator('.vb-md .vb-close').click();
+    await openRefinement();
+    check('reopening preserves the applied text', await page.locator('.primary .md-viewer-body p').textContent() === applied);
+    const refined = 'The document uses concise wording.';
+    fs.writeFileSync(refineDoc, '# Refine\n\n' + refined + '\n');
+    await page.waitForFunction((text) => document.querySelector('.vb-md .primary .md-viewer-body p')?.textContent === text,
+      refined, { timeout: 8000 });
+    check('the next agent edit appears while the refinement awaits its reply',
+      await page.locator('.primary .md-viewer-body p').textContent() === refined);
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(scratch, { recursive: true, force: true });
