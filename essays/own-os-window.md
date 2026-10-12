@@ -1,4 +1,4 @@
-# Why I give each coding agent its own window and Dock tile
+# Why I favor a separate OS window for each agent, and how I give each a distinct Dock tile or taskbar button
 
 *Andy Yunxin Wu, October 2026. The first in a series on the design decisions behind [AgentTerm](https://github.com/albertwujj/agent-term), the terminal I use for all my work with AI CLIs.*
 

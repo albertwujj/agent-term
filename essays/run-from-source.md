@@ -2,7 +2,7 @@
 
 *Andy Yunxin Wu, October 2026. The second in a [series on the design decisions behind AgentTerm](README.md).*
 
-The terminal is where I do most of my work with agents. If a small part of it gets in my way, I can ask an agent to change it, then try the change in the next window I open.
+The terminal is where I do most of my work. If a small part of it gets in my way, I can ask an agent to change it, then try the change in the next window I open.
 
 ## Runs from source, works like an installed app
 

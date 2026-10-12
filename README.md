@@ -88,7 +88,7 @@ You and your agents can change and extend this terminal, down to its code, to fi
 
 Use it and explore first; what you need may already be there. When you find something is indeed missing while you work, you are best placed to evaluate and fill the gap, with the scenario right in front of you.
 
-This terminal makes that quick: it is already a better tool for working with your agents, including the work to fix itself. Change its source, and every window opened afterward picks up your improvement.
+This terminal makes that quick: it is already a better tool for working with your agents, including the work to fix itself. Change its source, and every window opened afterward picks up your improvement. Read [why I run my own terminal from source](essays/run-from-source.md).
 
 ## What's added so far
 
@@ -126,7 +126,7 @@ Follow the [suite guides](docs/suite.md#using-the-components) to start using the
 
 Add [phone access](docs/phone.md) when you want to continue remotely, or [IDE integration](docs/ide.md) if you use an IDE. These have separate setup; phone voice input also needs recording and transcription configured on the hub.
 
-**Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)). Read [the essay on running from source](essays/run-from-source.md).
+**Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
 The [essays](essays/README.md) explain the design decisions behind AgentTerm, one per essay.
 
