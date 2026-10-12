@@ -35,7 +35,8 @@
 
 const VIEWER_BAND_STYLE_ID = 'viewer-band-style';
 const SHARE_FRACTION = { major: 0.62, minor: 0.38 };
-// The md viewer reads its doc and its threads once a second each.
+// Longer than the md viewer's one-second poll, so edits made back to back
+// land as one.
 const AGENT_SETTLE_MS = 1500;
 
 // Text entry: where a keystroke lands as text. A focused one inside a band is
@@ -343,8 +344,8 @@ function createViewerBand({
                       // its shell, a bar button, a composer, a webview guest)
   reachAbove: reachesAbove = false, // the content's bottom edge is an empty
                       // margin the bar may reach into (see .vb-reach-above)
-  settleMs = AGENT_SETTLE_MS, // how long the agent's writes rest before the
-                      // band moves for them: longer than the viewer's polls
+  settleMs = AGENT_SETTLE_MS, // how long writes that end no wait rest before
+                      // the band moves for them: longer than the viewer's poll
   onAgentContent,     // (moved) once a wait on the agent's writes ends:
                       // contentArrived's answer, or null when the user's
                       // own move or a Send ended it first (agentWrote)
@@ -589,8 +590,10 @@ function createViewerBand({
   // its answer (contract.md), so its first write is seldom the whole of it.
   // The band moves for the agent's content once the agent is through: no
   // thread the user sent still waits on its answer (`waiting`, the viewer's
-  // read of its thread store), and the writes have rested for settleMs, so
-  // the viewer's polls have read every file the last write touched. Until
+  // read of its thread store). A status that leaves none waiting is the
+  // agent's last write of the round (`final`), so the band moves at once;
+  // other writes rest for settleMs first, so a burst of edits that answers
+  // no thread lands as one. Until
   // then each write shows where the band is, in the split or as the handle's
   // flash. The user moving the band, or a Send, ends the wait: what came in
   // before it is theirs now. A key in the terminal leaves it running (a
@@ -598,11 +601,11 @@ function createViewerBand({
   // itself holds the move.
   let agentWaitPending = false;
   let agentSettleTimer = null;
-  function agentWrote({ waiting = false } = {}) {
+  function agentWrote({ waiting = false, final = false } = {}) {
     if (state === 'closed') return;
     agentWaitPending = true;
     clearTimeout(agentSettleTimer);
-    agentSettleTimer = waiting ? null : setTimeout(agentSettled, settleMs);
+    agentSettleTimer = waiting ? null : setTimeout(agentSettled, final ? 0 : settleMs);
   }
   function agentSettled() {
     agentSettleTimer = null;

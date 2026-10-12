@@ -387,10 +387,19 @@ fullBand.close();
   assert.ok(rt.isHidden(), "the user's move ends it");
   assert.deepStrictEqual(ended.slice(3), [null, null], 'each ending says nothing moved');
 
+  // The status that leaves nothing waiting is the round's last write.
+  rt.show();
+  rt.recede();
+  rt.agentWrote({ waiting: true });
+  rt.agentWrote({ waiting: false, final: true });
+  await rest(5);
+  assert.ok(rt.isFull(), 'the last status moves the band without the rest');
+  assert.deepStrictEqual(ended.slice(5), ['grown']);
+
   rt.close();
   rt.agentWrote({ waiting: false });
   await rest();
-  assert.strictEqual(ended.length, 5, 'a closed band waits on nothing');
+  assert.strictEqual(ended.length, 6, 'a closed band waits on nothing');
 }
 
 console.log('viewer-band test passed');

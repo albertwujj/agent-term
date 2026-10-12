@@ -1197,7 +1197,8 @@ function createMarkdownViewer({
     agentMarks: null, // agentMarks() of the last store read; null until the first after an open
     agentLandTargets: [], // what the agent's writes since the band last moved went to (agentWrote)
     unseenTargets: new Map(), // resolvers survive page flips and DOM rebuilds
-    threadPollInFlight: false,
+    surfacePollInFlight: false,
+    threadStoreGen: 0, // bumped on every adoption, so a slower poll never overwrites a newer store
     threadRenderPending: false,
     threadReply: null,
     // Keep-together spacer heights by box key (thread id), so a re-render can
@@ -1254,6 +1255,7 @@ function createMarkdownViewer({
     landingPulse: null, // { ids, variant } — survives layoutSpread rebuilds by anchor id
     fileSignature: '',
     fileStatSignature: '',
+    fileMtimeMs: null, // when the document on screen was written (editLandedIn)
     pendingRefreshResult: null,
     pendingRefreshBeforeSend: false, // held when a Send went out (sentFromViewer)
     pendingRefreshSignature: '',
@@ -2231,6 +2233,7 @@ function createMarkdownViewer({
     state.imageRefreshPending = false; // this full re-render carries the current image versions
     state.fileSignature = getMarkdownReadSignature(result);
     state.fileStatSignature = getMarkdownStatSignature(result);
+    state.fileMtimeMs = Number.isFinite(result.mtimeMs) ? result.mtimeMs : null;
     band.setTitle(state.resolvedPath);
     clearActiveTarget();
     if (preserveScroll) recordMarkdownObservedChange(changeRecords);
@@ -2253,39 +2256,8 @@ function createMarkdownViewer({
     return true;
   }
 
-  // Hold a disk refresh that would break a currently-pinned (sealed) edit: a
-  // sent edit stays in place until the agent answers it, so the agent's own
-  // file-write landing a beat before its reply — or an external change — can't
-  // flash through under the pending marks. A refresh that leaves every held seal
-  // intact (an unrelated block changed, or no sealed edits) applies normally;
-  // the held one lands the moment the thread is answered (pollMarkdownThreadStore).
-  function pendingRefreshWouldOrphanSeal() {
-    const result = state.pendingRefreshResult;
-    if (!result || !state.article) return false;
-    const threads = (state.threadStore && Array.isArray(state.threadStore.threads)) ? state.threadStore.threads : [];
-    const sealed = threads.filter(isUnconsumedEditThread);
-    if (!sealed.length) return false;
-    let nextArticle = null;
-    for (const thread of sealed) {
-      const snip = snippetMatchText(thread.anchor && thread.anchor.snippet);
-      if (!snip) continue;
-      const curTarget = resolveThreadTarget(state.article, thread);
-      const heldNow = !!(curTarget && normalizeChangeMatchText(getRenderedText(curTarget)).includes(snip));
-      if (!heldNow) continue; // not pinned in place today — nothing to protect
-      if (!nextArticle) {
-        const nextDoc = renderMarkdownDocument(result.content || '', markdownImageOptions(result));
-        nextArticle = createDetachedMarkdownArticle(nextDoc);
-      }
-      const nextTarget = resolveThreadTarget(nextArticle, thread);
-      const heldNext = !!(nextTarget && normalizeChangeMatchText(getRenderedText(nextTarget)).includes(snip));
-      if (!heldNext) return true; // the refresh would orphan a held seal — hold it
-    }
-    return false;
-  }
-
   function applyPendingMarkdownRefreshIfReady() {
     if (!state.pendingRefreshResult || !isOpen() || hasBlockingMarkdownRefreshState()) return false;
-    if (pendingRefreshWouldOrphanSeal()) return false;
     const result = state.pendingRefreshResult;
     const beforeSend = state.pendingRefreshBeforeSend;
     state.pendingRefreshResult = null;
@@ -2431,46 +2403,76 @@ function createMarkdownViewer({
     // that fetched them, so a regeneration in the gap before the first
     // interval tick still reads as a change.
     pollMarkdownFile(openToken);
-    state.refreshPollTimer = setInterval(() => {
-      pollMarkdownFile(openToken);
-      pollMarkdownThreadStore(openToken);
-    }, MARKDOWN_REFRESH_POLL_MS);
+    state.refreshPollTimer = setInterval(() => pollMarkdownSurface(openToken), MARKDOWN_REFRESH_POLL_MS);
   }
 
-  // The sidecar store changes on its own clock (the agent replies whenever),
-  // so it rides the same 1s poll as the doc. A JSON signature gates re-renders;
-  // store read errors are non-fatal for the reading surface.
-  async function pollMarkdownThreadStore(openToken) {
-    if (!isOpen() || openToken !== state.openToken || state.threadPollInFlight) return;
+  // One tick reads the thread store, then the document, and draws the two
+  // together. The agent writes a change before the anchor and status that
+  // follow it (contract.md), so a store read that sees those is followed by a
+  // document read that sees the change: no tick shows a thread pointed at
+  // text the page does not hold yet.
+  async function pollMarkdownSurface(openToken) {
+    if (state.surfacePollInFlight) return;
+    state.surfacePollInFlight = true;
+    try {
+      const update = await readPolledThreadStore(openToken);
+      await pollMarkdownFile(openToken);
+      if (update && isOpen() && openToken === state.openToken) adoptPolledThreadStore(update);
+    } finally {
+      state.surfacePollInFlight = false;
+    }
+  }
+
+  // The sidecar store changes on its own clock (the agent replies whenever).
+  // A JSON signature gates re-renders; store read errors are non-fatal for the
+  // reading surface. The read alone: pollMarkdownSurface adopts it once the
+  // document has been read too.
+  async function readPolledThreadStore(openToken) {
+    if (!isOpen() || openToken !== state.openToken) return null;
     if (state.threadRenderPending && !hasBlockingMarkdownRefreshState() && !spreadLayoutFrozen()) {
       state.threadRenderPending = false;
       layoutSpread();
     }
     const doc = state.resolvedPath || state.filePath;
-    if (!doc || typeof readMarkdownThreads !== 'function') return;
-    state.threadPollInFlight = true;
+    if (!doc || typeof readMarkdownThreads !== 'function') return null;
+    const gen = state.threadStoreGen;
     try {
       const result = await readMarkdownThreads({ docPath: doc });
-      if (!isOpen() || openToken !== state.openToken) return;
-      if (!result || !result.success || !result.data) return;
+      if (!isOpen() || openToken !== state.openToken) return null;
+      if (!result || !result.success || !result.data) return null;
       const sig = JSON.stringify(result.data);
-      if (sig === state.threadStoreSig) return;
+      if (sig === state.threadStoreSig) return null;
+      return { data: result.data, sig, gen };
+    } catch {
+      return null;
+    }
+  }
+
+  function adoptPolledThreadStore({ data, sig, gen }) {
+    if (gen !== state.threadStoreGen || sig === state.threadStoreSig) return;
+    try {
+      state.threadStoreGen += 1;
       state.threadStoreSig = sig;
-      state.threadStore = result.data;
-      syncChangeAgeToStoreTurn(result.data);
+      state.threadStore = data;
+      syncChangeAgeToStoreTurn(data);
       // The agent's new words are new content; the first read after an open
       // only sets the baseline. Ignore the user's follow-up clearing a status.
-      const marks = agentMarks(result.data);
+      const marks = agentMarks(data);
       const answered = state.agentMarks === null ? []
-        : (result.data.threads || []).filter((t) => {
+        : (data.threads || []).filter((t) => {
           const now = marks.get(t.id), before = state.agentMarks.get(t.id);
           return now && ((now.messages !== (before ? before.messages : '[]'))
             || (now.status && now.status !== (before && before.status)));
         });
       state.agentMarks = marks;
-      // A store update can answer a sealed edit, releasing a refresh that was
-      // held waiting on it — apply it now so the resolve lands in one step.
+      // A document change read in this tick lands with the store, in one
+      // render: the agent's writes have moved on, so it is whole.
+      if (state.refreshDebounceTimer) {
+        clearTimeout(state.refreshDebounceTimer);
+        state.refreshDebounceTimer = null;
+      }
       if (!applyPendingMarkdownRefreshIfReady()) scheduleThreadLayerRender();
+      const status = answered.some((t) => t.status);
       for (const t of answered) {
         const messages = t.messages || [];
         const index = messages.findLastIndex((m) => m.author === 'agent');
@@ -2480,12 +2482,10 @@ function createMarkdownViewer({
           if (index < 0) return row; // status-only update
           return row.querySelector(`[data-md-message-index="${index}"]`);
         });
-        agentWrote(() => resolveThreadTarget(state.article, t));
+        agentWrote(() => resolveThreadTarget(state.article, t), { status });
       }
       if (answered.length) band.flash();
-    } catch {} finally {
-      state.threadPollInFlight = false;
-    }
+    } catch {}
   }
 
   function scheduleThreadLayerRender() {
@@ -2501,6 +2501,7 @@ function createMarkdownViewer({
 
   function adoptThreadStore(data) {
     if (!data) return;
+    state.threadStoreGen += 1;
     state.threadStore = data;
     state.threadStoreSig = JSON.stringify(data);
     state.agentMarks = agentMarks(data);
@@ -5895,6 +5896,20 @@ function createMarkdownViewer({
     return !threadHasBeenResolved(thread);
   }
 
+  // Has the agent's change for this edit landed in the document written at
+  // `mtimeMs`? The agent replies, then changes the document, then sets the
+  // status after its sweep (contract.md), so a write after its first reply
+  // to the user's last word is the edit applied: the page shows it from
+  // then, and the status only folds the thread.
+  function editLandedIn(thread, mtimeMs) {
+    if (!Number.isFinite(mtimeMs)) return false;
+    const msgs = Array.isArray(thread.messages) ? thread.messages : [];
+    let i = msgs.length - 1;
+    while (i >= 0 && msgs[i].author === 'agent') i -= 1;
+    const explained = msgs[i + 1];
+    return !!explained && Number.isFinite(explained.ts) && mtimeMs >= explained.ts;
+  }
+
   // Does this thread need the user? That is the only question the page's one
   // colour answers now. A thread the agent set `open` on the user's last word
   // is blocked on them (the merged status, agent-journal.js) — the single
@@ -5947,11 +5962,13 @@ function createMarkdownViewer({
   // The agent wrote into the doc or its threads: the band comes up once the
   // agent is through, which is when no thread the user sent still waits on
   // it (viewer-band.js agentWrote). `target` resolves the element the write
-  // went to.
-  function agentWrote(target) {
+  // went to; `status` says the write set a thread's status, which ends the
+  // round when none waits after it.
+  function agentWrote(target, { status = false } = {}) {
     if (typeof target === 'function') state.agentLandTargets.push(target);
     const threads = (state.threadStore && Array.isArray(state.threadStore.threads)) ? state.threadStore.threads : [];
-    band.agentWrote({ waiting: threads.some(threadAwaitsAgent) });
+    const waiting = threads.some(threadAwaitsAgent);
+    band.agentWrote({ waiting, final: status && !waiting });
   }
 
   // Out of a roll-up the user was in the terminal, so the spread also turns
@@ -6325,6 +6342,10 @@ function createMarkdownViewer({
           const snip = snippetMatchText(thread.anchor && thread.anchor.snippet);
           const exactTarget = !!(target && snip
             && normalizeChangeMatchText(getRenderedText(target)).includes(snip));
+          // A sent edit stays visible in place until the agent's change lands
+          // (editLandedIn); then the block shows the document as written and
+          // the thread renders as any open thread below.
+          const landed = editLandedIn(thread, state.fileMtimeMs);
           if (exactTarget && isUnconsumedEditThread(thread)) {
             // The sent edit stays visible in place until consumed. Decorated
             // rendered text when the mapping is exact; the source box for
@@ -6365,15 +6386,19 @@ function createMarkdownViewer({
             // so the source box stands in for the block. It shows the envelope and
             // the note but never the agent's reply — so when the agent is blocked,
             // its question still has to render, or the ask would be invisible.
-            const box = buildSentDiffElement(thread);
-            target.replaceWith(box);
-            if ((thread.messages || []).some((m) => m.author === 'agent')) {
-              box.insertAdjacentElement('afterend',
-                stampKeepKey(buildOpenThreadElement(thread, false, { skipEnvelope: true }), `thread:${thread.id}`));
-            } else {
-              box.classList.add('md-await-agent'); // awaiting — pulse like a waiting comment
+            // Once the agent's change has landed, the marks no longer fit
+            // because the block holds the change itself: no box over it.
+            if (!landed) {
+              const box = buildSentDiffElement(thread);
+              target.replaceWith(box);
+              if ((thread.messages || []).some((m) => m.author === 'agent')) {
+                box.insertAdjacentElement('afterend',
+                  stampKeepKey(buildOpenThreadElement(thread, false, { skipEnvelope: true }), `thread:${thread.id}`));
+              } else {
+                box.classList.add('md-await-agent'); // awaiting — pulse like a waiting comment
+              }
+              continue;
             }
-            continue;
           }
           // Open threads blocked on the user render in full — that is the
           // user's worklist; ones awaiting the agent rest as a line. Resolved
@@ -6763,13 +6788,14 @@ function createMarkdownViewer({
     state.doc = renderMarkdownDocument(state.sourceText, markdownImageOptions(result));
     state.fileSignature = getMarkdownReadSignature(result);
     state.fileStatSignature = getMarkdownStatSignature(result);
+    state.fileMtimeMs = Number.isFinite(result.mtimeMs) ? result.mtimeMs : null;
     band.setTitle(state.resolvedPath);
     band.open();
     requestAnimationFrame(() => {
       layoutSpread();
       landAt({ line, matchText, landingKind });
       startMarkdownAutoRefresh(token);
-      pollMarkdownThreadStore(token);
+      readPolledThreadStore(token).then((update) => { if (update) adoptPolledThreadStore(update); });
     });
     return true;
   }

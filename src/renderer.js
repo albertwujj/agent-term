@@ -963,13 +963,14 @@ if (window.pty && typeof window.pty.onReviewRerendered === 'function') {
 // reply surfaces and pulses, without a full reload (which would wipe the pulse baseline).
 // While rolled up, pingRefresh flashes the handle. The agent's own words (its
 // journal moved) are new content, which brings the band up full once the
-// agent is through.
+// agent is through: a journal write that leaves no sent thread waiting is
+// its last of the round.
 if (window.pty && typeof window.pty.onReviewCommentsChanged === 'function') {
   window.pty.onReviewCommentsChanged(({ agent, waiting } = {}) => {
     try {
       if (!webViewer || !webViewer.isOpen || !webViewer.isOpen()) return;
       webViewer.pingRefresh();
-      if (agent) webViewer.agentWrote({ waiting });
+      if (agent) webViewer.agentWrote({ waiting, final: !waiting });
     } catch {}
   });
 }

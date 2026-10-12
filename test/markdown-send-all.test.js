@@ -160,9 +160,9 @@ async function run() {
   check('the composer closed', !find('.md-thread-reply'));
   check('the Send receded the band to golden', isGolden());
 
-  // The agent answers both: the thread it was blocked on resolved, a reply on
-  // the new comment. Its answer is new content and leaves no thread waiting
-  // on it, so full comes back once its writes rest.
+  // The agent answers both: the thread it was blocked on resolved, a question
+  // on the new comment that blocks it. Statuses on both leave no thread
+  // waiting, the round's last write, so full comes back at once.
   store = {
     version: 1,
     turn: store.turn,
@@ -171,9 +171,7 @@ async function run() {
       : { ...t, status: 'open', messages: [...t.messages, { author: 'agent', body: 'Which word?', ts: 4, turn: store.turn }] })),
   };
   await sleep(1300); // the store poll
-  check('the split waits out the rest', isGolden());
-  await sleep(1600); // viewer-band.js AGENT_SETTLE_MS
-  check("the agent's answer returns to full", isFull());
+  check("the agent's last status returns to full", isFull());
 
   // A reply with nothing waiting is a plain Send, and still the receipt.
   // The size chord twice: golden, then full again, by hand.

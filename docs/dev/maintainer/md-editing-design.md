@@ -831,6 +831,24 @@ editor already used), so a click just past a strike holds the caret there,
 even at a block's end, and the entry ⌫ reaches it. The rules live in
 `eraseInBlock` (edit-marks.js), shared by both hosts.
 
+## An edit shows when it lands (2026-10-12)
+
+The agent replies, changes the document, then sets the status after its
+sweep (agent-threads contract), so the status can trail the change by a
+model step. A sent edit used to hold its marks, or the sent box over a block
+whose text had moved, until `resolved`; the change sat on disk behind the
+user's suggestion. Now a document written after the agent's first reply to
+the user's last word is the edit applied (`editLandedIn`, by the document's
+mtime against the reply's `ts`): the block shows the document and the thread
+renders as an open card under it until the status folds it. The marks still
+hold while they fit the block, which covers the reply arriving before the
+write.
+
+The refresh hold for sealed blocks is gone: only the agent writes the
+document, and it replies before it writes. Each poll tick reads the thread
+store, then the document, and draws them together, so a thread is never
+pointed at text the page does not hold yet.
+
 ## Open questions
 
 - Default wording of the instruction template (tune against real agent behavior).

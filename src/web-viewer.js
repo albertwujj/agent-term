@@ -425,7 +425,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
   // full once the agent is through, which is when no thread the user sent
   // still waits on it (viewer-band.js agentWrote). Main reads `waiting` off
   // the review's thread store with each change.
-  function agentWrote({ waiting = false } = {}) { band.agentWrote({ waiting }); }
+  function agentWrote({ waiting = false, final = false } = {}) { band.agentWrote({ waiting, final }); }
   // Out of a roll-up the user was in the terminal, so the page also scrolls
   // to the first thing that pulses, once the page has drawn it: after a
   // reload still in flight, or at once, since a reply re-renders in place. A
