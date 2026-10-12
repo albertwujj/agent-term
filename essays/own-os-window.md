@@ -70,4 +70,4 @@ I switch between agents all day as I do with every other app: a glance at the Do
 
 The windows are one of many parts of [AgentTerm](https://github.com/albertwujj/agent-term), alongside commenting on agent output and curated code reviews. [Try it and tinker with it](../README.md#quick-start). For a CLI session you started outside AgentTerm, the first prompt you send after resuming it in AgentTerm becomes the terminal session's initial prompt.
 
-Next in this series: why AgentTerm skips an installer or package, and how it still runs like an installed app. Running from source makes it easy to personalize: change the code with agents, open a new window, and use the improvement right away.
+Next in this series: [why I run my own terminal from source](run-from-source.md).

@@ -126,7 +126,7 @@ Follow the [suite guides](docs/suite.md#using-the-components) to start using the
 
 Add [phone access](docs/phone.md) when you want to continue remotely, or [IDE integration](docs/ide.md) if you use an IDE. These have separate setup; phone voice input also needs recording and transcription configured on the hub.
 
-**Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
+**Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)). Read [the essay on running from source](essays/run-from-source.md).
 
 The [essays](essays/README.md) explain the design decisions behind AgentTerm, one per essay.
 

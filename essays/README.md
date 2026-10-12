@@ -3,7 +3,7 @@
 I use AI CLIs for coding, writing and planning, and that changes what I want from a terminal. Each essay explores one design decision behind AgentTerm, based on more than eight months of daily use.
 
 1. [Why I give each coding agent its own window and Dock tile](own-os-window.md)
-2. Why AgentTerm skips an installer or package, yet runs like an installed app you can personalize with agents (next)
+2. [Why I run my own terminal from source](run-from-source.md)
 
 Planned so far:
 

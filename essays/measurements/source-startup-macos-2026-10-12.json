@@ -1,0 +1,50 @@
+{
+  "measured_at": "2026-10-12T21:04:34.616Z",
+  "hardware": "Apple M3",
+  "ram_bytes": 8589934592,
+  "macos": "14.5",
+  "source_head": "06099ea3120269d17fc8370eca2b1214a8134b60",
+  "source_snapshot_sha256": "5a6fbbd9b95f65a07bd193c9e965ec32d6b70ea73fa34436d76a37434f2002f7",
+  "method": "Elapsed monotonic time from spawning native Electron to BrowserWindow show event, after the normal source startup and generated bundle rebuild. Isolated copied src, shared installed node_modules, isolated warmed user data; no Playwright debugger attached. One warmup excluded, five alternating paired trials. The changed condition edits a UI text string in src/renderer.js before each launch. Hub streaming disabled in all trials. Windows/WSL not measured.",
+  "warmup_ms": 762.21,
+  "trials": [
+    {
+      "pair": 1,
+      "unchanged_ms": 473.86,
+      "edited_ms": 465.4
+    },
+    {
+      "pair": 2,
+      "unchanged_ms": 414.77,
+      "edited_ms": 418.54
+    },
+    {
+      "pair": 3,
+      "unchanged_ms": 406.22,
+      "edited_ms": 428.57
+    },
+    {
+      "pair": 4,
+      "unchanged_ms": 440.17,
+      "edited_ms": 429.4
+    },
+    {
+      "pair": 5,
+      "unchanged_ms": 405.61,
+      "edited_ms": 415.95
+    }
+  ],
+  "unchanged": {
+    "median_ms": 414.77,
+    "min_ms": 405.61,
+    "max_ms": 473.86,
+    "mean_ms": 428.13
+  },
+  "edited": {
+    "median_ms": 428.57,
+    "min_ms": 415.95,
+    "max_ms": 465.4,
+    "mean_ms": 431.57
+  },
+  "source_snapshot_note": "Source was copied from the working checkout, including its uncommitted edits, and frozen for the measurements while another agent continued editing the original checkout. The benchmark did not modify the original source."
+}
