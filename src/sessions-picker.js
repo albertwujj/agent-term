@@ -3,7 +3,7 @@
 //
 // Public API:
 //   const handle = createPicker({
-//     sessions: [{ id, hue, cli, title, prompt, identityParts, lastPrompt, isActive, lastEventAt }, ...],
+//     sessions: [{ id, hue, cli, title, prompt, identityParts, lastPrompt, isActive, lastPromptAt }, ...],
 //                 prompt is the identity: the first prompt, joined with the
 //                 next one or two while short; identityParts are those prompts
 //     activeIds: [number],          // ids that are currently active (disabled in list)
@@ -140,7 +140,7 @@ function createPicker({
         return textMatchesSearchTerms(haystack, terms);
       });
     }
-    list.sort((a, b) => (b.lastEventAt || 0) - (a.lastEventAt || 0));
+    list.sort((a, b) => (b.lastPromptAt || 0) - (a.lastPromptAt || 0));
     return { list, total: beforeFilter.length, term: t, terms };
   }
 
@@ -264,7 +264,7 @@ function createPicker({
           prompt: s.prompt,
           identityParts: s.identityParts,
           lastPrompt: s.lastPrompt,
-          lastEventAt: s.lastEventAt,
+          lastPromptAt: s.lastPromptAt,
           isActive: s.isActive,
           isHidden: s.isHidden,
         });
@@ -528,7 +528,7 @@ function createPicker({
       const prompt = s.prompt
         ? highlightSearchTerms(s.prompt, filtered.terms)
         : '<span class="at-picker-dim">(no prompt captured)</span>';
-      const age = escapeHtml(relativeTime(s.lastEventAt));
+      const age = escapeHtml(relativeTime(s.lastPromptAt));
       const badge = (isActive && !isHidden) ? '<span class="at-picker-active-badge">active</span>' : '';
       // Conditional subtitle lines.
       //   · last prompt — recency hint ("what was I most recently working

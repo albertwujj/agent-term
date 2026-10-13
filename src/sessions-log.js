@@ -55,7 +55,7 @@ const { writeFileAtomicSync } = require('./atomic-file');
 const { isConversationTitle } = require('./ai-title');
 const { identityFromPrompts } = require('./session-identity');
 
-const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks since a session's last event (display + compaction window)
+const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks: the picker shows a session this long after its last prompt, the log keeps it this long after its last event
 
 // Round to the nearest minute so os.uptime()'s second-resolution ticks don't
 // break equality comparisons across rapid-fire reads/writes within one boot.
@@ -193,7 +193,7 @@ function listSessions(userDataDir) {
     if (typeof ev.id !== 'number') continue;
     let s = map.get(ev.id);
     if (!s) {
-      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, capturedBranches: [], closedBy: null, token: null };
+      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, lastPromptAt: null, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, capturedBranches: [], closedBy: null, token: null };
       map.set(ev.id, s);
     }
     s.lastEventAt = ev.t;
@@ -227,9 +227,14 @@ function listSessions(userDataDir) {
       // the chrome bar, icon letters, window title and picker agree.
       // s.identityPrompts are the prompts it is built from, with their
       // times, so a resume can keep feeding it. s.lastPrompt is LAST-WINS
-      // (recency — what the user was most recently working on).
+      // (recency — what the user was most recently working on), and
+      // s.lastPromptAt is when the user last worked in the session: the
+      // picker's order and age. lastEventAt also moves for what the machine
+      // did on its own (a CLI's title, a window lost to a logout, a
+      // background report), so it would float sessions nobody touched.
       case 'prompt':
         if (ev.prompt) {
+          s.lastPromptAt = ev.t;
           let feed = identityFeed.get(ev.id);
           if (!feed && !s.prompt) { feed = []; identityFeed.set(ev.id, feed); }
           if (feed) {
@@ -416,14 +421,15 @@ function gcActiveFiles(userDataDir, opts = {}) {
 // something was dropped. Returns the number of events removed. Called at app
 // start to keep load time bounded for long-lived installs.
 //
-// A session goes whole or stays whole. The picker shows a session by its last
-// event (menuList), and the fold identifies it by its first ones: `started`
-// carries the hue and token, `cli` says what to relaunch, and the first
-// `prompt` is the identity. Dropping events one by one left a session that
-// ran past the window with its recent prompts but no `cli`, which every
-// picker query skips, so the picker showed nothing to resume; its identity
-// prompt drifted to the oldest surviving one too. An event with no session
-// id (none is written today) is kept on its own age.
+// A session goes whole or stays whole. The window runs from its last event,
+// never earlier than the last prompt the picker goes by (menuList), so every
+// session the picker shows survives. The fold identifies a session by its
+// first events: `started` carries the hue and token, `cli` says what to
+// relaunch, and the first `prompt` is the identity. Dropping events one by
+// one left a session that ran past the window with its recent prompts but no
+// `cli`, which every picker query skips, so the picker showed nothing to
+// resume; its identity prompt drifted to the oldest surviving one too. An
+// event with no session id (none is written today) is kept on its own age.
 //
 // The rewrite replaces the whole file, so an event another window appends
 // between the read and the rename is lost. Only the sole window may compact:
@@ -575,7 +581,7 @@ function searchHiddenPromptMatches(userDataDir, query, opts = {}) {
 
   const cutoff = Date.now() - (opts.maxAgeMs || RECENT_WINDOW_MS);
   const sessions = listSessions(userDataDir)
-    .filter(s => s.cli && s.prompt && (s.lastEventAt || 0) >= cutoff);
+    .filter(s => s.cli && s.prompt && (s.lastPromptAt || 0) >= cutoff);
   const sessionsById = new Map(sessions.map(s => [s.id, s]));
   const eventsById = new Map();
   for (const ev of readLog(userDataDir)) {
@@ -599,8 +605,8 @@ function searchHiddenPromptMatches(userDataDir, query, opts = {}) {
   return out;
 }
 
-// Sessions visible in the startup all-past picker: everything from the
-// last RECENT_WINDOW_MS that has both a CLI and a captured prompt — sessions
+// Sessions visible in the startup all-past picker: everything prompted in the
+// last RECENT_WINDOW_MS that has a CLI, most recently prompted first — sessions
 // without a prompt have no recognizable content to resume against, and
 // "Start new <cli>" already covers the empty-launch case.
 function menuList(userDataDir, opts = {}) {
@@ -609,12 +615,12 @@ function menuList(userDataDir, opts = {}) {
   const out = [];
   for (const s of listSessions(userDataDir)) {
     if (!s.cli || !s.prompt) continue;
-    if (s.lastEventAt < cutoff) continue;
+    if (s.lastPromptAt < cutoff) continue;
     const rec = readActiveFile(userDataDir, s.id);
     const isActive = isSessionActive(rec, { bootTime, guiSession: opts.guiSession });
     out.push({ ...s, isActive });
   }
-  out.sort((a, b) => b.lastEventAt - a.lastEventAt);
+  out.sort((a, b) => b.lastPromptAt - a.lastPromptAt);
   return out;
 }
 

@@ -388,6 +388,28 @@ test('menuList includes closed and active with isActive flag', (dir) => {
   assert.strictEqual(s2.isActive, true);
 });
 
+test('menuList orders and dates sessions by their last prompt, not their last event', (dir) => {
+  const hour = 60 * 60_000;
+  const now = Date.now();
+  // Prompted 3 days ago; its window was lost to a logout an hour ago, and the
+  // CLI re-emitted its title then.
+  log.appendEvent(dir, { e: 'started', id: 1, t: now - 72 * hour });
+  log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude', t: now - 72 * hour });
+  log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Old work left hidden', t: now - 72 * hour });
+  log.appendEvent(dir, { e: 'title',   id: 1, title: 'Old work', t: now - hour });
+  log.appendEvent(dir, { e: 'lost',    id: 1, t: now - hour });
+  // Prompted 5 hours ago and closed since.
+  log.appendEvent(dir, { e: 'started', id: 2, t: now - 6 * hour });
+  log.appendEvent(dir, { e: 'cli',     id: 2, cli: 'codex', t: now - 6 * hour });
+  log.appendEvent(dir, { e: 'prompt',  id: 2, prompt: 'Recent work', t: now - 5 * hour });
+  log.appendEvent(dir, { e: 'closed',  id: 2, t: now - 4 * hour });
+
+  const list = log.menuList(dir, { bootTime: FROZEN_BOOT });
+  assert.deepStrictEqual(list.map(s => s.id), [2, 1]);
+  assert.strictEqual(list[0].lastPromptAt, now - 5 * hour);
+  assert.strictEqual(list[1].lastPromptAt, now - 72 * hour);
+});
+
 test('menuList excludes sessions without a captured prompt', (dir) => {
   // Opening claude and exiting without typing — has cli + title but no prompt.
   // "Start new claude session" already covers fresh launches; resume is for

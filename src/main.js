@@ -1816,7 +1816,7 @@ function pickerSessionPayload(userDataDir, s) {
     // prompt" line for a prompt the identity does not already show.
     identityParts: (s.identityPrompts || []).map(p => p.prompt),
     lastPrompt: s.lastPrompt,
-    lastEventAt: s.lastEventAt,
+    lastPromptAt: s.lastPromptAt,
     isActive: s.isActive,
     isHidden,
     capturedBranches: s.capturedBranches || [],
