@@ -8,7 +8,7 @@ The terminal is where I do most of my work. If a small part of it gets in my way
 
 [AgentTerm](https://github.com/albertwujj/agent-term) runs from a source checkout, with no installer or application package. The initial setup is to clone the repo, install its dependencies and launch it. That checkout is both the terminal I use and the code I can change.
 
-Once it is running, I rarely need to go back to a shell to run the start command. I can **open a new window with a keyboard shortcut or from the Dock tile or taskbar button's menu**. **Closing the last visible window automatically opens a fresh one.** The terminal stays available as I move between sessions, much as an installed app would.
+Once it is running, I rarely need to go back to a shell to run the start command. I can **open a new window with a keyboard shortcut or from the Dock tile or taskbar button's menu**. **Closing the last visible window automatically opens a fresh one.** I can start another instance and run several at once as easily as I would with an installed app.
 
 ## The next window runs my changes
 
@@ -27,6 +27,29 @@ Windows needs extra launch logic to preserve this workflow. The checkout, shell 
 Dependency changes on both platforms still need `npm ci` and the platform's start command.
 
 On macOS, the app and its build tools share the same environment and dependency installation. On Windows, the build tools run in Linux through WSL while the app runs on Windows, so each needs dependencies for its own OS. Windows can also lock files used by a running app. The launcher installs updated Windows dependencies alongside the old ones, so new windows can use them while older windows keep running.
+
+```mermaid
+flowchart LR
+  subgraph WSL
+    S["Editable source checkout"]
+    L["Linux Node.js + dependencies<br/>Builds and tests"]
+  end
+
+  subgraph Windows
+    N["Windows Node.js"]
+    C["Cached Windows dependencies"]
+    O["Existing window<br/>Earlier source copy"]
+    W["New window<br/>Fresh source copy"]
+    N -->|Installs| C
+    C --> O
+    C --> W
+  end
+
+  L -.->|Works on| S
+  S -->|Copy current source at launch| W
+```
+
+*Source edits reuse cached Windows dependencies. Dependency changes create a new cache generation, letting older windows keep using the previous one.*
 
 ## A terminal I can keep changing
 
