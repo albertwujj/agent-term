@@ -115,8 +115,8 @@ flags are surfaced to it.
 
 ## Round-trip
 
-1. Review in the viewer → select line(s) → compose → viewer writes a thread
-   (`open`) to the store.
+1. Review in the viewer → click a line's `+` (or select prose) → compose →
+   viewer writes a thread (`open`) to the store.
 2. Click **Send to agent** (or just prompt) → viewer PTYs a short *pointer*
    naming the store's WSL/POSIX path and the open-thread count — "please
    address." (Rich data stays in the file; the terminal only gets a pointer.)
@@ -252,3 +252,29 @@ two small fixes.
 - Class names avoid `ctx`, review.py's class for unchanged diff cells: the
   block is `.cv`, `.cv-text`, `.cv-code`, `.cv-tag`, and `.toc-cv` in the
   outline.
+
+## Code is commented by line; a selection there is for copy (2026-10-13)
+
+A code selection quotes nothing (only prose and the commit message are
+quote-commentable), so in code it is a plain copy, and the `+` clears any
+standing selection before it opens the line composer. That selection used to
+leave the `+` dead: the gutter is `user-select:none`, so pressing it kept the
+selection, and its click bailed on any selection, a prose one included.
+
+A split row is old gutter, old code, new gutter, new code, so a drag down the
+new column took in the old lines between. The page (`review.py`, so a plain
+browser too) has the press on a code cell pick its side, and the other side's
+code is unselectable until the next press: a drag copies one side's lines.
+The terminal's copy (`smart-copy.js`, which undoes CLI wraps and gutters) and
+the md viewer's ⧉ copy (md blocks and source) have nothing to apply here.
+
+Selection as a second code-comment gesture was weighed and left out:
+
+- **The anchor holds one line.** A code anchor is `path` + `side` + `line` +
+  that line's text, which `review.py` re-anchors by exact line match. Quoting
+  part of a line, or several lines, needs a range or quote field that the
+  generator, `protocol.md` and the agent runbooks would all have to honor.
+- **Nothing to share with md.** The md viewer's selection model resolves
+  `data-md-anchor-id` blocks and source lines in the host renderer, against its
+  own store; the review's quote path already reuses the shared `comment-ui`
+  pieces, and diff cells fit neither model.

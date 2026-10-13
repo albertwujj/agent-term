@@ -175,12 +175,15 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
   }
 
   // --- compose: click a line-number gutter cell to comment on that line ---
+  // The gutter is user-select:none, so pressing it leaves any selection elsewhere
+  // standing (and a drag can't start one there). A click on + is always the line
+  // comment, so it clears that selection rather than deferring to it.
   function bindGutter() {
     document.addEventListener('click', function (e) {
       const ln = e.target.closest && e.target.closest('td.ln[data-line][data-side]');
       if (!ln) return;
       const sel = window.getSelection && window.getSelection();
-      if (sel && String(sel)) return; // a real text selection, not a click
+      if (sel) sel.removeAllRanges();
       openComposer(ln);
     });
   }

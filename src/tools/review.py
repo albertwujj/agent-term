@@ -1514,6 +1514,8 @@ user-select:none;background:var(--canvas);border-right:1px solid var(--border)}
 .d-split .ln.del{background:var(--del-ln)}
 .d-split .code.empty,.d-split .ln.empty,.d-code .ln.empty{background:var(--empty)}
 .d-split .code.del,.d-split .ln.del{border-right:1px solid var(--border)}
+.d-split[data-select-side=old] td.code:not([data-side=old]),
+.d-split[data-select-side=new] td.code:not([data-side=new]){user-select:none}
 /* rendered ("preview") markdown diff */
 .md-render{padding:6px 16px 16px;font-size:14px;line-height:1.65}
 /* Rendered markdown file previews read as prose, so cap the measure at a
@@ -1550,6 +1552,15 @@ function setNav(s){
   try{localStorage.setItem('selfReviewNav',s)}catch(e){}
 }
 setNav(localStorage.getItem('selfReviewNav')||'shown');
+// A split diff's rows interleave its sides, so a drag down one column would take
+// in the other's lines. A press on code picks that side, and the other side's
+// code is unselectable until the next press.
+document.addEventListener('mousedown',function(e){
+  var cell=e.target.closest&&e.target.closest('.d-split td.code[data-side]');
+  document.querySelectorAll('.d-split').forEach(function(t){
+    if(cell)t.dataset.selectSide=cell.dataset.side;else delete t.dataset.selectSide;
+  });
+});
 </script>
 </body></html>
 """
