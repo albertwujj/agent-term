@@ -2,7 +2,7 @@
 
 I use AI CLIs for coding, writing and planning, and that changes what I want from a terminal. Each essay explores one design decision behind AgentTerm, based on more than eight months of daily use.
 
-1. [Why I favor a separate OS window for each agent, and how I give each a distinct Dock tile or taskbar button](own-os-window.md)
+1. [Why I give each agent its own OS window and a distinct Dock tile or taskbar button](own-os-window.md)
 2. [Why I run my own terminal from source](run-from-source.md)
 
 Planned so far:
