@@ -1816,7 +1816,7 @@ function pickerSessionPayload(userDataDir, s) {
     // prompt" line for a prompt the identity does not already show.
     identityParts: (s.identityPrompts || []).map(p => p.prompt),
     lastPrompt: s.lastPrompt,
-    lastPromptAt: s.lastPromptAt,
+    touchedAt: s.touchedAt,
     isActive: s.isActive,
     isHidden,
     capturedBranches: s.capturedBranches || [],
@@ -2394,13 +2394,15 @@ function writeLostSessionEvent() {
 // log how the session ended. Idempotent, and a no-op once another window has
 // taken the id (releaseActiveFile leaves a record that names another pid).
 // `closedBy`, when set, records what closed the session in the user's place.
+// The window's timer goes along, since the picker orders ended sessions by it
+// as auto-hide and the phone order live ones.
 let closedBy = null;
 function writeSessionEndEvent(e) {
   if (sessionIndex === null || !activeFileWritten) return;
   const userDataDir = app.getPath('userData');
   try {
     sessionsLog.releaseActiveFile(userDataDir, sessionIndex, process.pid);
-    sessionsLog.appendEvent(userDataDir, { e, id: sessionIndex, ...(closedBy ? { by: closedBy } : {}) });
+    sessionsLog.appendEvent(userDataDir, { e, id: sessionIndex, touchedAt, ...(closedBy ? { by: closedBy } : {}) });
   } catch (err) {
     log('[main] failed to write ' + e + ' event: ' + (err && err.message));
   }

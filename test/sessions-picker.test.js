@@ -62,7 +62,7 @@ await test('renders deduped AI title segments once', () => {
       cli: 'claude',
       title: '✳ Claude Code · Debug failing build at CI pipeline · Debug failing build at CI pipeline',
       prompt: 'and other docs in ai/',
-      lastPromptAt: Date.now(),
+      touchedAt: Date.now(),
     }],
     onPick: () => {},
     onStartNew: () => {},
@@ -84,7 +84,7 @@ await test('suppresses spinner-only app titles', () => {
       cli: 'codex',
       title: '⠦ agent-term',
       prompt: 'there should be code to dedup messages from ai',
-      lastPromptAt: Date.now(),
+      touchedAt: Date.now(),
     }],
     onPick: () => {},
     onStartNew: () => {},
@@ -106,7 +106,7 @@ await test('drops the Codex app field from the title line and from search', () =
       cli: 'codex',
       title: 'codex | Investigate WSL launch failures',
       prompt: 'why does the pty never come up under wsl',
-      lastPromptAt: Date.now(),
+      touchedAt: Date.now(),
     }],
     onPick: () => {},
     onStartNew: () => {},
@@ -126,8 +126,8 @@ await test('drops the Codex app field from the title line and from search', () =
 await test('Delete and Backspace leave the session list alone', () => {
   const picker = createPicker({
     sessions: [
-      { id: 1, cli: 'claude', prompt: 'first', lastPromptAt: 2 },
-      { id: 2, cli: 'codex', prompt: 'second', lastPromptAt: 1 },
+      { id: 1, cli: 'claude', prompt: 'first', touchedAt: 2 },
+      { id: 2, cli: 'codex', prompt: 'second', touchedAt: 1 },
     ],
     onPick: () => {},
     onStartNew: () => {},
@@ -146,9 +146,9 @@ await test('Delete and Backspace leave the session list alone', () => {
 await test('visible search matches all query words in row text', () => {
   const picker = createPicker({
     sessions: [
-      { id: 1, cli: 'claude', title: 'Billing alert', prompt: 'Investigate webhook retry failures', lastPromptAt: 3 },
-      { id: 2, cli: 'codex', title: 'Billing alert', prompt: 'Investigate invoice retry failures', lastPromptAt: 2 },
-      { id: 3, cli: 'claude', title: 'Webhook alert', prompt: 'Investigate retry failures', lastPromptAt: 1 },
+      { id: 1, cli: 'claude', title: 'Billing alert', prompt: 'Investigate webhook retry failures', touchedAt: 3 },
+      { id: 2, cli: 'codex', title: 'Billing alert', prompt: 'Investigate invoice retry failures', touchedAt: 2 },
+      { id: 3, cli: 'claude', title: 'Webhook alert', prompt: 'Investigate retry failures', touchedAt: 1 },
     ],
     onPick: () => {},
     onStartNew: () => {},
@@ -172,8 +172,8 @@ await test('deep search stat opens same-row hidden prompt match picker', async (
   let cancelledSearch = null;
   const picker = createPicker({
     sessions: [
-      { id: 1, cli: 'claude', title: 'Checkout retry work', prompt: 'Fix checkout retry logic', lastPromptAt: 2 },
-      { id: 2, cli: 'codex', prompt: 'Unrelated task', lastPromptAt: 1 },
+      { id: 1, cli: 'claude', title: 'Checkout retry work', prompt: 'Fix checkout retry logic', touchedAt: 2 },
+      { id: 2, cli: 'codex', prompt: 'Unrelated task', touchedAt: 1 },
     ],
     startHiddenPromptSearch: (payload) => { startedSearch = payload; },
     cancelHiddenPromptSearch: (requestId) => { cancelledSearch = requestId; },
@@ -198,7 +198,7 @@ await test('deep search stat opens same-row hidden prompt match picker', async (
       cli: 'claude',
       title: 'Checkout retry work',
       prompt: 'Fix checkout retry logic',
-      lastPromptAt: 2,
+      touchedAt: 2,
       hiddenMatchCount: 2,
       hiddenMatches: [
         { text: 'webhook retries fail for billing after 409', ranges: [{ start: 0, end: 7 }, { start: 25, end: 32 }], t: 1 },
@@ -233,7 +233,7 @@ await test('finished deep search removes progressive plus marker', async () => {
   let startedSearch = null;
   const picker = createPicker({
     sessions: [
-      { id: 1, cli: 'claude', title: 'Checkout retry work', prompt: 'Fix checkout retry logic', lastPromptAt: 2 },
+      { id: 1, cli: 'claude', title: 'Checkout retry work', prompt: 'Fix checkout retry logic', touchedAt: 2 },
     ],
     startHiddenPromptSearch: (payload) => { startedSearch = payload; },
     deepSearchDebounceMs: 0,
@@ -257,7 +257,7 @@ await test('finished deep search removes progressive plus marker', async () => {
       cli: 'claude',
       title: 'Checkout retry work',
       prompt: 'Fix checkout retry logic',
-      lastPromptAt: 2,
+      touchedAt: 2,
       hiddenMatchCount: 2,
       hiddenMatches: [
         { text: 'webhook retries fail for billing after 409', ranges: [{ start: 0, end: 7 }, { start: 25, end: 32 }], t: 1 },
@@ -288,7 +288,7 @@ await test('no visible match reports hidden-search progress and final empty stat
   let startedSearch = null;
   const picker = createPicker({
     sessions: [
-      { id: 1, cli: 'claude', prompt: 'Fix checkout retry logic', lastPromptAt: 2 },
+      { id: 1, cli: 'claude', prompt: 'Fix checkout retry logic', touchedAt: 2 },
     ],
     startHiddenPromptSearch: (payload) => { startedSearch = payload; },
     deepSearchDebounceMs: 0,
@@ -324,7 +324,7 @@ await test('stale hidden-search progress is ignored after query changes', async 
   const starts = [];
   const picker = createPicker({
     sessions: [
-      { id: 1, cli: 'claude', prompt: 'Fix checkout retry logic', lastPromptAt: 2 },
+      { id: 1, cli: 'claude', prompt: 'Fix checkout retry logic', touchedAt: 2 },
     ],
     startHiddenPromptSearch: (payload) => { starts.push(payload); },
     deepSearchDebounceMs: 0,
@@ -348,7 +348,7 @@ await test('stale hidden-search progress is ignored after query changes', async 
       id: 1,
       cli: 'claude',
       prompt: 'Fix checkout retry logic',
-      lastPromptAt: 2,
+      touchedAt: 2,
       hiddenMatchCount: 1,
       hiddenMatches: [{ text: 'billing hidden prompt', ranges: [{ start: 0, end: 7 }], t: 1 }],
     }],
@@ -365,7 +365,7 @@ await test('stale hidden-search progress is ignored after query changes', async 
       id: 1,
       cli: 'claude',
       prompt: 'Fix checkout retry logic',
-      lastPromptAt: 2,
+      touchedAt: 2,
       hiddenMatchCount: 1,
       hiddenMatches: [{ text: 'webhook hidden prompt', ranges: [{ start: 0, end: 7 }], t: 1 }],
     }],
@@ -413,9 +413,9 @@ await test('nothing typed: no start row, most recent selectable session selected
   let picked = null;
   const picker = createPicker({
     sessions: [
-      { id: 1, cli: 'claude', prompt: 'newest but active elsewhere', lastPromptAt: 3, isActive: true },
-      { id: 2, cli: 'codex', prompt: 'most recent resumable', lastPromptAt: 2 },
-      { id: 3, cli: 'claude', prompt: 'older', lastPromptAt: 1 },
+      { id: 1, cli: 'claude', prompt: 'newest but active elsewhere', touchedAt: 3, isActive: true },
+      { id: 2, cli: 'codex', prompt: 'most recent resumable', touchedAt: 2 },
+      { id: 3, cli: 'claude', prompt: 'older', touchedAt: 1 },
     ],
     activeIds: [1],
     onPick: (id) => { picked = id; }, onStartNew: () => {}, onClose: () => {},
@@ -431,7 +431,7 @@ await test('nothing typed: no start row, most recent selectable session selected
 await test('typing brings row 0 back and selects it', () => {
   let started = null;
   const picker = createPicker({
-    sessions: [{ id: 1, cli: 'claude', prompt: 'older', lastPromptAt: 1 }],
+    sessions: [{ id: 1, cli: 'claude', prompt: 'older', touchedAt: 1 }],
     onPick: () => {}, onStartNew: (cli) => { started = cli; }, onClose: () => {},
   });
   const el = document.querySelector('.at-picker-input');
@@ -515,7 +515,7 @@ await test('the last-prompt line is dropped when the identity already shows that
       prompt: 'generate more · also, stories site is down',
       identityParts: ['generate more', 'also, stories site is down'],
       lastPrompt: 'also, stories site is down',
-      lastPromptAt: 2,
+      touchedAt: 2,
     }],
   });
   const row = document.querySelector('.at-picker-row[data-kind="past"]');
@@ -532,7 +532,7 @@ await test('the last-prompt line stays for a prompt past the identity', async ()
       prompt: 'generate more · also, stories site is down',
       identityParts: ['generate more', 'also, stories site is down'],
       lastPrompt: 'what about the gems site',
-      lastPromptAt: 2,
+      touchedAt: 2,
     }],
   });
   const row = document.querySelector('.at-picker-row[data-kind="past"]');
@@ -543,7 +543,7 @@ await test('the last-prompt line stays for a prompt past the identity', async ()
 
 await test('a session without identityParts still hides a last prompt equal to the prompt', async () => {
   const handle = createPicker({
-    sessions: [{ id: 1, cli: 'claude', prompt: 'Fix checkout retry logic', lastPrompt: 'Fix checkout retry logic', lastPromptAt: 2 }],
+    sessions: [{ id: 1, cli: 'claude', prompt: 'Fix checkout retry logic', lastPrompt: 'Fix checkout retry logic', touchedAt: 2 }],
   });
   const row = document.querySelector('.at-picker-row[data-kind="past"]');
   assert.strictEqual(row.querySelector('.at-picker-last-line'), null);

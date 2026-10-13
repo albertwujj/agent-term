@@ -246,6 +246,9 @@ try {
   const ended = sessionsLog.readLog(UD).filter(e => e.id === 6).map(e => e.e);
   check('it is recorded as closed', ended.includes('closed'), JSON.stringify(ended));
   check('by the cap', sessionsLog.readLog(UD).some(e => e.id === 6 && e.e === 'closed' && e.by === 'cap'));
+  // The picker orders an ended session by the timer its window ended with.
+  const capClose = sessionsLog.readLog(UD).find(e => e.id === 6 && e.e === 'closed' && e.by === 'cap');
+  check('with the timer it ended on', capClose && Number.isFinite(capClose.touchedAt) && capClose.touchedAt > 0, JSON.stringify(capClose));
 } finally {
   try { await app.close(); } catch {}
   if (foreground) try { await foreground.close(); } catch {}

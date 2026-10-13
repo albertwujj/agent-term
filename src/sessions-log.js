@@ -13,8 +13,9 @@
 //         rewrite attachments from old prompt text.
 //       { e:"cwd",      id, cwd,    t }   // POSIX dir the CLI was launched from
 //       { e:"branches", id, repo, branch, t }   // git branch captured from a review://
-//       { e:"closed",   id,         t }   // the user closed the window or exited the shell
-//       { e:"lost",     id,         t }   // the window died under a live process (see main.js exitAsGhost)
+//       { e:"closed",   id, touchedAt?, t }   // the user closed the window or exited the shell
+//       { e:"lost",     id, touchedAt?, t }   // the window died under a live process (see main.js exitAsGhost)
+//         touchedAt: the window's timer when it ended (docs/dev/auto-hide.md)
 //     Reading the log and folding by id yields the current state of every
 //     session ever recorded. Newer events override older for fields like title;
 //     the identity prompt is built from the first ones (session-identity.js).
@@ -55,7 +56,7 @@ const { writeFileAtomicSync } = require('./atomic-file');
 const { isConversationTitle } = require('./ai-title');
 const { identityFromPrompts } = require('./session-identity');
 
-const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks: the picker shows a session this long after its last prompt, the log keeps it this long after its last event
+const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks: the picker shows a session this long after it was last touched, the log keeps it this long after its last event
 
 // Round to the nearest minute so os.uptime()'s second-resolution ticks don't
 // break equality comparisons across rapid-fire reads/writes within one boot.
@@ -181,6 +182,15 @@ function normalizePromptForSearch(value) {
   return normalizeSearchText(value);
 }
 
+// When a session last drew the user: the timer auto-hide ages its window by
+// and the phone viewer orders it by (docs/dev/auto-hide.md). The log records
+// it as each desk prompt lands and when the window ends, so a session's
+// touchedAt is the latest of those; events the machine writes on its own (a
+// CLI's title, a background report) leave it where it was.
+function touch(s, t) {
+  if (Number.isFinite(t) && t > (s.touchedAt || 0)) s.touchedAt = t;
+}
+
 // Fold the event log into a {id -> session} map. Newer events override older
 // fields. Sessions are kept regardless of completeness; callers filter as needed.
 function listSessions(userDataDir) {
@@ -193,7 +203,7 @@ function listSessions(userDataDir) {
     if (typeof ev.id !== 'number') continue;
     let s = map.get(ev.id);
     if (!s) {
-      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, lastPromptAt: null, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, capturedBranches: [], closedBy: null, token: null };
+      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, touchedAt: null, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, capturedBranches: [], closedBy: null, token: null };
       map.set(ev.id, s);
     }
     s.lastEventAt = ev.t;
@@ -227,14 +237,11 @@ function listSessions(userDataDir) {
       // the chrome bar, icon letters, window title and picker agree.
       // s.identityPrompts are the prompts it is built from, with their
       // times, so a resume can keep feeding it. s.lastPrompt is LAST-WINS
-      // (recency — what the user was most recently working on), and
-      // s.lastPromptAt is when the user last worked in the session: the
-      // picker's order and age. lastEventAt also moves for what the machine
-      // did on its own (a CLI's title, a window lost to a logout, a
-      // background report), so it would float sessions nobody touched.
+      // (recency — what the user was most recently working on). Each one
+      // is also a touch.
       case 'prompt':
         if (ev.prompt) {
-          s.lastPromptAt = ev.t;
+          touch(s, ev.t);
           let feed = identityFeed.get(ev.id);
           if (!feed && !s.prompt) { feed = []; identityFeed.set(ev.id, feed); }
           if (feed) {
@@ -260,10 +267,10 @@ function listSessions(userDataDir) {
         break;
       // closedBy names what closed it when that was not the user: 'cap' for
       // the live-session cap closing it while hidden (window-cap.js).
-      case 'closed':  s.closedBy = ev.by || null; break;
+      case 'closed':  s.closedBy = ev.by || null; touch(s, ev.touchedAt); break;
       // The window died under a live process: its last end was the loss, so
       // an earlier closedBy no longer applies.
-      case 'lost':    s.closedBy = null; break;
+      case 'lost':    s.closedBy = null; touch(s, ev.touchedAt); break;
       // 'runid' and 'blockid' events are no-ops in the union model — the
       // hub auto-generates fresh runIds per process and the block concept
       // is gone. We don't strip them from disk (forward-compat); the fold
@@ -422,8 +429,9 @@ function gcActiveFiles(userDataDir, opts = {}) {
 // start to keep load time bounded for long-lived installs.
 //
 // A session goes whole or stays whole. The window runs from its last event,
-// never earlier than the last prompt the picker goes by (menuList), so every
-// session the picker shows survives. The fold identifies a session by its
+// never earlier than a touch the log records, and a live window's own timer
+// never meets compaction (it runs only with no live records), so every session
+// the picker shows survives. The fold identifies a session by its
 // first events: `started` carries the hue and token, `cli` says what to
 // relaunch, and the first `prompt` is the identity. Dropping events one by
 // one left a session that ran past the window with its recent prompts but no
@@ -581,7 +589,7 @@ function searchHiddenPromptMatches(userDataDir, query, opts = {}) {
 
   const cutoff = Date.now() - (opts.maxAgeMs || RECENT_WINDOW_MS);
   const sessions = listSessions(userDataDir)
-    .filter(s => s.cli && s.prompt && (s.lastPromptAt || 0) >= cutoff);
+    .filter(s => s.cli && s.prompt && (s.touchedAt || 0) >= cutoff);
   const sessionsById = new Map(sessions.map(s => [s.id, s]));
   const eventsById = new Map();
   for (const ev of readLog(userDataDir)) {
@@ -605,8 +613,8 @@ function searchHiddenPromptMatches(userDataDir, query, opts = {}) {
   return out;
 }
 
-// Sessions visible in the startup all-past picker: everything prompted in the
-// last RECENT_WINDOW_MS that has a CLI, most recently prompted first — sessions
+// Sessions visible in the startup all-past picker: everything touched in the
+// last RECENT_WINDOW_MS that has a CLI, most recently touched first — sessions
 // without a prompt have no recognizable content to resume against, and
 // "Start new <cli>" already covers the empty-launch case.
 function menuList(userDataDir, opts = {}) {
@@ -615,12 +623,14 @@ function menuList(userDataDir, opts = {}) {
   const out = [];
   for (const s of listSessions(userDataDir)) {
     if (!s.cli || !s.prompt) continue;
-    if (s.lastPromptAt < cutoff) continue;
     const rec = readActiveFile(userDataDir, s.id);
+    // A window still holding the session carries its running timer.
+    const touchedAt = Math.max(s.touchedAt || 0, (rec && rec.touchedAt) || 0);
+    if (touchedAt < cutoff) continue;
     const isActive = isSessionActive(rec, { bootTime, guiSession: opts.guiSession });
-    out.push({ ...s, isActive });
+    out.push({ ...s, touchedAt, isActive });
   }
-  out.sort((a, b) => b.lastPromptAt - a.lastPromptAt);
+  out.sort((a, b) => b.touchedAt - a.touchedAt);
   return out;
 }
 
