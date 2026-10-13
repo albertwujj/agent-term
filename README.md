@@ -47,6 +47,8 @@ The terminal is a natural home for coding agents: text in, text out, with the sh
 
 An IDE or desktop app offers richer views and interactions than a text-centric interface alone. Expanding the terminal lets AgentTerm add those capabilities while keeping your existing AI CLIs in the familiar text interface.
 
+[![AgentTerm adds rendered documents and code, session tools, text and file actions, and optional connections around a familiar core terminal, with OS window integration.](docs/assets/agentterm-capabilities.svg)](docs/assets/agentterm-capabilities.svg)
+
 As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several agents at once. The expanded terminal supports that work visually, like an IDE.
 
 AgentTerm controls both the terminal and the visual pages in it, so it can coordinate presentation, focus, and feedback. A document or review takes the center when needed and gets out of the way as your focus shifts. In a CLI conversation, revisions usually arrive as more output. Here, plans and drafts are revised in place, while comments and replies accumulate beside the relevant passage. Your feedback goes back to the same agent.
