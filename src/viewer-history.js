@@ -1,4 +1,5 @@
 const { BAND_VIEWABLE_KINDS } = require('./band-viewable');
+const { gitDiffSidePath } = require('./git-diff-header');
 
 // review:// is printed by an agent, not typed into a browser: no parser on the
 // emitting side ever checks it, so the host is the only place a malformed link
@@ -178,7 +179,9 @@ function extractViewerCandidateMatches(text, pathSource = MARKDOWN_PATH_SOURCE) 
     const start = match.index;
     const end = start + match[0].length;
     if (urlSpans.some((span) => start < span.end && end > span.start)) continue;
-    const key = normalizeLocalPath(match[0]);
+    // A diff header's a/ and b/ copies are the file itself (git-diff-header.js).
+    const printed = normalizeLocalPath(match[0]);
+    const key = gitDiffSidePath(source, start, printed) || printed;
     const segments = rendererWrappedSegments(source, start, match[0]);
     if (key) matches.push({
       entry: { kind: MARKDOWN_DOCUMENT_RE.test(key) ? 'md' : 'file', key },

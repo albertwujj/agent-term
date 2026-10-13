@@ -210,6 +210,17 @@ test('extracts line-anchored and WSL UNC markdown paths', () => {
   );
 });
 
+test('a diff header names its file once, without the a/ and b/ sides', () => {
+  const diff = [
+    '  └ diff --git a/reddit/essay.md b/reddit/essay.md',
+    '    index aad8084..a4c4c59 100644',
+    '    --- a/reddit/essay.md',
+    '    +++ b/reddit/essay.md',
+    'Edited reddit/essay.md and a/notes.md',
+  ].join('\n');
+  assert.deepStrictEqual(keys(extractViewerCandidates(diff)), ['md:reddit/essay.md', 'md:a/notes.md']);
+});
+
 test('strips OSC and CSI controls while preserving rendered text', () => {
   const styled = '\x1b]7;file://host/tmp\x07\x1b[34mUpdate(\x1b[1mplan.md\x1b[0m)';
   assert.strictEqual(stripTerminalSequences(styled), 'Update(plan.md)');

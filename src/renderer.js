@@ -59,6 +59,7 @@ const {
 } = require('./mentioned-folders');
 const { isReviewPackagePath } = require('./review-package-path');
 const { isConversationDocPath } = require('./conversation-doc-path');
+const { gitDiffSidePath } = require('./git-diff-header');
 const { userIsTyping, setTypingProbe } = require('./viewer-band');
 
 // Custom title-bar / chrome bar — replaces the old session-banner row and
@@ -5312,6 +5313,14 @@ function parseLineRefStartLine(text) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+// A path in a git diff header opens as the file it names, without git's a/ or
+// b/ side prefix (git-diff-header.js); the whole printed token stays the link.
+function gitDiffSideMatch(fullMatch, matchIndex, line) {
+  const target = gitDiffSidePath(line, matchIndex, fullMatch);
+  if (!target) return null;
+  return [{ text: fullMatch, start: matchIndex, end: matchIndex + fullMatch.length, viewerTarget: target }];
+}
+
 // Pattern definitions - easy to extend (add new patterns here)
 // Patterns are checked in order; more specific patterns should come first
 const patterns = [
@@ -5523,6 +5532,7 @@ const patterns = [
     name: 'resource_file',
     // Matches file paths ending with resource extensions (images, docs, media, archives, data)
     regex: /(?:[.\/~…]|[a-zA-Z])[a-zA-Z0-9_.+~\/…-]*\.(?:png|jpe?g|gif|svg|ico|webp|bmp|tiff?|pdf|docx?|xlsx?|pptx?|rtf|epub|mp[34]|wav|avi|mov|mkv|flac|ogg|webm|zip|tgz|gz|bz2|xz|rar|7z|zst|csv|tsv|parquet|avro)\b/gi,
+    expand: gitDiffSideMatch,
     action: async (match, options = {}) => {
       const mod = options.modifiers || {};
       // A file the band renders (image, video, audio, pdf) opens there; a
@@ -5551,6 +5561,7 @@ const patterns = [
         && !hasLeadingLineRefContext(line, index)
         && !/^\(\d/.test(rest);
     },
+    expand: gitDiffSideMatch,
     action: async (match, options) => {
       await navigateToFileLine(match.viewerTarget || match.text, null, null, options);
     },
@@ -5870,7 +5881,7 @@ function parseRow(text) {
         priority: pattern.priority || 'high',
       };
       if (pattern.expand) {
-        const subMatches = pattern.expand(match[0], match.index);
+        const subMatches = pattern.expand(match[0], match.index, text);
         if (subMatches) {
           for (const sub of subMatches) {
             matches.push({
