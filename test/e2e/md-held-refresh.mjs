@@ -116,6 +116,26 @@ try {
   assert.deepEqual(seat, [second, second], 'the mark stays under its block');
   console.log('PASS a queued comment lets the agent\'s edit elsewhere land, and keeps its mark');
 
+  // Sending re-renders the page while that pulse still runs: it carries on
+  // rather than starting over, or the Send would seem to flash the change.
+  const pulseClock = () => page.evaluate(() => {
+    const el = [...document.querySelectorAll('.primary .md-change-pulse')]
+      .find((b) => b.textContent.startsWith('Paragraph 3 '));
+    const pulse = el?.getAnimations().find((a) => a.animationName === 'md-change-pulse-kf');
+    // How far into its keyframes it is: a resumed pulse runs with a negative delay.
+    return pulse ? pulse.currentTime - pulse.effect.getTiming().delay : null;
+  });
+  await page.waitForTimeout(1000);
+  const before = await pulseClock();
+  assert.ok(before > 1500, `the pulse is under way before Send: ${before}`);
+  await page.locator('.secondary .md-queued-comment-mark').click();
+  await page.keyboard.press(`${MOD}+Enter`);
+  await page.waitForSelector('.md-comment-card', { state: 'detached' });
+  await page.waitForTimeout(100);
+  const after = await pulseClock();
+  assert.ok(after === null || after >= before, `Send does not restart the pulse: ${before} → ${after}`);
+  console.log('PASS a Send mid-pulse lets the pulse run on');
+
   assert.deepEqual(errors, [], 'no renderer errors');
 } finally {
   await app.close().catch(() => {});

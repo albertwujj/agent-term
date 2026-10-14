@@ -1253,6 +1253,7 @@ function createMarkdownViewer({
     changeFlashRecords: [],
     changeFlashToken: 0,
     changeFlashTimer: 0,
+    changeFlashStartedAt: 0,
     changePulseEls: [],
     landingPulse: null, // { ids, variant } — survives layoutSpread rebuilds by anchor id
     fileSignature: '',
@@ -2994,6 +2995,7 @@ function createMarkdownViewer({
   function clearChangePulse() {
     for (const el of state.changePulseEls) {
       el.classList.remove('md-change-pulse');
+      el.style.animationDelay = '';
     }
     state.changePulseEls = [];
   }
@@ -3020,7 +3022,12 @@ function createMarkdownViewer({
     // Force a reflow so re-adding the class restarts the animation when the same
     // block pulses again without a full re-render (mirrors the review viewer's pulseEl).
     void state.article.offsetWidth;
+    // A rebuild hands the pulse fresh elements, where it would start over: a
+    // Send moments after a change landed flashed it again, as if the Send had
+    // made it. The pulse resumes at its elapsed time instead.
+    const elapsed = Math.max(0, Date.now() - state.changeFlashStartedAt);
     for (const el of targets) {
+      el.style.animationDelay = `-${elapsed}ms`;
       el.classList.add('md-change-pulse');
       state.changePulseEls.push(el);
     }
@@ -3049,6 +3056,7 @@ function createMarkdownViewer({
     state.changeFlashToken += 1;
     const token = state.changeFlashToken;
     state.changeFlashRecords = flashRecords;
+    state.changeFlashStartedAt = Date.now();
     clearChangePulse();
     if (!flashRecords.length) {
       return;
