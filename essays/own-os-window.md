@@ -34,9 +34,9 @@ The identity carries into the window and its previews. My opening prompts stay p
 
 ## Automatic: no renaming or grouping required
 
-Many tools ask me to name sessions or arrange them into projects and workspaces. In AgentTerm, the color and the label come automatically. I never need to rename a session or sort it into folders or groups; its identity is there from my first prompt. Renaming and grouping can be added for anyone who wants them.
+Many tools ask me to name sessions or arrange them into projects and workspaces. In AgentTerm, the color and the label come automatically. I never need to rename a session or sort it into folders or groups; its identity is there from my first prompt.
 
-Finding an old session needs no grouping either. A session leaves many clues as it runs, and the session picker searches the ones it collects, such as my later prompts. More can be collected, for example the files its agent touched, and the search can grow to use them.
+Finding an old session needs no grouping either. A session leaves many clues as it runs, and the session picker searches the ones it collects, such as my later prompts. More can be collected, for example the files its agent touched, and the search can grow to use them. Optional manual tags or groups could be added later, searchable through the picker and managed in their own UI.
 
 [![The session picker filtered by "fix": each past session shows its first prompt, a matching later prompt and the CLI's title, with its color stripe.](../docs/assets/hero-session-resume.png)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-session-resume.png)
 
