@@ -4,7 +4,10 @@ const {
   findInsertedTextRanges,
   getLineDiffOpcodes,
   hasNewWordSignal,
+  mapIntactAnchors,
+  unchangedLineShift,
 } = require('../src/markdown-change-diff');
+const { renderMarkdownDocument } = require('../src/markdown-render');
 
 let passed = 0;
 let failed = 0;
@@ -143,6 +146,57 @@ test('findDeletionAnchorRanges includes attached punctuation on edge deletions',
 
 test('findDeletionAnchorRanges ignores punctuation-only replacements', () => {
   assertEqual(findDeletionAnchorRanges('hello, world', 'hello. world'), []);
+});
+
+// Old id → new id, by block text, for the blocks both documents share.
+function intactByText(oldSource, newSource) {
+  const oldDoc = renderMarkdownDocument(oldSource);
+  const newDoc = renderMarkdownDocument(newSource);
+  const lines = (source, anchor) => source.split('\n').slice(anchor.startLine - 1, anchor.endLine).join(' ');
+  const map = mapIntactAnchors(oldDoc.anchors, newDoc.anchors, getLineDiffOpcodes(oldSource, newSource));
+  return oldDoc.anchors.map((anchor) => {
+    const next = map.get(anchor.id);
+    return [lines(oldSource, anchor), next ? `${anchor.id}->${next.id}` : null];
+  });
+}
+
+test('mapIntactAnchors follows whole blocks below an added one to their new ids', () => {
+  const before = 'Alpha.\n\nBravo.\n\nCharlie.';
+  const after = 'New first.\n\nAlpha.\n\nBravo.\n\nCharlie.';
+  assertEqual(intactByText(before, after), [
+    ['Alpha.', 'md-a-1->md-a-2'],
+    ['Bravo.', 'md-a-2->md-a-3'],
+    ['Charlie.', 'md-a-3->md-a-4'],
+  ]);
+});
+
+test('mapIntactAnchors leaves out a block the edit rewrote', () => {
+  const before = 'Alpha.\n\nBravo.\n\nCharlie.';
+  const after = 'Alpha.\n\nBravo, rewritten.\n\nCharlie.';
+  assertEqual(intactByText(before, after), [
+    ['Alpha.', 'md-a-1->md-a-1'],
+    ['Bravo.', null],
+    ['Charlie.', 'md-a-3->md-a-3'],
+  ]);
+});
+
+test('mapIntactAnchors leaves out a paragraph a flush line joined', () => {
+  const before = 'Alpha.\n\nBravo.\n\nCharlie.';
+  const after = 'Alpha.\n\nBravo.\nand a line that joins it.\n\nCharlie.';
+  assertEqual(intactByText(before, after), [
+    ['Alpha.', 'md-a-1->md-a-1'],
+    ['Bravo.', null],
+    ['Charlie.', 'md-a-3->md-a-3'],
+  ]);
+});
+
+test('unchangedLineShift is null for a range with a change inside it', () => {
+  const opcodes = getLineDiffOpcodes('a\nb\nc\nd\ne', 'a\nb\nX\nd\ne');
+  assertEqual(unchangedLineShift(opcodes, 1, 2), 0);
+  assertEqual(unchangedLineShift(opcodes, 4, 5), 0);
+  assertEqual(unchangedLineShift(opcodes, 2, 4), null);
+  const inserted = getLineDiffOpcodes('a\nb\nc', 'new\nnew\na\nb\nc');
+  assertEqual(unchangedLineShift(inserted, 1, 3), 2);
 });
 
 runTests();

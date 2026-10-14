@@ -7,6 +7,8 @@ const {
   findDeletionAnchorRanges,
   findInsertedTextRanges,
   getLineDiffOpcodes,
+  mapIntactAnchors,
+  unchangedLineShift,
 } = require('./markdown-change-diff');
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
@@ -1314,6 +1316,16 @@ function createMarkdownViewer({
     unseen.add(key);
     checkUnseenSoon();
   }
+  // A refresh held behind the user's open work is content they cannot see
+  // yet, like one that lands while the band is rolled up: the bar keeps the
+  // unseen hue until it renders, and then until its change has been on screen.
+  const HELD_REFRESH_KEY = 'doc:held';
+  function noteRefreshHeld() {
+    if (!state.unseenTargets.has(HELD_REFRESH_KEY)) noteUnseen(HELD_REFRESH_KEY, () => null);
+  }
+  function dropRefreshHeld() {
+    if (state.unseenTargets.delete(HELD_REFRESH_KEY)) unseen.seen(HELD_REFRESH_KEY);
+  }
   function checkUnseenSoon() {
     if (unseenRaf || !state.unseenTargets.size) return;
     unseenRaf = requestAnimationFrame(() => {
@@ -2131,8 +2143,19 @@ function createMarkdownViewer({
     // A pending edit batch freezes doc refreshes for the whole turn: the user
     // edits against the snapshot they started from, and reconciliation happens
     // once, at handoff (docs/dev/maintainer/md-editing-design.md, Conflicts).
-    return !!state.activeCard || state.queuedComments.length > 0 || !!state.threadReply
+    // An open composer or reply holds them too, since a render rebuilds the
+    // article its card sits in. Queued comments alone do not: a render carries
+    // their marks through (planRefreshThroughQueue).
+    return !!state.activeCard || !!state.threadReply
       || !!state.editing || state.blockOverlays.size > 0;
+  }
+
+  // What holds a thread-layer render. An armed block holds it as well: the
+  // rebuild would drop its caret and hint. So does a document refresh held
+  // back: the store and the document draw together, or a thread the agent
+  // resolved over its edit would drop the edit's seal from the old text.
+  function renderHeld() {
+    return hasBlockingMarkdownRefreshState() || !!state.activeTarget || !!state.pendingRefreshResult;
   }
 
   function stopMarkdownAutoRefresh() {
@@ -2156,6 +2179,7 @@ function createMarkdownViewer({
     state.refreshPulseStartedAt = 0;
     state.refreshPulseViewUpdated = true;
     state.refreshInFlight = false;
+    dropRefreshHeld();
   }
 
   function scheduleMarkdownRefreshPulseStop() {
@@ -2212,13 +2236,13 @@ function createMarkdownViewer({
     };
   }
 
-  function applyMarkdownReadResult(result, { preserveScroll = false } = {}) {
+  function applyMarkdownReadResult(result, { preserveScroll = false, rendered = null, anchorIds = null } = {}) {
     if (!result || !result.success || !state.article || !state.secondaryArticle) return false;
     const previousScrollTop = preserveScroll && state.primaryPane ? state.primaryPane.scrollTop : 0;
     const previousDoc = state.doc;
     const previousSourceText = state.sourceText;
     const nextSourceText = result.content || '';
-    const nextDoc = renderMarkdownDocument(nextSourceText, markdownImageOptions(result));
+    const nextDoc = rendered || renderMarkdownDocument(nextSourceText, markdownImageOptions(result));
     const changeRecords = preserveScroll
       ? computeMarkdownChangeRecords({
           oldDoc: previousDoc,
@@ -2244,7 +2268,10 @@ function createMarkdownViewer({
       state.spreadGridTop = 0;
       state.keepSpacerByKey.clear();
     }
-    layoutSpread();
+    // A live refresh carries queued comments through, onto their blocks' new
+    // ids (planRefreshThroughQueue); a fresh open lays out as it is.
+    if (preserveScroll) relayoutThroughQueuedComments(anchorIds);
+    else layoutSpread();
     if (preserveScroll && state.primaryPane) {
       const maxScrollTop = Math.max(0, state.primaryPane.scrollHeight - state.primaryPane.clientHeight);
       state.primaryPane.scrollTop = Math.min(previousScrollTop, maxScrollTop);
@@ -2256,15 +2283,41 @@ function createMarkdownViewer({
     return true;
   }
 
+  // Queued comments ride a refresh when the agent left their blocks whole:
+  // each mark seats back on its block's new id. A comment on a block the agent
+  // touched keeps the refresh held, so no mark sits on text it was not written
+  // about; Send releases it. Null = held.
+  function planRefreshThroughQueue(result) {
+    if (!state.queuedComments.length) return { rendered: null, anchorIds: null };
+    const rendered = renderMarkdownDocument(result.content || '', markdownImageOptions(result));
+    const oldAnchors = (state.doc && Array.isArray(state.doc.anchors)) ? state.doc.anchors : [];
+    const opcodes = getLineDiffOpcodes(state.sourceText, result.content || '');
+    const anchorIds = mapIntactAnchors(oldAnchors, rendered.anchors, opcodes);
+    const byId = new Map(oldAnchors.map((anchor) => [anchor.id, anchor]));
+    for (const comment of state.queuedComments) {
+      const start = byId.get(comment.anchorId);
+      const end = byId.get(comment.endAnchorId || comment.anchorId);
+      if (!start || !end || !anchorIds.has(start.id) || !anchorIds.has(end.id)) return null;
+      // A passage spans blocks: nothing between its ends may change either.
+      if (unchangedLineShift(opcodes, start.startLine, end.endLine) === null) return null;
+    }
+    return { rendered, anchorIds };
+  }
+
   function applyPendingMarkdownRefreshIfReady() {
-    if (!state.pendingRefreshResult || !isOpen() || hasBlockingMarkdownRefreshState()) return false;
+    if (!state.pendingRefreshResult || !isOpen()) return false;
     const result = state.pendingRefreshResult;
+    const plan = hasBlockingMarkdownRefreshState() ? null : planRefreshThroughQueue(result);
+    if (!plan) {
+      noteRefreshHeld();
+      return false;
+    }
     const beforeSend = state.pendingRefreshBeforeSend;
     state.pendingRefreshResult = null;
     state.pendingRefreshSignature = '';
     state.pendingRefreshStatSignature = '';
     state.pendingRefreshBeforeSend = false;
-    const applied = applyMarkdownReadResult(result, { preserveScroll: true });
+    const applied = applyMarkdownReadResult(result, { preserveScroll: true, ...plan });
     if (applied) markMarkdownRefreshViewUpdated();
     // The doc changed on disk: the agent's new content. Its first change is
     // the one this refresh flashes highest in the document.
@@ -2280,6 +2333,7 @@ function createMarkdownViewer({
         agentWrote(first ? () => resolveChangeRecordAnchor(state.article, first) : null);
       }
     }
+    dropRefreshHeld(); // after the change's own keys, so the hue never blinks off
     return applied;
   }
 
@@ -2429,9 +2483,9 @@ function createMarkdownViewer({
   // document has been read too.
   async function readPolledThreadStore(openToken) {
     if (!isOpen() || openToken !== state.openToken) return null;
-    if (state.threadRenderPending && !hasBlockingMarkdownRefreshState() && !spreadLayoutFrozen()) {
+    if (state.threadRenderPending && !renderHeld()) {
       state.threadRenderPending = false;
-      layoutSpread();
+      relayoutThroughQueuedComments();
     }
     const doc = state.resolvedPath || state.filePath;
     if (!doc || typeof readMarkdownThreads !== 'function') return null;
@@ -2489,14 +2543,15 @@ function createMarkdownViewer({
   }
 
   function scheduleThreadLayerRender() {
-    // A frozen layout has to come back as pending, not be handed to layoutSpread
+    // A held layout has to come back as pending, not be handed to layoutSpread
     // to swallow: the store signature is already recorded, so no later poll asks
-    // for this render again and the agent's reply would never appear.
-    if (hasBlockingMarkdownRefreshState() || spreadLayoutFrozen()) {
+    // for this render again and the agent's reply would never appear. Queued
+    // comments do not hold it; their marks ride the render.
+    if (renderHeld()) {
       state.threadRenderPending = true;
       return;
     }
-    layoutSpread();
+    relayoutThroughQueuedComments();
   }
 
   function adoptThreadStore(data) {
@@ -4164,6 +4219,7 @@ function createMarkdownViewer({
 
   function layoutSpread() {
     if (!state.article || !state.secondaryArticle || !state.doc || spreadLayoutFrozen()) return;
+    state.threadRenderPending = false; // this render draws the thread layer too
     // Shift-aware: the rebuild swaps thread cards/marks in and out of the flow,
     // so hold the page top to content across it. Search refresh runs after —
     // when it jumps to a hit, that jump owns the frame and must land last.
@@ -5303,9 +5359,18 @@ function createMarkdownViewer({
   // commit, revert, or strip toggle on a block that also carries a comment —
   // rebuild anyway, then re-anchor each queued mark onto the fresh DOM by its
   // stable anchorId. Without this the edit is neither shown nor rollback-able.
-  function relayoutThroughQueuedComments() {
+  // anchorIds (old id → new anchor) carries the marks across a document
+  // refresh, whose ids count blocks from the top (mapIntactAnchors).
+  function relayoutThroughQueuedComments(anchorIds = null) {
     const queued = state.queuedComments.splice(0);
-    for (const c of queued) { c.card = null; c.cardCounterpart = null; c.placeholder = null; }
+    for (const c of queued) {
+      c.card = null; c.cardCounterpart = null; c.placeholder = null;
+      const start = anchorIds && anchorIds.get(c.anchorId);
+      if (!start) continue;
+      c.endAnchorId = (anchorIds.get(c.endAnchorId) || start).id;
+      c.anchorId = start.id;
+      c.sourceStartLine = start.startLine;
+    }
     layoutSpread();
     if (!queued.length) return;
     state.queuedComments.push(...queued);
@@ -5314,6 +5379,7 @@ function createMarkdownViewer({
       const target = article && getArticleAnchorById(article, c.anchorId);
       if (!target) continue; // anchor gone (rare) — the mark returns on the next full render
       c.target = target;
+      if (anchorIds) c.sectionHierarchy = getSectionHierarchyForTarget(target); // a heading may have been renamed
       createQueuedMarkdownCommentCard(c);
     }
   }
@@ -5743,13 +5809,13 @@ function createMarkdownViewer({
       }
       state.blockOverlays = new Map();
       state.expandedHunkKey = null;
-      state.pendingRefreshResult = null;
-      state.pendingRefreshSignature = '';
-      state.pendingRefreshStatSignature = '';
       closeActiveCard();
       clearQueuedMarkdownComments();
       clearActiveTarget();
-      layoutSpread();
+      // A refresh the batch held is the agent's earlier work: it lands now,
+      // with the receipt, not a poll later as the agent's answer.
+      if (state.pendingRefreshResult) state.pendingRefreshBeforeSend = true;
+      if (!applyPendingMarkdownRefreshIfReady()) layoutSpread();
       if (typeof showToast === 'function') {
         const bits = [];
         if (editCount) bits.push(`${editCount} edit${editCount === 1 ? '' : 's'}`);
@@ -6602,7 +6668,8 @@ function createMarkdownViewer({
       state.expandedThreads.delete(thread.id);
       adoptThreadStore(result.data);
       if (!toPrompt) sentFromViewer();
-      layoutSpread();
+      if (state.pendingRefreshResult) state.pendingRefreshBeforeSend = true;
+      if (!applyPendingMarkdownRefreshIfReady()) layoutSpread(); // what the open reply held lands with it
       if (typeof showToast === 'function') showToast('Reply sent');
     } catch (error) {
       if (typeof showToast === 'function') {
@@ -6821,7 +6888,7 @@ function createMarkdownViewer({
     // were written against — the same reason a pending batch freezes
     // auto-refresh. Unsent work outranks an incidental click on a link, so say
     // so instead of dropping it.
-    if (hasBlockingMarkdownRefreshState() || restingReplyDrafts().length) {
+    if (hasBlockingMarkdownRefreshState() || state.queuedComments.length > 0 || restingReplyDrafts().length) {
       if (typeof showToast === 'function') showToast('Send or discard your changes to follow that link');
       return;
     }

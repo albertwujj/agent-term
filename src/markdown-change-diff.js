@@ -183,6 +183,37 @@ function getLineDiffOpcodes(oldSource, newSource) {
   return diffArrays(splitSourceLines(oldSource), splitSourceLines(newSource));
 }
 
+// How far an edit moved old lines startLine..endLine (1-based, inclusive):
+// the shift when they all sit in one unchanged run, null when the edit
+// touched any of them or anything between them.
+function unchangedLineShift(opcodes, startLine, endLine) {
+  if (!Number.isFinite(startLine) || !Number.isFinite(endLine) || endLine < startLine) return null;
+  const run = (opcodes || []).find((op) => op && op.tag === 'equal' && op.i1 < startLine && endLine <= op.i2);
+  return run ? run.j1 - run.i1 : null;
+}
+
+// Old anchor id → new anchor for every block an edit left whole: its lines
+// sit in one unchanged run, and the new document has a block of the same kind
+// over exactly the shifted lines. A line added flush against a paragraph joins
+// it, so a block whose bounds moved is not whole either. Anchor ids count
+// blocks from the top, so a whole block still gets a new id once the edit adds
+// or removes a block above it.
+function mapIntactAnchors(oldAnchors, newAnchors, opcodes) {
+  const byLines = new Map();
+  for (const anchor of newAnchors || []) {
+    if (anchor) byLines.set(`${anchor.type}:${anchor.startLine}:${anchor.endLine}`, anchor);
+  }
+  const map = new Map();
+  for (const anchor of oldAnchors || []) {
+    if (!anchor) continue;
+    const shift = unchangedLineShift(opcodes, anchor.startLine, anchor.endLine);
+    if (shift === null) continue;
+    const next = byLines.get(`${anchor.type}:${anchor.startLine + shift}:${anchor.endLine + shift}`);
+    if (next) map.set(anchor.id, next);
+  }
+  return map;
+}
+
 const TEXT_TOKEN_RE = /\S+|\s+/g;
 
 function tokenizeTextWithOffsets(text) {
@@ -443,5 +474,7 @@ module.exports = {
   findInsertedTextRanges,
   getLineDiffOpcodes,
   hasNewWordSignal,
+  mapIntactAnchors,
   tokenizeTextWithOffsets,
+  unchangedLineShift,
 };

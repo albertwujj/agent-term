@@ -849,6 +849,28 @@ document, and it replies before it writes. Each poll tick reads the thread
 store, then the document, and draws them together, so a thread is never
 pointed at text the page does not hold yet.
 
+## Queued comments let the agent's writes through (2026-10-13)
+
+Any queued comment used to hold every refresh until Send, and once the band's
+arrival flash ended nothing said so: the agent's edit stayed off the page for
+minutes, then landed with a pulse at Send, as if the Send had made it.
+
+- An open composer or reply, an in-place edit, or pending edits still hold a
+  refresh: a render rebuilds the article the card sits in, and edits reconcile
+  at Send (Conflicts). While one holds, the bar keeps the unseen hue a roll-up
+  shows (`vb-unseen`), until the write renders and its change is on screen.
+- Queued comments alone ride a refresh. Anchor ids count blocks from the top,
+  so `mapIntactAnchors` carries each mark to its block's new id. A comment on
+  a block the agent touched holds the refresh, so no mark sits on text it was
+  not written about. That includes a comment on a sealed block, whose own
+  edit applied is the write it holds.
+- The thread layer waits with a held refresh. The store and the document draw
+  together, or a thread resolved over its edit would drop the seal from the
+  old text and the edit would seem to vanish.
+- Send lands what it held at once, under the receipt
+  (`pendingRefreshBeforeSend`). `sendEditBatch` used to discard the held read,
+  so the next poll read it again as the agent's answer.
+
 ## Open questions
 
 - Default wording of the instruction template (tune against real agent behavior).
