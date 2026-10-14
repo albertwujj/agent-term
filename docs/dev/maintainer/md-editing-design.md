@@ -851,31 +851,11 @@ pointed at text the page does not hold yet.
 
 ## Queued comments let the agent's writes through (2026-10-13)
 
-Any queued comment used to hold every refresh until Send, and once the band's
-arrival flash ended nothing said so: the agent's edit stayed off the page for
-minutes, then landed with a pulse at Send, as if the Send had made it.
-
-- An open composer or reply, an in-place edit, or pending edits still hold a
-  refresh: a render rebuilds the article the card sits in, and edits reconcile
-  at Send (Conflicts). While one holds, the bar keeps the unseen hue a roll-up
-  shows (`vb-unseen`), until the write renders and its change is on screen.
-- Queued comments alone ride a refresh. Anchor ids count blocks from the top,
-  so `mapIntactAnchors` carries each mark to its block's new id. When the
-  agent rewrote the block in place (`findReplacementAnchor`: one block of the
-  same kind between unchanged neighbours), the mark moves to the rewrite,
-  which the change pulse and bar mark as rewritten under the draft, and Send
-  quotes the block as it now reads. A selection comes along when its words
-  are still in the block, wherever the lines now wrap. That covers the common case, a follow-up queued on
-  a block while the agent answers the comment before it, and a comment on a
-  sealed block, whose own edit applied is the rewrite. The refresh stays held
-  only while a comment has nowhere to sit: its block deleted, split or
-  merged, its selected words gone, or a passage across blocks changed.
-- The thread layer waits with a held refresh. The store and the document draw
-  together, or a thread resolved over its edit would drop the seal from the
-  old text and the edit would seem to vanish.
-- Send lands what it held at once, under the receipt
-  (`pendingRefreshBeforeSend`). `sendEditBatch` used to discard the held read,
-  so the next poll read it again as the agent's answer.
+Queued comments no longer hold the agent's writes. An open composer, a reply,
+or edits still do, and a held write is marked on the bar and on the comment
+that holds it. What the page does with the agent's writes while you work, the
+trade-offs taken, and the road to updates while typing are in
+[md-live-updates-design.md](md-live-updates-design.md).
 
 ## Open questions
 

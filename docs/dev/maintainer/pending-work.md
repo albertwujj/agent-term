@@ -50,6 +50,8 @@ Named in the design record, not yet scheduled.
 - Deviation highlighting: the agent's result vs what the user submitted.
 - Viewer stamping `anchor_status` write-back.
 - Archival of old folded threads.
+- Updates while typing: the agent's replies and writes landing while a
+  composer, reply or edit is open (`md-live-updates-design.md`, Roadmap).
 
 ## Separate track
 
