@@ -21,7 +21,9 @@
 // neighbours, then home, newest first within each, with an age on every row.
 // The walk starts on the first qualifying keystroke, the way the sessions
 // picker's hidden-prompt search does, so the section appears by itself.
-// Opening a disk row records it, so the second time it is a known row.
+// Opening a disk row records it, so the second time it is a known row. A
+// review package the walk finds (an .md under .git/review) is a review row:
+// the md viewer would show its prose without the diff it explains.
 //
 // Public API:
 //   const handle = createViewerSelector({
@@ -34,7 +36,8 @@
 //     onPick(entry):    user chose an entry to open; a disk row carries
 //                       source: 'disk' and an absolute path as its key, kind
 //                       'md' for a doc and 'file' for anything else the band
-//                       renders (opened through the file route)
+//                       renders (opened through the file route), or kind
+//                       'review' and a review:// key for a review package
 //     onRemove(entry):  user pressed Delete on an entry (purge from history)
 //     onClose():        user dismissed (Esc / clicked outside)
 //     startDiskSearch({ requestId }):  begin the on-disk walk (optional; the
@@ -68,6 +71,7 @@ const {
 const { diskAge, diskLabel } = require('./viewer-disk-search');
 const { bandViewableKind } = require('./band-viewable');
 const { viewerFileUrlToPath } = require('./viewer-history');
+const { isReviewPackagePath } = require('./review-package-path');
 
 // The disk section wakes at three typed characters (spaces aside), like the
 // picker's hidden-prompt search, and shows this many rows before asking for
@@ -81,13 +85,14 @@ function diskTermLength(text) {
 }
 
 // A disk row that a known row names for certain: the same file, by path. A
-// known file:// row (an image or pdf opened from the terminal) is that path.
-// A known md key is what the terminal printed: absolute, ~/-relative, or
+// known file:// row (an image or pdf opened from the terminal) is that path,
+// and a known review:// row the package's. A known md key is what the terminal printed: absolute, ~/-relative, or
 // repo-relative with a separator, each of which opens exactly one file, the
 // one the disk row's label spells. A bare name is not: it opens through a
 // chooser over every same-named file, so it stands for none of them and each
 // stays listed with its folder and age.
 function knownCoversDiskEntry(known, entry) {
+  if (known.kind === 'review') return entry.kind === 'review' && known.key === entry.key;
   if (known.kind === 'url') {
     return /^file:/i.test(known.key) && viewerFileUrlToPath(known.key) === entry.key;
   }
@@ -222,13 +227,14 @@ function createViewerSelector({
     // appending keeps the section's order.
     const files = Array.isArray(payload.files) ? payload.files : [];
     for (const file of files) {
-      const key = String((file && file.path) || '');
-      if (!key || disk.seen.has(key)) continue;
-      disk.seen.add(key);
+      const filePath = String((file && file.path) || '');
+      if (!filePath || disk.seen.has(filePath)) continue;
+      disk.seen.add(filePath);
+      const review = isReviewPackagePath(filePath);
       disk.files.push({
-        kind: bandViewableKind(key) === 'md' ? 'md' : 'file',
-        key,
-        label: diskLabel(key, { cwd: disk.cwd, home: disk.home }),
+        kind: review ? 'review' : (bandViewableKind(filePath) === 'md' ? 'md' : 'file'),
+        key: review ? `review://${filePath}` : filePath,
+        label: diskLabel(filePath, { cwd: disk.cwd, home: disk.home }),
         modified: Number(file.modified) || 0,
         tier: payload.tier || null,
         source: 'disk',

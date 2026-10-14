@@ -8,6 +8,7 @@
 // html, images, video, audio, pdf) whose path matches, in a second section
 // under the known rows: the repo's files, then its neighbours', then home's,
 // most recently modified first within each, with the file's age on the row.
+// The repo's review packages are among them, and open as reviews.
 // The section is capped, so its order is also its selection, and the one
 // signal on disk for what the user is after is how recently a file changed.
 //
@@ -27,11 +28,19 @@
 // walk must stop on a deadline, not on pipe backpressure, and python3 is
 // already a seam dependency.
 
-// argv: top skip budget cap exts. `skip` is a directory to leave out (the tier
-// below already walked it; '' for none), `budget` seconds of wall clock (0 =
-// no deadline), `cap` the most paths to print, `exts` a comma-separated list
-// of dotted lower-case extensions. Prune set and the .git rule (only
-// .git/conversation contributes) match CLICK_SEARCH_PRUNE in main.js.
+// argv: top skip budget cap exts [git]. `skip` is a directory to leave out
+// (the tier below already walked it; '' for none), `budget` seconds of wall
+// clock (0 = no deadline), `cap` the most paths to print, `exts` a
+// comma-separated list of dotted lower-case extensions, `git` the repo's
+// shared .git as \`git rev-parse --git-common-dir\` prints it from top
+// (relative to top or absolute; the repo tier passes it). Review packages and
+// conversation docs live there, which the walk does not reach from a linked
+// worktree, whose .git is a file naming it, or from a folder inside the repo,
+// so it is walked with top unless top already holds it. Prune set and the .git rule (only
+// .git/conversation and the review packages, the .md files under .git/review,
+// contribute) match CLICK_SEARCH_PRUNE in main.js. A package keeps its
+// rendered .html and comment files beside it; only the review flow opens
+// those, so the walk lists the .md alone.
 //
 // Breadth-first, directories in sorted order: a tier that runs out of budget
 // has listed the shallow files of every folder in it (each sibling repo's
@@ -46,36 +55,40 @@ import os, sys, time
 from collections import deque
 top, skip, budget, cap = sys.argv[1], sys.argv[2], float(sys.argv[3]), int(sys.argv[4])
 exts = tuple(e for e in sys.argv[5].split(",") if e)
+git = os.path.normpath(os.path.join(top, sys.argv[6])) if len(sys.argv) > 6 and sys.argv[6] else None
 prune = {"node_modules", ".cache", ".npm", "Library"}
 skip = os.path.normpath(skip) if skip else None
 deadline = time.monotonic() + budget if budget > 0 else None
 hits = []
 partial = False
-queue = deque([top])
+queue = deque([(top, False)])
+if git and os.path.basename(git) == ".git" and not git.startswith(os.path.normpath(top) + os.sep):
+    queue.append((git, False))
 while queue:
     if deadline is not None and time.monotonic() > deadline:
         partial = True
         break
-    d = queue.popleft()
+    d, review = queue.popleft()
     if skip is not None and os.path.normpath(d) == skip:
         continue
     try:
         entries = sorted(os.scandir(d), key=lambda e: e.name)
     except OSError:
         continue
-    only = "conversation" if os.path.basename(d) == ".git" else None
+    only = ("conversation", "review") if os.path.basename(d) == ".git" else None
     for e in entries:
         try:
             is_dir = e.is_dir(follow_symlinks=False)
         except OSError:
             continue
+        name = e.name.lower()
         if is_dir:
             if only is not None:
-                if e.name == only:
-                    queue.append(e.path)
+                if e.name in only:
+                    queue.append((e.path, e.name == "review"))
             elif e.name not in prune:
-                queue.append(e.path)
-        elif only is None and e.name.lower().endswith(exts):
+                queue.append((e.path, review))
+        elif only is None and name.endswith(exts) and (not review or name.endswith(".md")):
             try:
                 mtime = int(e.stat(follow_symlinks=False).st_mtime)
             except OSError:

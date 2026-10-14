@@ -12,7 +12,7 @@ Both live in `src/main.js` and probe the disk only through the POSIX shell seam.
 
 ## Pruning
 
-One prune set serves the click resolvers and the viewer selector's disk walk (`src/viewer-disk-search.js`): `node_modules`, `.cache`, `.npm`, `Library`. `.git` is pruned by content rather than by name, so `.git/conversation` stays reachable while objects, refs, and the review runtime stay out of every search.
+One prune set serves the click resolvers and the viewer selector's disk walk (`src/viewer-disk-search.js`): `node_modules`, `.cache`, `.npm`, `Library`. `.git` is pruned by content rather than by name, so `.git/conversation` and the review packages (the `.md` files under `.git/review`) stay reachable while objects, refs, and a package's rendered `.html` and comment files stay out of every search. A resolved package opens through the review flow, never the md viewer (`src/review-package-path.js`). Both live in the repo's shared `.git` (`git rev-parse --git-common-dir`), which a walk of the shell directory misses from a linked worktree, whose `.git` is a file, or from a folder inside the repo; the bare-name markdown sweep and the selector's repo tier walk it too, the path filled in by git within the same shell command.
 
 ## Deadlines
 

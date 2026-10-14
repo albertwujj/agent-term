@@ -3400,10 +3400,12 @@ function cancelViewerDiskSearch(requestId) {
 
 // One tier's walk through the POSIX seam. The deadline lives in the script,
 // so the process timeout is only a backstop a few seconds past it. A walk the
-// deadline or the cap stopped reports partial, and the selector says so.
-async function listDiskTier({ top, skip, budget }) {
+// deadline or the cap stopped reports partial, and the selector says so. The
+// repo tier also walks the repo's shared .git (gitCommonDirArg).
+async function listDiskTier({ tier, top, skip, budget }) {
+  const git = tier === 'cwd' ? ` ${gitCommonDirArg(top)}` : '';
   const r = await posixSh(
-    `python3 -c ${shellEscape(DISK_LIST_PY)} ${shellEscape(top)} ${shellEscape(skip || '')} ${budget} ${DISK_TIER_CAP} ${shellEscape(DISK_SEARCH_EXTENSIONS.join(','))}`,
+    `python3 -c ${shellEscape(DISK_LIST_PY)} ${shellEscape(top)} ${shellEscape(skip || '')} ${budget} ${DISK_TIER_CAP} ${shellEscape(DISK_SEARCH_EXTENSIONS.join(','))}${git}`,
     { timeout: (budget + 4) * 1000 });
   // One `mtime<TAB>path` line per hit, most recently modified first (the
   // script sorts), then the marker if the walk was cut short.
@@ -3942,15 +3944,18 @@ async function getWSLCwd() {
 // -name. Bulky trees are pruned so the sweep returns within its timeout, and a
 // timed-out find still yields the hits it printed before the kill.
 // .git is pruned by content, not by name: conversation docs live at
-// .git/conversation/<topic>.md by convention and must stay clickable, while the
-// rest of .git (objects, refs, the review runtime) stays out of every search.
-const CLICK_SEARCH_PRUNE = String.raw`\( -name node_modules -o -name .cache -o -name .npm -o -name Library -o \( -path '*/.git/*' ! -path '*/.git/conversation' ! -path '*/.git/conversation/*' \) \) -prune -o`;
+// .git/conversation/<topic>.md by convention and review packages at
+// .git/review/<slug>/<slug>.md, and both must stay clickable (a package opens
+// as its review), while the rest of .git (objects, refs, a package's rendered
+// .html and comment files) stays out of every search.
+const CLICK_SEARCH_PRUNE = String.raw`\( -name node_modules -o -name .cache -o -name .npm -o -name Library -o \( -path '*/.git/*' ! -path '*/.git/conversation' ! -path '*/.git/conversation/*' ! -path '*/.git/review' ! -path '*/.git/review/*' \) -o \( -path '*/.git/review/*' ! -type d ! -name '*.md' \) \) -prune -o`;
 const CLICK_SEARCH_MAX_CHOICES = 8;
 // The markdown chooser filters as you type, so it can present a longer list of
 // same-named files than the fixed Alt-click chooser (where 8 is all that fits).
 const MARKDOWN_CHOICE_MAX = 200;
 // Bare-name duplicate sweep (resolveMarkdownChoices): repo tree first and in
-// full, then siblings until this many seconds elapse. Python because the walk
+// full, then the repo's shared .git when the tree does not hold it (see
+// gitCommonDirArg), then siblings until this many seconds elapse. Python because the walk
 // must stop on a deadline, not on pipe backpressure; python3 is already a seam
 // dependency (the stat probe).
 const MARKDOWN_SIBLING_BUDGET_S = 3;
@@ -3958,6 +3963,7 @@ const MARKDOWN_SWEEP_PY = `
 import os, sys, time
 cwd, root, name = sys.argv[1], sys.argv[2], sys.argv[3]
 budget, cap = float(sys.argv[4]), int(sys.argv[5])
+git = os.path.normpath(os.path.join(cwd, sys.argv[6])) if len(sys.argv) > 6 and sys.argv[6] else None
 prune = {"node_modules", ".cache", ".npm", "Library"}
 hits = []
 def sweep(top, skip, deadline):
@@ -3968,7 +3974,7 @@ def sweep(top, skip, deadline):
             dirnames[:] = []
             continue
         if os.path.basename(dirpath) == ".git":
-            dirnames[:] = [d for d in dirnames if d == "conversation"]
+            dirnames[:] = [d for d in dirnames if d in ("conversation", "review")]
             continue
         dirnames[:] = [d for d in dirnames if d not in prune]
         if name in filenames:
@@ -3976,10 +3982,21 @@ def sweep(top, skip, deadline):
             if len(hits) >= cap:
                 return
 sweep(cwd, None, None)
+if git and os.path.basename(git) == ".git" and not git.startswith(os.path.normpath(cwd) + os.sep) and len(hits) < cap:
+    sweep(git, None, None)
 if os.path.normpath(root) != os.path.normpath(cwd) and len(hits) < cap:
     sweep(root, os.path.normpath(cwd), time.monotonic() + budget)
 sys.stdout.write("\\n".join(hits))
 `;
+
+// The repo's shared .git for a walk rooted at `folder`, as a shell argument
+// that git fills in the walk's own command: no extra round trip, and empty
+// outside a repo. Review packages and conversation docs live there, which a
+// walk of the folder misses from a linked worktree (its .git is a file naming
+// the shared one) or from a folder inside the repo.
+function gitCommonDirArg(folder) {
+  return `"$(git -C ${shellEscape(folder)} rev-parse --git-common-dir 2>/dev/null)"`;
+}
 
 async function searchClickedPath(root, rel, timeout) {
   const pattern = rel.includes('/')
@@ -4109,7 +4126,8 @@ async function markdownHomeSweep(root, rel) {
 // plain clicks used to silently take the first `find` hit. Absolute / ~ paths
 // name one file; a path with separators is specific enough to resolve directly.
 // Scope is the repo (cwd) tree plus its sibling folders, then home when those
-// miss (node_modules etc. pruned; .git contributes only .git/conversation); the
+// miss (node_modules etc. pruned; .git contributes only .git/conversation and
+// the review packages, which the caller routes to the review flow); the
 // show-every-candidate sweep stays reserved for the explicit Alt-click gesture.
 // A folder the terminal printed (folders, see mentionedFolderHits) is tried
 // ahead of the tree searches: for a path with separators it answers outright
@@ -4153,7 +4171,7 @@ async function resolveMarkdownChoices(filePath, { folders = [] } = {}) {
   // copy was printed in the first second.
   const mentioned = await mentionedFolderHits(folders, rel, { test: '-f' });
   const swept = (await posixSh(
-    `python3 -c ${shellEscape(MARKDOWN_SWEEP_PY)} ${shellEscape(cwd)} ${shellEscape(root)} ${shellEscape(rel)} ${MARKDOWN_SIBLING_BUDGET_S} ${MARKDOWN_CHOICE_MAX}`,
+    `python3 -c ${shellEscape(MARKDOWN_SWEEP_PY)} ${shellEscape(cwd)} ${shellEscape(root)} ${shellEscape(rel)} ${MARKDOWN_SIBLING_BUDGET_S} ${MARKDOWN_CHOICE_MAX} ${gitCommonDirArg(cwd)}`,
     { timeout: 10000 }))
     .stdout.split('\n').map((l) => l.trim()).filter(Boolean);
   const rootHit = `${cwd}/${rel}`;

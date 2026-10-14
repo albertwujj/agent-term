@@ -419,6 +419,35 @@ await test('a known path hides its disk copy; a bare known name hides nothing', 
   selector.destroy();
 });
 
+await test('a review package on disk is a review row; a known review link hides it', () => {
+  const pkg = '/Users/u/repo/.git/review/work-baseline/work-baseline.md';
+  const spy = diskSpy();
+  let picked = null;
+  const selector = createViewerSelector({ entries: [], onPick: (e) => { picked = e; }, ...spy });
+  const el = document.querySelector('.at-vsel-input');
+  input(el, 'baseline');
+  progress(selector, spy, { done: true, tier: 'cwd', files: F(pkg) });
+
+  const row = document.querySelector('.at-vsel-row');
+  assert.strictEqual(row.querySelector('.at-vsel-tag').textContent, 'review');
+  assert.strictEqual(row.querySelector('.at-vsel-key').textContent, '.git/review/work-baseline/work-baseline.md');
+  key(el, 'Enter');
+  assert.strictEqual(picked.kind, 'review');
+  assert.strictEqual(picked.key, `review://${pkg}`);
+  assert.strictEqual(picked.source, 'disk');
+  selector.destroy();
+
+  const spy2 = diskSpy();
+  const known = createViewerSelector({
+    entries: [{ kind: 'review', key: `review://${pkg}` }], onPick: () => {}, ...spy2,
+  });
+  input(document.querySelector('.at-vsel-input'), 'baseline');
+  progress(known, spy2, { done: true, tier: 'cwd', files: F(pkg) });
+  assert.strictEqual(document.querySelectorAll('.at-vsel-row').length, 1);
+  assert.strictEqual(document.querySelector('.at-vsel-disk-divider').textContent, 'On disk — none matching baseline');
+  known.destroy();
+});
+
 await test('absolute and ~ known paths hide their disk copies; a relative path elsewhere does not', () => {
   const spy = diskSpy();
   const selector = createViewerSelector({

@@ -746,6 +746,12 @@ function purgeViewerEntry(entry) {
 // once, it is a known row from then on.
 async function openViewerFromHistory(entry, openKey) {
   if (!entry) return false;
+  // A printed name can resolve to a review package, which only the review flow
+  // renders: it opens, and is recorded, as that review, the way a click does.
+  const mdPath = entry.kind === 'md' ? (openKey || entry.key) : '';
+  if (mdPath.startsWith('/') && isReviewPackagePath(mdPath)) {
+    return openViewerFromHistory({ kind: 'review', key: `review://${mdPath}` });
+  }
   if (entry.kind === 'md') {
     closeWebViewer();
     const opened = await getMarkdownViewer().open({ filePath: openKey || entry.key });
