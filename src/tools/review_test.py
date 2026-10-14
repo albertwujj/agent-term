@@ -4,6 +4,7 @@ Run from the repo root:  python3 -m unittest src.tools.review_test
 (needs git and markdown-it-py, like review.py itself).
 """
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -200,6 +201,107 @@ class DirectiveErrors(unittest.TestCase):
             page,
             r'<tr class="hh"><td class="code" colspan="4">@@ [^<]+</td></tr>')
         self.assertEqual(err.strip(), "")
+
+    def test_range_starting_on_an_edited_line_keeps_its_old_side(self):
+        page, _ = self.render(":::diff a.py L8-8\n")
+
+        self.assertIn('data-side="old" data-line="8"', page)
+        self.assertIn('data-side="new" data-line="8"', page)
+
+
+HELPER = ("def helper(items, limit):\n"
+          "    total = 0\n"
+          "    for item in items:\n"
+          "        if item.enabled:\n"
+          "            total += item.weight\n"
+          "    return min(total, limit) if limit else total\n")
+KEEP = "def keep():\n    return 0\n"
+
+
+def indent(text):
+    return "".join("    " + line for line in text.splitlines(True))
+
+
+class MovesAndRanges(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name).resolve()
+        sh(self.repo, "git", "init", "-q", "-b", "main")
+        sh(self.repo, "git", "config", "user.email", "t@example.com")
+        sh(self.repo, "git", "config", "user.name", "t")
+        self.pkg = self.repo / "rv" / "rv.md"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def commit(self, files):
+        for name, text in files.items():
+            (self.repo / name).write_text(text)
+        sh(self.repo, "git", "add", "-A")
+        sh(self.repo, "git", "commit", "-qm", "c")
+        return sh(self.repo, "git", "rev-parse", "HEAD").strip()
+
+    def render(self, base, tip, body):
+        self.pkg.parent.mkdir(exist_ok=True)
+        self.pkg.write_text(f"---\nrange: {base}..{tip}\n---\n\n{body}")
+        r = subprocess.run([sys.executable, str(HERE / "review.py"), str(self.pkg)],
+                           cwd=self.repo, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        errors = self.pkg.with_name("rv-errors.json")
+        return (self.pkg.with_suffix(".html").read_text(),
+                json.loads(errors.read_text()) if errors.exists() else [])
+
+    def tints(self, page):
+        return dict((int(ln), cls.strip() or "ctx") for cls, ln in re.findall(
+            r'<td class="code([^"]*)" data-side="new" data-line="(\d+)"', page))
+
+    def move_helper_into_class(self, helper):
+        base = self.commit({"a.py": KEEP + "\n\n" + HELPER, "b.py": "class B:\n    pass\n"})
+        tip = self.commit({"a.py": KEEP, "b.py": "class B:\n    pass\n\n" + indent(helper)})
+        return base, tip
+
+    def test_reindented_move_is_marked_moved_not_changed(self):
+        base, tip = self.move_helper_into_class(HELPER)
+        page, errors = self.render(base, tip, "## Move\nwhy\n\n:::code b.py L4-9\n")
+
+        self.assertEqual(errors, [])
+        self.assertEqual(set(self.tints(page).values()), {"mv"})
+        self.assertIn('<span class="cv-tag mv">moved from a.py L5-10</span>', page)
+        self.assertNotIn("cv-tag warn", page)
+
+    def test_line_edited_in_a_move_stays_changed(self):
+        base, tip = self.move_helper_into_class(
+            HELPER.replace("item.weight", "item.weight * 2"))
+        page, errors = self.render(base, tip, "## Move\nwhy\n\n:::code b.py L4-9\n")
+
+        tints = self.tints(page)
+        self.assertEqual(tints[8], "add")
+        self.assertEqual({tints[ln] for ln in (4, 5, 6, 7, 9)}, {"mv"})
+        self.assertIn("moved from a.py L5-10", page)
+        self.assertIn("1 line changed", page)
+        self.assertEqual(len(errors), 1, errors)
+
+    def test_copy_whose_original_stays_is_changed(self):
+        base = self.commit({"a.py": HELPER})
+        tip = self.commit({"b.py": HELPER})
+        page, errors = self.render(base, tip, ":::code b.py L1-6\n")
+
+        self.assertEqual(set(self.tints(page).values()), {"add"})
+        self.assertNotIn("moved from", page)
+        self.assertEqual(len(errors), 1, errors)
+
+    def test_range_across_hunks_shows_the_gap(self):
+        base = self.commit({"f.py": "".join(f"x = {i}\n" for i in range(1, 41))})
+        tip = self.commit({"f.py": "".join(
+            f"x = {i}{'  # edited' if i in (5, 30) else ''}\n" for i in range(1, 41))})
+        page, errors = self.render(base, tip, ":::diff f.py L5-30\n")
+
+        self.assertEqual(errors, [])
+        self.assertEqual(page.count('<tr class="hh">'), 1)
+        self.assertRegex(page, r'<tr class="hh"><td class="code" colspan="4">@@ -27,7 \+27,7 @@')
+        for side in ("old", "new"):
+            for ln in (5, 30):
+                self.assertIn(f'data-side="{side}" data-line="{ln}"', page)
 
 
 if __name__ == "__main__":

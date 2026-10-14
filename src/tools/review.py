@@ -585,13 +585,19 @@ def _index_recs(index, path, recs):
 
 
 def _recs_in_range(all_recs, lo, hi):
-    """Contiguous slice of recs covering new-side lines [lo, hi] — includes any
-    deletions interleaved in that span."""
+    """Contiguous slice of (hunk, rec) pairs covering new-side lines [lo, hi] —
+    includes any deletions interleaved in that span, and the deletions an added
+    first line replaces: they sit just before it with no new-side number, and
+    without them an edited first line reads as a pure addition."""
     lo, hi = int(lo), int(hi)
-    idxs = [i for i, (k, o, n, c) in enumerate(all_recs) if n is not None and lo <= n <= hi]
+    idxs = [i for i, (_, (k, o, n, c)) in enumerate(all_recs) if n is not None and lo <= n <= hi]
     if not idxs:
         return []
-    return all_recs[idxs[0]:idxs[-1] + 1]
+    start = idxs[0]
+    if all_recs[start][1][0] == "add":
+        while start > 0 and all_recs[start - 1][1][0] == "del":
+            start -= 1
+    return all_recs[start:idxs[-1] + 1]
 
 
 def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
@@ -619,19 +625,25 @@ def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
     lang = lang_for(path)
     seeds = hunk_seeds(git, diff_args, repo, path, lang)
     if lo and hi:
-        all_recs = []
-        for h in hunks:
-            _, recs = parse_hunk(h, lang, seeds)
-            all_recs.extend(recs)
-        recs = _recs_in_range(all_recs, lo, hi)
-        if not recs:
+        parsed = [parse_hunk(h, lang, seeds) for h in hunks]
+        picked = _recs_in_range(
+            [(n, rec) for n, (_, recs) in enumerate(parsed) for rec in recs], lo, hi)
+        if not picked:
             errors.append(f"{path}: no changed lines in range L{lo}-{hi}.")
             out.append(f'<div class="why muted">(no changed lines in L{lo}-{hi})</div></section>')
             return "\n".join(out)
-        _index_recs(index, path, recs)
-        # The card heading already identifies this exact path and range. Repeating
-        # that label inside the diff adds no information and consumes a row.
-        out.append(f'<div class="diff">{render_split(None, recs)}</div>')
+        # The card heading already identifies this exact path and range, so the
+        # first part carries no header: repeating that label adds no information
+        # and consumes a row. A range that spans hunks gives each later part its
+        # hunk header, so the unchanged lines between them read as a gap.
+        parts = []
+        for n, rec in picked:
+            if not parts or parts[-1][0] != n:
+                parts.append((n, []))
+            parts[-1][1].append(rec)
+        for k, (n, recs) in enumerate(parts):
+            _index_recs(index, path, recs)
+            out.append(f'<div class="diff">{render_split(parsed[n][0] if k else None, recs)}</div>')
     else:
         for h in hunks:
             header, recs = parse_hunk(h, lang, seeds)
@@ -666,7 +678,104 @@ def _changed_in_range(hunks, lo, hi):
     return added, deleted
 
 
-def render_code_embed(git, diff_args, repo, tip, path, lo, hi, text_html, note_n, index, errors):
+# Git's own move detection marks each changed line as moved or not, across every
+# file in the diff, but only through colours: each kind gets a colour of its own
+# here and the parser reads them back. A line counts as moved only inside a block
+# of at least 20 letters and digits whose text was removed elsewhere in the range,
+# the whole block shifted in indentation at most. So a lone `}` never counts, a
+# copy whose original stays is not a move, and an edited line stays an addition.
+_MOVE_COLORS = {"old": "red", "new": "green", "oldMoved": "magenta", "newMoved": "blue",
+                "oldMovedAlternative": "magenta", "newMovedAlternative": "blue",
+                "frag": "yellow", "meta": "bold", "func": "normal", "context": "normal",
+                "commit": "normal", "whitespace": "normal"}
+_OLD_MOVED, _NEW_MOVED = "\x1b[35m", "\x1b[34m"
+_SGR = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def moved_lines(git, diff_args):
+    """{(side, path): {line: text}} for every line git's move detection marks as
+    moved in the range: side "new" keys the tip's line numbers, "old" the base's.
+    A path git quotes (unusual characters) is skipped, so its lines stay changed."""
+    cfg = ["-c", "core.quotePath=false"]
+    for key, color in _MOVE_COLORS.items():
+        cfg += ["-c", f"color.diff.{key}={color}"]
+    out = git(*cfg, "diff", "--color=always", "--color-moved=blocks",
+              "--color-moved-ws=allow-indentation-change", "--ws-error-highlight=none",
+              "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U0", *diff_args)
+    moved, old_path, new_path, in_hunk, old_no, new_no = {}, None, None, False, 0, 0
+    for raw in out.splitlines():
+        line = _SGR.sub("", raw)
+        if line.startswith("diff --git "):
+            old_path = new_path = None
+            in_hunk = False
+        elif not in_hunk and line.startswith("--- "):
+            old_path = line[6:] if line.startswith("--- a/") else None
+        elif not in_hunk and line.startswith("+++ "):
+            new_path = line[6:] if line.startswith("+++ b/") else None
+        elif line.startswith("@@"):
+            m = HUNK_RE.match(line)
+            in_hunk = bool(m)
+            if m:
+                old_no, new_no = int(m.group(1)), int(m.group(2))
+        elif in_hunk and line.startswith("+"):
+            if new_path and raw.startswith(_NEW_MOVED):
+                moved.setdefault(("new", new_path), {})[new_no] = line[1:]
+            new_no += 1
+        elif in_hunk and line.startswith("-"):
+            if old_path and raw.startswith(_OLD_MOVED):
+                moved.setdefault(("old", old_path), {})[old_no] = line[1:]
+            old_no += 1
+    return moved
+
+
+def _runs(numbered):
+    """Split [(line, text), ...] (sorted) into runs of consecutive lines."""
+    runs = []
+    for ln, text in numbered:
+        if runs and runs[-1][-1][0] == ln - 1:
+            runs[-1].append((ln, text))
+        else:
+            runs.append([(ln, text)])
+    return runs
+
+
+def move_sources(here, moved):
+    """Where moved lines came from, as [(path, lo, hi)] in the base. `here` is
+    [(tip line, text)]; each run of it is matched greedily, longest first, against
+    the runs git marked as moved out, by text with indentation set aside (git has
+    already checked the shift). Two pieces from one file merge when the gap
+    between them is the same on both sides, as around a line edited in place."""
+    sources = [(path, run) for (side, path), lines in moved.items() if side == "old"
+               for run in _runs((ln, lines[ln].strip()) for ln in sorted(lines))]
+    pieces = []  # (path, base lo, base hi, tip lo, tip hi)
+    for run in _runs(here):
+        want = [text.strip() for _, text in run]
+        i = 0
+        while i < len(want):
+            best = None
+            for path, src in sources:
+                for j in range(len(src)):
+                    k = 0
+                    while i + k < len(want) and j + k < len(src) and src[j + k][1] == want[i + k]:
+                        k += 1
+                    if k and (best is None or k > best[0]):
+                        best = (k, path, src[j][0], src[j + k - 1][0])
+            if best is None:
+                i += 1
+                continue
+            k, path, a, b = best
+            pieces.append((path, a, b, run[i][0], run[i + k - 1][0]))
+            i += k
+    found = []
+    for path, a, b, t_lo, t_hi in pieces:
+        if found and found[-1][0] == path and a - found[-1][2] == t_lo - found[-1][4] > 0:
+            found[-1] = (path, found[-1][1], b, found[-1][3], t_hi)
+        else:
+            found.append((path, a, b, t_lo, t_hi))
+    return [(path, a, b) for path, a, b, _, _ in found]
+
+
+def render_code_embed(git, diff_args, repo, tip, path, lo, hi, text_html, note_n, index, errors, moved):
     """Render one `:::code` embed: the slice of `path` as it stands at the range
     tip, in the split diff's own geometry. The code is unchanged by definition, so
     the old side would only repeat it — that column carries the paragraphs the
@@ -675,7 +784,9 @@ def render_code_embed(git, diff_args, repo, tip, path, lo, hi, text_html, note_n
     Cells carry data-side="new" + data-line like diff cells, so the host comments
     on them and re-anchors them the same way. A line the diff added inside the
     slice keeps the diff's tint, and the header pill says whether the slice is
-    unchanged: a context block can never hide a change."""
+    unchanged: a context block can never hide a change. A line git's move
+    detection marks as moved (`moved`, from `moved_lines`) is not a change: it
+    takes a tint of its own, and a pill names where it came from."""
     sid = block_anchor(path, lo, hi, "code")
     out = [f'<section id="{sid}" class="card file" data-path="{html.escape(path)}">']
     rng = f' <span class="stat">L{lo}-{hi}</span>' if lo and hi else ''
@@ -713,25 +824,33 @@ def render_code_embed(git, diff_args, repo, tip, path, lo, hi, text_html, note_n
     lang = lang_for(path)
     st = state_at(prefix_states(text, lang), lo_i)
     added, deleted = _changed_in_range(split_hunks(git("diff", *diff_args, "--", path)), lo_i, hi_i)
+    moved_in = moved.get(("new", path), {})
+    moved_here = {ln for ln in added if ln in moved_in}
+    added -= moved_here
     rows, recs = [], []
     for ln in range(lo_i, hi_i + 1):
         toks, st = highlight_line(lines[ln - 1], st, lang)
         code = toks_to_html(toks)
         recs.append(("ctx", None, ln, code))  # new side only: that is the side it shows
-        cls = " add" if ln in added else ""
+        cls = " add" if ln in added else " mv" if ln in moved_here else ""
         attr = f' data-side="new" data-line="{ln}"'
         rows.append(f'<tr><td class="ln{cls}"{attr}>{ln}</td><td class="code{cls}"{attr}>{code}</td></tr>')
     _index_recs(index, path, recs)
     if clipped:
         rows.append(f'<tr class="meta"><td class="ln empty"></td><td class="code">(file ends at line {n})</td></tr>')
 
+    pill = ""
+    if moved_here:
+        sources = move_sources([(ln, lines[ln - 1]) for ln in sorted(moved_here)], moved)
+        where = ", ".join(f"{p} L{a}-{b}" for p, a, b in sources) or "elsewhere in the range"
+        pill = f' <span class="cv-tag mv">moved from {html.escape(where)}</span>'
     changed = len(added) + deleted
     if changed:
         noun = "line" if changed == 1 else "lines"
-        pill = f' <span class="cv-tag warn">{changed} {noun} changed</span>'
+        pill += f' <span class="cv-tag warn">{changed} {noun} changed</span>'
         errors.append(f"{path}: :::code L{lo}-{hi} overlaps the diff ({changed} changed {noun}); "
                       f"show changed code with :::diff.")
-    else:
+    elif not moved_here:
         pill = ' <span class="cv-tag">unchanged</span>'
     left = (f'<section class="cv-text prose-region" data-path="(note {note_n})">'
             f'<div class="md-render">{text_html}</div></section>'
@@ -922,6 +1041,8 @@ def render_package(git, repo, meta, body, slug):
     main.append(cm or '<div class="why muted">(no commit message)</div>')
     main.append("</section>")
 
+    # Only `:::code` reads the move marks; one diff serves every block.
+    moved = moved_lines(git, diff_args) if ":::code" in body else {}
     prose = []
     note_n = [0]
     sec_n = [0]
@@ -989,7 +1110,7 @@ def render_package(git, repo, meta, body, slug):
             text_html, tnote = flush_prose(keep_tail=True)
             nav_links.append(
                 f'<a class="toc-link toc-sub toc-cv" href="#{block_anchor(path, lo, hi, "code")}">{label}</a>')
-            main.append(render_code_embed(git, diff_args, repo, tip, path, lo, hi, text_html, tnote, index, errors))
+            main.append(render_code_embed(git, diff_args, repo, tip, path, lo, hi, text_html, tnote, index, errors, moved))
     flush_prose()
     main.append("</main>")
 
@@ -1360,7 +1481,7 @@ TEMPLATE = """<!doctype html>
 :root{
   --bg:#ffffff;--panel:#ffffff;--canvas:#dadde1;--border:#d1d9e0;--fg:#1f2328;--muted:#59636e;
   --link:#0969da;--code-bg:#eff1f3;
-  --add-bg:#e6ffec;--add-ln:#ccffd8;--del-bg:#ffebe9;--del-ln:#ffd7d5;
+  --add-bg:#e6ffec;--add-ln:#ccffd8;--del-bg:#ffebe9;--del-ln:#ffd7d5;--mv-bg:#f5f0ff;--mv-ln:#e8dcff;
   --hh-bg:#ddf4ff;--hh-fg:#0550ae;--empty:#f6f8fa;
   --t-com:#6e7781;--t-str:#0a3069;--t-kw:#cf222e;--t-num:#0550ae;--t-dec:#8250df;--t-fn:#8250df;
 }
@@ -1489,11 +1610,14 @@ border-radius:6px;overflow:clip;margin:6px 0 2px;background:#fff}
 .cv-text .md-render>:first-child{margin-top:0}
 .cv-empty{background:var(--empty)}
 .cv-code{border-left:1px solid var(--border);min-width:0}
-/* The computed pill: `unchanged`, or amber with the count when the slice overlaps the diff. */
+/* The computed pill: `unchanged`, or amber with the count when the slice overlaps the diff;
+   lines that only moved get their own pill naming where they came from. */
 .cv-tag{font-size:10.5px;font-weight:600;line-height:1;letter-spacing:.04em;text-transform:uppercase;
 padding:3px 7px;border-radius:999px;border:1px solid var(--border);color:var(--muted);
 background:var(--empty);margin-left:8px;vertical-align:middle}
 .cv-tag.warn{color:#7d4e00;background:#fff8c5;border-color:#f5e08a}
+/* Paths are case-sensitive, so the moved pill keeps their case. */
+.cv-tag.mv{text-transform:none;letter-spacing:0;color:#6639ba;background:var(--mv-bg);border-color:#d8c7fb}
 .hunknote{background:#ddf4ff;border:1px solid #b6e3ff;border-radius:6px;padding:7px 13px;margin:12px 0 0;
 font-size:12.5px;color:#0a3069;columns:2 44ch;column-gap:32px}
 .hunknote code{background:#cdeafc}
@@ -1510,6 +1634,8 @@ user-select:none;background:var(--canvas);border-right:1px solid var(--border)}
 .diff tr.meta td,.cv-code tr.meta td{background:var(--canvas);color:var(--muted)}
 .d-split .code.add,.d-code .code.add{background:var(--add-bg)}
 .d-split .ln.add,.d-code .ln.add{background:var(--add-ln)}
+.d-code .code.mv{background:var(--mv-bg)}
+.d-code .ln.mv{background:var(--mv-ln)}
 .d-split .code.del{background:var(--del-bg)}
 .d-split .ln.del{background:var(--del-ln)}
 .d-split .code.empty,.d-split .ln.empty,.d-code .ln.empty{background:var(--empty)}

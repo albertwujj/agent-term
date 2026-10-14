@@ -253,6 +253,31 @@ two small fixes.
   block is `.cv`, `.cv-text`, `.cv-code`, `.cv-tag`, and `.toc-cv` in the
   outline.
 
+## Moved lines in `:::code` (2026-10-13)
+
+The guide tells the agent to leave out code that only moved, and to show a
+move that changes logic with `:::code`, the explanation beside the code. A
+move's lines are all additions in the diff, so `:::code` used to flag them as
+changed and raise a directive error.
+
+- **Git decides what moved, not the agent.** `review.py` runs the range's diff
+  once more with `--color-moved=blocks --color-moved-ws=allow-indentation-change`
+  and reads git's marks back from colours it assigns. Git marks a line moved only
+  inside a block of at least 20 letters and digits whose text was removed
+  elsewhere in the range, across files, with the whole block shifted in
+  indentation at most. A lone `}`, a copy whose original stays, and an edited
+  line all stay additions, so an error falls on the flagged side. Trusting the
+  agent instead would mean either keeping the misleading tint or no longer
+  tinting changes.
+- **Moved lines are not changes.** They take their own tint and a pill, `moved
+  from a.py L6-14`, located by matching the moved-out lines' text. They add
+  nothing to the `N lines changed` count or the directive error; the rest of
+  the slice keeps the rule above.
+- **Ranged `:::diff` fixes, found on the way.** A range now takes the deletions
+  an added first line replaces (an edited first line read as a pure addition),
+  and a range spanning hunks gives each later part its hunk header (the parts
+  used to run together with the line numbers jumping).
+
 ## Code is commented by line; a selection there is for copy (2026-10-13)
 
 A code selection quotes nothing (only prose and the commit message are
