@@ -13,5 +13,5 @@ Planned so far:
 - Why I make my agents share one checkout over separate worktrees
 - Why AgentTerm builds on the terminal's plain text over integrations and plugins
 - Why AgentTerm uses a folder hierarchy of Markdown guides instead of skills
-- Why I write with coding agents and hold the writing to a high standard
+- Why I write with coding agents and how I raise the writing to a high standard
 - Why I tell my transcription service to skip auto-correction
