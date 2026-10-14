@@ -2,6 +2,7 @@ const {
   diffArrays,
   findDeletionAnchorRanges,
   findInsertedTextRanges,
+  findReplacementAnchor,
   getLineDiffOpcodes,
   hasNewWordSignal,
   mapIntactAnchors,
@@ -197,6 +198,33 @@ test('unchangedLineShift is null for a range with a change inside it', () => {
   assertEqual(unchangedLineShift(opcodes, 2, 4), null);
   const inserted = getLineDiffOpcodes('a\nb\nc', 'new\nnew\na\nb\nc');
   assertEqual(unchangedLineShift(inserted, 1, 3), 2);
+});
+
+// The block that took the place of the one holding `line`, as type and lines.
+function replacement(oldSource, newSource, line) {
+  const oldDoc = renderMarkdownDocument(oldSource);
+  const lineNo = oldSource.split('\n').indexOf(line) + 1;
+  const old = oldDoc.anchors
+    .filter((a) => a.startLine <= lineNo && lineNo <= a.endLine)
+    .sort((a, b) => (a.endLine - a.startLine) - (b.endLine - b.startLine))[0];
+  const next = findReplacementAnchor(old, renderMarkdownDocument(newSource).anchors, getLineDiffOpcodes(oldSource, newSource));
+  return next && `${next.type} ${next.startLine}-${next.endLine}`;
+}
+
+test('findReplacementAnchor finds a block rewritten in place', () => {
+  const before = 'Alpha.\n\nBravo.\n\nCharlie.';
+  assertEqual(replacement(before, 'Alpha.\n\nBravo, rewritten\nover two lines.\n\nCharlie.', 'Bravo.'), 'paragraph_open 3-4');
+  assertEqual(replacement(before, 'Alpha.\n\nBravo.\nand a joined line.\n\nCharlie.', 'Bravo.'), 'paragraph_open 3-4');
+  assertEqual(replacement('Alpha.\n\nBravo.', 'Alpha.\n\nBravo, the last.', 'Bravo.'), 'paragraph_open 3-3');
+  assertEqual(replacement('- one\n- two\n- three', '- one\n- two, rewritten\n- three', '- two'), 'list_item_open 2-2');
+});
+
+test('findReplacementAnchor finds nothing for a block deleted, split or turned into another kind', () => {
+  const before = 'Alpha.\n\nBravo.\n\nCharlie.';
+  assertEqual(replacement(before, 'Alpha.\n\nCharlie.', 'Bravo.'), null);
+  assertEqual(replacement(before, 'Alpha.\n\nBravo one.\n\nBravo two.\n\nCharlie.', 'Bravo.'), null);
+  assertEqual(replacement(before, 'Alpha.\n\n```\nBravo\n```\n\nCharlie.', 'Bravo.'), null);
+  assertEqual(replacement(before, 'Alpha and Bravo, merged.\n\nCharlie.', 'Bravo.'), null);
 });
 
 runTests();

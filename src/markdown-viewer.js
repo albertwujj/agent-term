@@ -6,6 +6,7 @@ const {
 const {
   findDeletionAnchorRanges,
   findInsertedTextRanges,
+  findReplacementAnchor,
   getLineDiffOpcodes,
   mapIntactAnchors,
   unchangedLineShift,
@@ -2237,7 +2238,7 @@ function createMarkdownViewer({
     };
   }
 
-  function applyMarkdownReadResult(result, { preserveScroll = false, rendered = null, anchorIds = null } = {}) {
+  function applyMarkdownReadResult(result, { preserveScroll = false, rendered = null, seats = null } = {}) {
     if (!result || !result.success || !state.article || !state.secondaryArticle) return false;
     const previousScrollTop = preserveScroll && state.primaryPane ? state.primaryPane.scrollTop : 0;
     const previousDoc = state.doc;
@@ -2271,7 +2272,7 @@ function createMarkdownViewer({
     }
     // A live refresh carries queued comments through, onto their blocks' new
     // ids (planRefreshThroughQueue); a fresh open lays out as it is.
-    if (preserveScroll) relayoutThroughQueuedComments(anchorIds);
+    if (preserveScroll) relayoutThroughQueuedComments(seats);
     else layoutSpread();
     if (preserveScroll && state.primaryPane) {
       const maxScrollTop = Math.max(0, state.primaryPane.scrollHeight - state.primaryPane.clientHeight);
@@ -2284,25 +2285,59 @@ function createMarkdownViewer({
     return true;
   }
 
-  // Queued comments ride a refresh when the agent left their blocks whole:
-  // each mark seats back on its block's new id. A comment on a block the agent
-  // touched keeps the refresh held, so no mark sits on text it was not written
-  // about; Send releases it. Null = held.
+  // Queued comments ride a refresh. A mark seats back on its block's new id,
+  // or, when the agent rewrote that block in place, on the block that took its
+  // place, which the change pulse and bar mark as rewritten under the draft.
+  // A selection comes along when its words are still in the block. The
+  // refresh stays held (null) while a comment has nowhere to sit: its block
+  // was deleted, split or merged, its selected words are gone, or a passage
+  // across blocks changed; Send releases it.
   function planRefreshThroughQueue(result) {
-    if (!state.queuedComments.length) return { rendered: null, anchorIds: null };
-    const rendered = renderMarkdownDocument(result.content || '', markdownImageOptions(result));
+    if (!state.queuedComments.length) return { rendered: null, seats: null };
+    const nextSource = result.content || '';
+    const rendered = renderMarkdownDocument(nextSource, markdownImageOptions(result));
     const oldAnchors = (state.doc && Array.isArray(state.doc.anchors)) ? state.doc.anchors : [];
-    const opcodes = getLineDiffOpcodes(state.sourceText, result.content || '');
-    const anchorIds = mapIntactAnchors(oldAnchors, rendered.anchors, opcodes);
+    const opcodes = getLineDiffOpcodes(state.sourceText, nextSource);
+    const intact = mapIntactAnchors(oldAnchors, rendered.anchors, opcodes);
     const byId = new Map(oldAnchors.map((anchor) => [anchor.id, anchor]));
+    let nextArticle = null; // parsed only to find a selection in a rewritten block
+    const seats = new Map();
     for (const comment of state.queuedComments) {
       const start = byId.get(comment.anchorId);
       const end = byId.get(comment.endAnchorId || comment.anchorId);
-      if (!start || !end || !anchorIds.has(start.id) || !anchorIds.has(end.id)) return null;
-      // A passage spans blocks: nothing between its ends may change either.
-      if (unchangedLineShift(opcodes, start.startLine, end.endLine) === null) return null;
+      if (!start || !end) return null;
+      if (intact.has(start.id) && intact.has(end.id)
+        && unchangedLineShift(opcodes, start.startLine, end.endLine) !== null) {
+        seats.set(comment, { start: intact.get(start.id), end: intact.get(end.id) });
+        continue;
+      }
+      if (start !== end) return null; // a passage across blocks the agent changed
+      const block = findReplacementAnchor(start, rendered.anchors, opcodes);
+      if (!block) return null;
+      const seat = { start: block, end: block };
+      if (isMarkdownSelectionKind(comment.targetKind) && comment.selectedText) {
+        // Offsets index the block's text, which selectedText (the selection's
+        // own string) need not match where a soft wrap is a newline.
+        const oldText = getAnchorTextFromArticle(state.article, start.id);
+        const words = oldText.slice(comment.selectionStart, comment.selectionEnd);
+        if (!words) return null;
+        nextArticle = nextArticle || createDetachedMarkdownArticle(rendered);
+        const at = nearestIndexOf(getAnchorTextFromArticle(nextArticle, block.id), words, comment.selectionStart);
+        if (at < 0) return null;
+        seat.selectionStart = at;
+        seat.selectionEnd = at + words.length;
+      }
+      seats.set(comment, seat);
     }
-    return { rendered, anchorIds };
+    return { rendered, seats };
+  }
+
+  function nearestIndexOf(text, words, near) {
+    let best = -1;
+    for (let at = text.indexOf(words); at >= 0; at = text.indexOf(words, at + 1)) {
+      if (best < 0 || Math.abs(at - near) < Math.abs(best - near)) best = at;
+    }
+    return best;
   }
 
   function applyPendingMarkdownRefreshIfReady() {
@@ -5367,17 +5402,22 @@ function createMarkdownViewer({
   // commit, revert, or strip toggle on a block that also carries a comment —
   // rebuild anyway, then re-anchor each queued mark onto the fresh DOM by its
   // stable anchorId. Without this the edit is neither shown nor rollback-able.
-  // anchorIds (old id → new anchor) carries the marks across a document
-  // refresh, whose ids count blocks from the top (mapIntactAnchors).
-  function relayoutThroughQueuedComments(anchorIds = null) {
+  // seats (comment → its blocks in the new document, planRefreshThroughQueue)
+  // carry the marks across a document refresh, whose ids count blocks from the
+  // top.
+  function relayoutThroughQueuedComments(seats = null) {
     const queued = state.queuedComments.splice(0);
     for (const c of queued) {
       c.card = null; c.cardCounterpart = null; c.placeholder = null;
-      const start = anchorIds && anchorIds.get(c.anchorId);
-      if (!start) continue;
-      c.endAnchorId = (anchorIds.get(c.endAnchorId) || start).id;
-      c.anchorId = start.id;
-      c.sourceStartLine = start.startLine;
+      const seat = seats && seats.get(c);
+      if (!seat) continue;
+      c.anchorId = seat.start.id;
+      c.endAnchorId = seat.end.id;
+      c.sourceStartLine = seat.start.startLine;
+      if (Number.isFinite(seat.selectionStart)) {
+        c.selectionStart = seat.selectionStart;
+        c.selectionEnd = seat.selectionEnd;
+      }
     }
     layoutSpread();
     if (!queued.length) return;
@@ -5387,7 +5427,13 @@ function createMarkdownViewer({
       const target = article && getArticleAnchorById(article, c.anchorId);
       if (!target) continue; // anchor gone (rare) — the mark returns on the next full render
       c.target = target;
-      if (anchorIds) c.sectionHierarchy = getSectionHierarchyForTarget(target); // a heading may have been renamed
+      if (seats && seats.has(c)) {
+        // Send quotes the block as it reads now, which is what the user saw
+        // when they sent: the agent and the thread anchor find it on the page.
+        c.targetText = getRenderedText(target);
+        c.imageAnchor = imageAnchorForTarget(target);
+        c.sectionHierarchy = getSectionHierarchyForTarget(target); // a heading may have been renamed
+      }
       createQueuedMarkdownCommentCard(c);
     }
   }

@@ -214,6 +214,37 @@ function mapIntactAnchors(oldAnchors, newAnchors, opcodes) {
   return map;
 }
 
+// Where old line `line` sits in the new source when an unchanged run carries
+// it. The edges map to the edges: 0 is above the top, and a line past the old
+// end is past the new end. Null when the edit changed that line.
+function mapUnchangedLine(opcodes, line) {
+  const ops = opcodes || [];
+  if (line <= 0) return 0;
+  const last = ops[ops.length - 1];
+  if (!last || line > last.i2) return last ? last.j2 + 1 : null;
+  const shift = unchangedLineShift(ops, line, line);
+  return shift === null ? null : line + shift;
+}
+
+// The block an edit wrote in place of an old one: the lines on either side
+// of the old block are unchanged, and between them the new document holds
+// one block of the same kind, with whatever it nests or whatever wraps just
+// it. Null when the edit deleted the block, split or merged it, or reached
+// past it.
+function findReplacementAnchor(oldAnchor, newAnchors, opcodes) {
+  if (!oldAnchor) return null;
+  const above = mapUnchangedLine(opcodes, oldAnchor.startLine - 1);
+  const below = mapUnchangedLine(opcodes, oldAnchor.endLine + 1);
+  if (above === null || below === null) return null;
+  const between = (newAnchors || []).filter((anchor) => anchor && anchor.startLine > above && anchor.endLine < below);
+  const block = between
+    .filter((anchor) => anchor.type === oldAnchor.type)
+    .sort((a, b) => (b.endLine - b.startLine) - (a.endLine - a.startLine))[0];
+  if (!block) return null;
+  const within = (inner, outer) => outer.startLine <= inner.startLine && inner.endLine <= outer.endLine;
+  return between.every((anchor) => within(anchor, block) || within(block, anchor)) ? block : null;
+}
+
 const TEXT_TOKEN_RE = /\S+|\s+/g;
 
 function tokenizeTextWithOffsets(text) {
@@ -472,6 +503,7 @@ module.exports = {
   diffArrays,
   findDeletionAnchorRanges,
   findInsertedTextRanges,
+  findReplacementAnchor,
   getLineDiffOpcodes,
   hasNewWordSignal,
   mapIntactAnchors,

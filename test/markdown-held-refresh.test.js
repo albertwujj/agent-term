@@ -23,7 +23,8 @@ dom.window.matchMedia = dom.window.matchMedia || (() => ({
 }));
 if (!dom.window.CSS) dom.window.CSS = { escape: (s) => s };
 if (!dom.window.CSS.highlights) dom.window.CSS.highlights = new Map();
-if (!dom.window.Highlight) dom.window.Highlight = class { constructor() {} };
+// Keeps its ranges, so a test can read what a selection highlight covers.
+dom.window.Highlight = class { constructor(...ranges) { this.ranges = ranges; } };
 dom.window.Range.prototype.getClientRects = dom.window.Range.prototype.getClientRects
   || (() => [{ width: 10, height: 10, left: 0, right: 10, top: 0, bottom: 10 }]);
 dom.window.Range.prototype.getBoundingClientRect = dom.window.Range.prototype.getBoundingClientRect
@@ -105,6 +106,47 @@ async function comment(text, body) {
   typeInto(box, body);
   return box;
 }
+async function commentOnWords(text, words, body) {
+  const node = Array.from(block(text).childNodes).find((n) => n.nodeType === 3 && n.textContent.includes(words));
+  const at = node.textContent.indexOf(words);
+  const range = document.createRange();
+  range.setStart(node, at);
+  range.setEnd(node, at + words.length);
+  const selection = dom.window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  primary().dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+  await sleep(10);
+  key('c');
+  await sleep(20);
+  typeInto(find('.md-comment-card textarea'), body);
+}
+function highlighted() {
+  const highlight = dom.window.CSS.highlights.get('md-comment-selection');
+  return highlight ? highlight.ranges.map((r) => r.toString()) : [];
+}
+function blockAboveMark() {
+  let el = find('.md-queued-comment-mark');
+  while (el && !el.hasAttribute('data-md-anchor-id')) el = el.previousElementSibling;
+  return el ? el.textContent : '';
+}
+async function queueAway() {
+  clickBlock('Held refresh');
+  await sleep(20);
+  key('Escape');
+  await sleep(20);
+}
+async function sendQueued() {
+  click(find('.md-queued-comment-mark'));
+  await sleep(20);
+  click(sendButton());
+  await sleep(60);
+  return batches[batches.length - 1];
+}
+const seeAll = async () => {
+  dom.window.dispatchEvent(new dom.window.Event('focus'));
+  await sleep(20);
+};
 function sendButton() {
   return Array.from(find('.md-comment-card').querySelectorAll('button')).find((b) => b.textContent.startsWith('Send'));
 }
@@ -177,50 +219,69 @@ async function run() {
   await sleep(20);
   check('changes on screen clear the hue', !unseenHue());
 
-  // An edit to the queued comment's own block stays held until Send.
-  agentWrites(disk.replace(CHARLIE, 'Charlie paragraph, rewritten under the queued comment.'));
+  // The agent rewriting the queued comment's own block carries the mark to
+  // the rewritten block, and Send quotes the block as it now reads.
+  const rewritten = 'Charlie paragraph, rewritten under the queued comment.';
+  agentWrites(disk.replace(CHARLIE, rewritten));
   await sleep(POLL);
-  dom.window.dispatchEvent(new dom.window.Event('focus'));
-  await sleep(20);
-  check("an edit to the queued comment's block is held", shows(CHARLIE) && !shows('rewritten under the queued comment'));
-  check('and keeps the unseen hue while held', unseenHue());
-  click(find('.md-queued-comment-mark'));
-  await sleep(20);
-  check('the draft reopens intact', find('.md-comment-card textarea')?.value === 'tighten this one');
-  click(sendButton());
-  await sleep(60);
-  const last = batches[batches.length - 1];
-  check('it sends the text it was written about', last && last.threads[0].anchor.snippet === CHARLIE,
+  await seeAll();
+  check("a rewrite of the queued comment's block lands", shows(rewritten) && !shows(CHARLIE));
+  check('the mark moves to the rewritten block', blockAboveMark() === rewritten, blockAboveMark());
+  check('nothing is held', !unseenHue());
+  let last = await sendQueued();
+  check('Send quotes the block as it now reads', last && last.threads[0].anchor.snippet === rewritten,
     last && last.threads[0].anchor);
-  check('Send lands that edit too', shows('rewritten under the queued comment'));
-  dom.window.dispatchEvent(new dom.window.Event('focus'));
-  await sleep(20);
+
+  // A selection comes along when its words survive the rewrite.
+  await commentOnWords(DELTA, 'plain', 'is plain the right word?');
+  await queueAway();
+  check('the selection is highlighted', JSON.stringify(highlighted()) === '["plain","plain"]', highlighted());
+  agentWrites(disk.replace(DELTA, 'Delta paragraph, now longer, is still plain.'));
+  await sleep(POLL);
+  await seeAll();
+  check('a rewrite keeping the selected words lands', shows('now longer, is still plain'));
+  check('the highlight follows the words', JSON.stringify(highlighted()) === '["plain","plain"]', highlighted());
+
+  // When the rewrite drops the selected words, the write is held, and the
+  // thread layer with it: a thread the agent resolves in the same write keeps
+  // its card until the page can show the write it goes with.
+  const bravoThread = () => Array.from(primary().querySelectorAll('.md-thread-card'))
+    .some((c) => c.textContent.includes('the example to keep'));
+  check('the reply on the first comment rests as a card', bravoThread());
+  agentWrites(disk.replace('Delta paragraph, now longer, is still plain.', 'Delta paragraph says something else.'));
+  store = { ...store, threads: store.threads.map((t) => (t.id === 't-1-0' ? { ...t, status: 'resolved' } : t)) };
+  await sleep(POLL);
+  await seeAll();
+  check('a rewrite dropping the selected words is held', shows('is still plain') && !shows('says something else'));
+  check('the held write keeps the unseen hue', unseenHue());
+  check('the thread resolved in that write waits with it', bravoThread());
+  last = await sendQueued();
+  check('Send sends the selection', last && last.threads[0].anchor.snippet === 'plain', last && last.threads[0].anchor);
+  check('and lands the held write', shows('says something else'));
+  check('with the thread it goes with', !bravoThread());
+  await seeAll();
   check('once it is on screen the hue clears', !unseenHue());
 
   // A sent edit seals its block against editing, but the block still takes a
-  // comment. With that comment queued, the agent applying the edit writes to
-  // the comment's block: the write is held, and so is the store that resolves
-  // the edit, or the seal would drop from the old text and the edit would
-  // seem to vanish.
+  // comment. The agent applying the edit rewrites that block, so the mark
+  // carries over to the edit as applied.
   clickBlock('Delta paragraph');
   await sleep(5);
   key('Backspace');
   await sleep(5);
   const editor = find('.md-rendered-editing');
-  editor.textContent = 'Delta paragraph, as the user edited it.';
+  const applied = 'Delta paragraph says something else, as the user edited it.';
+  editor.textContent = applied;
   editor.dispatchEvent(new dom.window.Event('blur'));
   await sleep(10);
   key('Enter', { metaKey: true });
   await sleep(60);
   check('a sent edit seals its block', !!block('Delta')?.classList.contains('md-sealed'));
   await comment('Delta', 'also name the default');
-  clickBlock('Alpha');
-  await sleep(20);
-  key('Escape');
-  await sleep(20);
+  await queueAway();
   check('the sealed block takes a queued comment', !!find('.md-queued-comment-mark'));
   const edit = store.threads[store.threads.length - 1];
-  agentWrites(disk.replace(DELTA, 'Delta paragraph, as the user edited it.'));
+  agentWrites(disk.replace('Delta paragraph says something else.', applied));
   store = {
     ...store,
     threads: store.threads.map((t) => (t.id === edit.id
@@ -228,15 +289,9 @@ async function run() {
       : t)),
   };
   await sleep(POLL);
-  check('the edit stays sealed while a comment on it waits', !!block('Delta')?.classList.contains('md-sealed'),
+  check('the applied edit lands with the comment queued', shows(applied) && !block('Delta').classList.contains('md-sealed'),
     block('Delta')?.className);
-  check('the held write keeps the unseen hue', unseenHue());
-  click(find('.md-queued-comment-mark'));
-  await sleep(20);
-  click(sendButton());
-  await sleep(60);
-  check('Send lands the applied edit, unsealed',
-    !!block('as the user edited it') && !block('Delta').classList.contains('md-sealed'), block('Delta')?.className);
+  check('the mark carries over to it', blockAboveMark() === applied, blockAboveMark());
 
   viewer.close();
   console.log(`\n--- Results: ${passed} passed, ${failed} failed ---`);

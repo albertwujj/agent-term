@@ -860,10 +860,16 @@ minutes, then landed with a pulse at Send, as if the Send had made it.
   at Send (Conflicts). While one holds, the bar keeps the unseen hue a roll-up
   shows (`vb-unseen`), until the write renders and its change is on screen.
 - Queued comments alone ride a refresh. Anchor ids count blocks from the top,
-  so `mapIntactAnchors` carries each mark to its block's new id. A comment on
-  a block the agent touched holds the refresh, so no mark sits on text it was
-  not written about. That includes a comment on a sealed block, whose own
-  edit applied is the write it holds.
+  so `mapIntactAnchors` carries each mark to its block's new id. When the
+  agent rewrote the block in place (`findReplacementAnchor`: one block of the
+  same kind between unchanged neighbours), the mark moves to the rewrite,
+  which the change pulse and bar mark as rewritten under the draft, and Send
+  quotes the block as it now reads. A selection comes along when its words
+  are still in the block. That covers the common case, a follow-up queued on
+  a block while the agent answers the comment before it, and a comment on a
+  sealed block, whose own edit applied is the rewrite. The refresh stays held
+  only while a comment has nowhere to sit: its block deleted, split or
+  merged, its selected words gone, or a passage across blocks changed.
 - The thread layer waits with a held refresh. The store and the document draw
   together, or a thread resolved over its edit would drop the seal from the
   old text and the edit would seem to vanish.

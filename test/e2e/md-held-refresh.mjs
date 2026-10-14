@@ -4,8 +4,8 @@
 // no sign after the band's arrival flash: the page looked current for minutes,
 // then the edit landed with a pulse at Send, as if the Send had caused it. An
 // open composer still holds the edit, but the bar keeps the unseen hue a
-// roll-up shows, and Send lands it at once; a queued comment holds nothing
-// unless the agent touched its own block.
+// roll-up shows, and Send lands it at once; a queued comment holds nothing,
+// and its mark follows its block when the agent rewrites it.
 import assert from 'node:assert/strict';
 import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
@@ -135,6 +135,25 @@ try {
   const after = await pulseClock();
   assert.ok(after === null || after >= before, `Send does not restart the pulse: ${before} → ${after}`);
   console.log('PASS a Send mid-pulse lets the pulse run on');
+
+  // The agent rewriting the queued comment's own block carries the mark to it.
+  const third = await rightParagraph();
+  await page.locator('.secondary p').filter({ hasText: third }).click();
+  await page.keyboard.type('about to be rewritten');
+  await page.locator('.primary h1').click();
+  await page.keyboard.press('Escape');
+  const n = Number(/^Paragraph (\d+) /.exec(third)[1]);
+  const rewritten = `Paragraph ${n} is the agent's rewrite of the block under the queued comment.`;
+  await agentRewrites(n, rewritten);
+  await page.waitForTimeout(2500);
+  const carried = await page.evaluate(() => [...document.querySelectorAll('.md-queued-comment-mark')].map((mark) => {
+    let el = mark.previousElementSibling;
+    while (el && !el.hasAttribute('data-md-anchor-id')) el = el.previousElementSibling;
+    return el?.textContent;
+  }));
+  assert.deepEqual(carried, [rewritten, rewritten], 'the mark follows its block\'s rewrite');
+  assert.equal(await unseenHue(), false, 'nothing is held');
+  console.log('PASS a rewrite of the queued comment\'s block lands, and the mark follows it');
 
   assert.deepEqual(errors, [], 'no renderer errors');
 } finally {
