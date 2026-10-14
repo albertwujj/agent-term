@@ -15,12 +15,16 @@ session-scratch — copy the recipe below.
 ```js
 import { _electron as electron } from '<abs-path>/node_modules/playwright-core/index.mjs';
 const app = await electron.launch({
-  executablePath: '<abs-path>/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
+  executablePath: process.platform === 'darwin'
+    ? '<abs-path>/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'
+    : '<abs-path>/node_modules/electron/dist/electron', // Linux, incl. WSL
   args: ['--no-sandbox', '<abs-path-to-repo>'],
 });
 const page = await app.firstWindow();
 await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });
 ```
+
+Under WSL the window opens through WSLg (`DISPLAY=:0`).
 
 Import playwright-core by absolute path — scripts outside the repo can't
 resolve it by name. Resize via `app.evaluate(({BrowserWindow}) => ...
@@ -36,8 +40,20 @@ window is still navigating and evaluate throws).
   URL — `file://` classifies as a web entry and opens the web viewer
   (`viewer-history.js` `extractViewerCandidateMatches`). Long paths must not
   line-wrap (hence the wide window) or the harvest misses them.
+- **Viewer chords don't fire from `page.keyboard`.** Cmd/Ctrl+Shift+U/I/O
+  are caught in main's `before-input-event` (`getViewerShortcutAction`),
+  which Playwright's synthetic keys never reach. Send the action instead:
+  `app.evaluate(({BrowserWindow}) => BrowserWindow.getAllWindows()[0]
+  .webContents.send('viewer-shortcut', 'selector'))` (`'size'`, `'toggle'`
+  for I and O). Selector rows: `.at-vsel-row`, with `.at-vsel-tag` and
+  `.at-vsel-key`; filter via `.at-vsel-input`.
 - Wait target for the md viewer: `.vb-shell.vb-md.open`, then
   `.md-viewer-body h1`.
+- A review renders before it shows, so the web band (`.vb-shell.vb-web`)
+  can still show the previous page for seconds after a pick. Poll the
+  `<webview>`'s `getURL()` for the package's `.html` for up to ~20s; its
+  `src` attribute does not follow navigation, and a fixed sleep reads the
+  old page.
 - Click at a text position: compute the rect with a collapsed Range over
   the block's text nodes in `page.evaluate`, then `page.mouse.click(x, y)` —
   the viewer maps click → caret via caretRangeFromPoint.
