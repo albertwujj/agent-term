@@ -1193,6 +1193,7 @@ function createMarkdownViewer({
     activeTarget: null,
     activeTargetPane: null,
     activeSelection: null,
+    activeLink: null, // the link a click armed its block on, for the hint
     activeCard: null,
     queuedComments: [],
     threadStore: null,
@@ -2238,7 +2239,7 @@ function createMarkdownViewer({
     };
   }
 
-  function applyMarkdownReadResult(result, { preserveScroll = false, rendered = null, seats = null } = {}) {
+  function applyMarkdownReadResult(result, { preserveScroll = false, rendered = null, seats = null, armed = null } = {}) {
     if (!result || !result.success || !state.article || !state.secondaryArticle) return false;
     const previousScrollTop = preserveScroll && state.primaryPane ? state.primaryPane.scrollTop : 0;
     const previousDoc = state.doc;
@@ -2282,7 +2283,47 @@ function createMarkdownViewer({
     } else {
       state.spreadGridTop = 0; // a fresh open starts at the top
     }
+    if (armed) rearmAfterRefresh(armed);
     return true;
+  }
+
+  // A clicked block waits for its first key: a letter comments, other keys
+  // edit at the click. A refresh rebuilds the page, which dropped the armed
+  // block, so that key went nowhere. When the agent left the block whole, it
+  // re-arms there with its caret or selection; a rewritten block no longer
+  // holds what the click pointed at. Only while the viewer has focus, so a
+  // refresh never takes the keyboard from the terminal.
+  function planArmedAcrossRefresh(opcodes, intact, byId) {
+    const selection = state.activeSelection;
+    const start = byId.get((selection && selection.anchorId) || getAnchorIdForTarget(state.activeTarget));
+    const end = byId.get((selection && selection.endAnchorId) || (start && start.id));
+    if (!start || !end || !intact.has(start.id) || !intact.has(end.id)
+      || unchangedLineShift(opcodes, start.startLine, end.endLine) === null) return null;
+    return {
+      pane: state.activeTargetPane,
+      start: intact.get(start.id),
+      end: intact.get(end.id),
+      selection,
+      caret: state.pendingClickCaret,
+      link: state.activeLink,
+    };
+  }
+
+  function armedInViewer() {
+    return !!state.activeTarget && !!state.shell && state.shell.contains(document.activeElement);
+  }
+
+  function rearmAfterRefresh({ pane, start, end, selection, caret, link }) {
+    const article = pane === 'right' ? state.secondaryArticle : state.article;
+    const target = article && getArticleAnchorById(article, start.id);
+    if (!target) return;
+    if (selection) {
+      setActiveTarget(target, {
+        selection: { ...selection, target, anchorId: start.id, endAnchorId: end.id, sourceStartLine: start.startLine },
+      });
+    } else {
+      armBlockAt(target, caret, { link });
+    }
   }
 
   // Queued comments ride a refresh. A mark seats back on its block's new id,
@@ -2293,7 +2334,8 @@ function createMarkdownViewer({
   // was deleted, split or merged, its selected words are gone, or a passage
   // across blocks changed; Send releases it.
   function planRefreshThroughQueue(result) {
-    if (!state.queuedComments.length) return { rendered: null, seats: null };
+    const armed = armedInViewer();
+    if (!state.queuedComments.length && !armed) return { rendered: null, seats: null, armed: null };
     const nextSource = result.content || '';
     const rendered = renderMarkdownDocument(nextSource, markdownImageOptions(result));
     const oldAnchors = (state.doc && Array.isArray(state.doc.anchors)) ? state.doc.anchors : [];
@@ -2329,7 +2371,7 @@ function createMarkdownViewer({
       }
       seats.set(comment, seat);
     }
-    return { rendered, seats };
+    return { rendered, seats, armed: armed ? planArmedAcrossRefresh(opcodes, intact, byId) : null };
   }
 
   function nearestIndexOf(text, words, near) {
@@ -4365,6 +4407,7 @@ function createMarkdownViewer({
     state.activeTarget = null;
     state.activeTargetPane = null;
     state.activeSelection = null;
+    state.activeLink = null;
     hideHint();
     syncCopyLabel();
     updateSelectionHighlights();
@@ -7104,6 +7147,7 @@ function createMarkdownViewer({
     target.classList.add('md-comment-target-active');
     state.activeTarget = target;
     state.activeSelection = selection;
+    state.activeLink = link;
     state.activeTargetPane = selection && selection.pane
       ? selection.pane
       : (isInSecondaryPane(target) ? 'right' : 'left');

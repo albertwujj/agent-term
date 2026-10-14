@@ -81,8 +81,19 @@ try {
     })?.textContent;
   }, skip);
 
-  // An open composer holds the edit; the bar keeps the unseen hue; Send lands it.
+  // A clicked block keeps waiting for its first key through an agent write.
   assert.equal(await unseenHue(), false, 'nothing unseen before the agent writes');
+  const armed = await rightParagraph();
+  await page.locator('.secondary p').filter({ hasText: armed }).click();
+  await agentRewrites(1, 'Paragraph 1 is what the agent wrote after the click.');
+  await page.waitForTimeout(2500);
+  assert.match((await leftText('Paragraph 1 ')).text, /after the click/, 'the write lands');
+  await page.keyboard.type('c');
+  assert.equal(await page.locator('.md-comment-card textarea').count(), 1, 'the first key still opens the comment');
+  await page.keyboard.press('Escape'); // the empty composer closes
+  console.log('PASS a clicked block stays armed through an agent write');
+
+  // An open composer holds the edit; the bar keeps the unseen hue; Send lands it.
   const first = await rightParagraph();
   await page.locator('.secondary p').filter({ hasText: first }).click();
   await page.keyboard.type('a comment on the right page');

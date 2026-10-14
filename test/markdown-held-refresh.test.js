@@ -163,6 +163,28 @@ async function run() {
   await sleep(POLL);
   check('a fresh doc has nothing unseen', !unseenHue());
 
+  // A clicked block waits for its first key. An agent write landing first
+  // used to disarm it, and the key went nowhere; now it re-arms.
+  clickBlock('Delta paragraph');
+  await sleep(20);
+  agentWrites(`${disk}\n\nFoxtrot paragraph, added at the end.`);
+  await sleep(POLL);
+  check('a write elsewhere lands while a block is armed', shows('Foxtrot paragraph'));
+  check('the clicked block stays armed', !!block('Delta paragraph')?.classList.contains('md-comment-target-active'));
+  key('c');
+  await sleep(20);
+  check('its first key still opens the comment', !!find('.md-comment-card textarea'));
+  key('Escape'); // the empty composer closes
+  await sleep(20);
+  // A rewrite of the clicked block itself disarms it: the click pointed at
+  // text that is gone.
+  clickBlock('Foxtrot paragraph');
+  await sleep(20);
+  agentWrites(disk.replace('Foxtrot paragraph, added at the end.', 'Foxtrot paragraph, rewritten.'));
+  await sleep(POLL);
+  check('a rewrite of the clicked block disarms it', shows('Foxtrot paragraph, rewritten.')
+    && !primary().querySelector('.md-comment-target-active'));
+
   // An open composer holds the agent's edit, and the bar says so.
   await comment('Bravo paragraph', 'is this the right example?');
   agentWrites(disk.replace(ALPHA, 'Alpha paragraph now reads the way the agent rewrote it.'));
