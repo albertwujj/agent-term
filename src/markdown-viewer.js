@@ -39,6 +39,7 @@ const MARKDOWN_REFRESH_DEBOUNCE_MS = 250;
 const MARKDOWN_REFRESH_PULSE_MS = 9000;
 const MARKDOWN_CHANGE_HIGHLIGHT_MAX_AGE = 2;
 const MARKDOWN_CHANGE_FLASH_MS = 9300;
+const HELD_REFRESH_NOTE = 'agent updated · reconciles on send';
 
 function findMarkdownSearchRanges(text, query) {
   const haystack = String(text == null ? '' : text);
@@ -1124,6 +1125,7 @@ function ensureStyles() {
        prompt reads muted so it doesn't compete with real notes and comments. */
     .md-pending-note-mark.empty .md-anno-text { opacity: 0.55; font-style: italic; }
     .md-queued-comment-mark { border-left-color: rgba(217, 119, 6, 0.85); color: #92610a; }
+    .md-queued-comment-mark .md-sent-chip { flex: none; }
     /* A reply typed and clicked away rests inside its card as a draft row, in
        the queued comment's grammar (amber = unsent, yours); click reopens the
        composer, where sending and discarding live. It stands where the Reply
@@ -2183,6 +2185,7 @@ function createMarkdownViewer({
     state.refreshPulseViewUpdated = true;
     state.refreshInFlight = false;
     dropRefreshHeld();
+    markQueuedHolders([]);
   }
 
   function scheduleMarkdownRefreshPulseStop() {
@@ -2335,47 +2338,79 @@ function createMarkdownViewer({
   // across blocks changed; Send releases it.
   function planRefreshThroughQueue(result) {
     const armed = armedInViewer();
-    if (!state.queuedComments.length && !armed) return { rendered: null, seats: null, armed: null };
+    if (!state.queuedComments.length && !armed) return { rendered: null, seats: null, armed: null, holders: [] };
     const nextSource = result.content || '';
     const rendered = renderMarkdownDocument(nextSource, markdownImageOptions(result));
     const oldAnchors = (state.doc && Array.isArray(state.doc.anchors)) ? state.doc.anchors : [];
     const opcodes = getLineDiffOpcodes(state.sourceText, nextSource);
     const intact = mapIntactAnchors(oldAnchors, rendered.anchors, opcodes);
     const byId = new Map(oldAnchors.map((anchor) => [anchor.id, anchor]));
-    let nextArticle = null; // parsed only to find a selection in a rewritten block
+    const plan = { opcodes, intact, byId, rendered, nextArticle: null };
     const seats = new Map();
+    const holders = [];
     for (const comment of state.queuedComments) {
-      const start = byId.get(comment.anchorId);
-      const end = byId.get(comment.endAnchorId || comment.anchorId);
-      if (!start || !end) return null;
-      if (intact.has(start.id) && intact.has(end.id)
-        && unchangedLineShift(opcodes, start.startLine, end.endLine) !== null) {
-        seats.set(comment, { start: intact.get(start.id), end: intact.get(end.id) });
-        continue;
-      }
-      if (start !== end) return null; // a passage across blocks the agent changed
-      const block = findReplacementAnchor(start, rendered.anchors, opcodes);
-      if (!block) return null;
-      const seat = { start: block, end: block };
-      if (isMarkdownSelectionKind(comment.targetKind) && comment.selectedText) {
-        // Offsets index the block's text, which selectedText (the selection's
-        // own string) need not match where a soft wrap is a newline. Matched
-        // with whitespace collapsed: an agent that rewraps the paragraph moves
-        // no words, and must not hold the write.
-        const oldText = wsProfile(getAnchorTextFromArticle(state.article, start.id));
-        const from = oldText.toCollapsed[comment.selectionStart];
-        const words = oldText.text.slice(from, oldText.toCollapsed[comment.selectionEnd]).trim();
-        if (!words) return null;
-        nextArticle = nextArticle || createDetachedMarkdownArticle(rendered);
-        const nextText = wsProfile(getAnchorTextFromArticle(nextArticle, block.id));
-        const at = nearestIndexOf(nextText.text, words, from);
-        if (at < 0) return null;
-        seat.selectionStart = nextText.toOrig[at];
-        seat.selectionEnd = nextText.toOrig[at + words.length - 1] + 1;
-      }
-      seats.set(comment, seat);
+      const seat = seatQueuedComment(comment, plan);
+      if (seat) seats.set(comment, seat);
+      else holders.push(comment);
     }
-    return { rendered, seats, armed: armed ? planArmedAcrossRefresh(opcodes, intact, byId) : null };
+    return { rendered, seats, armed: armed ? planArmedAcrossRefresh(opcodes, intact, byId) : null, holders };
+  }
+
+  // Where a queued comment sits in the new document; null when it has nowhere.
+  function seatQueuedComment(comment, plan) {
+    const { opcodes, intact, byId, rendered } = plan;
+    const start = byId.get(comment.anchorId);
+    const end = byId.get(comment.endAnchorId || comment.anchorId);
+    if (!start || !end) return null;
+    if (intact.has(start.id) && intact.has(end.id)
+      && unchangedLineShift(opcodes, start.startLine, end.endLine) !== null) {
+      return { start: intact.get(start.id), end: intact.get(end.id) };
+    }
+    if (start !== end) return null; // a passage across blocks the agent changed
+    const block = findReplacementAnchor(start, rendered.anchors, opcodes);
+    if (!block) return null;
+    const seat = { start: block, end: block };
+    if (isMarkdownSelectionKind(comment.targetKind) && comment.selectedText) {
+      // Offsets index the block's text, which selectedText (the selection's
+      // own string) need not match where a soft wrap is a newline. Matched
+      // with whitespace collapsed: an agent that rewraps the paragraph moves
+      // no words, and must not hold the write.
+      const oldText = wsProfile(getAnchorTextFromArticle(state.article, start.id));
+      const from = oldText.toCollapsed[comment.selectionStart];
+      const words = oldText.text.slice(from, oldText.toCollapsed[comment.selectionEnd]).trim();
+      if (!words) return null;
+      // Parsed once per plan, only to find a selection in a rewritten block.
+      plan.nextArticle = plan.nextArticle || createDetachedMarkdownArticle(rendered);
+      const nextText = wsProfile(getAnchorTextFromArticle(plan.nextArticle, block.id));
+      const at = nearestIndexOf(nextText.text, words, from);
+      if (at < 0) return null;
+      seat.selectionStart = nextText.toOrig[at];
+      seat.selectionEnd = nextText.toOrig[at + words.length - 1] + 1;
+    }
+    return seat;
+  }
+
+  // A queued comment holding the agent's write says so on its mark, in the
+  // words a held edit uses: the hue says something waits, the note says which
+  // comment and that Send (or discarding the comment) lands it.
+  function markQueuedHolders(holders) {
+    for (const comment of state.queuedComments) {
+      comment.holdsRefresh = holders.includes(comment);
+      for (const mark of [comment.card, comment.cardCounterpart]) syncHeldRefreshNote(mark, comment.holdsRefresh);
+    }
+  }
+
+  function syncHeldRefreshNote(mark, on) {
+    if (!mark) return;
+    const note = mark.querySelector('.md-sent-chip');
+    if (on && !note) {
+      const chip = document.createElement('span');
+      chip.className = 'md-sent-chip';
+      chip.textContent = HELD_REFRESH_NOTE;
+      mark.append(chip);
+    } else if (!on && note) {
+      note.remove();
+    }
   }
 
   function nearestIndexOf(text, words, near) {
@@ -2390,10 +2425,12 @@ function createMarkdownViewer({
     if (!state.pendingRefreshResult || !isOpen()) return false;
     const result = state.pendingRefreshResult;
     const plan = hasBlockingMarkdownRefreshState() ? null : planRefreshThroughQueue(result);
-    if (!plan) {
+    if (!plan || plan.holders.length) {
       noteRefreshHeld();
+      if (plan) markQueuedHolders(plan.holders);
       return false;
     }
+    markQueuedHolders([]);
     const beforeSend = state.pendingRefreshBeforeSend;
     state.pendingRefreshResult = null;
     state.pendingRefreshSignature = '';
@@ -4719,6 +4756,7 @@ function createMarkdownViewer({
       openQueuedMarkdownCommentForEdit(comment, card);
     });
     card.addEventListener('dblclick', (event) => event.stopPropagation());
+    syncHeldRefreshNote(card, !!comment.holdsRefresh);
     return card;
   }
 
@@ -5650,7 +5688,7 @@ function createMarkdownViewer({
     if (state.pendingRefreshResult) {
       const held = document.createElement('span');
       held.className = 'md-sent-chip';
-      held.textContent = 'agent updated · reconciles on send';
+      held.textContent = HELD_REFRESH_NOTE;
       holder.appendChild(held);
     }
     return holder;

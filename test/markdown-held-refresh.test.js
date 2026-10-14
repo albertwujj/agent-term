@@ -143,6 +143,7 @@ async function sendQueued() {
   await sleep(60);
   return batches[batches.length - 1];
 }
+const heldNote = () => Array.from(document.querySelectorAll('.md-queued-comment-mark .md-sent-chip')).map((n) => n.textContent);
 const seeAll = async () => {
   dom.window.dispatchEvent(new dom.window.Event('focus'));
   await sleep(20);
@@ -249,7 +250,7 @@ async function run() {
   await seeAll();
   check("a rewrite of the queued comment's block lands", shows(rewritten) && !shows(CHARLIE));
   check('the mark moves to the rewritten block', blockAboveMark() === rewritten, blockAboveMark());
-  check('nothing is held', !unseenHue());
+  check('nothing is held', !unseenHue() && heldNote().length === 0, heldNote());
   let last = await sendQueued();
   check('Send quotes the block as it now reads', last && last.threads[0].anchor.snippet === rewritten,
     last && last.threads[0].anchor);
@@ -276,10 +277,13 @@ async function run() {
   await seeAll();
   check('a rewrite dropping the selected words is held', shows('is still plain') && !shows('says something else'));
   check('the held write keeps the unseen hue', unseenHue());
+  check('the holding comment says so on its mark, in both pages',
+    JSON.stringify(heldNote()) === JSON.stringify(Array(2).fill('agent updated · reconciles on send')), heldNote());
   check('the thread resolved in that write waits with it', bravoThread());
   last = await sendQueued();
   check('Send sends the selection', last && last.threads[0].anchor.snippet === 'plain', last && last.threads[0].anchor);
   check('and lands the held write', shows('says something else'));
+  check('the note goes with it', heldNote().length === 0, heldNote());
   check('with the thread it goes with', !bravoThread());
   await seeAll();
   check('once it is on screen the hue clears', !unseenHue());
