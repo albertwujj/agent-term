@@ -315,6 +315,20 @@ async function run() {
     block('Delta')?.className);
   check('the mark carries over to it', blockAboveMark() === applied, blockAboveMark());
 
+  // Words are matched wherever the lines now wrap: an agent rewrapping the
+  // paragraph around a selected sentence moves no words, so nothing holds.
+  const wrapped = 'Foxtrot paragraph opens here. Its second sentence runs\nacross the wrap and ends here.';
+  agentWrites(disk.replace('Foxtrot paragraph, rewritten.', wrapped));
+  await sleep(POLL);
+  await commentOnWords('Foxtrot paragraph opens', 'Its second sentence runs\nacross the wrap and ends here.', 'about this one');
+  await queueAway();
+  agentWrites(disk.replace(wrapped, 'Foxtrot paragraph now opens differently. Its second\nsentence runs across the wrap and ends here.'));
+  await sleep(POLL);
+  check('a rewrap keeping the selected words lands', shows('now opens differently'));
+  check('the highlight follows the words across the new wrap',
+    JSON.stringify(highlighted()) === JSON.stringify(Array(2).fill('Its second\nsentence runs across the wrap and ends here.')),
+    highlighted());
+
   viewer.close();
   console.log(`\n--- Results: ${passed} passed, ${failed} failed ---`);
   process.exit(failed ? 1 : 0);

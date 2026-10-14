@@ -2359,15 +2359,19 @@ function createMarkdownViewer({
       const seat = { start: block, end: block };
       if (isMarkdownSelectionKind(comment.targetKind) && comment.selectedText) {
         // Offsets index the block's text, which selectedText (the selection's
-        // own string) need not match where a soft wrap is a newline.
-        const oldText = getAnchorTextFromArticle(state.article, start.id);
-        const words = oldText.slice(comment.selectionStart, comment.selectionEnd);
+        // own string) need not match where a soft wrap is a newline. Matched
+        // with whitespace collapsed: an agent that rewraps the paragraph moves
+        // no words, and must not hold the write.
+        const oldText = wsProfile(getAnchorTextFromArticle(state.article, start.id));
+        const from = oldText.toCollapsed[comment.selectionStart];
+        const words = oldText.text.slice(from, oldText.toCollapsed[comment.selectionEnd]).trim();
         if (!words) return null;
         nextArticle = nextArticle || createDetachedMarkdownArticle(rendered);
-        const at = nearestIndexOf(getAnchorTextFromArticle(nextArticle, block.id), words, comment.selectionStart);
+        const nextText = wsProfile(getAnchorTextFromArticle(nextArticle, block.id));
+        const at = nearestIndexOf(nextText.text, words, from);
         if (at < 0) return null;
-        seat.selectionStart = at;
-        seat.selectionEnd = at + words.length;
+        seat.selectionStart = nextText.toOrig[at];
+        seat.selectionEnd = nextText.toOrig[at + words.length - 1] + 1;
       }
       seats.set(comment, seat);
     }

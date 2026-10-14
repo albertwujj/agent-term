@@ -865,7 +865,7 @@ minutes, then landed with a pulse at Send, as if the Send had made it.
   same kind between unchanged neighbours), the mark moves to the rewrite,
   which the change pulse and bar mark as rewritten under the draft, and Send
   quotes the block as it now reads. A selection comes along when its words
-  are still in the block. That covers the common case, a follow-up queued on
+  are still in the block, wherever the lines now wrap. That covers the common case, a follow-up queued on
   a block while the agent answers the comment before it, and a comment on a
   sealed block, whose own edit applied is the rewrite. The refresh stays held
   only while a comment has nowhere to sit: its block deleted, split or
