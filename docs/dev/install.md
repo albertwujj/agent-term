@@ -12,7 +12,6 @@ The former Windows installer pipeline is frozen and no longer tested. Its last-k
 | Terminal shell | Your native shell | The invoking WSL distro |
 | Checkout | `~/agent-term` | `~/agent-term` inside the WSL distro |
 | Dependencies | One macOS `node_modules` | Linux `node_modules` for builds/tests, plus an isolated Windows cache for the UI |
-| Start command | `npm run start` | `npm run start:wsl` |
 | Phone view config | `~/.agent-term/config.json` | `~/.agent-term/config.json` inside the WSL distro |
 | UI end-to-end tests | Native desktop | WSLg |
 
@@ -66,12 +65,12 @@ cd ~/agent-term && npm ci
 Then launch from the directory you want the terminal to open in:
 
 ```bash
-npm --prefix ~/agent-term run start:wsl
+npm --prefix ~/agent-term run start
 ```
 
-`start:wsl` invokes Windows PowerShell for the host-side seam. On its first run it creates an isolated Windows dependency cache under `%LOCALAPPDATA%\AgentTermWslDev`, with a generation for each install-affecting dependency state, takes a per-process snapshot of the current source, and launches Windows Electron from that snapshot. Separate generations let an updated launch coexist with older AgentTerm processes whose Electron files remain locked by Windows. It neither reads nor modifies WSL's Linux `node_modules`. The terminal opens in the original checkout, and all later WSL probes stay pinned to the distro that launched it. The taskbar button's right-click menu then offers "Start or resume session", the same as Ctrl+Shift+N: a Jump List task starts with no environment, so the running app keeps the launcher's environment in `launch-env.json` in that cache and the task hands it to the bootstrap by argument.
+From WSL, `npm run start` invokes Windows PowerShell for the host-side seam. On its first run it creates an isolated Windows dependency cache under `%LOCALAPPDATA%\AgentTermWslDev`, with a generation for each install-affecting dependency state, takes a per-process snapshot of the current source, and launches Windows Electron from that snapshot. Separate generations let an updated launch coexist with older AgentTerm processes whose Electron files remain locked by Windows. It neither reads nor modifies WSL's Linux `node_modules`. The terminal opens in the original checkout, and all later WSL probes stay pinned to the distro that launched it. The taskbar button's right-click menu then offers "Start or resume session", the same as Ctrl+Shift+N: a Jump List task starts with no environment, so the running app keeps the launcher's environment in `launch-env.json` in that cache and the task hands it to the bootstrap by argument.
 
-Do not use `npm run start` from WSL for the Windows app. That starts Linux Electron through WSLg, so AgentTerm sees Linux rather than Windows and cannot provide its Windows taskbar integration.
+`npm run start:linux` starts Linux Electron through WSLg instead, for trying the UI the way the end-to-end tests run it. That window sees Linux rather than Windows and has no Windows taskbar integration.
 
 ## Update an existing checkout
 
@@ -83,11 +82,11 @@ git pull --ff-only
 npm ci
 ```
 
-Start it again with `npm run start` on macOS or `npm run start:wsl` on Windows. Running `npm ci` on every update keeps native dependencies and generated tooling aligned with the checked-in lockfile.
+Start it again with `npm run start`. Running `npm ci` on every update keeps native dependencies and generated tooling aligned with the checked-in lockfile.
 
 ## Windows troubleshooting
 
 - **“Windows Node.js/npm is required”**: run `node.exe --version` and `npm.cmd --version` in Windows PowerShell. Reinstall the LTS package if either command is missing.
 - **“powershell.exe was not found from WSL”**: Windows interoperability is disabled or unavailable in that distro. Re-enable WSL interoperability before launching AgentTerm.
 - **The phone view's indicator says streaming is disabled**: `hubUrl` goes in `~/.agent-term/config.json` inside the WSL distro.
-- **The wrong distro opens**: always run `npm run start:wsl` from the distro you want AgentTerm to use. The launcher carries that distro name into the Windows process.
+- **The wrong distro opens**: always run `npm run start` from the distro you want AgentTerm to use. The launcher carries that distro name into the Windows process.

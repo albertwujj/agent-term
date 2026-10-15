@@ -39,7 +39,7 @@ Open an AgentTerm window from the project you want to work in rather than from t
 npm --prefix ~/agent-term run start
 ```
 
-(`run start:wsl` instead, on Windows.) [Sessions](sessions.md) covers how to start an agent, or pick up one from before this terminal.
+[Sessions](sessions.md) covers how to start an agent, or pick up one from before this terminal.
 
 The [suite guides](suite.md#using-the-components) cover writing on plans, requesting a curated review, taking the checkout lock, and starting long jobs. Cloning makes these capabilities available; the guides tell your agent when and how to use them.
 

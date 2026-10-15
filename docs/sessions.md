@@ -37,11 +37,11 @@ See the [full picker demo](#start-or-resume-a-session).
 
 ## Bootstrap
 
-**Type `npm run start` (`start:wsl` on WSL) once, from the directory you want the terminal to open in.** Three ways a window comes to be, and where each starts:
+**Type `npm run start` once, from the directory you want the terminal to open in.** Three ways a window comes to be, and where each starts:
 
 | Window | How it opens | Starts in |
 |---|---|---|
-| The first | `npm run start` (`start:wsl` on WSL; from any directory, with `--prefix` pointing to the agent-term source) | the directory you ran npm in |
+| The first | `npm run start` (from any directory, with `--prefix` pointing to the agent-term source) | the directory you ran npm in |
 | Another | right-click a taskbar button or Dock tile, or `Ctrl/Cmd+Shift+N` with an AgentTerm window in front | the directory the current session's agent was started in; before a first prompt, the window's own start directory |
 | After the last closes | spawned automatically | the same rule, from the window that closed |
 
