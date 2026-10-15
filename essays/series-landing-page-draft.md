@@ -6,7 +6,7 @@ Some people love terminals; others hate them. Some are surprised that AI tools a
 
 I have been using AI CLIs in a terminal for coding, writing, planning and review. My focus is on understanding and steering the agents' work, rather than running commands. While I appreciate what the terminal offers, I want it to work differently, both inside its window and on the desktop.
 
-I built [AgentTerm](https://github.com/albertwujj/agent-term#agentterm) as an experiment and have been using it since January. These essays explore its functionality and design choices.
+I built [AgentTerm](https://github.com/albertwujj/agent-term#agentterm) as an experiment and have been using it since January. These essays explore the motivations and design choices behind it.
 
 ## Essays
 
