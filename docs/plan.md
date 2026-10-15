@@ -35,3 +35,5 @@ You can also track what the agent changed. A bar in the margin marks each block 
 When a draft is ready to go out, one button copies the whole or any section, as plain text for Teams or email, or as markdown for GitHub ([copy a doc into a message](copy.md)).
 
 Plans and document feedback use [agent-threads](https://github.com/albertwujj/agent-threads), included in the [recommended setup](setup.md#recommended-setup).
+
+Read [why I open documents, code and images right in the agent’s terminal window](../essays/files-in-terminal.md) for the design choices behind this workflow.

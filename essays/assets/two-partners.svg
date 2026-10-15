@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="650" viewBox="0 0 1000 650" role="img" aria-labelledby="title desc">
+  <title id="title">Two partners, separate records</title>
+  <desc id="desc">The viewer records your comments and proposals. The lead agent reads your feedback, revises the shared document and records its replies and updates separately. The viewer reads the document and both records and presents the current result and discussion for you to review and respond.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#697586"/></marker>
+    <style>
+      text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;fill:#233044}
+      .heading{font-size:28px;font-weight:650}
+      .label{font-size:23px;font-weight:600}
+      .detail{font-size:18px;fill:#526174}
+      .owner{font-size:17px;font-weight:600}
+      .edge{fill:none;stroke:#697586;stroke-width:2.5;stroke-linejoin:round;marker-end:url(#arrow)}
+      .action{font-size:17px;fill:#526174}
+    </style>
+  </defs>
+  <rect width="1000" height="650" rx="20" fill="#fafbfd"/>
+  <text x="500" y="43" class="heading" text-anchor="middle">Two partners, separate records</text>
+  <text x="500" y="75" class="detail" text-anchor="middle">One shared result, with each side recording its contributions</text>
+
+  <path class="edge" d="M280 550H30V165H160"/>
+  <text x="65" y="145" class="action">Review</text>
+  <path class="edge" d="M270 200V235H200V295"/>
+  <text x="122" y="268" class="action">Propose</text>
+  <path class="edge" stroke-dasharray="6 5" d="M290 295V245H620V200"/>
+  <text x="438" y="230" class="action">Read feedback</text>
+  <path class="edge" d="M670 200V275H500V295"/>
+  <text x="529" y="261" class="action">Revise</text>
+  <path class="edge" d="M760 200V250H800V295"/>
+  <text x="817" y="256" class="action">Record</text>
+  <path class="edge" d="M200 395V475H360V510"/>
+  <path class="edge" d="M500 395V510"/>
+  <path class="edge" d="M800 395V475H640V510"/>
+
+  <rect x="160" y="130" width="220" height="70" rx="18" fill="#e8f2ff" stroke="#82addb" stroke-width="2"/>
+  <text x="270" y="174" class="label" text-anchor="middle">You</text>
+  <rect x="600" y="130" width="220" height="70" rx="18" fill="#f2ecff" stroke="#ad93d4" stroke-width="2"/>
+  <text x="710" y="174" class="label" text-anchor="middle">Lead agent</text>
+
+  <rect x="70" y="295" width="260" height="100" rx="12" fill="#eff6ff" stroke="#9bbce1" stroke-width="1.8"/>
+  <text x="200" y="326" class="label" text-anchor="middle">Your record</text>
+  <text x="200" y="355" class="detail" text-anchor="middle">Comments and proposals</text>
+  <text x="200" y="382" class="owner" text-anchor="middle" fill="#376797">Viewer records</text>
+
+  <rect x="370" y="295" width="260" height="100" rx="12" fill="#f1f3f6" stroke="#a9b3c0" stroke-width="1.8"/>
+  <text x="500" y="326" class="label" text-anchor="middle">Shared document</text>
+  <text x="500" y="355" class="detail" text-anchor="middle">Updated in place</text>
+  <text x="500" y="382" class="owner" text-anchor="middle">Agent writes</text>
+
+  <rect x="670" y="295" width="260" height="100" rx="12" fill="#f7f1ff" stroke="#b9a2da" stroke-width="1.8"/>
+  <text x="800" y="326" class="label" text-anchor="middle">Agent's record</text>
+  <text x="800" y="355" class="detail" text-anchor="middle">Replies and thread updates</text>
+  <text x="800" y="382" class="owner" text-anchor="middle" fill="#73549b">Agent records</text>
+
+  <rect x="280" y="510" width="440" height="86" rx="16" fill="#edf8f2" stroke="#8fbca7" stroke-width="2"/>
+  <text x="500" y="543" class="label" text-anchor="middle">Viewer</text>
+  <text x="500" y="574" class="detail" text-anchor="middle">Current result + discussion</text>
+  <text x="500" y="630" class="detail" text-anchor="middle">The viewer reads the document and both records together.</text>
+</svg>

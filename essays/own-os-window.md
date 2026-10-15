@@ -16,6 +16,8 @@ The taskbar, the Dock, Alt-Tab and Cmd-Tab, Mission Control, snapping, multiple 
 
 More and more of my work lives in agent sessions. One is fixing code, another is helping me write, another is working through a plan. They may use the same CLI, but they feel like different apps to me. Giving each its own place on the desktop feels natural.
 
+Each window is a portal to AI through a lead agent, which orchestrates the work and can delegate to subagents. I stay involved through that window, using it to understand and direct the work.
+
 When each agent is a window, all of those tools work on agents directly. Snapping, monitors and Spaces arrange agents like any other window. On a Mac, with each agent full screen, one Mission Control swipe shows every agent at once.
 
 ## An identity for each agent

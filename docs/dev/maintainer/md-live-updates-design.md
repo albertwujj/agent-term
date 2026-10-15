@@ -1,6 +1,6 @@
 # The agent's writes while you work
 
-The agent writes the open document and its thread store while you read,
+The agent writes the open document and its reply journal while you read,
 comment and edit. Two goals pull against each other:
 
 1. **Show the agent's latest content and replies as soon as they land.**
@@ -10,6 +10,8 @@ comment and edit. Two goals pull against each other:
 This doc records how the markdown viewer balances them, what that costs, and
 what is left. Editing's own reconciliation lives in
 [md-editing-design.md](md-editing-design.md) (Conflicts).
+The contribution records and their storage are described in
+[thread-history-design.md](thread-history-design.md).
 
 ## Where this came from (2026-10-13)
 

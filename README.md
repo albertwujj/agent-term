@@ -51,7 +51,7 @@ An IDE or desktop app offers richer views and interactions than a text-centric i
 
 As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several agents at once. The expanded terminal supports that work visually, like an IDE.
 
-AgentTerm controls both the terminal and the visual pages in it, so it can coordinate presentation, focus, and feedback. A document or review takes the center when needed and gets out of the way as your focus shifts. In a CLI conversation, revisions usually arrive as more output. Here, plans and drafts are revised in place, while comments and replies accumulate beside the relevant passage. Your feedback goes back to the same agent.
+AgentTerm controls both the terminal and the visual pages in it, so it can coordinate presentation, focus, and feedback. A document or review takes the center when needed and gets out of the way as your focus shifts. In a CLI conversation, revisions usually arrive as more output. Here, plans and drafts are revised in place, while comments and replies accumulate beside the relevant passage. Your feedback goes back to the same agent. The [essay on this design](essays/files-in-terminal.md) explores the reasoning and tradeoffs.
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window-changes-86df8ad3f2.gif"><img src="docs/assets/viewer-window-changes-86df8ad3f2.gif" alt="An AgentTerm window in three states: document feedback beside the conversation, the revised document filling the window with green change highlights and an inline agent reply, and the document rolled up while typing"></a>
