@@ -28,11 +28,7 @@ I can comment on a passage in the explanation or on a code line. The agent answe
 
 The agent writes a Markdown review package containing its explanation and references to file ranges. AgentTerm renders those references using code and diffs from Git. The agent supplies the selection and reasoning; the renderer supplies the referenced code.
 
-```mermaid
-flowchart LR
-    package["Agent-authored Markdown<br/>Explanation + code references"] --> view["AgentTerm walkthrough<br/>Rendered English, code and diffs"]
-    git["Git<br/>Committed code + diffs"] --> view
-```
+[![Agent-authored Markdown supplies explanations and code references; Git supplies committed code and diffs. AgentTerm combines them into a rendered walkthrough.](assets/review-package-flow.svg)](assets/review-package-flow.svg)
 
 A review refers to a committed version of the code. The agent updates it as the implementation changes, and AgentTerm warns if the review is out of date or its code references are invalid.
 

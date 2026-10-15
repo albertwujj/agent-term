@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="320" viewBox="0 0 800 320" role="img" aria-labelledby="title desc">
+  <title id="title">From Markdown and Git to a review walkthrough</title>
+  <desc id="desc">The agent supplies Markdown explanations and code references. Git supplies committed code and diffs. AgentTerm combines both into a walkthrough of rendered English, code and diffs.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#697586"/></marker>
+    <style>
+      text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;fill:#233044}
+      .label{font-size:20px;font-weight:600}
+      .detail{font-size:18px;fill:#526174}
+      .edge{fill:none;stroke:#697586;stroke-width:2.5;stroke-linejoin:round;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="800" height="320" rx="14" fill="#fafbfd"/>
+
+  <path class="edge" d="M352 78H396Q412 78 412 94V128Q412 144 428 144H450"/>
+  <path class="edge" d="M352 245H396Q412 245 412 229V195Q412 179 428 179H450"/>
+
+  <g class="node">
+    <rect x="20" y="20" width="332" height="116" rx="12" fill="#eff6ff" stroke="#9bbce1" stroke-width="1.8"/>
+    <text x="44" y="56" class="label">Agent-authored Markdown</text>
+    <text x="44" y="87" class="detail">Explanation +</text>
+    <text x="44" y="111" class="detail">code references</text>
+  </g>
+
+  <g class="node">
+    <rect x="20" y="190" width="332" height="110" rx="12" fill="#f1f3f6" stroke="#a9b3c0" stroke-width="1.8"/>
+    <text x="44" y="227" class="label">Git</text>
+    <text x="44" y="260" class="detail">Committed code + diffs</text>
+  </g>
+
+  <g class="node">
+    <rect x="452" y="86" width="328" height="150" rx="12" fill="#edf8f2" stroke="#8fbca7" stroke-width="1.8"/>
+    <text x="476" y="123" class="label">AgentTerm walkthrough</text>
+    <text x="476" y="160" class="detail">Rendered English,</text>
+    <text x="476" y="186" class="detail">code and diffs</text>
+  </g>
+</svg>
