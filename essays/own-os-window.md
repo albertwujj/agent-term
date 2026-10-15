@@ -1,4 +1,4 @@
-# Why I give each agent its own OS window and a distinct Dock tile or taskbar button
+# Why I give each lead agent its own OS window and a unique Dock tile or taskbar button
 
 *Andy Yunxin Wu, October 2026. The first in a series on the design decisions behind [AgentTerm](https://github.com/albertwujj/agent-term), the terminal I use for all my work with AI CLIs.*
 
@@ -72,4 +72,4 @@ I switch between agents all day as I do with every other app: a glance at the Do
 
 The windows are one of many parts of [AgentTerm](https://github.com/albertwujj/agent-term), alongside commenting on agent output and curated code reviews. [Try it and tinker with it](../README.md#quick-start). For a CLI session you started outside AgentTerm, the first prompt you send after resuming it in AgentTerm becomes the terminal session's initial prompt.
 
-Next in this [series](https://yunxin.github.io/rethink-terminal/): [why I run my own terminal from source](run-from-source.md).
+Next in this [series](https://yunxin.github.io/rethink-terminal/): [Why I run AgentTerm from source](run-from-source.md).

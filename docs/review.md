@@ -12,3 +12,5 @@ You can ask the agent to expand any part, or include all changes in the review, 
 The loop's instruction docs live in [agent-threads](https://github.com/albertwujj/agent-threads): name [produce-review.md](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md) in a prompt, where `@produce-r` completes to it, and the agent produces the package and prints its `review://` link, which this terminal opens on its own.
 
 The protocol is open, and any other host can support it too.
+
+Read [Curated code review: explanations grounded in code](../essays/curated-review.md) for the design choices behind this workflow.

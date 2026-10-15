@@ -1,4 +1,4 @@
-# Why I run my own terminal from source
+# Why I run AgentTerm from source
 
 *Andy Yunxin Wu, October 2026. The second in a [series on the design decisions behind AgentTerm](https://yunxin.github.io/rethink-terminal/).*
 

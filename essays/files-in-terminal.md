@@ -1,4 +1,4 @@
-# Why I open documents, code and images right in the agent’s terminal window
+# Why documents, code and images open right in the agent’s terminal window
 
 *Andy Yunxin Wu, October 2026. The third in a [series on the design decisions behind AgentTerm](https://yunxin.github.io/rethink-terminal/).*
 
@@ -18,7 +18,7 @@ Now I can find a passage on the rendered page, comment on it or write directly o
 
 Many rounds of revisions across different passages are hard to follow in a plain terminal conversation. The agent gives each document a descriptive name and saves it in a known location. When I need to revisit one, I type a few letters in AgentTerm to find it.
 
-This works for designs, essays and other drafts. Code has its own review presentation, where the agent connects its explanation to the implementation I need to inspect. Each has a presentation and interaction model tuned to the work. More types of content can be supported later. The goal is to let agents do more for me and make collaboration easier than in traditional interfaces.
+This works for designs, essays and other drafts. Code has its own [review presentation](curated-review.md), where the agent connects its explanation to the implementation I need to inspect. Each has a presentation and interaction model tuned to the work. More types of content can be supported later. The goal is to let agents do more for me and make collaboration easier than in traditional interfaces.
 
 ## Images need a place to stay
 
