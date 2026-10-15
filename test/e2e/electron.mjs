@@ -2,7 +2,9 @@
 // AppKit aborts before app JS runs if an inherited macOS sandbox denies its
 // GUI services. Check from the Node test runner, without starting Electron or
 // relying on agent environment variables (which may survive an approved run).
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { _electron } from 'playwright-core';
 
 const require = createRequire(import.meta.url);
@@ -64,3 +66,17 @@ export function createElectronLauncher({
 }
 
 export const launchElectron = createElectronLauncher();
+
+// Main's log lines go to <userData>/logs/main-<pid>.log and never to the
+// Electron process's stdout (src/main.js), so a test that reads them follows
+// that file. `text` rereads it on every access: a check made right after an
+// action, or after the app exits, sees every line written by then.
+export async function followMainLog(app) {
+  const { userData, pid } = await app.evaluate(({ app }) => ({ userData: app.getPath('userData'), pid: process.pid }));
+  const file = path.join(userData, 'logs', `main-${pid}.log`);
+  return {
+    get text() {
+      try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
+    },
+  };
+}

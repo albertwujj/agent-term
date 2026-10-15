@@ -15,7 +15,7 @@
 // this checkout see the change while the test runs.
 // Run: node test/e2e/unhide-older-code.mjs
 
-import { launchElectron } from './electron.mjs';
+import { followMainLog, launchElectron } from './electron.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -55,8 +55,8 @@ async function launch() {
     args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR],
     timeout: 45_000,
   });
-  const w = { app, log: '' };
-  app.process().stdout.on('data', (d) => { w.log += d.toString(); });
+  const mainLog = await followMainLog(app);
+  const w = { app, get log() { return mainLog.text; } };
   w.exited = new Promise(r => app.process().once('exit', (code) => r(code)));
   w.page = await app.firstWindow();
   await w.page.waitForSelector('.at-picker-input', { timeout: 30_000 });

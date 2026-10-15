@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
+const util = require('util');
 const { dependencyProblem, missingRuntimeDependencies } = require('./dep-freshness');
 const { createDoubleClickIntervalReader } = require('./double-click-interval');
 const { showStartupError } = require('./startup-error');
@@ -167,11 +168,14 @@ const NAVIGATOR_HOST = '127.0.0.1';
 const NAVIGATOR_PORT = 8765;
 const FRONTEND_PORT = 8766;
 
-// Main-process log: the terminal, the renderer's DevTools, and a per-process
-// file under <userData>/logs. The file is what survives: a relaunched window
-// runs with stdio ignored, and a window whose compositor died has no renderer
-// left to receive the message. The renderer send comes last and never throws;
-// the exit paths below log through here from a process whose window is gone.
+// Main-process log: the renderer's DevTools and a per-process file under
+// <userData>/logs, never the terminal the app was started from. That terminal
+// can close while the window lives on, and a write to its broken pipe throws
+// EPIPE out of whatever line happened to log, as an uncaught exception with a
+// dialog of its own. The file is what survives: a relaunched window runs with
+// stdio ignored, and a window whose compositor died has no renderer left to
+// receive the message. The renderer send comes last and never throws; the
+// exit paths below log through here from a process whose window is gone.
 const LOG_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 let diskLogPath;
 let diskLogFd;
@@ -292,8 +296,16 @@ function diskLog(line) {
     }
     diskLogFd = null;
     diskLogPath = null;
-    console.warn('[main] disk log disabled:', err && err.message);
+    // The console writes to this file too (below), so DevTools is all that is left.
+    log('[main] disk log disabled:', err && err.message);
   }
+}
+
+// Everything else that prints, ours and our dependencies', follows log() into
+// the file for the same reason. Lines printed before this point come from
+// startup, while the starting terminal is still certainly there.
+for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
+  console[level] = (...args) => diskLog(util.format(...args));
 }
 
 function pruneDiskLogs() {
@@ -309,7 +321,6 @@ function pruneDiskLogs() {
 
 function log(...args) {
   const line = args.join(' ');
-  console.log(...args);
   diskLog(line);
   try {
     if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('main-log', line);
@@ -3070,7 +3081,6 @@ ipcMain.on('renderer-diagnostic', (event, message) => {
   if (typeof message !== 'string') return;
   const clean = message.replace(/[\r\n\x00-\x1f\x7f]+/g, ' ').trim().slice(0, 1000);
   if (!clean) return;
-  console.log('[renderer-diag]', clean);
   diskLog('[renderer-diag] ' + clean);
 });
 

@@ -27,7 +27,7 @@
 // once-a-minute health timer, so the last step waits up to ~70s.
 // Run: node test/e2e/auto-hide.mjs
 
-import { launchElectron } from './electron.mjs';
+import { followMainLog, launchElectron } from './electron.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -94,15 +94,13 @@ const app = await launchElectron({
   env: { ...process.env, AGENT_TERM_WORKING_GRACE_MS: '2000' },
   timeout: 45_000,
 });
-let mainLog = '';
+const mainLog = await followMainLog(app);
 const proc = app.process();
-proc.stdout.on('data', (d) => { mainLog += d.toString(); });
-if (proc.stderr) proc.stderr.on('data', (d) => { mainLog += d.toString(); });
 const exited = new Promise(r => proc.once('exit', (code) => r(code)));
 async function waitForLog(re, timeoutMs, from = 0) {
   const t0 = Date.now();
   for (;;) {
-    const m = mainLog.slice(from).match(re);
+    const m = mainLog.text.slice(from).match(re);
     if (m) return m;
     if (Date.now() - t0 > timeoutMs) return null;
     await sleep(200);
@@ -147,7 +145,7 @@ try {
   const hideNow = async () => {
     advanceClock();
     await focusElsewhere();
-    const from = mainLog.length;
+    const from = mainLog.text.length;
     control(6, 'hide');
     return waitForLog(/hiding session 6|staying: [a-z ]+/, 5000, from);
   };
@@ -173,7 +171,7 @@ try {
   check('bringing it forward focused it', state.focused === true, JSON.stringify(state));
   {
     advanceClock();
-    const from = mainLog.length;
+    const from = mainLog.text.length;
     control(6, 'hide');
     const m = await waitForLog(/hiding session 6|staying: [a-z ]+/, 5000, from);
     check('the focused window stays when asked to hide', m && m[0] === 'staying: focused', m && m[0]);
@@ -188,7 +186,7 @@ try {
   await sleep(6500);
   hid = await hideNow();
   check('hides before the turn starts', hid && /hiding/.test(hid[0]), hid && hid[0]);
-  const from = mainLog.length;
+  const from = mainLog.text.length;
   const back = await waitForLog(/turn ended while hidden; bringing session 6 back/, 45_000, from);
   check('a finished turn brings the hidden window back', !!back);
   await sleep(1000);
@@ -215,14 +213,14 @@ try {
   // 7a. Closing it hides it all the same. Sessions 7 and 8 read as visible,
   //     so no fresh window opens.
   {
-    const from = mainLog.length;
+    const from = mainLog.text.length;
     await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].close(); });
     await sleep(800);
     state = await windowState();
     rec6 = sessionsLog.readActiveFile(UD, 6);
-    check('closing a session window hides it', /window closed; hiding session 6/.test(mainLog.slice(from)));
+    check('closing a session window hides it', /window closed; hiding session 6/.test(mainLog.text.slice(from)));
     check('the closed window is off screen, its session alive', state.visible === false && rec6 && rec6.hiddenAt, JSON.stringify(state));
-    check('with other windows visible, no fresh window opens', !/no visible window left/.test(mainLog.slice(from)));
+    check('with other windows visible, no fresh window opens', !/no visible window left/.test(mainLog.text.slice(from)));
     control(6, 'show');
     await sleep(1500);
     state = await windowState();
@@ -242,7 +240,7 @@ try {
   }
   const code = await Promise.race([exited, sleep(75_000).then(() => 'timeout')]);
   check('a hidden session past the cap closes itself', code !== 'timeout', String(code));
-  check('the log says why', /closing hidden session 6: more than 8 sessions are live/.test(mainLog));
+  check('the log says why', /closing hidden session 6: more than 8 sessions are live/.test(mainLog.text));
   const ended = sessionsLog.readLog(UD).filter(e => e.id === 6).map(e => e.e);
   check('it is recorded as closed', ended.includes('closed'), JSON.stringify(ended));
   check('by the cap', sessionsLog.readLog(UD).some(e => e.id === 6 && e.e === 'closed' && e.by === 'cap'));
@@ -262,8 +260,7 @@ try {
     args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR],
     timeout: 45_000,
   });
-  let bLog = '';
-  b.process().stdout.on('data', (d) => { bLog += d.toString(); });
+  const bLog = await followMainLog(b);
   const bExited = new Promise(r => b.process().once('exit', (code) => r(code)));
   try {
     const page = await b.firstWindow();
@@ -273,7 +270,7 @@ try {
     const code = await Promise.race([bExited, sleep(10_000).then(() => 'timeout')]);
     check('the found session is asked to show', (readControl(7) || {}).action === 'show');
     check('the picker window closes once it is back', code !== 'timeout', String(code));
-    check('the log says so', /session 7 is back; closing the picker window/.test(bLog));
+    check('the log says so', /session 7 is back; closing the picker window/.test(bLog.text));
   } finally {
     try { await b.close(); } catch {}
   }
@@ -291,8 +288,7 @@ try {
     args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR],
     timeout: 45_000,
   });
-  let cLog = '';
-  c.process().stdout.on('data', (d) => { cLog += d.toString(); });
+  const cLog = await followMainLog(c);
   const cExited = new Promise(r => c.process().once('exit', (code) => r(code)));
   try {
     const page = await c.firstWindow();
@@ -300,8 +296,8 @@ try {
     await c.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].close(); }).catch(() => {});
     const code = await Promise.race([cExited, sleep(10_000).then(() => 'timeout')]);
     check('a window with no session closes for real', code !== 'timeout', String(code));
-    check('the last visible window is replaced by a fresh one', /no visible window left; opening a fresh one/.test(cLog), cLog.slice(-400));
-    const spawned = cLog.match(/\[new-instance\] spawned pid (\d+)/);
+    check('the last visible window is replaced by a fresh one', /no visible window left; opening a fresh one/.test(cLog.text), cLog.text.slice(-400));
+    const spawned = cLog.text.match(/\[new-instance\] spawned pid (\d+)/);
     check('the fresh window was spawned', !!spawned);
     if (spawned) { try { process.kill(Number(spawned[1]), 'SIGTERM'); } catch {} }
   } finally {
@@ -321,8 +317,8 @@ const launchPicker = async () => {
     args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR],
     timeout: 45_000,
   });
-  const out = { app: a, log: '' };
-  a.process().stdout.on('data', (d) => { out.log += d.toString(); });
+  const mainLog = await followMainLog(a);
+  const out = { app: a, get log() { return mainLog.text; } };
   out.exited = new Promise(r => a.process().once('exit', (code) => r(code)));
   out.page = await a.firstWindow();
   await out.page.waitForSelector('.at-picker-input', { timeout: 30_000 });
@@ -392,6 +388,6 @@ const launchPicker = async () => {
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
-  console.log(mainLog.split('\n').filter(l => /auto-hide|resume/.test(l)).join('\n'));
+  console.log(mainLog.text.split('\n').filter(l => /auto-hide|resume/.test(l)).join('\n'));
   process.exit(1);
 }

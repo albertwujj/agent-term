@@ -8,7 +8,7 @@
 // flag over preload IPC → main's lastAgentOutputTime → job-watch evaluate.
 // This drives the REAL app via Playwright's _electron: real shell, real
 // event spool, real 500ms buffer polls; the oracle is the main process's
-// own [job-watch] log lines on the Electron stdout.
+// own [job-watch] log lines in its main-<pid>.log.
 //
 //   Case A (regression): a status line repaints in place every 400ms the
 //     whole time — before, at, and after the event lands mid-churn (the
@@ -24,7 +24,7 @@
 //
 // Run: npm run test:e2e   (builds the renderer first, then this)
 
-import { launchElectron } from './electron.mjs';
+import { followMainLog, launchElectron } from './electron.mjs';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -68,16 +68,12 @@ async function main() {
     timeout: 45_000,
   });
 
-  // The oracle: main's log() writes to the Electron process stdout.
-  let mainLog = '';
-  const proc = app.process();
-  if (!proc || !proc.stdout) throw new Error('electron stdout not piped — cannot observe [job-watch] log');
-  proc.stdout.on('data', (d) => { mainLog += d.toString(); });
-  if (proc.stderr) proc.stderr.on('data', (d) => { mainLog += d.toString(); });
+  // The oracle: main's log() lines in its main-<pid>.log.
+  const mainLog = await followMainLog(app);
   async function waitForLog(re, timeoutMs, from = 0) {
     const t0 = Date.now();
     for (;;) {
-      const m = mainLog.slice(from).match(re);
+      const m = mainLog.text.slice(from).match(re);
       if (m) return m;
       if (Date.now() - t0 > timeoutMs) return null;
       await sleep(250);
@@ -103,7 +99,7 @@ async function main() {
 
     // ---- Case A: notice delivers through status-line churn ----
     console.log('Case A — status-line churn must not eat the notice');
-    const markA = mainLog.length;
+    const markA = mainLog.text.length;
     // One status row repaints in place every 400ms for ~24s; the event
     // lands mid-churn at iteration 20 (~8s in) — the output pattern
     // (spinner/counter/stats repaints) of a CLI that is idle but repainting.
@@ -117,7 +113,7 @@ async function main() {
     // ---- Case B: real scrolling output holds the notice until it stops ----
     console.log('Case B — scrolling output holds the notice (control)');
     await sleep(2500); // let case A's pasted notice echo and the prompt settle
-    const markB = mainLog.length;
+    const markB = mainLog.text.length;
     // Fill the screen first so scroll is active — the steady state of any
     // real session — then go quiet before the event, and scroll after it.
     // The stream's end is marked by a file, so the test knows when the
@@ -131,7 +127,7 @@ async function main() {
     for (const t0 = Date.now(); !fs.existsSync(doneB) && Date.now() - t0 < 30_000;) await sleep(100);
     check('stream ran to its end', fs.existsSync(doneB));
     check('no notice while the output scrolled',
-      !mainLog.slice(markB).match(/\[job-watch\] notice: job-report.*streamjob-finished/));
+      !mainLog.text.slice(markB).match(/\[job-watch\] notice: job-report.*streamjob-finished/));
     const noticeB = await waitForLog(/\[job-watch\] notice: job-report.*streamjob-finished/, 15_000, markB);
     check('notice delivered once the output stopped', !!noticeB);
 
@@ -143,7 +139,7 @@ async function main() {
     // period, with the run length known: this window saw the death.
     console.log('Case C — start record: running indicator, then unreported death');
     await sleep(2500);
-    const markC = mainLog.length;
+    const markC = mainLog.text.length;
     await runCmd(
       `( sleep 12 >/dev/null 2>&1 & p=$!; d="$TMPDIR/agent-events"; mkdir -p "$d"; ` +
       `printf 'session=%s\\nstarted=%s\\ncmd=%s\\n' ` +
