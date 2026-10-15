@@ -1,6 +1,6 @@
 # Why I open documents, code and images right in the agent’s terminal window
 
-*Andy Yunxin Wu, October 2026. The third in a [series on the design decisions behind AgentTerm](README.md).*
+*Andy Yunxin Wu, October 2026. The third in a [series on the design decisions behind AgentTerm](https://yunxin.github.io/rethink-terminal/).*
 
 I like how a terminal conversation keeps moving. I ask a question, the agent responds, and I follow an idea into the next question. Together we focus on new ideas as they appear where my eyes already are.
 

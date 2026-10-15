@@ -130,7 +130,7 @@ Add [phone access](docs/phone.md) when you want to continue remotely, or [IDE in
 
 **Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
-The [essays](essays/README.md) explain the design decisions behind AgentTerm, one per essay.
+The [essays](https://yunxin.github.io/rethink-terminal/) explain the design decisions behind AgentTerm, one per essay.
 
 ## Contributing
 
