@@ -18,7 +18,7 @@ Now I can find a passage on the rendered page, comment on it or write directly o
 
 Many rounds of revisions across different passages are hard to follow in a plain terminal conversation. The agent gives each document a descriptive name and saves it in a known location. When I need to revisit one, I type a few letters in AgentTerm to find it.
 
-This works for designs, essays and other drafts. Code has its own [review presentation](curated-review.md), where the agent connects its explanation to the implementation I need to inspect. Each has a presentation and interaction model tuned to the work. More types of content can be supported later. The goal is to let agents do more for me and make collaboration easier than in traditional interfaces.
+This works for designs, essays and other drafts. Code review uses the same feedback loop, with a presentation and interaction model tuned to code and diffs ([curated review essay](curated-review.md)). More types of content can be supported later. The goal is to let agents do more for me and make collaboration easier than in traditional interfaces.
 
 ## Images need a place to stay
 
@@ -38,13 +38,15 @@ The document can fill the window while I read it. When I send feedback, the view
 
 I want the whole window available for the part of the work I am focused on. The conversation and the document take turns occupying it.
 
-## Find it again without searching the conversation
+## Look it up quickly without scrolling or searching through the conversation
 
 Closing a view leaves the file available. The viewer picker prioritizes what I have opened and what the session has shown. I can type part of a name to find a document or image again. It also searches nearby files, starting with the project, so I can open something the agent has never mentioned. This lets me bring in earlier information from outside the current session.
 
 ## Technical notes: two partners working at once
 
-The agent and I are two partners working on the same result. An AI CLI turn can take a while, so I want to keep reading and preparing feedback while it works on earlier comments. Either of us can have something new while the other is still busy.
+Over time, features built for this workflow have made AgentTerm a capable tool for writing and collaborating with agents in its own right. Building it has meant resolving both interaction design and technical challenges.
+
+The agent and I are two partners working on the same document. An AI CLI turn can take a while, so I want to keep reading and preparing feedback while it works on earlier comments. Either of us can have something new while the other is still busy.
 
 ### Separate records, one writer each
 

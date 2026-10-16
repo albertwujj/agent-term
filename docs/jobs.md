@@ -1,10 +1,12 @@
 # Long jobs
 
-A long run the agent starts (CI, a heavy test suite, a deploy) leaves a standard session with two bad options: the agent either sits watching it, blocking the terminal, or ends its turn and never learns when the job finishes. The rest of the task is then dropped: a failure stays unfixed and the work meant to follow never starts.
+Some AI CLIs already keep the conversation responsive while a long job runs in the background. [Claude Code](https://code.claude.com/docs/en/interactive-mode#background-bash-commands), for example, supports native background commands. If your CLI also reliably notifies the agent when the job finishes, you may not need `agent-jobs`.
+
+Use `agent-jobs` when native background execution or completion follow-up is missing or unreliable in your CLI or workflow.
 
 ## What agent-jobs is
 
-[agent-jobs](https://github.com/yunxin/agent-jobs) is a small convention that adds the option that was missing. The agent starts the job under its `agent-job` wrapper, ends its turn without stopping the work, and hands the terminal back to you. The job reports its own completion, per agent-term's [job-events.md](dev/job-events.md) contract, and when it finishes, the terminal prompts the agent to pick the result up:
+[agent-jobs](https://github.com/yunxin/agent-jobs) provides completion reporting through AgentTerm. The agent starts the job under its `agent-job` wrapper, ends its turn without stopping the work, and hands the terminal back to you. The job reports its own completion, per agent-term's [job-events.md](dev/job-events.md) contract, and when it finishes, the terminal prompts the agent to pick the result up:
 
 [![the report the terminal hands the idle agent when the job finishes](assets/jobs-nudge.png)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/jobs-nudge.png)
 

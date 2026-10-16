@@ -1,8 +1,14 @@
 # Suite conventions
 
-Most pieces of the suite are driven by a **verb doc**: an instruction file named for what the agent is to do, like `produce-review.md` or `proceed-by-lock-and-branch.md`. Reference it in a prompt and the agent carries it out; `@` completion partial-matches, so `@proceed-b` is typically more than enough to land on `proceed-by-lock-and-branch.md`.
+Most pieces of the suite are driven by a **verb doc**: an instruction file named for what the agent is to do, like `produce-review.md` or `proceed-by-lock-and-branch.md`. Name it in a prompt to select the exact procedure the agent should follow; `@` completion partial-matches, so `@proceed-b` is typically more than enough to land on `proceed-by-lock-and-branch.md`.
 
 One resolution rule covers the suite: everything binds to these docs by filename, taking the nearest copy up the directory tree, the repo's `ai/` folder (a convention of this terminal, see below) counting as in the repo, with your home directory as the fallback. A clone under home serves every project; a clone inside a project overrides it there, with no central config needed.
+
+## Guides across CLI vendors
+
+Guides and runbooks can form a folder hierarchy with multiple levels. The entry document leads to more specific instructions or shared rules as needed. In [agent-threads](https://github.com/albertwujj/agent-threads/blob/main/docs/protocol.md), document feedback and code review guides both point to a shared contract, so common rules have one home.
+
+**The same guide files work across CLI vendors without requiring skill support.** When using several AI CLIs in the same repo, one clone under `ai/` provides the same verb docs. You can select them through the same `@` file-reference workflow, without CLI-specific skill installation or invocation syntax. The terminal can also supply the guide path directly, and the agent follows the relevant links. (We may add [Agent Skills](https://agentskills.io/home) entry points in the future while keeping direct guide paths for CLIs without skill support.)
 
 ## Placement
 
