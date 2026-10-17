@@ -4,7 +4,7 @@
 
 ## The model in the essay
 
-[Files in the terminal](../../../essays/files-in-terminal.md) describes two
+[Files in the terminal](https://yunxin.github.io/rethink-terminal/files-in-terminal/) describes two
 separate records of the discussion, one for each partner's contributions.
 The viewer records the user's comments and proposals; the agent records its
 replies and thread updates. Readers combine both beside the current document.
