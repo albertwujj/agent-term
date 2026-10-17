@@ -120,10 +120,17 @@ async function main() {
       await tab.addScriptTag({ path: path.join(path.dirname(require.resolve('mermaid/package.json')), 'dist/mermaid.min.js') });
       await tab.evaluate(() => mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', fontFamily: 'Arial, sans-serif', themeVariables: { fontSize: '16px', primaryColor: '#e8eeed', primaryTextColor: '#242e36', primaryBorderColor: '#879a9d', lineColor: '#687c83', clusterBkg: '#f0f1ed', clusterBorder: '#c2ccc9' }, flowchart: { htmlLabels: false, useMaxWidth: true } }));
       for (const diagram of diagrams) {
-        const svg = await tab.evaluate(async ({ id, code }) => (await mermaid.render(id, code)).svg, { id: diagram.id, code: diagram.code });
+        const { svg, fullSize } = await tab.evaluate(async ({ id, code }) => {
+          const { svg } = await mermaid.render(id, code);
+          // Mermaid's HTML labels can contain <br>, valid inline but invalid in an SVG document.
+          const element = new DOMParser().parseFromString(svg, 'text/html').querySelector('svg');
+          element.setAttribute('width', element.getAttribute('viewBox').split(/\s+/)[2]);
+          const fullSize = new XMLSerializer().serializeToString(element);
+          const document = new DOMParser().parseFromString(fullSize, 'image/svg+xml');
+          if (document.querySelector('parsererror')) throw new Error(`Invalid standalone diagram: ${id}`);
+          return { svg, fullSize };
+        }, { id: diagram.id, code: diagram.code });
         const diagramPath = `assets/diagrams/${diagram.page.slug}-${diagram.id}.svg`;
-        const dimensions = svg.match(/viewBox="([^\"]+)"/)[1].split(/\s+/);
-        const fullSize = svg.replace(/width="[^\"]+"/, `width="${dimensions[2]}"`);
         fs.mkdirSync(path.join(output, 'assets/diagrams'), { recursive: true });
         fs.writeFileSync(path.join(output, diagramPath), fullSize);
         diagram.page.body = diagram.page.body.replace(`<div class="diagram" data-diagram="${diagram.id}"></div>`, `<div class="diagram"><a href="${base}${diagramPath}" aria-label="Open the diagram at full size">${svg}</a></div>`);
