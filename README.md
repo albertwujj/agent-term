@@ -74,7 +74,7 @@ Tools like tmux and manager apps hold every agent session in one window. AgentTe
 
 A manager app that oversees agents across machines can still be used: AgentTerm already sends each session's state to the [phone view](docs/phone.md), and a connector could share it with a manager too.
 
-### A stable interface between agent and terminal
+### A stable interface between agents and AgentTerm
 
 This path can look hacky: the host parses text and reacts to it. Useful text conventions tend to persist, and in practice the patterns we rely on have held up well. We occasionally add support for new patterns, and those updates have been among the easier parts to maintain. It works from both sides: guide files instruct agents to print what the host understands, and the parser recognizes output styles agents already use. This integration does not require a vendor SDK or API.
 
