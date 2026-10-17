@@ -47,8 +47,6 @@ The terminal is a natural home for coding agents: text in, text out, with the sh
 
 An IDE or desktop app offers richer views and interactions than a text-centric interface alone. Expanding the terminal lets AgentTerm add those capabilities while keeping your existing AI CLIs in the familiar text interface.
 
-[![AgentTerm adds rendered documents and code, session tools, text and file actions, and optional connections around a familiar core terminal, with OS window integration.](docs/assets/agentterm-capabilities.svg)](docs/assets/agentterm-capabilities.svg)
-
 As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several agents at once. The expanded terminal supports that work visually, like an IDE.
 
 AgentTerm controls both the terminal and the visual pages in it, so it can coordinate presentation, focus, and feedback. A document or review takes the center when needed and gets out of the way as your focus shifts. In a CLI conversation, revisions usually arrive as more output. Here, plans and drafts are revised in place, while comments and replies accumulate beside the relevant passage. Your feedback goes back to the same agent. The [essay](essays/files-in-terminal.md) goes deeper into AgentTerm’s design for this workflow.
@@ -81,6 +79,8 @@ A manager app that oversees agents across machines can still be used: AgentTerm 
 This path can look hacky: the host parses text and reacts to it. Useful text conventions tend to persist, and in practice the patterns we rely on have held up well. We occasionally add support for new patterns, and those updates have been among the easier parts to maintain. It works from both sides: guide files instruct agents to print what the host understands, and the parser recognizes output styles agents already use. This integration does not require a vendor SDK or API.
 
 With a host that understands its agents, and agents that understand the host, an agent can use capabilities beyond those built into its CLI. For example, a plan the agent mentions can open inside the same window, rendered for you to read and write on. Through its protocol with the host, the agent treats what you write as intent and updates the plan in place.
+
+[![AgentTerm adds rendered documents and code, session tools, text and file actions, and optional connections around a familiar core terminal, with OS window integration.](docs/assets/agentterm-capabilities.svg)](docs/assets/agentterm-capabilities.svg)
 
 <a name="make-it-fit"></a>
 
