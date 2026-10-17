@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{title}}</title>
+    <meta name="description" content="{{description}}">
+    <meta name="author" content="{{author}}">
+    <meta name="theme-color" content="#faf9f6">
+    <link rel="canonical" href="{{canonical}}">
+    <meta property="og:type" content="{{ogType}}">
+    <meta property="og:title" content="{{title}}">
+    <meta property="og:description" content="{{description}}">
+    <meta property="og:url" content="{{canonical}}">
+    <meta name="twitter:card" content="summary">
+    <link rel="stylesheet" href="{{base}}assets/style.css">
+  </head>
+  <body class="{{kind}}">
+    <a class="skip-link" href="#content">Skip to content</a>
+    <div class="page">
+      <header class="site-header">
+        <a class="series-link" href="{{base}}">Rethink the terminal</a>
+        <a class="repo-link" href="{{repository}}">AgentTerm on GitHub <span aria-hidden="true">↗</span></a>
+      </header>
+      <main id="content">
+        {{content}}
+      </main>
+      {{navigation}}
+      <footer class="site-footer">
+        <span>{{author}}</span>
+        <a href="{{source}}">View Markdown source</a>
+      </footer>
+    </div>
+  </body>
+</html>

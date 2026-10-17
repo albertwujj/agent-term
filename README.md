@@ -49,7 +49,7 @@ An IDE or desktop app offers richer views and interactions than a text-centric i
 
 As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several agents at once. The expanded terminal supports that work visually, like an IDE.
 
-AgentTerm controls both the terminal and the visual pages in it, so it can coordinate presentation, focus, and feedback. A document or review takes the center when needed and gets out of the way as your focus shifts. In a CLI conversation, revisions usually arrive as more output. Here, plans and drafts are revised in place, while comments and replies accumulate beside the relevant passage. Your feedback goes back to the same agent. The [essay](essays/files-in-terminal.md) goes deeper into AgentTerm’s design for this workflow.
+AgentTerm controls both the terminal and the visual pages in it, so it can coordinate presentation, focus, and feedback. A document or review takes the center when needed and gets out of the way as your focus shifts. In a CLI conversation, revisions usually arrive as more output. Here, plans and drafts are revised in place, while comments and replies accumulate beside the relevant passage. Your feedback goes back to the same agent. The [essay](https://yunxin.github.io/rethink-terminal/files-in-terminal/) goes deeper into AgentTerm’s design for this workflow.
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window-changes-86df8ad3f2.gif"><img src="docs/assets/viewer-window-changes-86df8ad3f2.gif" alt="An AgentTerm window in three states: document feedback beside the conversation, the revised document filling the window with green change highlights and an inline agent reply, and the document rolled up while typing"></a>
@@ -70,7 +70,7 @@ Some terminals combine support for AI CLIs with an agent and platform of their o
 
 ### Each agent gets its own OS window and identity
 
-Tools like tmux and manager apps hold every agent session in one window. AgentTerm gives each session its own window instead, since the OS already provides familiar, mature tools for arranging windows and switching between tasks: the taskbar, Dock, Mission Control, and alt-tab. Separate windows and processes let AgentTerm build on those strengths and add what agent sessions need. Each session has a unique visual identity that helps you find it in the taskbar or Dock and recognize it when previewing or switching windows. To keep the taskbar or Dock easy to scan, AgentTerm hides sessions you haven't used recently; the [session picker](docs/sessions.md) brings them back. [The essay on this decision](essays/own-os-window.md) goes deeper, including its challenges.
+Tools like tmux and manager apps hold every agent session in one window. AgentTerm gives each session its own window instead, since the OS already provides familiar, mature tools for arranging windows and switching between tasks: the taskbar, Dock, Mission Control, and alt-tab. Separate windows and processes let AgentTerm build on those strengths and add what agent sessions need. Each session has a unique visual identity that helps you find it in the taskbar or Dock and recognize it when previewing or switching windows. To keep the taskbar or Dock easy to scan, AgentTerm hides sessions you haven't used recently; the [session picker](docs/sessions.md) brings them back. [The essay on this decision](https://yunxin.github.io/rethink-terminal/own-os-window/) goes deeper, including its challenges.
 
 A manager app that oversees agents across machines can still be used: AgentTerm already sends each session's state to the [phone view](docs/phone.md), and a connector could share it with a manager too.
 
@@ -90,7 +90,7 @@ You and your agents can change and extend this terminal, down to its code, to fi
 
 Use it and explore first; what you need may already be there. When you find something is indeed missing while you work, you are best placed to evaluate and fill the gap, with the scenario right in front of you.
 
-This terminal makes that quick: it is already a better tool for working with your agents, including the work to fix itself. Change its source, and every window opened afterward picks up your improvement. Read [Why I run AgentTerm from source](essays/run-from-source.md).
+This terminal makes that quick: it is already a better tool for working with your agents, including the work to fix itself. Change its source, and every window opened afterward picks up your improvement. Read [Why I run AgentTerm from source](https://yunxin.github.io/rethink-terminal/run-from-source/).
 
 ## What's added so far
 

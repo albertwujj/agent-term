@@ -16,3 +16,4 @@ scripts/installer/launcher.exe
 .agent-threads/
 src/build-info.json
 icon-preview/
+/output/rethink-terminal/

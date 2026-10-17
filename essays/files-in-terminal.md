@@ -2,6 +2,8 @@
 
 *Andy Yunxin Wu, October 2026. The third in a [series on the design decisions behind AgentTerm](https://yunxin.github.io/rethink-terminal/).*
 
+<p class="github-only"><a href="https://yunxin.github.io/rethink-terminal/files-in-terminal/">Read the formatted essay</a></p>
+
 I like how a terminal conversation keeps moving. I ask a question, the agent responds, and I follow an idea into the next question. Together we focus on new ideas as they appear where my eyes already are.
 
 AgentTerm adds [direct commenting on the agent's output](../docs/comment.md): I can send an occasional question or correction back to the agent with the quoted passage. If we keep returning to the same passages, especially when those discussions interleave, I ask the agent to [continue in a document](https://github.com/albertwujj/agent-threads/blob/main/conversation/continue-in-doc.md).

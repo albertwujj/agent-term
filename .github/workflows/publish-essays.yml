@@ -1,0 +1,63 @@
+name: Publish essay series
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'essays/**'
+      - 'docs/assets/**'
+      - '.github/workflows/publish-essays.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-essay-series
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out essay sources
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: essays/site/package-lock.json
+
+      - name: Install site build dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: essays/site
+
+      - name: Build the published essays
+        run: npm run build -- "$RUNNER_TEMP/essay-site"
+        working-directory: essays/site
+
+      - name: Check out the publishing target
+        uses: actions/checkout@v6
+        with:
+          repository: yunxin/rethink-terminal
+          ref: main
+          path: _essay-site-published
+          ssh-key: ${{ secrets.ESSAY_SITE_DEPLOY_KEY }}
+
+      - name: Publish generated files
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+        working-directory: _essay-site-published
+        run: |
+          rsync -a --delete --exclude='.git/' "$RUNNER_TEMP/essay-site/" ./
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --all
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish essays from $SOURCE_COMMIT"
+            git push origin HEAD:main
+          fi

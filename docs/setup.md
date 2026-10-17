@@ -1,6 +1,6 @@
 # Set up AgentTerm
 
-AgentTerm [runs from source](../essays/run-from-source.md) on macOS, and on Windows through WSL. There is no installer and no release to download: you keep a clone of this repo and run it from there, so the source you have is the terminal you get, and a pull keeps it current.
+AgentTerm [runs from source](https://yunxin.github.io/rethink-terminal/run-from-source/) on macOS, and on Windows through WSL. There is no installer and no release to download: you keep a clone of this repo and run it from there, so the source you have is the terminal you get, and a pull keeps it current.
 
 ## Recommended setup
 

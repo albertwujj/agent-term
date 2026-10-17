@@ -1,0 +1,12 @@
+{
+  "url": "https://yunxin.github.io/rethink-terminal/",
+  "repository": "https://github.com/albertwujj/agent-term",
+  "author": "Andy Yunxin Wu",
+  "description": "Essays on the motivations and design choices behind AgentTerm.",
+  "essays": [
+    { "file": "own-os-window.md", "number": 1 },
+    { "file": "run-from-source.md", "number": 2 },
+    { "file": "files-in-terminal.md", "number": 3 },
+    { "file": "curated-review.md", "number": 5 }
+  ]
+}

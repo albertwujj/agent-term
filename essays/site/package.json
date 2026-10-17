@@ -1,0 +1,12 @@
+{
+  "name": "agentterm-essay-site",
+  "private": true,
+  "scripts": {
+    "build": "node build.cjs"
+  },
+  "dependencies": {
+    "markdown-it": "14.3.2",
+    "mermaid": "12.2.0",
+    "playwright-core": "1.61.1"
+  }
+}

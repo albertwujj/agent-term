@@ -2,6 +2,8 @@
 
 *Andy Yunxin Wu, October 2026. The first in a series on the design decisions behind [AgentTerm](https://github.com/albertwujj/agent-term), the terminal I use for all my work with AI CLIs.*
 
+<p class="github-only"><a href="https://yunxin.github.io/rethink-terminal/own-os-window/">Read the formatted essay</a></p>
+
 My agent sessions accumulate. A few are active at any moment, one fixing a bug, another with a plan I haven't read yet, and I switch between them all day. Many more are waiting, some on a reply to an email I sent. I keep all of them, because almost any of them may need me again: a finished fix can have follow-ups days later.
 
 Most tools put every session inside one window: panes in tmux, tabs in a terminal, a sidebar or a grid in a manager app. A separate terminal window per agent gets closer, but those windows all look alike. In AgentTerm, **the window is the session: each one runs in its own process, with its own Dock tile or taskbar button**, on macOS and Windows. The tile, the window itself and its previews are each designed so I can tell my agents apart at a glance.

@@ -36,4 +36,4 @@ When a draft is ready to go out, one button copies the whole or any section, as 
 
 Plans and document feedback use [agent-threads](https://github.com/albertwujj/agent-threads), included in the [recommended setup](setup.md#recommended-setup).
 
-Read [Why documents, code and images open right in the agent’s terminal window](../essays/files-in-terminal.md) for the design choices behind this workflow.
+Read [Why documents, code and images open right in the agent’s terminal window](https://yunxin.github.io/rethink-terminal/files-in-terminal/) for the design choices behind this workflow.

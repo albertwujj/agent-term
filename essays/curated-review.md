@@ -1,6 +1,8 @@
 # Curated code review: explanations grounded in code
 
-*Andy Yunxin Wu, October 2026. The fourth in a [series on the design decisions behind AgentTerm](https://yunxin.github.io/rethink-terminal/).*
+*Andy Yunxin Wu, October 2026. The fifth in a [series on the design decisions behind AgentTerm](https://yunxin.github.io/rethink-terminal/).*
+
+<p class="github-only"><a href="https://yunxin.github.io/rethink-terminal/curated-review/">Read the formatted essay</a></p>
 
 When an agent finishes a code change, I want to understand how the pieces fit together and which choices need my judgment. A full diff shows what changed. Reconstructing the reasoning from it can take considerable work.
 

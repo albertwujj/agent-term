@@ -13,4 +13,4 @@ The loop's instruction docs live in [agent-threads](https://github.com/albertwuj
 
 The protocol is open, and any other host can support it too.
 
-Read [Curated code review: explanations grounded in code](../essays/curated-review.md) for the design choices behind this workflow.
+Read [Curated code review: explanations grounded in code](https://yunxin.github.io/rethink-terminal/curated-review/) for the design choices behind this workflow.
