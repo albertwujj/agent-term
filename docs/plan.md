@@ -1,4 +1,4 @@
-# Plan, write, and revise
+# Plan, draft, and revise
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/doc-edit-loop.gif"><img src="assets/doc-edit-loop.gif" alt="the plan loop: type raw lines into the rendered doc, send, and the agent shapes them into a heading and list"></a>
@@ -22,7 +22,7 @@ It reads as a book: two pages side by side, short lines. Pages turn rather than 
 
 English is where the real planning happens: much of a design is settled in words before any code. A plan converges here the way code does: commented, revised in place, settled before anything is final.
 
-**The same loop is a writing aid in its own right.** An essay, notes, research, a post: the working directory organizes your context.
+**The same loop is a drafting aid in its own right.** An essay, notes, research, a post: the working directory organizes your context.
 
 Editing supports new sections and blocks: Shift+Enter starts a new line on the rendered page, and the agent formats what you typed into headings, paragraphs and bullets.
 
