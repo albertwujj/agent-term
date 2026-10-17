@@ -4896,7 +4896,7 @@ async function navigateToFileLine(filePath, line, column, { copyResponse = false
     });
     if (opened) { closeWebViewer(); recordViewer('md', navigablePath); }
     // An .md path always means the viewer, never the IDE. A failed open has
-    // already surfaced its error in the band and a toast.
+    // already said so in a toast, and in the band when no doc was up.
     return;
   }
 

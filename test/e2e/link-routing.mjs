@@ -220,6 +220,21 @@ async function run() {
         (await drainExternal()).includes('https://example.com/md-image'));
     }
 
+    // A link to a doc that is not there leaves the doc being read as it was,
+    // and says which path it tried.
+    await clickDocLink('a[href="./e2e-md-missing.md"]', true);
+    await sleep(700);
+    const missed = await page.evaluate(() => ({
+      heading: document.querySelector('.md-viewer-body h1')?.textContent || '',
+      title: document.querySelector('.vb-shell.vb-md .vb-title')?.textContent || '',
+      error: !!document.querySelector('.md-viewer-error'),
+      toast: Array.from(document.querySelectorAll('body > div'))
+        .map((el) => el.textContent).find((text) => /^File not found: /.test(text)) || '',
+    }));
+    check('a link to a missing doc keeps the doc being read',
+      /md link fixture/i.test(missed.heading) && /e2e-md-links\.md$/.test(missed.title) && !missed.error, missed);
+    check('and says which path it tried', missed.toast.endsWith('/test/fixtures/e2e-md-missing.md'), missed.toast);
+
     await clickDocLink('a[href="./e2e-md-link-target.md"]', true);
     await page.waitForFunction(
       () => /md link target/i.test(document.querySelector('.md-viewer-body h1')?.textContent || ''),

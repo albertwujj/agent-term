@@ -4,3 +4,5 @@ An [external link](https://example.com/md-ext) and a [sibling doc](./e2e-md-link
 in one paragraph.
 
 [![a dock tile](../../docs/assets/dock-tile.png)](https://example.com/md-image)
+
+A [missing doc](./e2e-md-missing.md) that was never written.

@@ -1243,6 +1243,7 @@ function createMarkdownViewer({
     imageRoot: '',
     nextCommentId: 0,
     openToken: 0,
+    openRequest: 0, // the latest open() call; an earlier read that lands after it is dropped
     search: {
       isOpen: false,
       query: '',
@@ -6937,8 +6938,60 @@ function createMarkdownViewer({
     showToast(preview ? `Text not found in markdown: ${preview}` : 'Text not found in markdown', { variant: 'warn' });
   }
 
+  // A doc already up stays live (its poll, its threads, its place) until the
+  // next one has loaded, so a link to a file that is not there costs a toast,
+  // never the doc being read. A cold open has nothing to keep: the band shows
+  // the load and, on a miss, the error.
   async function open({ filePath, line, matchText, landingKind } = {}) {
     if (!filePath || typeof readMarkdownFile !== 'function') return false;
+    const request = ++state.openRequest;
+    const replacing = isOpen() && !!state.doc;
+    if (!replacing) {
+      resetForNextDoc();
+      state.doc = null; // nothing may redraw the previous doc over the load or its error
+      showLoading(filePath);
+      if (typeof onOpen === 'function') onOpen(filePath);
+    }
+    const readToken = state.openToken;
+
+    let result;
+    try {
+      result = await readMarkdownFile(filePath);
+    } catch (error) {
+      result = { success: false, error: error && error.message };
+    }
+    // A later open, or a close, owns the band now.
+    if (request !== state.openRequest || readToken !== state.openToken) return false;
+    if (!result || !result.success) {
+      const message = `${(result && result.error) || 'Could not load markdown'}: ${filePath}`;
+      if (!replacing) showError(message);
+      if (typeof showToast === 'function') showToast(message);
+      return false;
+    }
+
+    const token = replacing ? resetForNextDoc() : readToken;
+    if (replacing && typeof onOpen === 'function') onOpen(filePath);
+    state.filePath = filePath;
+    state.resolvedPath = result.path || filePath;
+    state.sourceText = result.content || '';
+    state.doc = renderMarkdownDocument(state.sourceText, markdownImageOptions(result));
+    state.fileSignature = getMarkdownReadSignature(result);
+    state.fileStatSignature = getMarkdownStatSignature(result);
+    state.fileMtimeMs = Number.isFinite(result.mtimeMs) ? result.mtimeMs : null;
+    band.setTitle(state.resolvedPath);
+    band.open();
+    requestAnimationFrame(() => {
+      layoutSpread();
+      landAt({ line, matchText, landingKind });
+      startMarkdownAutoRefresh(token);
+      readPolledThreadStore(token).then((update) => { if (update) adoptPolledThreadStore(update); });
+    });
+    return true;
+  }
+
+  // Drop everything the viewer holds for the doc it shows; the new token
+  // retires that doc's poll.
+  function resetForNextDoc() {
     const token = ++state.openToken;
     stopMarkdownAutoRefresh();
     if (state.search.isOpen && typeof closeSearchBar === 'function') {
@@ -6966,44 +7019,7 @@ function createMarkdownViewer({
     state.pendingClickCaret = null;
     state.imageVersions = new Map();
     state.imageRefreshPending = false;
-    showLoading(filePath);
-    if (typeof onOpen === 'function') onOpen(filePath);
-
-    let result;
-    try {
-      result = await readMarkdownFile(filePath);
-    } catch (error) {
-      if (token !== state.openToken) return false;
-      const message = error && error.message ? error.message : 'Could not load markdown';
-      showError(message);
-      if (typeof showToast === 'function') showToast(message);
-      return false;
-    }
-
-    if (token !== state.openToken) return false;
-    if (!result || !result.success) {
-      const message = (result && result.error) || 'Could not load markdown';
-      showError(message);
-      if (typeof showToast === 'function') showToast(message);
-      return false;
-    }
-
-    state.filePath = filePath;
-    state.resolvedPath = result.path || filePath;
-    state.sourceText = result.content || '';
-    state.doc = renderMarkdownDocument(state.sourceText, markdownImageOptions(result));
-    state.fileSignature = getMarkdownReadSignature(result);
-    state.fileStatSignature = getMarkdownStatSignature(result);
-    state.fileMtimeMs = Number.isFinite(result.mtimeMs) ? result.mtimeMs : null;
-    band.setTitle(state.resolvedPath);
-    band.open();
-    requestAnimationFrame(() => {
-      layoutSpread();
-      landAt({ line, matchText, landingKind });
-      startMarkdownAutoRefresh(token);
-      readPolledThreadStore(token).then((update) => { if (update) adoptPolledThreadStore(update); });
-    });
-    return true;
+    return token;
   }
 
   // Ctrl/Cmd/Alt: the modifiers that make a click follow a link instead of
