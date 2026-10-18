@@ -18,8 +18,9 @@ function rotateIfLarge({ fs, file, bytes, maxBytes = MAX_LOG_BYTES }) {
 
 // console-<...>.log: the child's stdout and stderr, opened by the parent before
 // exec. Renaming it would move the directory entry and leave the descriptor
-// writing into the renamed inode, with nothing recreating the path the pointer
-// line names — and rebinding fd 1 from inside Node needs a dup2 we do not have.
+// writing into the renamed inode, with nothing recreating the path
+// AGENT_TERM_CONSOLE_LOG names — and rebinding fd 1 from inside Node needs a
+// dup2 we do not have.
 // So trim in place: keep the most recent bytes, drop the rest, and let the
 // descriptor carry on. It is O_APPEND, so the next write lands after what we
 // leave behind, at the same path, with no hole.

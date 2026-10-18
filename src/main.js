@@ -2605,17 +2605,6 @@ function createWindow() {
   // current snapshot here so the hollow-grey "disabled" dot is visible
   // for misconfigured machines instead of leaving them looking dead.
   mainWindow.webContents.once('did-finish-load', () => {
-    // Only when the file has something in it: a clean launch says nothing, and
-    // the line is a pointer rather than the content, so a noisy startup cannot
-    // flood the scrollback the agent reads. Output arriving later still lands
-    // in the file; the pointer shows up on the next launch.
-    try {
-      const consolePath = ownConsoleLogPath();
-      if (consolePath && fs.statSync(consolePath).size > 0) {
-        mainWindow.webContents.send('pty-output',
-          `\r\n[agent-term] This window has no console; its output is in ${consolePath}\r\n`);
-      }
-    } catch {}
     // Leading and trailing newlines so the lines stand clear of whatever the
     // shell has already painted, the same way the exit notice does. The
     // `warn <CODE>` shape is npm's, because this is the console npm would have
