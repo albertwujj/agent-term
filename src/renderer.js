@@ -6042,10 +6042,14 @@ function getWordAtMouseEvent(event) {
 
 // A fragment answers as the pattern that would claim its target printed
 // whole: a review link as a url, a file the band renders as a resource, and an
-// md or html path as a plain file, which navigateToFileLine sends to its viewer.
+// md or html path as a plain file, or as a file line when printed with one,
+// which navigateToFileLine sends to its viewer at that line.
 function rendererWrappedTargetSegmentMatch(analysis, segment) {
   const { kind, key } = analysis.entry;
-  const patternName = kind === 'review' ? 'url' : isBandFilePath(key) ? 'resource_file' : 'plain_file';
+  const { line } = analysis;
+  const patternName = kind === 'review' ? 'url'
+    : isBandFilePath(key) ? 'resource_file'
+    : line != null ? 'file_line' : 'plain_file';
   const pattern = patterns.find((candidate) => candidate.name === patternName);
   if (!pattern) return null;
   return {
@@ -6056,7 +6060,10 @@ function rendererWrappedTargetSegmentMatch(analysis, segment) {
     end: segment.end,
     bufferRow: segment.row,
     patternName,
-    action: pattern.action,
+    // file_line reads the path and line off its text, which here is a fragment.
+    action: patternName === 'file_line'
+      ? (_match, options) => navigateToFileLine(key, line, null, options)
+      : pattern.action,
     style: pattern.style,
     trimToContent: pattern.trimToContent,
     priority: pattern.priority || 'high',

@@ -425,6 +425,40 @@ test('renderer-wrapped analysis claims only the fragments on prose rows', () => 
   );
 });
 
+test('a wrapped path keeps the line it is printed with apart from its key', () => {
+  // Codex breaks the path at a hyphen; the line reference rides on the tail.
+  const head = '• I moved the link into the closing paragraph (/Users/me/rethink-';
+  const tail = '  terminal/essays/files-in-terminal.md:67), made it explicit, and removed the landing-';
+  const buffer = fakeBuffer([{ text: head }, { text: tail }, { text: '  page entry.' }]);
+
+  const analysis = analyzeRendererWrappedTarget(buffer, 0);
+  assert(analysis);
+  assert.deepStrictEqual(analysis.entry, {
+    kind: 'md',
+    key: '/Users/me/rethink-terminal/essays/files-in-terminal.md',
+    rendererWrapped: true,
+  });
+  assert.strictEqual(analysis.line, 67);
+  assert.deepStrictEqual(
+    analysis.segments.map(({ row, text }) => `${row}:${text}`),
+    ['0:/Users/me/rethink-', '1:terminal/essays/files-in-terminal.md:67']
+  );
+  assert.deepStrictEqual(collectBufferViewerCandidates(buffer), [analysis.entry]);
+});
+
+test('a wrapped line reference may be a range or carry a column', () => {
+  for (const [suffix, line] of [[':67-80', 67], [':12:5', 12], [':~9', 9]]) {
+    const [match] = extractViewerCandidateMatches(`See (/tmp/run-\n  notes.md${suffix}) here.`);
+    assert.strictEqual(match.entry.key, '/tmp/run-notes.md', suffix);
+    assert.strictEqual(match.line, line, suffix);
+    assert.strictEqual(match.segments[1].text, `notes.md${suffix}`, suffix);
+  }
+  assert.strictEqual(
+    analyzeRendererWrappedTarget(fakeBuffer([{ text: 'See (/tmp/run-' }, { text: '  notes.md) here.' }]), 0).line,
+    null
+  );
+});
+
 test('history lists opened viewers first, most recent first, then printed candidates', () => {
   const history = new ViewerHistory();
   history.merge([

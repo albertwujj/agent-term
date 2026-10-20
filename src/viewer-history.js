@@ -38,12 +38,17 @@ const REVIEW_URL_WRAPPED_SOURCE = String.raw`review:\/\/[ \t]*\/${PATH_TOKEN_SOU
 const REVIEW_URL_SOURCE = String.raw`(?:${REVIEW_URL_WRAPPED_SOURCE}|${REVIEW_URL_FLAT_SOURCE})`;
 const VIEWER_URL_SOURCE = String.raw`(?:${REVIEW_URL_SOURCE}|(?:https?|file|review):\/\/[^\s<>"'\x60\x00-\x1f]+[^\s<>"'\x60\x00-\x1f.,;:!?\)\]}>])`;
 const MARKDOWN_PATH_FLAT_SOURCE = String.raw`(?:[a-zA-Z]:)?(?:[.\/\\~\u2026]|[a-zA-Z0-9_])[a-zA-Z0-9_.+$~\/\\\u2026-]*\.(?:markdown|mdown|md)\b`;
+// The line reference a path can carry (`notes.md:67`, `:67-80`, `:67:5`), the
+// shapes the terminal's file_line patterns read off a path printed whole.
+const LINE_SUFFIX_SOURCE = String.raw`:~?\d+(?:-~?\d+|:\d+)?`;
+const LINE_SUFFIX_RE = /:~?(\d+)(?:-~?\d+|:\d+)?$/;
 // An explicit path (absolute, home, ./ or ../, or a drive) broken across rows,
-// whose joined name ends in one of `extensions`. The head stops short of a
-// complete name, so a whole path ending one row never swallows the next row.
+// whose joined name ends in one of `extensions`, with the line reference it is
+// printed with. The head stops short of a complete name, so a whole path
+// ending one row never swallows the next row.
 function wrappedPathSource(extensions) {
   const extension = `(?:${extensions.join('|')})`;
-  return String.raw`${RENDERER_TOKEN_START_SOURCE}(?:[a-zA-Z]:[\\/]|\/|~[\\/]|\.\.?[\\/])${PATH_TOKEN_SOURCE}+(?<!\.${extension})${RENDERER_WRAP_SOURCE}${PATH_TOKEN_SOURCE}*\.${extension}${RENDERER_TOKEN_END_SOURCE}`;
+  return String.raw`${RENDERER_TOKEN_START_SOURCE}(?:[a-zA-Z]:[\\/]|\/|~[\\/]|\.\.?[\\/])${PATH_TOKEN_SOURCE}+(?<!\.${extension})${RENDERER_WRAP_SOURCE}${PATH_TOKEN_SOURCE}*\.${extension}(?:${LINE_SUFFIX_SOURCE})?${RENDERER_TOKEN_END_SOURCE}`;
 }
 const MARKDOWN_PATH_WRAPPED_SOURCE = wrappedPathSource(BAND_VIEWABLE_KINDS.md);
 const MARKDOWN_PATH_SOURCE = String.raw`(?:${MARKDOWN_PATH_WRAPPED_SOURCE}|${MARKDOWN_PATH_FLAT_SOURCE})`;
@@ -179,8 +184,11 @@ function extractViewerCandidateMatches(text, pathSource = MARKDOWN_PATH_SOURCE) 
     const start = match.index;
     const end = start + match[0].length;
     if (urlSpans.some((span) => start < span.end && end > span.start)) continue;
+    // A wrapped path's line reference is part of the target, not of its key:
+    // the file is the same viewer entry whichever line it was printed with.
+    const lineRef = LINE_SUFFIX_RE.exec(match[0]);
     // A diff header's a/ and b/ copies are the file itself (git-diff-header.js).
-    const printed = normalizeLocalPath(match[0]);
+    const printed = normalizeLocalPath(lineRef ? match[0].slice(0, lineRef.index) : match[0]);
     const key = gitDiffSidePath(source, start, printed) || printed;
     const segments = rendererWrappedSegments(source, start, match[0]);
     if (key) matches.push({
@@ -189,6 +197,7 @@ function extractViewerCandidateMatches(text, pathSource = MARKDOWN_PATH_SOURCE) 
       end,
       tokenEnd: viewerTokenEnd(source, end, MARKDOWN_CONTINUATION_RE),
       ...(segments ? { rendererWrapped: true, segments } : {}),
+      ...(lineRef ? { line: Number(lineRef[1]) } : {}),
     });
   }
 
@@ -270,7 +279,8 @@ function physicalSegmentsForLogicalSpan(logical, segment) {
 
 // Reconstruct one renderer hard-wrap from two adjacent *logical* xterm lines:
 // a review link, or a path to anything the viewers render (an md doc is kind
-// 'md', any other viewable file kind 'file'). Either half may itself span
+// 'md', any other viewable file kind 'file'), with the `line` it was printed
+// with, null when there is none. Either half may itself span
 // several physical rows after xterm reflows the scrollback on resize. Return
 // physical segments so terminal decoration and hit testing can still address
 // every visible fragment of the joined target, and the span each line gives up
@@ -304,6 +314,7 @@ function analyzeRendererWrappedTarget(buffer, headRow) {
 
   return {
     entry: { ...parsed.entry, rendererWrapped: true },
+    line: parsed.line != null ? parsed.line : null,
     headRow: head.startRow,
     tailRow: tail.startRow,
     endRow: tail.endRow,
