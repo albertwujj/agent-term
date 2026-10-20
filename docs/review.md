@@ -9,6 +9,8 @@ When the agent finishes, it prepares your review: it hands you the parts that ne
 
 You can ask the agent to expand any part, or include all changes in the review, with the parts that most need your judgment first.
 
+Right-click a symbol to highlight everywhere it appears in the review and read each use in context.
+
 The loop's instruction docs live in [agent-threads](https://github.com/albertwujj/agent-threads): name [produce-review.md](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md) in a prompt, where `@produce-r` completes to it, and the agent produces the package and prints its `review://` link, which this terminal opens on its own.
 
 The protocol is open, and any other host can support it too.

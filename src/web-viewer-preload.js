@@ -31,6 +31,7 @@
 const { ipcRenderer } = require('electron');
 const { normWS, nearestHeading, toast, createComposer, toPromptAction, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
 const { createCommitEditController } = require('./review-commit-edit');
+const { createSymbolScan } = require('./review-symbol-scan');
 const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
 const { confirmBody, isConfirmMessage, pendingConfirm } = require('./decision-confirm');
 const { installWebViewerPreloadCommon } = require('./web-viewer-preload-common');
@@ -109,6 +110,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     bindSelection();
     bindDoubleClick();
     bindCommitEditing();
+    bindSymbolScan();
     load();
     pulseDiffDelta(); // scope 1: pulse new diff lines vs the previous render (host-held baseline)
     // Host pings this when the window regains focus, so agent replies / status
@@ -415,6 +417,21 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       },
     });
     commitEdit.bind();
+  }
+
+  // --- symbol scan: right-click a symbol to light up its every occurrence
+  // (review-symbol-scan.js). The overlay's own cards and composers and the
+  // line numbers stay out of it; a word pick stands the quote button down,
+  // since the word was the target and not a selection to comment on. ---
+  function bindSymbolScan() {
+    createSymbolScan({
+      root: function () { return document.querySelector('main'); },
+      exclude: '.ln, .rv-row, .rv-thread, .rv-quote-thread, .rv-filehdr-thread, .rv-compose-row, .rv-replybox, .rv-quote-compose, .rv-edit-compose, .cu-composer',
+      storageKey: 'rv-symbol ' + commentsUrl,
+      platform: process.platform,
+      busy: function () { return !!document.querySelector('.rv-quote-compose, .rv-compose-row, .rv-replybox, .rv-edit-compose'); },
+      onWordPick: hideQuoteButton,
+    }).bind();
   }
 
   // Undo for a pending thread — a comment or a commit-message edit — allowed
