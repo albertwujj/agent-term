@@ -966,6 +966,19 @@ if (window.pty && typeof window.pty.onReviewRerendered === 'function') {
     } catch {}
   });
 }
+// Main's re-render of the open review failed: the band keeps the last page
+// that rendered, which would otherwise pass for current. Same copyable error
+// toast as a failed open, one at a time, and the next render that works takes
+// it down, since by then it would be the stale claim.
+if (window.pty && typeof window.pty.onReviewRenderStatus === 'function') {
+  let renderFailedToast = null;
+  window.pty.onReviewRenderStatus(({ failed, error } = {}) => {
+    if (renderFailedToast) { renderFailedToast.remove(); renderFailedToast = null; }
+    if (!failed || !webViewer || !webViewer.isOpen || !webViewer.isOpen()) return;
+    renderFailedToast = showToast(`Review didn't refresh; it shows the last render that worked.\n\n${error || 'Render failed'}`,
+      { variant: 'error' });
+  });
+}
 // Comments-only change (an agent reply, no source edit) → refresh the overlay IN PLACE so the
 // reply surfaces and pulses, without a full reload (which would wipe the pulse baseline).
 // While rolled up, pingRefresh flashes the handle. The agent's own words (its
@@ -4467,6 +4480,7 @@ function showToast(message, { variant = 'info', sticky = variant === 'error' } =
     setTimeout(() => el.remove(), 2800);
   }
   document.body.appendChild(el);
+  return el;
 }
 
 let markdownViewer = null;

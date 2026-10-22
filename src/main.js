@@ -124,6 +124,7 @@ const {
 } = require('./agent-journal');
 const { isConfirmMessage } = require('./decision-confirm');
 const { decideStall, unaddressedCount, STALL_IDLE_MS } = require('./comment-stall');
+const { parseScopeArg, createReviewSync } = require('./review-sync');
 const {
   orderedRunbookCandidates,
   repoRunbookRoots,
@@ -4400,20 +4401,8 @@ function stopReviewSync() {
   reviewSync = null;
 }
 
-// The scope ref the package's diff rests on (range "A..B"; or a base ref). `git
-// diff <scopeArg>` reproduces the embedded diff, so its hash is the source-change
-// signal.
-async function readScopeArg(pkg) {
-  const text = await catFile(pkg);
-  if (text == null) return null;
-  const fm = (text.match(/^---\n([\s\S]*?)\n---/) || [, ''])[1];
-  const r = fm.match(/^\s*range:\s*(.+?)\s*$/m);
-  if (r) return r[1].trim();
-  const b = fm.match(/^\s*base:\s*(.+?)\s*$/m);
-  if (b) return b[1].trim();
-  return null;
-}
-
+// `git diff <scopeArg>` reproduces the embedded diff, so its hash is the
+// source-change signal.
 async function gitDiffHash(repo, scopeArg) {
   if (!scopeArg) return null;
   const res = await gitIn(repo, ['diff', scopeArg]);
@@ -4454,28 +4443,54 @@ async function fileHash(p) {
   return t == null ? null : crypto.createHash('sha1').update(t).digest('hex');
 }
 
-async function syncReview() {
-  const w = reviewSync;
-  if (!w || w.busy) return;
-  if ((await posixSh(`test -f ${shellEscape(w.pkg)}`)).code !== 0) return; // package gone
-  w.busy = true;
+// What a render reads, read now (review-sync.js changedInputs). The package is
+// read once for both its hash and the scope it names, so the diff is hashed for
+// the range the package states at this moment, not the one it opened with.
+async function readReviewInputs(pkg, repo) {
+  const text = await catFile(pkg);
+  return {
+    md: text == null ? null : crypto.createHash('sha1').update(text).digest('hex'),
+    diff: await gitDiffHash(repo, text == null ? null : parseScopeArg(text)),
+    dirty: await gitDirty(repo),
+    head: await gitHead(repo),
+  };
+}
+
+// The refresh loop's render; review-sync.js decides when it runs and keeps the
+// baseline. Reloads the viewer only when the rendered HTML changed (no flicker).
+async function renderOpenReview(w, moved) {
+  if ((await posixSh(`test -f ${shellEscape(w.pkg)}`)).code !== 0) return false; // package gone
+  const on = moved.join('+');
+  const started = Date.now();
   try {
-    await runReviewRender(w.pkg, w.repo);              // writes html + emits re-anchor verdicts
+    const res = await runReviewRender(w.pkg, w.repo);  // writes html + emits re-anchor verdicts
     await applyReanchorMutations(w.pkg);               // main applies them, under the store lock
-    w.diffHash = await gitDiffHash(w.repo, w.scopeArg); // rebaseline so the poll won't re-fire
-    w.dirty = await gitDirty(w.repo);                   // rebaseline dirty too
-    w.mdHash = await fileHash(w.pkg);                   // rebaseline the package fingerprint too
-    w.head = await gitHead(w.repo);                     // rebaseline HEAD (behind/diverged banner)
-    w.commentsHash = await fileHash(w.commentsPath);    // re-anchor may have moved it — don't re-fire
+    w.commentsHash = await fileHash(w.commentsPath);   // re-anchor may have moved it — don't re-fire
     const h = await fileHash(w.htmlPath);
-    if (h && h !== w.htmlHash) {
+    const changed = !!h && h !== w.htmlHash;
+    log(`[review-sync] rendered on ${on}: exit ${res.code} in ${Date.now() - started}ms, `
+      + `page ${changed ? 'changed' : 'unchanged'}`
+      + (res.code !== 0 ? ` — ${res.stderr.trim().split('\n').pop()}` : ''));
+    // A failed render leaves the last good page up, which would pass for current,
+    // so the viewer says so; the next render that works takes that back down.
+    const failed = res.code !== 0;
+    if ((failed || w.renderFailed) && mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('review-render-status', {
+        failed, error: failed ? (res.stderr.trim() || `renderer exited ${res.code}`) : undefined,
+      });
+    }
+    w.renderFailed = failed;
+    if (changed) {
       w.htmlHash = h;
       if (mainWindow && mainWindow.webContents) {
         mainWindow.webContents.send('review-rerendered', { htmlPath: w.htmlPath, waiting: await reviewAwaitsAgent(w) });
       }
     }
-  } catch { /* transient edit/render races: the next signal re-renders */ }
-  finally { w.busy = false; }
+  } catch (e) {
+    // Transient edit/render races: the baseline stays, so the next tick re-renders.
+    log(`[review-sync] render on ${on} failed: ${e && e.message}`);
+    return false;
+  }
 }
 
 // Whether a thread the user sent on the open review still waits on the agent,
@@ -4490,23 +4505,24 @@ async function reviewAwaitsAgent(w) {
   }
 }
 
-async function startReviewSync(pkg, repo, htmlPath) {
+// `inputs` is what the open render was made from, read before it ran.
+async function startReviewSync(pkg, repo, htmlPath, inputs) {
   stopReviewSync();
   reviewDiffKeys.clear(); // a freshly-opened review starts with no baseline (no first-render flash)
-  const scopeArg = await readScopeArg(pkg);
   const commentsPath = pkg.replace(/\.md$/i, '-comments.json');
   const journalPath = pkg.replace(/\.md$/i, '-agent.jsonl');
   const w = {
-    pollTimer: null, pkg, repo, htmlPath, scopeArg, busy: false, commentsPath, journalPath,
-    diffHash: await gitDiffHash(repo, scopeArg),
-    dirty: await gitDirty(repo),
-    mdHash: await fileHash(pkg),
+    pollTimer: null, pkg, repo, htmlPath, commentsPath, journalPath,
     htmlHash: await fileHash(htmlPath),
     commentsHash: await fileHash(commentsPath),
     journalHash: await fileHash(journalPath),
-    head: await gitHead(repo),
   };
+  w.sync = createReviewSync({
+    readInputs: () => readReviewInputs(pkg, repo),
+    render: (moved) => renderOpenReview(w, moved),
+  }, inputs);
   reviewSync = w;
+  log(`[review-sync] watching ${pkg}`);
   // One poll covers every signal — all through the seam, so it works where the
   // files live in WSL (fs.watch can't see a WSL dir from a Windows process):
   //   · the package .md (the agent's prose/ordering) — its content fingerprint;
@@ -4516,12 +4532,7 @@ async function startReviewSync(pkg, repo, htmlPath) {
   //     in place, since a fixed range's diff doesn't move when HEAD advances.
   w.pollTimer = setInterval(async () => {
     if (reviewSync !== w) return;
-    const md = await fileHash(w.pkg);
-    const h = await gitDiffHash(w.repo, w.scopeArg);
-    const d = await gitDirty(w.repo);
-    const head = await gitHead(w.repo);
-    if ((md && md !== w.mdHash) || (h && h !== w.diffHash) || d !== w.dirty
-        || (head && head !== w.head)) { await syncReview(); return; }
+    if ((await w.sync.tick()).length) return;
     // Comments-only change (an agent reply, no source/diff change): surface it IN PLACE with a
     // pulse — an rv-refresh, not a re-render/reload. A comment leaves the rendered HTML
     // identical, so nothing would reload otherwise, and a reload would wipe the pulse baseline.
@@ -4557,9 +4568,10 @@ ipcMain.handle('render-review-package', async (event, packagePath) => {
       const fm = (fmText.match(/^---\n([\s\S]*?)\n---/) || [, ''])[1];
       reject = !/^\s*range:\s*\S/m.test(fm);
     }
+    const inputs = await readReviewInputs(pkg, repo); // before the render reads them
     const res = await runReviewRender(pkg, repo);
     await applyReanchorMutations(pkg);
-    await startReviewSync(pkg, repo, htmlPath); // auto-refresh as package/source evolve
+    await startReviewSync(pkg, repo, htmlPath, inputs); // auto-refresh as package/source evolve
     return {
       ok: res.code === 0,
       reject,
@@ -4606,7 +4618,11 @@ ipcMain.handle('rv-diff-baseline', (_e, arg) => {
 });
 
 // The viewer closed (GC) → stop the review auto-refresh poll/watch.
-ipcMain.on('review-viewer-closed', () => { stopReviewSync(); reviewDiffKeys.clear(); });
+ipcMain.on('review-viewer-closed', () => {
+  if (reviewSync) log(`[review-sync] stopped watching ${reviewSync.pkg}`);
+  stopReviewSync();
+  reviewDiffKeys.clear();
+});
 
 // --- Lock status (agent-lock) ---
 // Poll the session's repo root with git only and show who holds agent-lock's
