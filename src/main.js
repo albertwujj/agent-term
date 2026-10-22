@@ -4458,6 +4458,10 @@ async function readReviewInputs(pkg, repo) {
 
 // The refresh loop's render; review-sync.js decides when it runs and keeps the
 // baseline. Reloads the viewer only when the rendered HTML changed (no flicker).
+// Only a package change is the agent's new content, which brings the band up:
+// source edits, commits and the dirty flag reload the page in place. It counts
+// even when the page is unchanged, since a render already running when the
+// package was written may have shown it, under the inputs that started it.
 async function renderOpenReview(w, moved) {
   if ((await posixSh(`test -f ${shellEscape(w.pkg)}`)).code !== 0) return false; // package gone
   const on = moved.join('+');
@@ -4480,11 +4484,12 @@ async function renderOpenReview(w, moved) {
       });
     }
     w.renderFailed = failed;
-    if (changed) {
-      w.htmlHash = h;
-      if (mainWindow && mainWindow.webContents) {
-        mainWindow.webContents.send('review-rerendered', { htmlPath: w.htmlPath, waiting: await reviewAwaitsAgent(w) });
-      }
+    if (changed) w.htmlHash = h;
+    const agent = !failed && moved.includes('md');
+    if ((changed || agent) && mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('review-rerendered', {
+        htmlPath: w.htmlPath, reload: changed, agent, waiting: agent && await reviewAwaitsAgent(w),
+      });
     }
   } catch (e) {
     // Transient edit/render races: the baseline stays, so the next tick re-renders.

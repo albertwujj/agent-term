@@ -421,7 +421,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     if (band.isHidden()) band.flash();
     pingReviewRefresh();
   }
-  // The agent changed the review (a re-render, a reply): the band comes up
+  // The agent changed the review (its package, a reply): the band comes up
   // full once the agent is through, which is when no thread the user sent
   // still waits on it (viewer-band.js agentWrote). Main reads `waiting` off
   // the review's thread store with each change.

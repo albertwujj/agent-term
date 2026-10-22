@@ -1,7 +1,8 @@
 // The agent's change brings a rolled-up review up full, scrolled to what it
 // changed; a review the user already had up (split) comes up full where it
 // was. The review is long and both changes land near its end: a reply on a
-// thread there (the agent's journal), and new diff lines (a re-render). While
+// thread there (the agent's journal), and new diff lines (the package's
+// re-render; a commit alone reloads the review where the band is). While
 // a sent thread waits on the agent, its explanation and its commit hold the
 // band; its status brings it up. Drives the real app and the real review
 // render.
@@ -141,13 +142,17 @@ try {
   await inReview('document.querySelector(".rv-thread[data-rv-tid=\\"t1\\"]").scrollIntoView({ block: "center" })');
   check('scrolling to the reply clears the indicator', await waitFor(async () => !(await unseen()), 3000));
 
-  // New diff lines out of a roll-up: the review re-renders and reloads, then
-  // scrolls to the first new line.
+  // New diff lines out of a roll-up: the commit alone reloads the review
+  // where the band is, out of date; the package naming it re-renders the
+  // review, brings it up and scrolls to the first new line.
   console.log('New diff lines, out of a roll-up');
   await toTop();
   check('typing rolls the review up again', await rollUpByTyping(), await band());
   fs.appendFileSync(path.join(repo, 'f.js'), 'export const c = 3;\n');
   git('commit', '-qam', 'Add c');
+  check('the commit alone re-renders the review', await waitFor(() => inReview('!!document.querySelector(".rv-dirty")'), 15_000));
+  await sleep(4000); // past the rest after the re-render
+  check('the commit alone holds the band', await band() === 'hidden', await band());
   fs.writeFileSync(pkg, pkgText(git('rev-parse', 'HEAD')));
   check('the re-render brings it up full', await waitFor(async () => (await band()) === 'full', 10_000), await band());
   check('scrolled to the new line, pulsing', await waitFor(async () => {

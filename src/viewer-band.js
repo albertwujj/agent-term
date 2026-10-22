@@ -19,10 +19,10 @@
 // Automatic moves. Full and rolled up are where the band rests; golden only
 // ever waits for the agent. The band moves on its own in three cases:
 //   - The agent puts new content in (the host's auto-open of a handoff, or
-//     the open viewer's doc, threads or review changing): full, once the
-//     agent is through with it (agentWrote). A band the user rolled up by
-//     hand stays rolled up until they act on the terminal again, since one
-//     turn often writes several times and each write would pull the band
+//     the open viewer's doc, threads or review package changing): full,
+//     once the agent is through with it (agentWrote). A band the user rolled
+//     up by hand stays rolled up until they act on the terminal again, since
+//     one turn often writes several times and each write would pull the band
 //     back over what they went to read (contentArrived).
 //   - A Send: a full band drops to golden so the terminal shows the agent
 //     picking it up, the acknowledgment (recede).

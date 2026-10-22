@@ -950,19 +950,19 @@ if (typeof window.pty.onOlderCodeNotice === 'function') {
   });
 }
 
-// Auto-refresh: main re-rendered the open review (its package .md changed) →
-// reload the viewer so the update shows, with comments re-anchored across it.
-// New content also follows the shared band rules: reveal once the agent is
-// through, while respecting typing and a manual roll-up. Unseen updates keep
-// the handle highlighted until displayed.
+// Auto-refresh: main re-rendered the open review (its package or the source
+// under it changed) → reload the viewer so the update shows, with comments
+// re-anchored across it. Unseen updates keep the handle highlighted until
+// displayed.
 if (window.pty && typeof window.pty.onReviewRerendered === 'function') {
-  // A re-render is the agent's new content: the band comes up full once the
-  // agent is through (web-viewer.js agentWrote).
-  window.pty.onReviewRerendered(({ waiting } = {}) => {
+  // A package change is the agent's new content: the band comes up full once
+  // the agent is through (web-viewer.js agentWrote). The agent's work on the
+  // source reloads the page where the band is.
+  window.pty.onReviewRerendered(({ reload, agent, waiting } = {}) => {
     try {
       if (!webViewer || !webViewer.isOpen || !webViewer.isOpen()) return;
-      webViewer.reload();
-      webViewer.agentWrote({ waiting });
+      if (reload) webViewer.reload();
+      if (agent) webViewer.agentWrote({ waiting });
     } catch {}
   });
 }
