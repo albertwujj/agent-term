@@ -35,7 +35,7 @@ Phone access, including recording and transcription, and IDE integration have [s
 
 Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual.
 
-**Press `Ctrl/Cmd+Shift+U` to find and open a Markdown file by name**, even if it hasn’t appeared in the terminal. Explore other additions shown in the [demo above](#demo), and follow the [guides below](#where-to-go-next) to start using them.
+**Press `Ctrl/Cmd+Shift+U` to find and open a Markdown file by name**, even if it hasn’t appeared in the terminal. Explore other additions shown in the [demo above](#demo), and follow the [guides below](#whats-next) to start using them.
 
 <a name="why-extend-the-terminal"></a>
 
@@ -120,7 +120,9 @@ Those references connect the conversation to host capabilities. A Markdown path 
 
 To keep the terminal responsive, repeated scans are combined and scheduled, while file checks and review rendering run asynchronously.
 
-## Where to go next
+<a id="where-to-go-next"></a>
+
+## What's next
 
 The [quick start](#quick-start) sets up the terminal together with [plans](docs/plan.md), [reviews](docs/review.md), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), and the voice interpretation guide. [Sessions started before you switched to AgentTerm](docs/sessions.md) work too.
 
