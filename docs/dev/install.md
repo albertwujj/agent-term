@@ -40,7 +40,7 @@ That is the only command needed to launch from source, and the directory npm run
 
 You need Node.js in two places for two different jobs:
 
-- **WSL Node.js** runs builds and tests. Install the current LTS release inside your distro using your preferred Linux Node version manager or package source.
+- **WSL Node.js** runs the start command, builds and tests. Install the current LTS release inside your distro using your preferred Linux Node version manager or package source.
 - **Windows Node.js** installs and hosts the native Windows Electron process. It never installs dependencies into the WSL checkout.
 
 If WSL itself is not installed, open Windows PowerShell and run `wsl --install` first. Then install Windows Node.js from the same PowerShell—not from a WSL prompt:
@@ -59,8 +59,9 @@ Clone into WSL's native filesystem and run every project command from WSL:
 
 ```bash
 git clone https://github.com/albertwujj/agent-term ~/agent-term
-cd ~/agent-term && npm ci
 ```
+
+The window needs nothing more: the start command installs its Windows dependencies. To build, run tests, or use `npm run start:linux`, also run `npm ci` in the clone for the Linux dependency tree.
 
 Then launch from the directory you want the terminal to open in:
 
@@ -82,7 +83,7 @@ git pull --ff-only
 npm ci
 ```
 
-Start it again with `npm run start`. Running `npm ci` on every update keeps native dependencies and generated tooling aligned with the checked-in lockfile.
+Start it again with `npm run start`. Running `npm ci` on every update keeps native dependencies and generated tooling aligned with the checked-in lockfile. From WSL it updates only the Linux tree for builds and tests; the start command keeps the window's Windows dependencies aligned on its own.
 
 ## Windows troubleshooting
 

@@ -12,9 +12,9 @@ Set up the terminal and its local components together: plans and reviews, the ch
 
 1. Install Node.js.
 2. Clone `https://github.com/albertwujj/agent-term` to `~/agent-term`, beside your projects. One clone serves them all.
-3. Run `npm ci` in it, once.
+3. On macOS, run `npm ci` in it, once.
 
-On Windows the clone lives in WSL, where the shell and your agents run; Node.js is needed on both sides. The [platform instructions](dev/install.md) have the prerequisites and the exact commands.
+On Windows the clone lives in WSL, where the shell and your agents run; Node.js is needed on both sides, and the launch installs the window's dependencies itself. The [platform instructions](dev/install.md) have the prerequisites and the exact commands.
 
 ### Add the local components
 
