@@ -102,10 +102,11 @@ function dependencyProblem({ fs, crypto, root }) {
   if (stamped === current) return null;
   // One line, because it is printed into a terminal beside everything else and
   // is advisory: every package is installed, so this session will almost
-  // certainly be fine. It exists so that if something does fail later, the
-  // reason is already in the scrollback above it.
-  return 'package-lock.json has changed since node_modules was installed. '
-    + 'Run `npm ci` if anything misbehaves.';
+  // certainly run. What it lacks is the pull's dependency changes, often
+  // security fixes, which nothing misbehaving would reveal; and if something
+  // does fail later, the reason is already in the scrollback.
+  return 'package-lock.json has changed since node_modules was installed, '
+    + 'so this window runs the previous package versions. Run `npm ci` to install the new ones.';
 }
 
 module.exports = {
