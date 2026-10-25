@@ -6,6 +6,7 @@ const path = require('path');
 const {
   RUNTIME_ASSETS,
   RUNTIME_ENTRIES,
+  claimUnusedGenerations,
   shouldRun,
   stageSource,
 } = require('../scripts/windows-dev-bootstrap');
@@ -228,6 +229,111 @@ test('the install lifecycle runs in the tree the Windows launcher stages', () =>
   assert.strictEqual(install.status, 0, install.stderr);
   assert.doesNotMatch(install.stderr, /MODULE_NOT_FOUND/);
   assert.doesNotMatch(install.stderr, /dependency stamp skipped/);
+});
+
+// runtime/<key> folders as the launcher installs them: stamped, with a stage
+// folder per process that ran from them.
+function makeRuntime(generations) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-generations-'));
+  const runtime = path.join(root, 'runtime');
+  for (const [name, { stamped = true, pids = [] }] of Object.entries(generations)) {
+    const generation = path.join(runtime, name);
+    fs.mkdirSync(path.join(generation, 'node_modules'), { recursive: true });
+    if (stamped) fs.writeFileSync(path.join(generation, '.dependency-stamp'), 'stamp');
+    for (const pid of pids) fs.mkdirSync(path.join(generation, 'stage', String(pid)), { recursive: true });
+  }
+  return { root, runtime };
+}
+
+test('an earlier generation nothing runs from is renamed aside, the current one kept', () => {
+  const { root, runtime } = makeRuntime({ current: { pids: [1] }, earlier: { pids: [111] } });
+  try {
+    const claimed = claimUnusedGenerations(path.join(runtime, 'current'), { alive: (pid) => pid === 1 });
+    assert.deepStrictEqual(claimed, [path.join(runtime, '.delete-earlier')]);
+    assert.deepStrictEqual(fs.readdirSync(runtime).sort(), ['.delete-earlier', 'current']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a generation with a live process staged from it is kept', () => {
+  const { root, runtime } = makeRuntime({ current: {}, earlier: { pids: [111, 222] } });
+  try {
+    const claimed = claimUnusedGenerations(path.join(runtime, 'current'), { alive: (pid) => pid === 222 });
+    assert.deepStrictEqual(claimed, []);
+    assert.ok(fs.existsSync(path.join(runtime, 'earlier')));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an unstamped generation is left for a day, since its install may still be running', () => {
+  const { root, runtime } = makeRuntime({ current: {}, installing: { stamped: false } });
+  try {
+    const runnerRoot = path.join(runtime, 'current');
+    assert.deepStrictEqual(claimUnusedGenerations(runnerRoot, { alive: () => false }), []);
+    const later = Date.now() + 2 * 24 * 60 * 60 * 1000;
+    assert.deepStrictEqual(
+      claimUnusedGenerations(runnerRoot, { alive: () => false, now: later }),
+      [path.join(runtime, '.delete-installing')],
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a removal an earlier start did not finish is claimed again', () => {
+  const { root, runtime } = makeRuntime({ current: {}, '.delete-earlier': {} });
+  try {
+    const claimed = claimUnusedGenerations(path.join(runtime, 'current'), { alive: () => false });
+    assert.deepStrictEqual(claimed, [path.join(runtime, '.delete-earlier')]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a generation Windows will not rename is left for a later start', () => {
+  const { root, runtime } = makeRuntime({ current: {}, earlier: {} });
+  try {
+    const fsApi = { ...fs, renameSync: () => { throw Object.assign(new Error('busy'), { code: 'EPERM' }); } };
+    const claimed = claimUnusedGenerations(path.join(runtime, 'current'), { fsApi, alive: () => false });
+    assert.deepStrictEqual(claimed, []);
+    assert.ok(fs.existsSync(path.join(runtime, 'earlier')));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a runner outside a runtime folder never claims its siblings', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-generations-'));
+  try {
+    fs.mkdirSync(path.join(root, 'this-checkout'));
+    fs.mkdirSync(path.join(root, 'other-checkout'));
+    const claimed = claimUnusedGenerations(path.join(root, 'this-checkout'), { alive: () => false });
+    assert.deepStrictEqual(claimed, []);
+    assert.ok(fs.existsSync(path.join(root, 'other-checkout')));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('claimed generations are deleted on a worker thread', () => {
+  const { root, runtime } = makeRuntime({ '.delete-a': {}, '.delete-b': {} });
+  try {
+    const targets = JSON.stringify([path.join(runtime, '.delete-a'), path.join(runtime, '.delete-b')]);
+    const bootstrap = JSON.stringify(path.join(__dirname, '..', 'scripts', 'windows-dev-bootstrap.js'));
+    // The worker is unref'd so it never holds a window's process open; this
+    // child holds it until the delete is done.
+    const run = spawnSync(process.execPath, ['-e', `
+      const worker = require(${bootstrap}).removeInBackground(${targets});
+      worker.ref();
+      worker.on('exit', (code) => process.exit(code));
+    `], { encoding: 'utf8' });
+    assert.strictEqual(run.status, 0, run.stderr);
+    assert.deepStrictEqual(fs.readdirSync(runtime), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);

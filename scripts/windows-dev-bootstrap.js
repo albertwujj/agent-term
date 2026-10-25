@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { Worker } = require('worker_threads');
 
 const RUNTIME_ENTRIES = ['src'];
 // Browser file URLs do not use Node's ancestor-based module resolution.
@@ -47,6 +48,83 @@ function run() {
   });
 
   require(path.join(stageRoot, 'src', 'main.js'));
+
+  setTimeout(() => {
+    try {
+      removeInBackground(claimUnusedGenerations(__dirname));
+    } catch (err) {
+      console.warn(`[bootstrap] dependency generation cleanup failed: ${err.message}`);
+    }
+  }, PRUNE_DELAY_MS).unref();
+}
+
+// Each dependency change installs a new generation beside the old ones
+// (scripts/start-windows-from-wsl.ps1), some 500 MB and nearly all of it
+// Electron, and the launcher never removes one, because a running AgentTerm
+// may still be using it. Every process stages its source under its
+// generation's stage/<pid> and removes that on exit, so a generation is in
+// use while one of those pids is alive; a crashed window leaves a pid that is
+// not. Once none is, the generation is renamed aside, which Windows refuses
+// while a program inside it is still running, and from then on nothing can
+// launch from a half-deleted tree. The delete itself runs on a worker thread,
+// well after startup: it is thousands of files, and seconds of disk work.
+const PRUNE_DELAY_MS = 30 * 1000;
+const PRUNE_PREFIX = '.delete-';
+const INSTALL_STAMP = '.dependency-stamp';
+// A generation without its stamp is an install another launch is still
+// running, or one that failed. A day separates the two.
+const INSTALL_GRACE_MS = 24 * 60 * 60 * 1000;
+
+function isAlive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (err) { return err.code === 'EPERM'; }
+}
+
+function generationInUse(generation, alive, fsApi) {
+  let staged;
+  try { staged = fsApi.readdirSync(path.join(generation, 'stage')); } catch { return false; }
+  return staged.some((name) => /^\d+$/.test(name) && alive(Number(name)));
+}
+
+// Returns the renamed-aside generations to delete, including any an earlier
+// cleanup claimed and did not finish.
+function claimUnusedGenerations(runnerRoot, { fsApi = fs, alive = isAlive, now = Date.now() } = {}) {
+  const runtime = path.dirname(runnerRoot);
+  // Anywhere else, the siblings would be other checkouts' caches.
+  if (path.basename(runtime) !== 'runtime') return [];
+  const current = path.basename(runnerRoot);
+  const claimed = [];
+  for (const entry of fsApi.readdirSync(runtime, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === current) continue;
+    const generation = path.join(runtime, entry.name);
+    if (entry.name.startsWith(PRUNE_PREFIX)) {
+      claimed.push(generation);
+      continue;
+    }
+    if (!fsApi.existsSync(path.join(generation, INSTALL_STAMP))
+      && now - fsApi.statSync(generation).mtimeMs < INSTALL_GRACE_MS) continue;
+    if (generationInUse(generation, alive, fsApi)) continue;
+    const aside = path.join(runtime, PRUNE_PREFIX + entry.name);
+    try { fsApi.renameSync(generation, aside); } catch { continue; }
+    claimed.push(aside);
+  }
+  return claimed;
+}
+
+function removeInBackground(targets, WorkerImpl = Worker) {
+  if (!targets.length) return null;
+  console.log(`[bootstrap] removing unused dependency generations: ${targets.join(', ')}`);
+  const worker = new WorkerImpl(`
+    const fs = require('fs');
+    for (const target of require('worker_threads').workerData) {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 3 });
+    }
+  `, { eval: true, workerData: targets });
+  worker.on('error', (err) => {
+    console.warn(`[bootstrap] dependency generation removal stopped, the next start resumes it: ${err.message}`);
+  });
+  worker.unref();
+  return worker;
 }
 
 function shouldRun(processApi = process) {
@@ -80,5 +158,6 @@ applyLaunchEnv(process.argv, process.env);
 if (shouldRun()) run();
 
 module.exports = {
-  LAUNCH_ENV_ARG, RUNTIME_ASSETS, RUNTIME_ENTRIES, applyLaunchEnv, shouldRun, stageSource,
+  LAUNCH_ENV_ARG, RUNTIME_ASSETS, RUNTIME_ENTRIES, applyLaunchEnv, claimUnusedGenerations,
+  removeInBackground, shouldRun, stageSource,
 };
