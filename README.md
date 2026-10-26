@@ -37,7 +37,7 @@ Once a window opens, [resume your previous session](docs/sessions.md#resume-an-e
 
 **Press `Ctrl/Cmd+Shift+U` to find and open a Markdown file by name**, even if it hasn’t appeared in the terminal. Explore other additions shown in the [demo above](#demo), and follow the [guides below](#whats-next) to start using them.
 
-You can use AgentTerm as is, then [work with your agents to adapt it](#make-it-fit) to your own needs.
+You can use AgentTerm as is, or [adapt it with your agents](#make-it-fit).
 
 <a name="why-extend-the-terminal"></a>
 
