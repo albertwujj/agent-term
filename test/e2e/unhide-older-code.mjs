@@ -71,18 +71,19 @@ async function waitFor(fn, timeoutMs) {
     await sleep(200);
   }
 }
-// Resume `id` in window `w`, then close its window: the session hides. The
-// checkout then changes, so the window runs older code.
+// Resume `id` in window `w`, run `command` in its shell as its CLI, then close
+// its window: the session hides. A shell left at its prompt would
+// end the session instead, so `command` holds the terminal as one foreground
+// job until the close. The checkout then changes, so the window runs older
+// code.
 async function hiddenSession(w, id, command) {
   await w.app.evaluate(({ ipcMain }, id) => { ipcMain.emit('picker-pick', {}, id); }, id);
   await sleep(2000);
   await w.page.keyboard.press('Escape');   // the armed /resume intercept
-  if (command) {
-    await w.page.evaluate(() => { const ta = document.querySelector('.xterm-helper-textarea'); if (ta) ta.focus(); });
-    await w.page.keyboard.type(command);
-    await w.page.keyboard.press('Enter');
-    await sleep(1500);
-  }
+  await w.page.evaluate(() => { const ta = document.querySelector('.xterm-helper-textarea'); if (ta) ta.focus(); });
+  await w.page.keyboard.type(command);
+  await w.page.keyboard.press('Enter');
+  await sleep(1500);
   await w.app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].close(); });
   const rec = await waitFor(() => { const r = sessionsLog.readActiveFile(UD, id); return r && r.hiddenAt ? r : null; }, 5000);
   await sleep(50);
@@ -95,7 +96,7 @@ try {
   // 1. Idle and on older code: it closes, and the session resumes in the picker.
   const a = await launch(); cleanup.push(a);
   const aPid = await a.app.evaluate(() => process.pid);
-  await hiddenSession(a, 6);
+  await hiddenSession(a, 6, 'sleep 600');   // an idle CLI: no output
   const p = await launch(); cleanup.push(p);
   await sleep(6000);                     // past the 5s of output that reads as working
   const pPid = await p.app.evaluate(() => process.pid);
@@ -113,7 +114,7 @@ try {
 
   // 2. Working and on older code: it comes back as it is; the picker closes.
   const b = await launch(); cleanup.push(b);
-  await hiddenSession(b, 8, 'for i in $(seq 40); do echo work $i; sleep 1; done');
+  await hiddenSession(b, 8, '(for i in $(seq 40); do echo work $i; sleep 1; done)');
   const q = await launch(); cleanup.push(q);
   await q.app.evaluate(({ ipcMain }) => { ipcMain.emit('picker-bring-forward', {}, 8); });
   const qCode = await Promise.race([q.exited, sleep(10_000).then(() => 'timeout')]);
@@ -126,7 +127,7 @@ try {
   // 3. Its turn ends while hidden: it comes back on its own, without focus,
   //    and the notice waits until it is in front.
   const c = await launch(); cleanup.push(c);
-  await hiddenSession(c, 9, 'sleep 3; for i in $(seq 18); do echo tick $i; sleep 1; done');
+  await hiddenSession(c, 9, '(sleep 3; for i in $(seq 18); do echo tick $i; sleep 1; done)');
   const back = await waitFor(() => /turn ended while hidden; bringing session 9 back/.test(c.log), 45_000);
   check('the returning window comes back after its turn', !!back);
   check('it knows it runs older code', !!(await waitFor(() => /session 9 came back on older code/.test(c.log), 5000)));
