@@ -2,8 +2,11 @@
 
 const assert = require('node:assert/strict');
 const { spawn, execFileSync } = require('node:child_process');
+const { EventEmitter } = require('node:events');
+const { PassThrough } = require('node:stream');
 const test = require('node:test');
 const {
+  HELPER_STALL_KILL_MS,
   WslCommandRunner,
   helperBootstrap,
   transportBackoffMs,
@@ -117,4 +120,115 @@ test('does not retry a failed helper start on every poll', async () => {
   now += 60_000;
   await runner.run('true');
   assert.equal(starts, 2);
+});
+
+// A helper whose output the test writes by hand, to play a slow or failing
+// transport that a real bash cannot.
+function fakeHelper() {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => { child.killed = true; };
+  return child;
+}
+
+function fakeRunner(options = {}) {
+  const children = [];
+  const diagnostics = [];
+  const runner = new WslCommandRunner({
+    spawn() {
+      const child = fakeHelper();
+      children.push(child);
+      return child;
+    },
+    command: 'wsl',
+    onDiagnostic: (message) => diagnostics.push(message),
+    ...options,
+  });
+  return { runner, children, diagnostics };
+}
+
+const flush = () => new Promise(setImmediate);
+const answer = (id, stdout) =>
+  `${id}\t0\t${Buffer.from(stdout).toString('base64')}\t\n`;
+
+test('answers a late request at its deadline and keeps the helper', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { runner, children } = fakeRunner();
+  t.after(() => runner.close());
+
+  const late = runner.run('slow', { timeout: 1000 });
+  children[0].stdout.write('1\tstart\n');
+  await flush();
+  t.mock.timers.tick(3000);
+  assert.match((await late).stderr, /did not answer within 3000ms/);
+  assert.equal(children[0].killed, false);
+
+  // The answer that comes after the deadline settles nothing, and the same
+  // helper serves the next request.
+  children[0].stdout.write(answer(1, 'stale'));
+  const next = runner.run('quick', { timeout: 1000 });
+  children[0].stdout.write(`2\tstart\n${answer(2, 'fresh')}`);
+  assert.equal((await next).stdout, 'fresh');
+  assert.equal(children.length, 1);
+
+  // Nothing is left armed to kill it.
+  t.mock.timers.tick(HELPER_STALL_KILL_MS);
+  assert.equal(children[0].killed, false);
+});
+
+test('replaces a helper that stays silent well past the deadline', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { runner, children, diagnostics } = fakeRunner();
+  t.after(() => runner.close());
+
+  const stuck = runner.run('stuck', { timeout: 1000 });
+  children[0].stdout.write('1\tstart\n');
+  await flush();
+  const queued = runner.run('queued');
+  t.mock.timers.tick(3000);
+  await stuck;
+  assert.equal(children[0].killed, false);
+
+  t.mock.timers.tick(HELPER_STALL_KILL_MS);
+  assert.equal(children[0].killed, true);
+  assert.match((await queued).stderr, /did not answer within 33000ms/);
+  assert.match(diagnostics.at(-1), /next start in 60s/);
+});
+
+test('holds a new helper while main says to', async () => {
+  let holdMs = 45_000;
+  const { runner, children } = fakeRunner({ startHoldMs: () => holdMs });
+
+  const held = await runner.run('true');
+  assert.match(held.stderr, /retry in 45s/);
+  assert.equal(children.length, 0);
+
+  holdMs = 0;
+  runner.run('true');
+  assert.equal(children.length, 1);
+  runner.close();
+});
+
+test('reads the error code wsl.exe prints instead of starting', async () => {
+  const codes = [];
+  const { runner, children, diagnostics } = fakeRunner({
+    onWslError: (code) => codes.push(code),
+  });
+
+  const result = runner.run('true');
+  // wsl.exe writes UTF-16 to the pipe whatever the console code page.
+  children[0].stdout.write(Buffer.from(
+    'Catastrophic failure \r\nError code: Wsl/Service/E_UNEXPECTED\r\n', 'utf16le'));
+  await flush();
+  children[0].emit('exit', 4294967295, null);
+
+  assert.equal((await result).code, 1);
+  assert.deepEqual(codes, ['Wsl/Service/E_UNEXPECTED']);
+  assert.ok(diagnostics.includes(
+    'Ignoring unexpected WSL helper output: Error code: Wsl/Service/E_UNEXPECTED'));
+  assert.ok(diagnostics.includes('Ignoring unexpected WSL helper output: Catastrophic failure'));
+  runner.close();
 });

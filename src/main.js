@@ -343,13 +343,36 @@ function monotonicMs() {
   return Number(process.hrtime.bigint()) / 1e6;
 }
 
+// A WSL session started as Windows enters or leaves standby can leave WSL
+// refusing every later one (Wsl/Service/E_UNEXPECTED) until `wsl --shutdown`,
+// so the helper holds new sessions back until the machine has been awake a
+// minute: a brief maintenance wake is over by then, and after a real one the
+// VM has caught up. A loop gap this long is a suspend; a blocked main thread
+// that long only delays a helper that was not running anyway.
+const WAKE_GAP_MS = 30_000;
+const WSL_START_HOLD_AFTER_WAKE_MS = 60_000;
+let mainLoopExpectedAt = null;
+let lastWakeAt = -Infinity;
+
+function noteWake() { lastWakeAt = monotonicMs(); }
+
+function wslStartHoldMs() {
+  const now = monotonicMs();
+  // Timers that fell due during the suspend run in an order of libuv's
+  // choosing, so a probe can come before the heartbeat has seen the gap;
+  // an overdue heartbeat is that gap.
+  if (mainLoopExpectedAt !== null && now - mainLoopExpectedAt >= WAKE_GAP_MS) noteWake();
+  return Math.max(0, lastWakeAt + WSL_START_HOLD_AFTER_WAKE_MS - now);
+}
+
 function startMainLoopDelayDiagnostics() {
   if (mainLoopDelayTimer) return;
-  let expectedAt = monotonicMs() + MAIN_LOOP_SAMPLE_MS;
+  mainLoopExpectedAt = monotonicMs() + MAIN_LOOP_SAMPLE_MS;
   mainLoopDelayTimer = setInterval(() => {
     const observedAt = monotonicMs();
-    const delayMs = observedAt - expectedAt;
-    expectedAt = observedAt + MAIN_LOOP_SAMPLE_MS;
+    const delayMs = observedAt - mainLoopExpectedAt;
+    mainLoopExpectedAt = observedAt + MAIN_LOOP_SAMPLE_MS;
+    if (delayMs >= WAKE_GAP_MS) noteWake();
     if (delayMs >= MAIN_LOOP_DELAY_LOG_MS &&
         observedAt - lastMainLoopDelayLogAt >= 10_000) {
       lastMainLoopDelayLogAt = observedAt;
@@ -388,7 +411,10 @@ function restoreTaskbarIconAfter(source) {
   taskbarIconRestorer.scheduleRestore(source);
 }
 
-function onPowerResume() { restoreTaskbarIconAfter('resume'); }
+function onPowerResume() {
+  noteWake();
+  restoreTaskbarIconAfter('resume');
+}
 function onPowerUnlockScreen() { restoreTaskbarIconAfter('unlock-screen'); }
 // The real OS color scheme, captured before we force the app's UI dark. The
 // embedded web viewer emulates this for guest pages so they render the way they
@@ -3864,6 +3890,19 @@ function openInSystemBrowser(rawUrl, source) {
 // --- Resource file helpers (WSL path resolution) ---
 
 let wslCommandRunner = null;
+let wslRefusalNoticed = false;
+
+// WSL in this state refuses every new session until it restarts, while the
+// terminals already open keep working, so nothing else would say why this
+// window's file and git lookups stopped. Once per window.
+function noticeWslError(code) {
+  if (wslRefusalNoticed || !/\/E_UNEXPECTED$/.test(code)) return;
+  wslRefusalNoticed = true;
+  log(`[wsl-helper] WSL refuses new sessions (${code}); told the user`);
+  sendHint('wsl-notice', `WSL is refusing new sessions (${code}). Terminals already `
+    + 'open keep working, but file and git lookups in this window have stopped. '
+    + 'Restart WSL from PowerShell with: wsl --shutdown (it closes every WSL terminal).');
+}
 
 function getWslCommandRunner() {
   if (!wslCommandRunner) {
@@ -3873,6 +3912,8 @@ function getWslCommandRunner() {
       args: wslCommandArgs(['bash', '-lc', helperBootstrap()]),
       spawnOptions: { windowsHide: true, env: process.env },
       onDiagnostic: (message) => log(`[wsl-helper] ${message}`),
+      onWslError: noticeWslError,
+      startHoldMs: wslStartHoldMs,
     });
   }
   return wslCommandRunner;

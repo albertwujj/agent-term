@@ -60,13 +60,25 @@ function transportBackoffMs(failureCount) {
   return Math.min(60_000 * (2 ** Math.max(0, failureCount - 1)), 300_000);
 }
 
+// How long a started request may stay unanswered past its deadline before the
+// helper is presumed dead. The helper kills each command at its deadline
+// (timeout --signal=KILL), so an answer still missing after that is the
+// transport's, and a transport just out of standby can take that long.
+const HELPER_STALL_KILL_MS = 30_000;
+
 class WslCommandRunner {
+  // `startHoldMs` returns how long a new helper must wait to start, beyond the
+  // failure backoff: every start is a new WSL session, which main holds back
+  // around standby. `onWslError` receives the code (`Wsl/Service/...`) that
+  // wsl.exe prints when it cannot start one.
   constructor({
     spawn,
     command,
     args = [],
     spawnOptions = {},
     onDiagnostic = () => {},
+    onWslError = () => {},
+    startHoldMs = () => 0,
     now = Date.now,
   }) {
     this.spawn = spawn;
@@ -74,6 +86,8 @@ class WslCommandRunner {
     this.args = args;
     this.spawnOptions = spawnOptions;
     this.onDiagnostic = onDiagnostic;
+    this.onWslError = onWslError;
+    this.startHoldMs = startHoldMs;
     this.now = now;
 
     this.child = null;
@@ -93,7 +107,7 @@ class WslCommandRunner {
 
     const child = this._ensureChild();
     if (!child) {
-      const retryMs = Math.max(0, this.retryAt - this.now());
+      const retryMs = this._startDelayMs();
       return Promise.resolve(this._errorResult(
         `WSL helper unavailable; retry in ${Math.ceil(retryMs / 1000)}s`,
       ));
@@ -133,9 +147,13 @@ class WslCommandRunner {
     if (child && child.stdin && !child.stdin.destroyed) child.stdin.end();
   }
 
+  _startDelayMs() {
+    return Math.max(0, this.retryAt - this.now(), this.startHoldMs());
+  }
+
   _ensureChild() {
     if (this.child) return this.child;
-    if (this.now() < this.retryAt) return null;
+    if (this._startDelayMs() > 0) return null;
 
     let child;
     try {
@@ -189,17 +207,33 @@ class WslCommandRunner {
     if (fields.length === 2 && /^\d+$/.test(fields[0]) && fields[1] === 'start') {
       const pending = this.pending.get(fields[0]);
       if (pending && pending.timeoutMs > 0 && !pending.timer) {
+        const deadlineMs = pending.timeoutMs + 2000;
         pending.timer = setTimeout(() => {
-          this._failChild(
-            child,
-            `WSL helper did not answer within ${pending.timeoutMs + 2000}ms`,
-          );
-        }, pending.timeoutMs + 2000);
+          // The caller gets its answer at the deadline it asked for, but the
+          // helper stays: a late answer is usually a VM still waking, and a
+          // replacement would need a new WSL session at just that moment.
+          // The late answer, when it comes, settles nothing.
+          const message = `WSL helper did not answer within ${deadlineMs}ms`;
+          pending.resolve(this._errorResult(message));
+          this.onDiagnostic(`${message}; keeping it`);
+          pending.timer = setTimeout(() => {
+            this._failChild(
+              child,
+              `WSL helper did not answer within ${deadlineMs + HELPER_STALL_KILL_MS}ms`,
+            );
+          }, HELPER_STALL_KILL_MS);
+        }, deadlineMs);
       }
       return;
     }
     if (fields.length !== 4 || !/^\d+$/.test(fields[0]) || !/^-?\d+$/.test(fields[1])) {
-      this.onDiagnostic(`Ignoring unexpected WSL helper output: ${line.slice(0, 240)}`);
+      // wsl.exe prints its own errors in UTF-16, which arrive here as letters
+      // between NULs; without them the line reads, and its code can be found.
+      const text = line.replace(/\0/g, '').trim();
+      if (!text) return;
+      const wslError = /Error code: (Wsl\/\S+)/.exec(text);
+      if (wslError) this.onWslError(wslError[1]);
+      this.onDiagnostic(`Ignoring unexpected WSL helper output: ${text.slice(0, 240)}`);
       return;
     }
 
@@ -267,6 +301,7 @@ class WslCommandRunner {
 }
 
 module.exports = {
+  HELPER_STALL_KILL_MS,
   WSL_COMMAND_HELPER,
   WslCommandRunner,
   helperBootstrap,

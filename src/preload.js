@@ -155,6 +155,8 @@ contextBridge.exposeInMainWorld('pty', {
   // dialog answered, or the user typing their own command). The next Enter
   // is plain; the hint switches to its manual /resume wording.
   onResumeHintInterceptOff: (callback) => ipcRenderer.on('resume-hint-intercept-off', () => callback()),
+  // Main found WSL refusing new sessions; the text says what to run.
+  onWslNotice: (callback) => ipcRenderer.on('wsl-notice', (_event, text) => callback(text)),
   // ---- Streaming (see src/stream/, ../agent-stream-hub/stream.md) ----
   // Renderer-side buffer watcher pushes periodic snapshots of the active
   // xterm buffer to main, which forwards them to the hub as block updates.

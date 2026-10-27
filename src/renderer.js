@@ -190,6 +190,7 @@ window.pty.onResumeWithReason((picked) => {
 window.pty.onResumeHintInterceptOff(() => {
   resumeHint.recordInterceptOff();
 });
+window.pty.onWslNotice((text) => showToast(text, { variant: 'error' }));
 // A picker launch typed into the shell: the band asks for the Enter that
 // runs it, and goes when main says the line ran, was cleared, or replaced.
 window.pty.onLaunchHintShow((payload) => {
