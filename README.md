@@ -4,8 +4,9 @@
 <a name="agentterm-a-super-terminal-for-you-and-your-coding-agents"></a>
 <a name="agentterm-a-super-terminal-for-you-and-your-agents"></a>
 <a name="agentterm-a-greatly-expanded-terminal-for-you-and-your-agents"></a>
+<a name="agentterm-a-portal-to-ai"></a>
 
-# AgentTerm: [A portal to AI](https://yunxin.github.io/rethink-terminal/)
+# AgentTerm: [Your portal to AI](https://yunxin.github.io/rethink-terminal/)
 
 <a id="demo"></a>
 
