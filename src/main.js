@@ -4864,9 +4864,12 @@ function agentNoticeFor(m) {
   const prefix = `[${m.notice ? 'Notice' : 'Warning'} from terminal host]`;
   const at = fmtClock();
   if (m.kind === 'job-report') {
+    // One job per line so a batch reads as a list. The LFs ride inside the
+    // paste bracket, where they are inert text in any CLI (see
+    // LF_INSERTS_NEWLINE_CLIS); each msg is already one line (oneLine).
     const parts = m.items.map((it) =>
-      `${it.msg}${it.startedMs && it.tsMs ? ` (ran ${fmtDuration(it.tsMs - it.startedMs)})` : ''}`);
-    return `${prefix} Background job report (as of ${at}): ${parts.join(' | ')}. Ignore if already handled.`;
+      `- ${it.msg}${it.startedMs && it.tsMs ? ` (ran ${fmtDuration(it.tsMs - it.startedMs)})` : ''}`);
+    return `${prefix} Background job report (as of ${at}):\n${parts.join('\n')}\nIgnore if already handled.`;
   }
   if (m.kind === 'job-vanished') {
     const parts = m.items.map((it) =>

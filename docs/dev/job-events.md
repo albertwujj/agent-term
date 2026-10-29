@@ -71,7 +71,7 @@ liveness (`kill -0` on the filename pid) in the same read.
   in the window's chrome bar, with a count once more than one is running;
   the tooltip names the commands. This survives a session resume — the CLI's own task display
   is gone after a resume, but the jobs and their records are not.
-- An event for its session is delivered once, as a one-line notice into
+- An event for its session is delivered once, as a notice into
   the agent's input, after the agent has been idle for the quiet period
   (two minutes by default) past both the job's finish and its own last
   output. A busy agent's report waits for its turn to end, so a job
@@ -81,7 +81,11 @@ liveness (`kill -0` on the filename pid) in the same read.
   the user is mid-compose. The event file is deleted on delivery.
 
       [Notice from terminal host] Background job report (as of 14:05):
-      <msg> (ran 52m). Ignore if already handled.
+      - <msg> (ran 52m)
+      - <msg> (ran 1h 20m)
+      Ignore if already handled.
+
+  Events that ripen in the same poll share one notice, one line each.
 
 - A start record whose process is gone with no event → a "gone without a
   completion report" notice quoting the record's `cmd`, under the same
