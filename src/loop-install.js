@@ -4,9 +4,12 @@
 // ai/agent-threads, kept out of .gitignore — so the agent is asked for what the
 // docs describe. The folder is named in full: "into ai/" reads as making ai/
 // the clone itself, where the runbook lookup (ai/agent-threads/…) never finds
-// it. test/loop-install.test.js keeps the two in step.
+// it. The reasons come with the rules: given the rules alone, an agent offered
+// to strip the clone's .git, and ignored ai/ when asked, with nothing to object
+// with. test/loop-install.test.js keeps the two in step.
 const AGENT_THREADS_CLONE_PROMPT =
-  'Clone https://github.com/albertwujj/agent-threads into ai/agent-threads in this project, '
-  + 'and leave ai/ out of .gitignore.';
+  'Clone https://github.com/albertwujj/agent-threads into ai/agent-threads in this project. '
+  + 'Keep its .git, which is how it updates, and leave ai/ out of .gitignore '
+  + 'so @ completion can find its docs.';
 
 module.exports = { AGENT_THREADS_CLONE_PROMPT };

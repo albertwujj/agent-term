@@ -18,7 +18,7 @@ On Windows the clone lives in WSL, where the shell and your agents run; Node.js 
 
 ### Add the local components
 
-Clone these four repos into `ai/` under the project folder where you run your AI CLI. Keeping the guide files inside that folder and out of `.gitignore` lets your CLI's `@` completion find them as ordinary project files. [Other placements](conventions.md#placement) may work too, depending on your CLI.
+Clone each of these four repos into its own folder under `ai/`, in the project folder where you run your AI CLI. Keeping the guide files inside that folder and out of `.gitignore` lets your CLI's `@` completion find them as ordinary project files. [Other placements](conventions.md#placement) may work too, depending on your CLI.
 
 ```bash
 git clone https://github.com/albertwujj/agent-threads ai/agent-threads
@@ -27,7 +27,7 @@ git clone https://github.com/yunxin/agent-jobs ai/agent-jobs
 git clone https://github.com/albertwujj/voice-to-agent ai/voice-to-agent
 ```
 
-One agent-threads clone covers both plans and reviews. On Windows, these clones live in WSL with your project. For an existing setup, reuse the clones you already have.
+One agent-threads clone covers both plans and reviews. Keep each clone's `.git`: a pull in it is how its guides stay current. On Windows, these clones live in WSL with your project. For an existing setup, reuse the clones you already have.
 
 The voice-to-agent clone provides instructions for interpreting dictated input. Recording and transcription are configured with [phone access](#phone-and-ide-integration).
 
