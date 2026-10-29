@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { parseScopeArg, changedInputs, createReviewSync } = require('../src/review-sync');
+const { parseScopeArg, changedInputs, createReviewSync, REVIEW_POLL_MS, nextPollDelay } = require('../src/review-sync');
 
 let passed = 0;
 async function check(name, fn) {
@@ -95,6 +95,14 @@ function harness(world, { onRender } = {}) {
     assert.deepStrictEqual(await sync.tick(), ['head']);
     assert.strictEqual(renders.length, 2);
     assert.deepStrictEqual(await sync.tick(), []);
+  });
+
+  await check('quick polls keep the beat; a slow one gets a rest, not a queue', () => {
+    assert.strictEqual(nextPollDelay(0), REVIEW_POLL_MS);
+    assert.strictEqual(nextPollDelay(600), REVIEW_POLL_MS - 600);
+    assert.strictEqual(nextPollDelay(REVIEW_POLL_MS / 2), REVIEW_POLL_MS / 2);
+    assert.strictEqual(nextPollDelay(5000), REVIEW_POLL_MS / 2);
+    assert.strictEqual(nextPollDelay(-50), REVIEW_POLL_MS, 'a clock step back is no time taken');
   });
 
   console.log(`review-sync: ${passed} checks passed`);

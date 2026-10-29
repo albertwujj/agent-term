@@ -125,7 +125,7 @@ const {
 } = require('./agent-journal');
 const { isConfirmMessage } = require('./decision-confirm');
 const { decideStall, unaddressedCount, STALL_IDLE_MS } = require('./comment-stall');
-const { parseScopeArg, createReviewSync } = require('./review-sync');
+const { parseScopeArg, createReviewSync, REVIEW_POLL_MS, nextPollDelay } = require('./review-sync');
 const {
   SPIN_PROBE_MS,
   spinProbeScript,
@@ -4618,7 +4618,7 @@ let reviewSync = null;
 
 function stopReviewSync() {
   if (!reviewSync) return;
-  if (reviewSync.pollTimer) { try { clearInterval(reviewSync.pollTimer); } catch {} }
+  if (reviewSync.pollTimer) { try { clearTimeout(reviewSync.pollTimer); } catch {} }
   reviewSync = null;
 }
 
@@ -4756,27 +4756,43 @@ async function startReviewSync(pkg, repo, htmlPath, inputs) {
   //   · the dirty flag (uncommitted tracked changes) — for the live banner;
   //   · HEAD (new commit / branch switch) — so the behind/diverged banner updates
   //     in place, since a fixed range's diff doesn't move when HEAD advances.
-  w.pollTimer = setInterval(async () => {
+  // The next poll is set when this one ends, so two never overlap
+  // (review-sync.js nextPollDelay). A hidden or minimized window has nobody
+  // reading the review, so it skips the reads; the first poll after it is back
+  // catches up.
+  const poll = async () => {
     if (reviewSync !== w) return;
-    if ((await w.sync.tick()).length) return;
-    // Comments-only change (an agent reply, no source/diff change): surface it IN PLACE with a
-    // pulse — an rv-refresh, not a re-render/reload. A comment leaves the rendered HTML
-    // identical, so nothing would reload otherwise, and a reload would wipe the pulse baseline.
-    // The agent's replies arrive as journal appends now, so the journal is watched the same
-    // way — either file changing means the merged view the overlay renders has moved.
-    // The journal has one writer, the agent, so its change is the agent's new
-    // content, which brings the band up full once the agent is through
-    // (viewer-band.js agentWrote).
-    const cj = await fileHash(w.commentsPath);
-    const aj = await fileHash(w.journalPath);
-    const agent = (aj || '') !== (w.journalHash || '');
-    if ((cj && cj !== w.commentsHash) || agent) {
-      w.commentsHash = cj || w.commentsHash;
-      w.journalHash = aj;
-      const waiting = agent && await reviewAwaitsAgent(w);
-      if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('review-comments-changed', { agent, waiting });
+    const started = Date.now();
+    try {
+      const outOfSight = windowHidden || !mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized();
+      if (!outOfSight) await pollOpenReview(w);
+    } catch { /* transient read error: try again next poll */ }
+    finally {
+      if (reviewSync === w) w.pollTimer = setTimeout(poll, nextPollDelay(Date.now() - started));
     }
-  }, 2000);
+  };
+  w.pollTimer = setTimeout(poll, REVIEW_POLL_MS);
+}
+
+async function pollOpenReview(w) {
+  if ((await w.sync.tick()).length) return;
+  // Comments-only change (an agent reply, no source/diff change): surface it IN PLACE with a
+  // pulse — an rv-refresh, not a re-render/reload. A comment leaves the rendered HTML
+  // identical, so nothing would reload otherwise, and a reload would wipe the pulse baseline.
+  // The agent's replies arrive as journal appends now, so the journal is watched the same
+  // way — either file changing means the merged view the overlay renders has moved.
+  // The journal has one writer, the agent, so its change is the agent's new
+  // content, which brings the band up full once the agent is through
+  // (viewer-band.js agentWrote).
+  const cj = await fileHash(w.commentsPath);
+  const aj = await fileHash(w.journalPath);
+  const agent = (aj || '') !== (w.journalHash || '');
+  if ((cj && cj !== w.commentsHash) || agent) {
+    w.commentsHash = cj || w.commentsHash;
+    w.journalHash = aj;
+    const waiting = agent && await reviewAwaitsAgent(w);
+    if (mainWindow && mainWindow.webContents) mainWindow.webContents.send('review-comments-changed', { agent, waiting });
+  }
 }
 
 ipcMain.handle('render-review-package', async (event, packagePath) => {

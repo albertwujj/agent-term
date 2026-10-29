@@ -66,4 +66,15 @@ function createReviewSync({ readInputs, render }, inputs) {
   return { tick };
 }
 
-module.exports = { parseScopeArg, changedInputs, createReviewSync };
+// How long after a poll that ran `tookMs` the next one starts. Quick polls
+// start REVIEW_POLL_MS apart; a slow one is followed by a rest of at least half
+// that, never by a poll queued behind it. In a large repo `git status` alone
+// can take a second or more on a loaded machine, and polls on a fixed beat
+// then overlap and queue up in the window's one WSL helper faster than it runs
+// them: on Oct 29 one open review ran 46 `git status` in 20 s, about two cores.
+const REVIEW_POLL_MS = 2000;
+function nextPollDelay(tookMs) {
+  return Math.max(REVIEW_POLL_MS / 2, REVIEW_POLL_MS - Math.max(0, tookMs));
+}
+
+module.exports = { parseScopeArg, changedInputs, createReviewSync, REVIEW_POLL_MS, nextPollDelay };
