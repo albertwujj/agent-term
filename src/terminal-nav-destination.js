@@ -16,8 +16,8 @@
 //
 // Everything else hands you to another application after a cancellable delay:
 // the IDE for a symbol, a file:line, a source or diff line over code; the OS
-// for a bare path, a folder, an archive or a format the band can't render. An
-// application switch is the most
+// for a bare path, a folder, an archive or a format the band can't render; the
+// mail app for an email address. An application switch is the most
 // expensive thing a stray click can do, and the IDE side is also the widest
 // part of the match surface — the bare-identifier symbol patterns claim most
 // technical words in ordinary agent prose, so a double click meant to select a

@@ -1,11 +1,32 @@
 const assert = require('assert');
 const {
+  opensExternally,
+  handoffLabel,
   normalizeHttpUrl,
   createHttpUrlOpener,
   urlClickWantsExternal,
 } = require('../src/url-open');
 
 async function run() {
+  // What the window says while the other app comes forward.
+  assert.strictEqual(handoffLabel('mailto:alex.doe@example.com'), 'Opening in mail app…');
+  assert.strictEqual(handoffLabel('https://example.com/x'), 'Opening in browser…');
+  assert.strictEqual(handoffLabel('file:///tmp/My%20Notes.html'), 'Opening My Notes.html…');
+  assert.strictEqual(handoffLabel('/home/me/out/report.docx'), 'Opening report.docx…');
+  assert.strictEqual(handoffLabel('/home/me/src/components/'), 'Opening components…');
+  assert.strictEqual(handoffLabel('\\\\wsl.localhost\\Ubuntu\\home\\me\\bundle.zip'), 'Opening bundle.zip…');
+  assert.strictEqual(handoffLabel(''), 'Opening…');
+
+  // The schemes main hands to the OS: web and local pages, and a mail draft.
+  assert.strictEqual(opensExternally('https://example.com'), true);
+  assert.strictEqual(opensExternally('file:///tmp/page.html'), true);
+  assert.strictEqual(opensExternally('mailto:alex.doe@example.com'), true);
+  assert.strictEqual(opensExternally('MAILTO:alex.doe@example.com'), true);
+  assert.strictEqual(opensExternally('ms-settings:privacy'), false);
+  assert.strictEqual(opensExternally('javascript:alert(1)'), false);
+  assert.strictEqual(opensExternally(' mailto:alex.doe@example.com'), false);
+  assert.strictEqual(opensExternally(undefined), false);
+
   assert.strictEqual(normalizeHttpUrl('https://example.com'), 'https://example.com/');
   assert.strictEqual(normalizeHttpUrl('http://example.com/path?q=1'), 'http://example.com/path?q=1');
   assert.strictEqual(normalizeHttpUrl('file:///tmp/example'), null);

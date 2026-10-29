@@ -33,7 +33,7 @@ const { parseLaunch } = require('./cli-detect');
 const { readPromptSnapshot } = require('./prompt-completion');
 const streamWatch = require('./stream/renderer-watch');
 const streamIndicator = require('./stream/stream-indicator');
-const { createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
+const { EMAIL_SOURCE, createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
 const { ideUnreachableNotice } = require('./ide-notice');
 const { createWebViewer } = require('./web-viewer');
 const { createMarkdownViewer } = require('./markdown-viewer');
@@ -924,14 +924,28 @@ if (typeof window.pty.onViewerShortcut === 'function') {
   window.pty.onViewerShortcut((action) => { handleViewerShortcut(action); });
 }
 
-// Cmd/Ctrl+Shift+N: the launch pill covers the gap until the new instance's
+// Cmd/Ctrl+Shift+N: the handoff pill covers the gap until the new instance's
 // window appears; a reported failure replaces it with a sticky error toast.
+// The pill names the directory the new window's shell starts in (the
+// established session cwd, or this window's original launch cwd before its
+// first prompt); the new window's picker then shows the same directory on its
+// start-new row.
 if (typeof window.pty.onNewInstanceLaunching === 'function') {
-  window.pty.onNewInstanceLaunching((cwd) => { showLaunchPill(cwd); });
+  window.pty.onNewInstanceLaunching((cwd) => {
+    showHandoffPill(cwd ? `Starting new AgentTerm in ${cwd}…` : 'Starting new AgentTerm…', 20000);
+  });
+}
+// An OS handoff gets the same pill; a failed one is taken down (null) before
+// its caller reports the error.
+if (typeof window.pty.onOsHandoff === 'function') {
+  window.pty.onOsHandoff((label) => {
+    if (label) showHandoffPill(label, 10000);
+    else dismissHandoffPill();
+  });
 }
 if (typeof window.pty.onNewInstanceLaunchFailed === 'function') {
   window.pty.onNewInstanceLaunchFailed((message) => {
-    dismissLaunchPill();
+    dismissHandoffPill();
     showToast('New AgentTerm failed to start: ' + (message || 'unknown error'), { variant: 'error' });
   });
 }
@@ -3184,6 +3198,7 @@ function nativeHyperlinkAtMouseEvent(event) {
 }
 
 const decorationPress = createDecorationPressController({
+  onPending: (match, ms) => setPendingMatch(match, ms),
   getDoubleClickMs: () => window.pty.getDoubleClickInterval(),
   holdMs: TERMINAL_FREEZE_HOLD_MS,
   canNavigate: (match) => !terminal.hasSelection() && !activeTerminalComment
@@ -4378,29 +4393,33 @@ function showClickFeedback(text, patternName, status = 'info') {
   setTimeout(() => feedback.remove(), 2000);
 }
 
-// Cmd/Ctrl+Shift+N launch pill. The new instance is a separate Electron
-// process: until it reaches ready-to-show it has no window of its own, and
-// this window is the only surface that can say anything. The pill appears the
-// moment main handles the chord and pulses while the launch is in flight. The
-// new window taking focus blurs this one — exactly when the feedback becomes
-// redundant — so blur dismisses it. The timeout only reaps a stale pill when
-// no window ever appears and no failure is reported. The pill names the
-// directory the new window's shell starts in (the established session cwd, or
-// this window's original launch cwd before its first prompt); the new window's
-// picker then shows the same directory on its start-new row.
-let launchPill = null;
-let launchPillTimer = null;
-let launchPillBlurHandler = null;
-function dismissLaunchPill() {
-  if (launchPillTimer) { clearTimeout(launchPillTimer); launchPillTimer = null; }
-  if (launchPillBlurHandler) { window.removeEventListener('blur', launchPillBlurHandler); launchPillBlurHandler = null; }
-  if (launchPill) { launchPill.remove(); launchPill = null; }
+// The handoff pill: another application is coming forward, and until its
+// window shows, this one is the only surface that can say anything — a new
+// AgentTerm instance (Cmd/Ctrl+Shift+N, a separate Electron process) or an OS
+// handoff (a mail draft, the browser, a file's default app; main announces
+// each one). The pill appears the moment main starts it and pulses while it is
+// in flight. The other window taking focus blurs this one — exactly when the
+// feedback becomes redundant — so blur dismisses it. The timeout only reaps a
+// stale pill when no window comes forward and no failure is reported. A toast
+// already on screen (the device-gated notice says why a page left for the
+// browser) keeps its place, and the pill sits below it.
+let handoffPill = null;
+let handoffPillTimer = null;
+let handoffPillBlurHandler = null;
+function dismissHandoffPill() {
+  if (handoffPillTimer) { clearTimeout(handoffPillTimer); handoffPillTimer = null; }
+  if (handoffPillBlurHandler) { window.removeEventListener('blur', handoffPillBlurHandler); handoffPillBlurHandler = null; }
+  if (handoffPill) { handoffPill.remove(); handoffPill = null; }
 }
-function showLaunchPill(cwd) {
-  dismissLaunchPill();
+function showHandoffPill(text, timeoutMs) {
+  dismissHandoffPill();
   const el = document.createElement('div');
+  const top = lastToast && lastToast.isConnected
+    ? `${Math.round(lastToast.getBoundingClientRect().bottom) + 8}px`
+    : 'calc(var(--at-overlay-bottom, 0px) + 16px)';
+  el.className = 'handoff-pill';
   el.style.cssText = `
-    position: fixed; top: calc(var(--at-overlay-bottom, 0px) + 16px); left: 50%; transform: translateX(-50%);
+    position: fixed; top: ${top}; left: 50%; transform: translateX(-50%);
     display: flex; align-items: center; gap: 9px;
     background: #569cd6; color: white;
     border-radius: 8px; z-index: 9999; box-shadow: 0 8px 28px rgba(0,0,0,.38);
@@ -4410,7 +4429,7 @@ function showLaunchPill(cwd) {
   dot.style.cssText = `
     width: 8px; height: 8px; border-radius: 50%; background: currentColor;
     animation: launchPillPulse 1.1s ease-in-out infinite;`;
-  el.append(dot, document.createTextNode(cwd ? `Starting new AgentTerm in ${cwd}…` : 'Starting new AgentTerm…'));
+  el.append(dot, document.createTextNode(text));
   if (!document.getElementById('launch-pill-style')) {
     const style = document.createElement('style');
     style.id = 'launch-pill-style';
@@ -4418,11 +4437,13 @@ function showLaunchPill(cwd) {
     document.head.appendChild(style);
   }
   document.body.appendChild(el);
-  launchPill = el;
-  launchPillBlurHandler = () => dismissLaunchPill();
-  window.addEventListener('blur', launchPillBlurHandler);
-  launchPillTimer = setTimeout(dismissLaunchPill, 20000);
+  handoffPill = el;
+  handoffPillBlurHandler = () => dismissHandoffPill();
+  window.addEventListener('blur', handoffPillBlurHandler);
+  handoffPillTimer = setTimeout(dismissHandoffPill, timeoutMs);
 }
+
+let lastToast = null;
 
 // Show a simple toast message (blue, 2-second fade)
 // variant: 'info' (default, blue) | 'warn' (yellow) | 'error' (red), matching the
@@ -4481,6 +4502,7 @@ function showToast(message, { variant = 'info', sticky = variant === 'error' } =
     setTimeout(() => el.remove(), 2800);
   }
   document.body.appendChild(el);
+  lastToast = el;
   return el;
 }
 
@@ -5528,6 +5550,19 @@ const patterns = [
     },
   },
   {
+    name: 'email',
+    // A new message in the OS mail app. Not a viewer, so like the other OS
+    // handoffs it waits out the double-click interval (terminal-nav-destination.js).
+    regex: new RegExp(EMAIL_SOURCE, 'g'),
+    action: async (match) => {
+      try {
+        await window.pty.openURL(`mailto:${encodeURI(match.text)}`);
+      } catch {
+        showToast('Could not open mail app');
+      }
+    },
+  },
+  {
     name: 'wsl_unc_path',
     // WSL files in Windows UNC form: \\wsl.localhost\<distro>\... (or legacy
     // \\wsl$\...). The POSIX patterns below tokenize on backslashes and would
@@ -5801,6 +5836,9 @@ const decorationStyles = new Map(); // matchKey -> { fgColor, isHoverOnly }
 let altBufferDirty = false;
 let decorationProcessScheduled = false;
 let hoveredMatchKey = null;
+// The link whose plain click is waiting out the double-click interval, as
+// { key, ms }: it fills left to right over the wait and is full as it fires.
+let pendingMatchMark = null;
 
 // Every fragment of a renderer-wrapped target shares one key, so the whole
 // target lights up together, as a soft-wrapped link does across its rows.
@@ -5809,12 +5847,32 @@ function getMatchKey(match) {
   return `${match.bufferRow}:${match.start}:${match.end}:${match.patternName}:${match.text}`;
 }
 
-function applyDecorationElementStyle(element, { fgColor, isHoverOnly }, isHovered) {
+function pendingMsFor(matchKey) {
+  return pendingMatchMark && pendingMatchMark.key === matchKey ? pendingMatchMark.ms : 0;
+}
+
+function setPendingMatch(match, ms) {
+  if (match && !document.getElementById('click-pending-style')) {
+    const style = document.createElement('style');
+    style.id = 'click-pending-style';
+    style.textContent = '@keyframes at-click-pending { from { background-size: 0% 100%; } to { background-size: 100% 100%; } }';
+    document.head.appendChild(style);
+  }
+  const previousKey = pendingMatchMark && pendingMatchMark.key;
+  pendingMatchMark = match ? { key: getMatchKey(match), ms } : null;
+  if (previousKey) updateRenderedMatchStyle(previousKey);
+  if (pendingMatchMark) updateRenderedMatchStyle(pendingMatchMark.key);
+}
+
+function applyDecorationElementStyle(element, { fgColor, isHoverOnly }, isHovered, pendingMs = 0) {
   if (!element) return;
-  element.style.borderBottom = isHovered
+  element.style.borderBottom = isHovered || pendingMs
     ? `1px solid ${fgColor}, 0.7)`
     : (isHoverOnly ? 'none' : `1px dotted ${fgColor}, 0.3)`);
   element.style.backgroundColor = isHovered ? `${fgColor}, 0.08)` : 'transparent';
+  element.style.backgroundImage = pendingMs ? `linear-gradient(${fgColor}, 0.22), ${fgColor}, 0.22))` : '';
+  element.style.backgroundRepeat = 'no-repeat';
+  element.style.animation = pendingMs ? `at-click-pending ${pendingMs}ms linear forwards` : '';
   element.style.pointerEvents = 'none';
   element.style.boxSizing = 'border-box';
 }
@@ -5857,7 +5915,7 @@ function updateRenderedMatchStyle(matchKey) {
   const elements = decorationElements.get(matchKey);
   if (!style || !elements) return;
   for (const element of elements) {
-    applyDecorationElementStyle(element, style, hoveredMatchKey === matchKey);
+    applyDecorationElementStyle(element, style, hoveredMatchKey === matchKey, pendingMsFor(matchKey));
   }
 }
 
@@ -6315,7 +6373,7 @@ function createDecoration(bufferLineIndex, match) {
     const isHoverOnly = match.style === 'hover-only' || !opensImmediately(match);
     decorationStyles.set(matchKey, { fgColor, isHoverOnly });
     rememberDecorationElement(matchKey, element);
-    applyDecorationElementStyle(element, { fgColor, isHoverOnly }, hoveredMatchKey === matchKey);
+    applyDecorationElementStyle(element, { fgColor, isHoverOnly }, hoveredMatchKey === matchKey, pendingMsFor(matchKey));
 
     debug('Decoration rendered:', match.text, 'at col', adjustedCol, 'width', adjustedWidth);
   });

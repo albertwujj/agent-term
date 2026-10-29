@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld('pty', {
   // seconds to show a window, so main announces the launch and any failure.
   onNewInstanceLaunching: (callback) => ipcRenderer.on('new-instance-launching', (_event, cwd) => callback(cwd)),
   onNewInstanceLaunchFailed: (callback) => ipcRenderer.on('new-instance-launch-failed', (_event, message) => callback(message)),
+  // Another app is coming forward for a link or file (label), or that failed (null).
+  onOsHandoff: (callback) => ipcRenderer.on('os-handoff', (_event, label) => callback(label)),
   onNotice: (callback) => ipcRenderer.on('notice', (_event, message) => callback(message)),
   onOlderCodeNotice: (callback) => ipcRenderer.on('older-code-notice', () => callback()),
   // Open a URL in the default browser

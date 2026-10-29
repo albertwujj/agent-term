@@ -102,6 +102,8 @@ check('a handoff to the OS uses a delayed plain click', () => {
   assert.strictEqual(navigationNeedsDelay(m('plain_file', 'src/components')), true);
   assert.strictEqual(navigationNeedsDelay(m('resource_file', 'bundle.zip')), true);
   assert.strictEqual(navigationNeedsDelay(m('resource_file', 'clip.mov')), true);
+  assert.strictEqual(navigationNeedsDelay(m('email', 'alex.doe@example.com')), true);
+  assert.strictEqual(navigationNeedsDelay(m('email', 'alex.doe@example.com'), { ctrlKey: true }), false);
   assert.strictEqual(navigationNeedsDelay(m('wsl_unc_path', '\\\\wsl.localhost\\Ubuntu\\home\\a')), true);
   assert.strictEqual(navigationNeedsDelay(m('windows_drive_path', 'C:\\Temp\\out\\')), true);
 });

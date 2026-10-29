@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const util = require('util');
 const { dependencyProblem, missingRuntimeDependencies } = require('./dep-freshness');
 const { createDoubleClickIntervalReader } = require('./double-click-interval');
+const { opensExternally, handoffLabel } = require('./url-open');
 const { showStartupError } = require('./startup-error');
 const { MAX_LOG_BYTES, rotateIfLarge, trimToTail } = require('./log-cap');
 
@@ -3868,9 +3869,24 @@ ipcMain.handle('get-caret-diagnostics', async () => {
   return getCaretDiagnostics({ sendNavigationRequest, frontendPort: FRONTEND_PORT });
 });
 
+// Every handoff to another application goes through openExternal or openPath
+// below, and the app it starts can take seconds to come forward (a mail client
+// from cold). Each one is announced so the window can say so meanwhile (the
+// renderer's handoff pill, which the other app taking focus dismisses); null
+// takes the pill down when the handoff fails.
+function announceHandoff(label) {
+  try { if (mainWindow) mainWindow.webContents.send('os-handoff', label); } catch {}
+}
+
 ipcMain.handle('open-url', async (event, url) => {
-  if (/^(?:https?|file):\/\//i.test(url)) {
-    await shell.openExternal(url);
+  if (opensExternally(url)) {
+    announceHandoff(handoffLabel(url));
+    try {
+      await shell.openExternal(url);
+    } catch (e) {
+      announceHandoff(null);
+      throw e;
+    }
   }
 });
 
@@ -3884,7 +3900,11 @@ function openInSystemBrowser(rawUrl, source) {
     return;
   }
   log(`[links] ${source} → system browser: ${rawUrl}`);
-  shell.openExternal(rawUrl).catch((e) => log(`[links] openExternal failed: ${e && e.message}`));
+  announceHandoff(handoffLabel(rawUrl));
+  shell.openExternal(rawUrl).catch((e) => {
+    announceHandoff(null);
+    log(`[links] openExternal failed: ${e && e.message}`);
+  });
 }
 
 // --- Resource file helpers (WSL path resolution) ---
@@ -5922,12 +5942,15 @@ ipcMain.handle('open-resource', async (event, filePath, context) => {
     const resolved = await resolveClickedPath(filePath, { folders: clickContextFolders(context) });
     if (!resolved) return { success: false, error: 'File not found' };
     if (resolved.choices) return { success: false, choices: resolved.choices };
+    announceHandoff(handoffLabel(resolved.path));
     const target = process.platform === 'win32'
       ? await wslExec(['wslpath', '-w', resolved.path])
       : resolved.path;
     const err = await shell.openPath(target);
+    if (err) announceHandoff(null);
     return err ? { success: false, error: err } : { success: true };
   } catch (e) {
+    announceHandoff(null);
     return { success: false, error: e.message };
   }
 });

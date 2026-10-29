@@ -5,6 +5,8 @@
 // Pattern definitions (duplicated from renderer.js for testing)
 // =============================================================================
 
+const { EMAIL_SOURCE } = require('../src/url-open');
+
 // All file extensions - used to prevent filenames from being treated as symbols
 const FILE_EXTENSIONS = /\.(js|ts|jsx|tsx|mjs|cjs|py|pyc|pyi|rb|rs|go|java|class|c|h|cpp|hpp|cc|cs|swift|kt|scala|php|pl|sh|bash|zsh|json|xml|yaml|yml|toml|ini|cfg|md|txt|rst|html|htm|css|scss|sass|less|sql|r|d|f|f90|m|mm|lua|tcl|v|sv|vhd|vhdl|zig|nim|cr|ex|exs|erl|hrl|hs|ml|mli|fs|fsi|clj|cljs|elm|dart|jl|groovy|gradle|cmake|coffee|vue|svelte|astro|wasm|proto|csv|tsv|env|conf|graphql|gql|avro|parquet|pdf|doc|docx|xls|xlsx|ppt|pptx|rtf|tex|epub|png|jpg|jpeg|gif|svg|ico|webp|bmp|tiff|tif|mp3|mp4|wav|avi|mov|mkv|flac|ogg|webm|zip|tar|gz|bz2|xz|rar|7z|tgz|zst|so|dll|dylib|a|o|obj|lib|exe|bin|dmg|iso|deb|rpm|msi|whl|egg|gem|jar|war|pdb|map|log|lock|bak|tmp|old|orig)$/i;
 
@@ -373,6 +375,10 @@ const patterns = [
     // Uses negative lookahead (?!:\d) to avoid matching file:line:col
     name: 'file_line',
     regex: /(?:[.\/…]|[a-zA-Z])[a-zA-Z0-9_.\/…-]*(?:\.[a-zA-Z0-9]+)?:~?\d+(?:-~?\d+)?(?!:\d)/g,
+  },
+  {
+    name: 'email',
+    regex: new RegExp(EMAIL_SOURCE, 'g'),
   },
   {
     name: 'wsl_unc_path',
@@ -1863,6 +1869,42 @@ test('xlsx is matched as resource, not source', () => {
   const matches = parseRow('data.xlsx');
   assertEqual(matches.length, 1);
   assertEqual(matches[0].patternName, 'resource_file');
+});
+
+// =============================================================================
+// Tests: email pattern
+// =============================================================================
+
+console.log('\n--- email pattern ---\n');
+
+const emailTexts = (text) => parseRow(text).filter((m) => m.patternName === 'email').map((m) => m.text);
+
+test('email claims the whole address over the symbols inside it', () => {
+  assertMatches('ask alex.doe@example.com first', ['alex.doe@example.com']);
+  assertEqual(parseRow('alex.doe@example.com')[0].patternName, 'email');
+});
+
+test('email takes digit segments and subdomains', () => {
+  assertEqual(emailTexts('team.7.ops@mail.example.co.uk'), ['team.7.ops@mail.example.co.uk']);
+  assertEqual(emailTexts('first+tag@example.com'), ['first+tag@example.com']);
+});
+
+test('email stops at the punctuation around it', () => {
+  assertEqual(emailTexts('the owner (alex.doe@example.com) signed off'), ['alex.doe@example.com']);
+  assertEqual(emailTexts('Co-authored-by: Bot <noreply@example.com>'), ['noreply@example.com']);
+  assertEqual(emailTexts('write to ops@example.com.'), ['ops@example.com']);
+  assertEqual(emailTexts('reach ops@example.com: any time'), ['ops@example.com']);
+  assertEqual(emailTexts('a@example.com, b@example.org'), ['a@example.com', 'b@example.org']);
+});
+
+test('email skips package specs, git remotes and URL userinfo', () => {
+  assertEqual(emailTexts('npm i @scope/pkg'), []);
+  assertEqual(emailTexts('npm i react@18.3.1'), []);
+  assertEqual(emailTexts('git clone git@example.com:org/repo.git'), []);
+  assertEqual(emailTexts('ssh://git@example.com/repo'), []);
+  assertEqual(emailTexts('https://user@example.com/path'), []);
+  assertEqual(emailTexts('ssh user@localhost'), []);
+  assertEqual(emailTexts('a@example.com_suffix'), []);
 });
 
 // =============================================================================

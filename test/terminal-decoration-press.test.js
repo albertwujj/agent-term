@@ -188,6 +188,44 @@ test('a newly enabled plain click waits for system timing and navigates exactly 
   assertEqual(h.navigations.length, 1);
 });
 
+// The link shows its click was taken for exactly the wait, and stops showing it
+// however the wait ends.
+test('an armed click reports pending with its wait, and clears as it fires', async () => {
+  const pending = [];
+  const h = gestureHarness({ onPending: (match, ms) => pending.push(match ? [match.text, ms] : null) });
+  h.down(); h.up();
+  await h.tick(0);
+  assertEqual(pending, [['foo', 700 + DOUBLE_CLICK_MARGIN_MS]]);
+  await h.tick(700 + DOUBLE_CLICK_MARGIN_MS);
+  assertEqual(pending, [['foo', 700 + DOUBLE_CLICK_MARGIN_MS], null]);
+  assertEqual(h.navigations.length, 1);
+});
+
+test('a cancelled click clears its pending mark once', async () => {
+  const pending = [];
+  const h = gestureHarness({ onPending: (match) => pending.push(match ? 'on' : 'off') });
+  h.down(); h.up();
+  await h.tick(100);
+  h.down({ detail: 2 }); // the second press of a double click
+  h.controller.cancel();
+  await h.tick(2000);
+  assertEqual(pending, ['on', 'off']);
+  assertEqual(h.navigations.length, 0);
+});
+
+test('no pending mark without system timing or for an immediate target', async () => {
+  const pending = [];
+  const onPending = (match) => pending.push(match);
+  const untimed = gestureHarness({ onPending, getDoubleClickMs: () => null });
+  untimed.down(); untimed.up();
+  await untimed.tick(2000);
+  untimed.down();
+  const immediate = gestureHarness({ onPending });
+  immediate.down({ delayed: false }); immediate.up();
+  assertEqual(pending, []);
+  assertEqual(immediate.navigations.length, 1);
+});
+
 test('existing immediate targets do not read timing or schedule navigation', async () => {
   const h = gestureHarness({ getDoubleClickMs: () => { throw new Error('unexpected timing lookup'); } });
   h.down({ delayed: false }); h.up();

@@ -64,8 +64,13 @@ function decorationPressOptions(event = {}) {
 
 // Own both the held press and the released click. Cancellation invalidates the
 // timing lookup as well as the timer, so a late IPC reply cannot re-arm a click.
+//
+// onPending(match, ms) reports an armed click and how long it will wait, so the
+// link can show it was taken; onPending(null) reports that the wait ended,
+// whether the click fired or a second press, a key or a scroll cancelled it.
 function createDecorationPressController({
   navigate,
+  onPending = () => {},
   getDoubleClickMs = () => null,
   canNavigate = () => true,
   holdMs = 200,
@@ -76,9 +81,14 @@ function createDecorationPressController({
   let press = null;
   let pendingClick = null;
 
+  function settle(click) {
+    if (click && click.timer) onPending(null);
+  }
+
   function cancel() {
     press = null;
     if (pendingClick) clearTimer(pendingClick.timer);
+    settle(pendingClick);
     pendingClick = null;
   }
 
@@ -115,11 +125,14 @@ function createDecorationPressController({
       // a shorter interval could turn an accessibility-speed double click into
       // an application switch. Selection is the primary interaction.
       if (!Number.isFinite(interval) || interval <= 0) { pendingClick = null; return; }
+      const wait = interval + DOUBLE_CLICK_MARGIN_MS;
       click.timer = setTimer(() => {
         if (pendingClick !== click) return;
         pendingClick = null;
+        settle(click);
         if (canNavigate(released.match)) navigate(released.match, options);
-      }, interval + DOUBLE_CLICK_MARGIN_MS);
+      }, wait);
+      onPending(released.match, wait);
     }
     void arm();
   }
