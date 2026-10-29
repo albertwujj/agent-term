@@ -43,10 +43,9 @@ test("the prompt asks for the setup guide's step: the same clone, into ai/agent-
   assert.ok(/out of `\.gitignore`/.test(step), 'the setup step no longer keeps ai/ out of .gitignore');
 });
 
-test('the prompt names the repo, the folder, the .git to keep, and the .gitignore rule', () => {
+test('the prompt names the repo, the folder, and the .gitignore rule', () => {
   assert.ok(AGENT_THREADS_CLONE_PROMPT.includes('https://github.com/albertwujj/agent-threads'));
   assert.ok(AGENT_THREADS_CLONE_PROMPT.includes('into ai/agent-threads '));
-  assert.ok(AGENT_THREADS_CLONE_PROMPT.includes('Keep its .git'));
   assert.ok(AGENT_THREADS_CLONE_PROMPT.includes('.gitignore'));
 });
 

@@ -27,7 +27,7 @@ git clone https://github.com/yunxin/agent-jobs ai/agent-jobs
 git clone https://github.com/albertwujj/voice-to-agent ai/voice-to-agent
 ```
 
-One agent-threads clone covers both plans and reviews. Keep each clone's `.git`: a pull in it is how its guides stay current. On Windows, these clones live in WSL with your project. For an existing setup, reuse the clones you already have.
+One agent-threads clone covers both plans and reviews. On Windows, these clones live in WSL with your project. For an existing setup, reuse the clones you already have.
 
 The voice-to-agent clone provides instructions for interpreting dictated input. Recording and transcription are configured with [phone access](#phone-and-ide-integration).
 
