@@ -29,6 +29,8 @@ On Windows each is its own taskbar button, labeled from the session's initial pr
 
 To keep the taskbar and Dock uncluttered, AgentTerm automatically hides sessions you have stopped using, based on your activity, and closing a window hides its session while the CLI runs; the picker brings them back.
 
+On Windows, a WSL bug can leave a session's `wsl.exe` spinning a CPU core until its shell exits. AgentTerm watches for it, and once that session's Claude is idle with nothing unsent, it restarts the shell in the same window and resumes the Claude session.
+
 ## Find and resume sessions
 
 [![Find any past session: type a few letters. The same picker frame shown in the README demo.](assets/hero-session-resume.png)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-session-resume.png)

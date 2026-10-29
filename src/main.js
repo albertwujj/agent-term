@@ -127,6 +127,16 @@ const { isConfirmMessage } = require('./decision-confirm');
 const { decideStall, unaddressedCount, STALL_IDLE_MS } = require('./comment-stall');
 const { parseScopeArg, createReviewSync } = require('./review-sync');
 const {
+  SPIN_PROBE_MS,
+  spinProbeScript,
+  sessionProcess,
+  createSpinWatch,
+  claudeSessionScript,
+  parseClaudeSession,
+  healPlan,
+  resumeCommand,
+} = require('./wsl-spin-watch');
+const {
   orderedRunbookCandidates,
   repoRunbookRoots,
 } = require('./runbook-resolution');
@@ -2961,9 +2971,11 @@ function createPty(cols, rows) {
     },
   });
 
+  const spawned = ptyProcess;
   if (process.platform === 'win32') {
     wslPidFile = `/tmp/.agent-term-pid-${process.pid}`;
     ptyProcess.write(`echo $$ > ${wslPidFile}\n`);
+    startSpinWatch(); // restart the shell if its wsl.exe leaks a spinning thread
   }
 
   ptyStartedAt = Date.now();
@@ -3014,6 +3026,11 @@ function createPty(cols, rows) {
   // Same threadsafe-function rule as onData above: nothing may escape.
   ptyProcess.onExit(({ exitCode }) => {
    try {
+    // A shell ended to stop a spinning wsl.exe is replaced, not mourned.
+    if (spinHeal && spinHeal.pty === spawned) {
+      restartHealedShell();
+      return;
+    }
     ptyProcess = null;
     // Seal the open block + stop heartbeating. The run stays in the hub
     // so the viewer can still browse it; the heartbeat dot will mark it
@@ -3028,6 +3045,149 @@ function createPty(cols, rows) {
     try { log('[main] pty exit handler failed: ' + (err && err.message)); } catch {}
    }
   });
+}
+
+// A line from AgentTerm itself in the terminal, in the shape the startup
+// warnings use.
+function writeTerminalNotice(code, text) {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('pty-output', `\r\n[agent-term warn ${code}] ${text}\r\n`);
+    }
+  } catch {}
+}
+
+// Windows: the window's wsl.exe can leak a thread that spins until that wsl.exe
+// exits (src/wsl-spin-watch.js). A probe every few minutes reads its CPU from
+// Windows, where the spin shows. PowerShell here is a Windows process, not a
+// WSL interop call, so the probe cannot leak one itself. A Claude session found
+// spinning is restarted once it is idle: its wsl.exe is ended, and the exit
+// starts a new shell that resumes the session (restartHealedShell). Any other
+// shell gets a notice instead.
+
+// Overridable so a live test can see a leak healed in minutes.
+const SPIN_PROBE_EVERY_MS = Number(process.env.AGENT_TERM_SPIN_PROBE_MS) || SPIN_PROBE_MS;
+let spinWatchTimer = null;
+let spinWatch = null;
+let spinProbing = false;
+let spinNoticedPid = null;
+// The shell being ended to stop a spin, with what its replacement needs.
+let spinHeal = null;
+
+function startSpinWatch() {
+  if (spinWatchTimer) return;
+  spinWatch = createSpinWatch();
+  spinWatchTimer = setInterval(() => {
+    probeSpin().catch((err) => log('[wsl-spin] probe failed: ' + (err && err.message)));
+  }, SPIN_PROBE_EVERY_MS);
+  if (typeof spinWatchTimer.unref === 'function') spinWatchTimer.unref();
+}
+
+async function probeSpin() {
+  // One probe at a time: on a machine slow enough to leak, a probe can
+  // outlast the interval.
+  if (spinProbing || spinHeal || !ptyProcess) return;
+  spinProbing = true;
+  try {
+    const shellPty = ptyProcess;
+    const r = await runProc('powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', spinProbeScript(shellPty.pid)],
+      { timeout: 60_000, windowsHide: true });
+    if (shellPty !== ptyProcess) return;
+    const seen = spinWatch.observe(sessionProcess(r.stdout, shellPty.pid), Date.now());
+    if (!seen.spinning) return;
+    const found = await posixSh(claudeSessionScript(wslPidFile, shellEscape), { timeout: 10_000 });
+    const session = found.code === 0 ? parseClaudeSession(found.stdout) : null;
+    const plan = healPlan({
+      session,
+      quietMs: Date.now() - Math.max(lastAgentOutputTime, lastInputTime),
+      composing: userComposing(),
+    });
+    const cores = seen.cores.toFixed(1);
+    log(`[wsl-spin] wsl.exe ${seen.pid} at ${cores} cores, ${seen.threads} threads: ${plan}` +
+        (session ? ` (claude ${session.sessionId}, ${session.status || 'no status'})` : ''));
+    if (shellPty !== ptyProcess) return;
+    if (plan === 'heal') {
+      healSpinningShell(shellPty, seen, session);
+      return;
+    }
+    // A wait ends on its own, in the heal and its notice. With no Claude session
+    // to resume only the user can end the shell; a CLI may be drawing the
+    // terminal, so that says so over it, not into it.
+    if (plan === 'wait' || spinNoticedPid === seen.pid) return;
+    spinNoticedPid = seen.pid;
+    sendHint('wsl-notice', `This window's wsl.exe is spinning at ${cores} cores, a WSL leak `
+      + 'that stops only when its shell exits. Exit this shell to free the CPU.');
+  } finally {
+    spinProbing = false;
+  }
+}
+
+function healSpinningShell(shellPty, seen, session) {
+  spinHeal = {
+    pty: shellPty,
+    cols: shellPty.cols,
+    rows: shellPty.rows,
+    command: resumeCommand(session, shellEscape),
+    notice: `This window's wsl.exe was spinning at ${seen.cores.toFixed(1)} cores, a WSL leak that `
+      + `stops only when its shell exits, so AgentTerm started a new shell and resumed `
+      + `Claude session ${session.sessionId}.`,
+  };
+  try {
+    process.kill(seen.pid);
+  } catch (err) {
+    log(`[wsl-spin] could not end wsl.exe ${seen.pid}: ${err && err.message}`);
+    spinHeal = null;
+    return;
+  }
+  // The stub wsl.exe exits with its child, which ends the pty. Should it
+  // linger, end the pty directly.
+  const timer = setTimeout(() => {
+    if (spinHeal && spinHeal.pty === shellPty) {
+      try { shellPty.kill(); } catch {}
+    }
+  }, 10_000);
+  if (typeof timer.unref === 'function') timer.unref();
+}
+
+function restartHealedShell() {
+  const { cols, rows, command, notice } = spinHeal;
+  spinHeal = null;
+  ptyProcess = null;
+  createPty(cols, rows);
+  const shellPty = ptyProcess;
+  log('[wsl-spin] new shell, resuming: ' + command);
+  // A new ConPTY's first paint clears the screen (ESC[2J), and a line written
+  // before it goes with it; on a loaded machine that paint can come well after
+  // the pty's first bytes. So the notice waits for the clear, then for the
+  // shell's prompt to settle, and the resume follows it before the CLI takes
+  // the screen.
+  let cleared = false;
+  let tail = '';
+  let settle = null;
+  let cap = null;
+  let firstOutput = null;
+  let resumed = false;
+  const resume = () => {
+    if (resumed) return;
+    resumed = true;
+    clearTimeout(settle);
+    clearTimeout(cap);
+    try { firstOutput.dispose(); } catch {}
+    if (shellPty !== ptyProcess) return;
+    writeTerminalNotice('EWSLSPIN', notice);
+    try { shellPty.write(command + '\r'); } catch {}
+  };
+  firstOutput = shellPty.onData((data) => {
+    if (!cleared) {
+      cleared = (tail + data).includes('\x1b[2J');
+      tail = data.slice(-3);
+      if (!cleared) return;
+    }
+    clearTimeout(settle);
+    settle = setTimeout(resume, 500);
+  });
+  cap = setTimeout(resume, 10_000);
 }
 
 // Plain Enter keystroke (single \r or \n) — used by the resume intercept.
