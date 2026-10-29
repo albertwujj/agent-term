@@ -5794,7 +5794,7 @@ function createMarkdownViewer({
   // missing: send-anyway ack or cancel), then hand off as one turn.
   // The runbook the pointer names is missing: the choice is made where the
   // send was clicked, in the card, with the composer's own buttons, not in
-  // an alert. Have the agent clone agent-threads into ai/ (the setup guide's
+  // an alert. Have the agent clone agent-threads under ai/ (the setup guide's
   // step, as a prompt, goes to the composer and the card waits, polling once
   // a second, until the clone lands and the send goes ahead on its own), send
   // without the guide, or cancel and keep the draft. The wait is part of the Send, so
