@@ -3932,8 +3932,10 @@ ipcMain.handle('save-clipboard-image', () => {
 });
 
 // Generic helper to send navigation requests to the IDE navigator plugin via TCP.
-// An IDE that is not listening (refused, or silent past the timeout) is marked
-// `unreachable` with the port, which the renderer turns into the setup notice.
+// An IDE that is not listening (refused, or no connection by the timeout) is
+// marked `unreachable` with the port, which the renderer turns into the setup
+// notice. One that took the connection is listening, however long it then takes
+// to answer (an IDE still indexing), so it is reported as a slow answer instead.
 async function sendNavigationRequest(request, port = NAVIGATOR_PORT) {
   const pluginLabel = port === FRONTEND_PORT
     ? 'the IDE navigator frontend plugin (port 8766)'
@@ -3941,10 +3943,12 @@ async function sendNavigationRequest(request, port = NAVIGATOR_PORT) {
   return new Promise((resolve) => {
     const client = new net.Socket();
     let responseData = '';
+    let connected = false;
 
     client.setTimeout(5000);
 
     client.on('connect', () => {
+      connected = true;
       log('[navigate] Connected to', pluginLabel);
       const requestStr = JSON.stringify(request);
       log('[navigate] Sending:', requestStr);
@@ -3971,7 +3975,9 @@ async function sendNavigationRequest(request, port = NAVIGATOR_PORT) {
     client.on('timeout', () => {
       log('[navigate] Connection timeout');
       client.destroy();
-      resolve({ success: false, error: `Connection timeout - is ${pluginLabel} running?`, unreachable: true, port });
+      resolve(connected
+        ? { success: false, error: `No answer yet from ${pluginLabel}` }
+        : { success: false, error: `Connection timeout - is ${pluginLabel} running?`, unreachable: true, port });
     });
 
     client.on('error', (err) => {
@@ -4029,11 +4035,11 @@ ipcMain.handle('get-caret-diagnostics', async () => {
   return getCaretDiagnostics({ sendNavigationRequest, frontendPort: FRONTEND_PORT });
 });
 
-// Every handoff to another application goes through openExternal or openPath
-// below, and the app it starts can take seconds to come forward (a mail client
-// from cold). Each one is announced so the window can say so meanwhile (the
+// Every handoff to the OS goes through openExternal or openPath below, and the
+// app it starts can take a while to come forward (a mail client from cold). Each
+// one is announced as it starts, so the window can say so if it runs long (the
 // renderer's handoff pill, which the other app taking focus dismisses); null
-// takes the pill down when the handoff fails.
+// ends it when no app is coming.
 function announceHandoff(label) {
   try { if (mainWindow) mainWindow.webContents.send('os-handoff', label); } catch {}
 }
@@ -6114,11 +6120,13 @@ ipcMain.handle('resolve-path-choices', async (event, filePath, context) => {
 // the POSIX path as-is. An ambiguous relative path comes back as { choices }
 // for the renderer's chooser instead of guessing.
 ipcMain.handle('open-resource', async (event, filePath, context) => {
+  // Announced before the lookup, which goes through WSL and has no fixed cost.
+  announceHandoff(handoffLabel(filePath));
   try {
     const resolved = await resolveClickedPath(filePath, { folders: clickContextFolders(context) });
+    if (!resolved || resolved.choices) announceHandoff(null);
     if (!resolved) return { success: false, error: 'File not found' };
     if (resolved.choices) return { success: false, choices: resolved.choices };
-    announceHandoff(handoffLabel(resolved.path));
     const target = process.platform === 'win32'
       ? await wslExec(['wslpath', '-w', resolved.path])
       : resolved.path;

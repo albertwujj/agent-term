@@ -2,6 +2,7 @@ const assert = require('assert');
 const {
   opensExternally,
   handoffLabel,
+  ideHandoffLabel,
   normalizeHttpUrl,
   createHttpUrlOpener,
   urlClickWantsExternal,
@@ -16,6 +17,11 @@ async function run() {
   assert.strictEqual(handoffLabel('/home/me/src/components/'), 'Opening components…');
   assert.strictEqual(handoffLabel('\\\\wsl.localhost\\Ubuntu\\home\\me\\bundle.zip'), 'Opening bundle.zip…');
   assert.strictEqual(handoffLabel(''), 'Opening…');
+  assert.strictEqual(ideHandoffLabel({ filePath: 'src/foo.js', line: 42 }), 'Opening foo.js:42 in IDE…');
+  assert.strictEqual(ideHandoffLabel({ filePath: '/home/me/src/foo.js' }), 'Opening foo.js in IDE…');
+  assert.strictEqual(ideHandoffLabel({ filePath: 'src/foo.js', line: 0 }), 'Opening foo.js:0 in IDE…');
+  assert.strictEqual(ideHandoffLabel({ symbolName: 'createWindow' }), 'Opening createWindow in IDE…');
+  assert.strictEqual(ideHandoffLabel({}), 'Opening in IDE…');
 
   // The schemes main hands to the OS: web and local pages, and a mail draft.
   assert.strictEqual(opensExternally('https://example.com'), true);

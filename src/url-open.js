@@ -10,6 +10,10 @@ function opensExternally(rawUrl) {
   return /^(?:(?:https?|file):\/\/|mailto:)/i.test(String(rawUrl || ''));
 }
 
+function pathName(pathText) {
+  return String(pathText || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+}
+
 // What the window says while the OS brings another app forward for a URL or a
 // local path. Which app opens a file is the OS's choice, so a file is named
 // rather than its app.
@@ -21,8 +25,15 @@ function handoffLabel(target) {
   if (/^file:/i.test(text)) {
     try { pathText = decodeURIComponent(new URL(text).pathname); } catch {}
   }
-  const name = pathText.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+  const name = pathName(pathText);
   return name ? `Opening ${name}…` : 'Opening…';
+}
+
+// The same for a jump through the IDE plugin, to a file or a symbol.
+function ideHandoffLabel({ filePath, line, symbolName } = {}) {
+  const name = symbolName || pathName(filePath);
+  if (!name) return 'Opening in IDE…';
+  return `Opening ${name}${line != null ? `:${line}` : ''} in IDE…`;
 }
 
 function normalizeHttpUrl(raw) {
@@ -71,6 +82,7 @@ module.exports = {
   EMAIL_SOURCE,
   opensExternally,
   handoffLabel,
+  ideHandoffLabel,
   normalizeHttpUrl,
   createHttpUrlOpener,
   urlClickWantsExternal,

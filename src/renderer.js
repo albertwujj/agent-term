@@ -33,8 +33,9 @@ const { parseLaunch } = require('./cli-detect');
 const { readPromptSnapshot } = require('./prompt-completion');
 const streamWatch = require('./stream/renderer-watch');
 const streamIndicator = require('./stream/stream-indicator');
-const { EMAIL_SOURCE, createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
+const { EMAIL_SOURCE, ideHandoffLabel, createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
 const { ideUnreachableNotice } = require('./ide-notice');
+const { createHandoffPillTiming } = require('./handoff-pill');
 const { createWebViewer } = require('./web-viewer');
 const { createMarkdownViewer } = require('./markdown-viewer');
 const { createComposer, toPromptAction, isPasteCommentShortcut } = require('./comment-ui');
@@ -4395,24 +4396,26 @@ function showClickFeedback(text, patternName, status = 'info') {
 
 // The handoff pill: another application is coming forward, and until its
 // window shows, this one is the only surface that can say anything — a new
-// AgentTerm instance (Cmd/Ctrl+Shift+N, a separate Electron process) or an OS
+// AgentTerm instance (Cmd/Ctrl+Shift+N, a separate Electron process), an OS
 // handoff (a mail draft, the browser, a file's default app; main announces
-// each one). The pill appears the moment main starts it and pulses while it is
-// in flight. The other window taking focus blurs this one — exactly when the
-// feedback becomes redundant — so blur dismisses it. The timeout only reaps a
-// stale pill when no window comes forward and no failure is reported. A toast
-// already on screen (the device-gated notice says why a page left for the
-// browser) keeps its place, and the pill sits below it.
+// each one) or an IDE jump (jumpWithPill). It pulses while the handoff is in
+// flight; handoff-pill.js decides when it shows and goes. The other window
+// taking focus blurs this one — exactly when the feedback becomes redundant — so
+// blur dismisses it. A toast already on screen (the device-gated notice says why
+// a page left for the browser) keeps its place, and the pill sits below it.
 let handoffPill = null;
-let handoffPillTimer = null;
-let handoffPillBlurHandler = null;
+const handoffPillTiming = createHandoffPillTiming({
+  show: renderHandoffPill,
+  hide: () => { if (handoffPill) { handoffPill.remove(); handoffPill = null; } },
+});
+window.addEventListener('blur', () => handoffPillTiming.dismiss());
 function dismissHandoffPill() {
-  if (handoffPillTimer) { clearTimeout(handoffPillTimer); handoffPillTimer = null; }
-  if (handoffPillBlurHandler) { window.removeEventListener('blur', handoffPillBlurHandler); handoffPillBlurHandler = null; }
-  if (handoffPill) { handoffPill.remove(); handoffPill = null; }
+  handoffPillTiming.dismiss();
 }
 function showHandoffPill(text, timeoutMs) {
-  dismissHandoffPill();
+  return handoffPillTiming.begin(text, timeoutMs);
+}
+function renderHandoffPill(text) {
   const el = document.createElement('div');
   const top = lastToast && lastToast.isConnected
     ? `${Math.round(lastToast.getBoundingClientRect().bottom) + 8}px`
@@ -4438,19 +4441,16 @@ function showHandoffPill(text, timeoutMs) {
   }
   document.body.appendChild(el);
   handoffPill = el;
-  handoffPillBlurHandler = () => dismissHandoffPill();
-  window.addEventListener('blur', handoffPillBlurHandler);
-  handoffPillTimer = setTimeout(dismissHandoffPill, timeoutMs);
 }
 
 let lastToast = null;
 
 // Show a simple toast message (blue, 2-second fade)
-// variant: 'info' (default, blue) | 'warn' (yellow) | 'error' (red), matching the
-// IDE navigation feedback palette in showNavigationFeedback.
+// variant: 'info' (default, blue) | 'success' (green) | 'warn' (yellow) | 'error' (red).
 function showToast(message, { variant = 'info', sticky = variant === 'error' } = {}) {
   const palette = {
     info: { bg: '#569cd6', fg: 'white' },
+    success: { bg: '#6a9955', fg: 'white' },
     warn: { bg: '#dcdcaa', fg: '#1e1e1e' },
     error: { bg: '#f44747', fg: 'white' },
   };
@@ -4614,71 +4614,54 @@ function maybeIdeSetupNotice(result, explicit) {
 
 const explicitJump = (modifiers) => !!(modifiers && (modifiers.metaKey || modifiers.ctrlKey));
 
-// Show navigation result feedback. `explicit` is a Ctrl/Cmd-click: a
-// deliberate jump rather than a click that may have been a selection.
-function showNavigationFeedback(filePath, line, result, { explicit = false } = {}) {
+// An IDE jump, shown like every other handoff. The answer ends the pill and its
+// toast takes over where the pill was. 'multiple' has no toast: the IDE's own
+// picker is on its way instead, so the pill waits for that window.
+async function jumpWithPill(label, jump) {
+  const handoff = showHandoffPill(label, 10000);
+  let result;
+  try {
+    result = await jump();
+    return result;
+  } finally {
+    if (result && result.status === 'multiple') handoffPillTiming.linger(handoff);
+    else handoffPillTiming.finish(handoff);
+  }
+}
+
+// Show navigation result feedback, for a file or a symbol. `explicit` is a
+// Ctrl/Cmd-click: a deliberate jump rather than a click that may have been a
+// selection. A stray click can land here, so it fades even when red, and the
+// next result replaces it.
+function showNavigationFeedback(target, line, result, { explicit = false } = {}) {
   if (maybeIdeSetupNotice(result, explicit)) return;
-  const feedback = document.createElement('div');
-  // Named so a test can see that an IDE navigation was attempted at all — the
-  // gesture rule is about whether the call fires, which is otherwise invisible
-  // on a machine with no IDE listening.
-  feedback.className = 'nav-feedback';
 
   let message;
-  let bgColor;
+  let variant = 'error';
 
   if (!result.status) {
     // TCP failure — no status field
     message = result.error || 'Navigation failed';
-    bgColor = '#f44747'; // red
   } else if (result.status === 'ok') {
-    message = `Navigated to ${filePath}` + (line != null ? `:${line}` : '');
-    bgColor = '#6a9955'; // green
+    message = `Navigated to ${target}` + (line != null ? `:${line}` : '');
+    variant = 'success';
   } else if (result.status === 'text_moved') {
     message = 'Line moved';
-    bgColor = '#dcdcaa'; // yellow
+    variant = 'warn';
   } else if (result.status === 'multiple') {
     return; // the IDE shows its own picker
   } else if (result.status === 'not_found') {
-    message = `Not found: ${result.message || filePath}`;
-    bgColor = '#f44747'; // red
+    message = `Not found: ${result.message || target}`;
   } else {
     // error or unknown status
     message = result.message || 'Unknown error';
-    bgColor = '#f44747'; // red
   }
 
-  feedback.textContent = message;
-  feedback.style.cssText = `
-    position: fixed;
-    top: calc(var(--at-overlay-bottom, 0px) + 10px);
-    right: 10px;
-    background: ${bgColor};
-    color: ${bgColor === '#dcdcaa' ? '#1e1e1e' : 'white'};
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-family: sans-serif;
-    font-size: 14px;
-    z-index: 9999;
-    animation: fadeOut 3s forwards;
-  `;
-
-  // Add fadeOut animation if not exists
-  if (!document.getElementById('click-feedback-style')) {
-    const style = document.createElement('style');
-    style.id = 'click-feedback-style';
-    style.textContent = `
-      @keyframes fadeOut {
-        0% { opacity: 1; }
-        70% { opacity: 1; }
-        100% { opacity: 0; }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  document.body.appendChild(feedback);
-  setTimeout(() => feedback.remove(), 3000);
+  document.querySelectorAll('.nav-feedback:not(.nav-feedback-ide)').forEach((n) => n.remove());
+  // Named so a test can see that an IDE navigation was attempted at all — the
+  // gesture rule is about whether the call fires, which is otherwise invisible
+  // on a machine with no IDE listening.
+  showToast(message, { variant, sticky: false }).classList.add('nav-feedback');
 }
 
 // Design: See docs/dev/maintainer/decisions.md for full rationale. Key points:
@@ -4962,7 +4945,10 @@ async function navigateToFileLine(filePath, line, column, { copyResponse = false
     if (osOpen && (osOpen.success || osOpen.dismissed)) return;
   }
 
-  const result = await window.pty.navigateToFile(navigablePath, line, column, matchText);
+  const result = await jumpWithPill(
+    ideHandoffLabel({ filePath: navigablePath, line }),
+    () => window.pty.navigateToFile(navigablePath, line, column, matchText),
+  );
   debug('Navigation result:', result);
   if (copyResponse) {
     const request = buildFileRequest(navigablePath, line, column, matchText);
@@ -4984,7 +4970,10 @@ async function navigateToFileLine(filePath, line, column, { copyResponse = false
 // Helper function to navigate to a symbol
 async function navigateToSymbol(symbolName, fileHint = null, { copyResponse = false, modifiers } = {}) {
   debug(`Navigating to symbol: ${symbolName}${fileHint ? ` (hint: ${fileHint})` : ''}`);
-  const result = await window.pty.navigateToSymbol(symbolName, fileHint);
+  const result = await jumpWithPill(
+    ideHandoffLabel({ symbolName }),
+    () => window.pty.navigateToSymbol(symbolName, fileHint),
+  );
   debug('Symbol result:', result);
   if (copyResponse) {
     const request = { type: 'symbol', name: symbolName };
@@ -4996,71 +4985,11 @@ async function navigateToSymbol(symbolName, fileHint = null, { copyResponse = fa
   } else {
     if (result.scrollResponse && (!result.scrollResponse.success || result.scrollResponse.status !== 'ok')) {
       const msg = result.scrollResponse.error || result.scrollResponse.message || 'scroll failed';
-      showSymbolFeedback(symbolName, { status: 'unknown_error', message: msg }, { explicit: explicitJump(modifiers) });
+      showNavigationFeedback(symbolName, null, { status: 'unknown_error', message: msg }, { explicit: explicitJump(modifiers) });
     } else {
-      showSymbolFeedback(symbolName, result, { explicit: explicitJump(modifiers) });
+      showNavigationFeedback(symbolName, null, result, { explicit: explicitJump(modifiers) });
     }
   }
-}
-
-// Show symbol navigation feedback
-function showSymbolFeedback(symbolName, result, { explicit = false } = {}) {
-  if (maybeIdeSetupNotice(result, explicit)) return;
-  const feedback = document.createElement('div');
-  feedback.className = 'nav-feedback';
-
-  let message;
-  let bgColor;
-
-  if (!result.status) {
-    // TCP failure — no status field
-    message = result.error || 'Symbol navigation failed';
-    bgColor = '#f44747'; // red
-  } else if (result.status === 'ok') {
-    message = `Navigated to ${symbolName}`;
-    bgColor = '#6a9955'; // green
-  } else if (result.status === 'multiple') {
-    return; // the IDE shows its own picker
-  } else if (result.status === 'not_found') {
-    message = `Not found: ${result.message || symbolName}`;
-    bgColor = '#f44747'; // red
-  } else {
-    // error or unknown status
-    message = result.message || 'Unknown error';
-    bgColor = '#f44747'; // red
-  }
-
-  feedback.textContent = message;
-  feedback.style.cssText = `
-    position: fixed;
-    top: calc(var(--at-overlay-bottom, 0px) + 10px);
-    right: 10px;
-    background: ${bgColor};
-    color: ${bgColor === '#dcdcaa' ? '#1e1e1e' : 'white'};
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-family: sans-serif;
-    font-size: 14px;
-    z-index: 9999;
-    animation: fadeOut 3s forwards;
-  `;
-
-  // Add fadeOut animation if not exists
-  if (!document.getElementById('click-feedback-style')) {
-    const style = document.createElement('style');
-    style.id = 'click-feedback-style';
-    style.textContent = `
-      @keyframes fadeOut {
-        0% { opacity: 1; }
-        70% { opacity: 1; }
-        100% { opacity: 0; }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  document.body.appendChild(feedback);
-  setTimeout(() => feedback.remove(), 3000);
 }
 
 // Extract file context from a single line of text.
