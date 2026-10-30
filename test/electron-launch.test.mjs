@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createElectronLauncher } from './e2e/electron.mjs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { CHECKOUT_DIR, createElectronLauncher } from './e2e/electron.mjs';
+
+test('a test opens on the checkout, wherever the run was started from', () => {
+  assert.equal(CHECKOUT_DIR, path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
+  assert.equal(process.env.AGENT_TERM_START_CWD, CHECKOUT_DIR);
+});
 
 for (const service of ['com.apple.coreservices.launchservicesd', 'com.apple.windowserver.active']) {
   test(`a sandbox denial for ${service} prevents Electron from being spawned`, async () => {

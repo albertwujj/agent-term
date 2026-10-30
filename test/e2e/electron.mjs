@@ -5,7 +5,15 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { _electron } from 'playwright-core';
+
+// A source launch opens its shell where this names, and a run started from a
+// terminal inside AgentTerm inherits that window's directory, so a test's relative
+// paths would depend on who ran it. Tests open on the checkout unless they name
+// their own directory in `env`, including those that spread process.env there.
+export const CHECKOUT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+process.env.AGENT_TERM_START_CWD = CHECKOUT_DIR;
 
 const require = createRequire(import.meta.url);
 const GUI_SERVICES = [

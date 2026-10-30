@@ -48,8 +48,10 @@ const line1 = `  › [image] ${head} (12KB)`;
 const line2 = `${' '.repeat(11)}${frag}`;   // hang one column left of the path start
 const scriptPath = path.join(tmp, 'show.sh');
 // Single-quote the format so the shell doesn't strip the backslash; printf then
-// repeats '%s\n' for each arg, emitting the two rows on real newlines.
-fs.writeFileSync(scriptPath, `printf '%s\\n' ${JSON.stringify(line1)} ${JSON.stringify(line2)}\n`);
+// repeats '%s\n' for each arg, emitting the two rows on real newlines. Clearing
+// first leaves those two rows on screen and nothing the shell printed above them:
+// a prompt's own path is a link too, and where it falls depends on the machine.
+fs.writeFileSync(scriptPath, `clear\nprintf '%s\\n' ${JSON.stringify(line1)} ${JSON.stringify(line2)}\n`);
 
 async function main() {
   if (line1.length > 200) throw new Error('head row too long for the test window width');
@@ -81,8 +83,8 @@ async function main() {
     await runCmd(`sh ${scriptPath}`);
     await sleep(1500);                      // let the decoration loop run
 
-    // The path fragments sit at columns 11–12 (x ≈ 105–116); the echoed command
-    // line's own show.sh path sits further right and is not part of this feature.
+    // The path fragments sit at columns 11–12 (x ≈ 105–116); the rest of the first
+    // row (its size) sits further right and is not part of this feature.
     const decos = await page.evaluate(() => Array.from(document.querySelectorAll('.xterm-decoration'))
       .map((el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })
       .filter((r) => r.w > 0 && r.h > 0 && r.x < 200).sort((a, b) => a.y - b.y));

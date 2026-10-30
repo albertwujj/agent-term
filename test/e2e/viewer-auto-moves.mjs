@@ -127,7 +127,9 @@ fs.writeFileSync(fake, `
 const app = await launchElectron({
   executablePath: require('electron'),
   args: ['--no-sandbox', `--user-data-dir=${path.join(tmp, 'userdata')}`, APP_DIR],
-  env: { ...process.env, TMUX: '', STY: '', ZELLIJ: '' },
+  // The shell opens in the repo, so the send finds the runbook vendored above and
+  // not one that happens to sit on this machine.
+  env: { ...process.env, AGENT_TERM_START_CWD: repo, TMUX: '', STY: '', ZELLIJ: '' },
   timeout: 45_000,
 });
 try {
