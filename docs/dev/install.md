@@ -13,7 +13,7 @@ The former Windows installer pipeline is frozen and no longer tested. Its last-k
 | Checkout | `~/agent-term` | `~/agent-term` inside the WSL distro |
 | Dependencies | One macOS `node_modules` | Linux `node_modules` for builds/tests, plus an isolated Windows cache for the UI |
 | Phone view config | `~/.agent-term/config.json` | `~/.agent-term/config.json` inside the WSL distro |
-| UI end-to-end tests | Native desktop | WSLg |
+| UI end-to-end tests | Native desktop | Linux Electron, no window |
 
 Windows gets taskbar buttons and live DWM previews for active sessions; before any CLI the button carries the picker's list, three session-colored rows, then the CLI's mark. macOS gets a Dock tile per session: the session color with the prompt's leading letters, the CLI's mark before the first prompt, and before any CLI three session-colored rows, the picker's list. The Dock label and Cmd-Tab name a process after the bundle folder it was launched through, so `npm run start` launches through an AgentTerm.app link that the build places next to the unpackaged Electron.app; the build also writes the name into the bundle's Info.plist, which titles the application menu. Each session there works best in its own full-screen space, where Mission Control shows the initial prompt pinned at the top of each window.
 
@@ -71,7 +71,7 @@ npm --prefix ~/agent-term run start
 
 From WSL, `npm run start` invokes Windows PowerShell for the host-side seam. On its first run it creates an isolated Windows dependency cache under `%LOCALAPPDATA%\AgentTermWslDev`, with a generation for each install-affecting dependency state, takes a per-process snapshot of the current source, and launches Windows Electron from that snapshot. Separate generations let an updated launch coexist with older AgentTerm processes whose Electron files remain locked by Windows; once no AgentTerm process runs from an older generation, the next window's start deletes it in the background. It neither reads nor modifies WSL's Linux `node_modules`. The terminal opens in the original checkout, and all later WSL probes stay pinned to the distro that launched it. The taskbar button's right-click menu then offers "Start or resume session", the same as Ctrl+Shift+N: a Jump List task starts with no environment, so the running app keeps the launcher's environment in `launch-env.json` in that cache and the task hands it to the bootstrap by argument.
 
-`npm run start:linux` starts Linux Electron through WSLg instead, for trying the UI the way the end-to-end tests run it. That window sees Linux rather than Windows and has no Windows taskbar integration.
+`npm run start:linux` starts Linux Electron through WSLg instead, for trying the UI on the same build the end-to-end tests run. That window sees Linux rather than Windows and has no Windows taskbar integration.
 
 ## Update an existing checkout
 

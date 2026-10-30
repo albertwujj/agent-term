@@ -24,7 +24,7 @@ const page = await app.firstWindow();
 await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });
 ```
 
-Under WSL the window opens through WSLg (`DISPLAY=:0`).
+Under WSL the window opens through WSLg (`DISPLAY=:0`). A script importing `test/e2e/electron.mjs` instead runs with no window, which screenshots the same and takes no focus from the desktop; set `AGENT_TERM_E2E_WINDOW=1` to see it.
 
 Import playwright-core by absolute path — scripts outside the repo can't
 resolve it by name. Resize via `app.evaluate(({BrowserWindow}) => ...

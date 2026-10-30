@@ -15,6 +15,20 @@ import { _electron } from 'playwright-core';
 export const CHECKOUT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 process.env.AGENT_TERM_START_CWD = CHECKOUT_DIR;
 
+// On Linux a run has no window at all. Playwright's input reaches the page over
+// the debugging protocol, so a test needs no screen, and a real window can take
+// focus from whatever someone is typing in, whose keystrokes then land in the
+// test's shell. AGENT_TERM_E2E_WINDOW=1 shows the windows, to watch a run.
+const NO_WINDOW_ARGS = ['--ozone-platform=headless', '--ozone-override-screen-size=1920,1080'];
+// WebGL without a GPU, as a window has. A test passing --disable-gpu is after the
+// DOM renderer the terminal falls back to, whose text it can read.
+const SOFTWARE_WEBGL_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+if (process.platform === 'linux' && !process.env.AGENT_TERM_E2E_WINDOW) {
+  // The flags cover this process; a window the app opens by itself has none.
+  delete process.env.DISPLAY;
+  delete process.env.WAYLAND_DISPLAY;
+}
+
 const require = createRequire(import.meta.url);
 const GUI_SERVICES = [
   'com.apple.coreservices.launchservicesd',
@@ -68,6 +82,11 @@ export function createElectronLauncher({
         error.code = 'EMACOSSANDBOX';
         throw error;
       }
+    }
+    if (platform === 'linux' && !process.env.AGENT_TERM_E2E_WINDOW) {
+      const args = options.args || [];
+      const webgl = args.includes('--disable-gpu') ? [] : SOFTWARE_WEBGL_ARGS;
+      return launch({ ...options, args: [...NO_WINDOW_ARGS, ...webgl, ...args] });
     }
     return launch(options);
   };

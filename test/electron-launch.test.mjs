@@ -69,6 +69,33 @@ for (const platform of ['linux', 'win32']) {
   });
 }
 
+test('a Linux launch has no window, so no keystroke from the desktop can reach it', async () => {
+  let passed;
+  const launch = createElectronLauncher({ platform: 'linux', launch: (options) => { passed = options; } });
+  await launch({ args: ['--no-sandbox', '.'], timeout: 1234 });
+  assert.ok(passed.args.includes('--ozone-platform=headless'), passed.args.join(' '));
+  assert.deepEqual(passed.args.slice(-2), ['--no-sandbox', '.']);
+  assert.equal(passed.timeout, 1234);
+});
+
+test('a Linux launch has WebGL unless the test asked for no GPU', async () => {
+  let passed;
+  const launch = createElectronLauncher({ platform: 'linux', launch: (options) => { passed = options; } });
+  await launch({ args: ['.'] });
+  assert.ok(passed.args.includes('--use-angle=swiftshader'), passed.args.join(' '));
+  await launch({ args: ['--disable-gpu', '.'] });
+  assert.ok(!passed.args.includes('--use-angle=swiftshader'), passed.args.join(' '));
+});
+
+test('AGENT_TERM_E2E_WINDOW shows the window, to watch a run', async () => {
+  let passed;
+  const options = { args: ['.'] };
+  const launch = createElectronLauncher({ platform: 'linux', launch: (received) => { passed = received; } });
+  process.env.AGENT_TERM_E2E_WINDOW = '1';
+  try { await launch(options); } finally { delete process.env.AGENT_TERM_E2E_WINDOW; }
+  assert.equal(passed, options);
+});
+
 test('a real launch failure is preserved instead of being reported as a sandbox denial', async () => {
   const failure = new Error('Playwright failed to connect');
   const launch = createElectronLauncher({

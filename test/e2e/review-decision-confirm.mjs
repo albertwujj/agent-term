@@ -25,6 +25,10 @@ git('commit', '-qm', 'Base');
 const base = git('rev-parse', 'HEAD');
 fs.writeFileSync(path.join(repo, 'limits.py'), 'REFILL = 10\nRETRIES = 3\n');
 git('commit', '-qam', 'Set limits');
+// The runbook the review send looks for, vendored where the host looks first.
+// Without one, a send stops at a dialog this test has nobody to answer.
+fs.mkdirSync(path.join(repo, 'ai', 'agent-threads', 'code'), { recursive: true });
+fs.writeFileSync(path.join(repo, 'ai', 'agent-threads', 'code', 'produce-review.md'), '# produce review (stub)\n');
 const dir = path.join(repo, '.git', 'review', 'main');
 fs.mkdirSync(dir, { recursive: true });
 const pkg = path.join(dir, 'main.md');

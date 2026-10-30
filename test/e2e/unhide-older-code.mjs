@@ -106,7 +106,7 @@ try {
   check('it says why', /session 6 started before the code changed; closing so it resumes on the current code/.test(a.log));
   const rec6 = await waitFor(() => { const r = sessionsLog.readActiveFile(UD, 6); return r && r.pid === pPid ? r : null; }, 5000);
   check('the session resumes in the picker window', !!rec6, JSON.stringify(sessionsLog.readActiveFile(UD, 6)));
-  check('through its CLI, on the current code', /armed intercept after picker-pick id=6/.test(p.log));
+  check('through its CLI, on the current code', !!(await waitFor(() => /armed intercept after picker-pick id=6/.test(p.log), 5000)));
   const told = await waitFor(() => p.page.evaluate(() => document.body.innerText.includes('This session is re-established on the new code, so it needs to resume through the CLI')), 5000);
   check('the picker window says why it resumes through the CLI', !!told);
   check('the older window left a closed event', sessionsLog.readLog(UD).some(e => e.id === 6 && e.e === 'closed'));

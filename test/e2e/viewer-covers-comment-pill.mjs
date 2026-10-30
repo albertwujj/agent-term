@@ -58,7 +58,9 @@ async function main() {
 
   try {
     await page.locator('.xterm-helper-textarea').focus();
-    await page.keyboard.type(`echo ${MD_FIXTURE}; for i in 1 2 3 4 5 6; do echo "line $i: the quick brown fox"; done`);
+    // Cleared first: the drag below aims at a row, and what a shell prints as it
+    // starts differs by machine.
+    await page.keyboard.type(`clear; echo ${MD_FIXTURE}; for i in 1 2 3 4 5 6; do echo "line $i: the quick brown fox"; done`);
     await page.keyboard.press('Enter');
     await sleep(600);
 

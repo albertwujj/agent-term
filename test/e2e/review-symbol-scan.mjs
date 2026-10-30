@@ -157,7 +157,10 @@ try {
     { type: 'keyDown', keyCode: 'Escape' },
     { type: 'keyUp', keyCode: 'Escape' },
   ]);
-  const cleared = await state();
+  const cleared = await waitFor(async () => {
+    const s = await state();
+    return s && s.hits === 0 ? s : false;
+  }, 'Esc did not clear the highlights');
   assert.equal(cleared.hits, 0, 'Esc clears the highlights');
   assert.equal(cleared.pill, '', 'Esc removes the pill');
   console.log('PASS Esc clears the scan');

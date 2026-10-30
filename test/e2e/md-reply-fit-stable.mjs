@@ -20,7 +20,7 @@ const THREADS = [{
   anchor: { snippet: 'Paragraph 14 carries enough ordinary text', context: '', wholeBlock: false, heading: 'Reply fit' },
   messages: [
     { author: 'user', body: 'Is this clear?', ts: 1 },
-    { author: 'agent', body: Array.from({ length: 30 }, () => 'The agent answer runs long enough to make the card taller than a page.').join(' '), ts: 2 },
+    { author: 'agent', body: Array.from({ length: 150 }, () => 'The agent answer runs long enough to make the card taller than a page.').join(' '), ts: 2 },
   ],
 }];
 

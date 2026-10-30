@@ -8,7 +8,7 @@
 // comment on a document now depends on, and completion history surviving a
 // follow-up through those same files and IPC paths.
 
-import { launchElectron } from './electron.mjs';
+import { followMainLog, launchElectron } from './electron.mjs';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -36,6 +36,9 @@ async function main() {
   fs.writeFileSync(doc, '# Launch plan\n\nThe opening paragraph.\n', 'utf8');
   const expected = path.join(scratch, '.agent-threads', 'launch plan-comments.json');
   const oldSibling = path.join(scratch, '.launch plan-comments.json');
+  // The runbook a reply looks for, vendored where the host looks first.
+  fs.mkdirSync(path.join(scratch, 'ai', 'agent-threads', 'md'), { recursive: true });
+  fs.writeFileSync(path.join(scratch, 'ai', 'agent-threads', 'md', 'user-intent.md'), '# user intent (stub)\n');
 
   const app = await launchElectron({
     executablePath: ELECTRON_BIN,
@@ -43,6 +46,7 @@ async function main() {
     env: { ...process.env, AGENT_TERM_START_CWD: scratch, TMUX: '', STY: '', ZELLIJ: '' },
     timeout: 45_000,
   });
+  const mainLog = await followMainLog(app);
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });
@@ -87,6 +91,10 @@ async function main() {
     check('no stray store beside the document', fs.readdirSync(scratch).filter((f) => f.endsWith('-comments.json')).length === 0);
 
     console.log('a refinement preserves an already completed edit');
+    // Each send's Enter follows its echo, a moment after the send returns. One
+    // landing in the middle of the line typed below would cut that line in two.
+    const entersSent = () => (mainLog.text.match(/\[submit\] terminator sent/g) || []).length;
+    for (const until = Date.now() + 10_000; entersSent() < 2 && Date.now() < until;) await sleep(50);
     const refineDoc = path.join(scratch, 'refine.md');
     const applied = 'The document now uses clear wording.';
     const appliedSource = '# Refine\n\n' + applied + '\n';

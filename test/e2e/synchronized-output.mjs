@@ -160,7 +160,8 @@ async function exercise(platform) {
     'Alt/Option arrows must emit the existing platform sequences exactly once');
     console.log(`PASS ${platform}: Alt/Option arrow navigation`);
 
-    await send(Array.from({ length: 100 }, (_, i) => `\r\nScrollback row ${i}`).join(''));
+    // The checks below compare whole frames, and the cursor blinks on its own clock.
+    await send('\x1b[?25l' + Array.from({ length: 100 }, (_, i) => `\r\nScrollback row ${i}`).join(''));
     await paint();
     const bottom = await screen.screenshot();
     await screen.hover();
