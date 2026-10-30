@@ -30,7 +30,7 @@ const resumeHint = require('./resume-hint');
 const { showNotice } = require('./notice-strip');
 const launcherBand = require('./launcher-band');
 const { parseLaunch } = require('./cli-detect');
-const { readPromptSnapshot } = require('./prompt-completion');
+const { readPromptSnapshot, promptHoldsInput } = require('./prompt-completion');
 const streamWatch = require('./stream/renderer-watch');
 const streamIndicator = require('./stream/stream-indicator');
 const { EMAIL_SOURCE, ideHandoffLabel, createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
@@ -921,6 +921,9 @@ if (typeof window.pty.onToPrompt === 'function') {
     try { terminal.focus(); } catch {}
   });
 }
+// Main asks before that paste: it cannot see the screen, and whether the
+// composer holds text decides if the batch starts on a new line.
+window.promptHoldsInput = () => promptHoldsInput(terminal);
 if (typeof window.pty.onViewerShortcut === 'function') {
   window.pty.onViewerShortcut((action) => { handleViewerShortcut(action); });
 }

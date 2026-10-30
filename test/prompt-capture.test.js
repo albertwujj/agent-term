@@ -298,7 +298,7 @@ test('two Enter-selected references stay in the same prompt', (cap, _get, _shell
 });
 
 test('recovery works for different prompt gutters and buffers without a CLI type', (_cap, _get) => {
-  for (const prefix of ['> ', '  › ', '❯ ', '│ > ']) {
+  for (const prefix of ['> ', '  › ', '❯ ', '❯ ', '│ > ']) {
     for (const type of ['normal', 'alternate']) {
       const all = [];
       const cap = createPromptCapture({ onPrompt: p => all.push(p) });

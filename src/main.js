@@ -543,6 +543,8 @@ const SUBMIT_FALLBACK_MS = 1500;     // outer bound if no echo seen
 // reliable output-pattern readiness detection, and a 1-keystroke
 // human-in-the-loop check is both simpler and more robust.
 
+// `terminator` may instead be a function, for the next write in an echo-gated
+// chain.
 function writeBodyThenSubmit(body, terminator = '\r') {
   if (!ptyProcess || typeof body !== 'string' || !body) return false;
   const tBeforeBody = lastPtyOutputTime;
@@ -557,8 +559,10 @@ function writeBodyThenSubmit(body, terminator = '\r') {
     crSent = true;
     clearInterval(echoTimer);
     clearTimeout(fallbackTimer);
-    try { ptyProcess.write(terminator); }
-    catch (e) { log('[submit] CR FAILED: ' + (e && e.message)); return; }
+    try {
+      if (typeof terminator === 'function') terminator();
+      else ptyProcess.write(terminator);
+    } catch (e) { log('[submit] CR FAILED: ' + (e && e.message)); return; }
     log('[submit] terminator sent (' + reason + ') @ ' + (Date.now() - t0) + 'ms');
   };
   // Poll for an echo every 30ms. Echo = lastPtyOutputTime advanced
@@ -608,30 +612,56 @@ function writeAsBracketedPasteSubmission(body) {
 // in any TUI, where a bare LF could mean submit and would fire the batch
 // early. Same wire format either way: batch, blank line, the user's words.
 // Verify a CLI (paste, write '\n', watch: newline or submit?) before adding
-// it here. claude: 2.1.241; agent (cursor-agent): 2026.08.11-e8db854;
-// codex: 0.144.6 — all live, 2026-08-23.
-const LF_INSERTS_NEWLINE_CLIS = new Set(['claude', 'agent', 'codex']);
+// it here. codex: 0.144.6, live 2026-08-23; claude: 2.1.314; agent
+// (cursor-agent): 2026.10.22-27dcf5f; copilot: 1.0.105, which takes the pair of
+// LFs as one newline — live, 2026-10-30.
+const LF_INSERTS_NEWLINE_CLIS = new Set(['claude', 'agent', 'codex', 'copilot']);
+
+// What a To prompt lands in. detectedCli outlives its CLI, and a bare LF at the
+// shell left behind is Enter: it would run the line. So a LF outside the paste
+// needs the probe's word that a program has the terminal, and an answer that
+// never comes costs only the look of the paste, never the paste.
+const PROMPT_READ_TIMEOUT_MS = 1500;
+function readPromptTarget() {
+  const unknown = { cliInFront: false, holdsInput: false };
+  if (!detectedCli || !mainWindow || mainWindow.isDestroyed()) return Promise.resolve(unknown);
+  const read = async () => {
+    if ((await shellAtPrompt()) !== false) return unknown;
+    const holdsInput = await mainWindow.webContents.executeJavaScript('window.promptHoldsInput()');
+    return { cliInFront: true, holdsInput };
+  };
+  return Promise.race([
+    read(),
+    new Promise((resolve) => setTimeout(resolve, PROMPT_READ_TIMEOUT_MS, unknown)),
+  ]).catch(() => unknown);
+}
 
 // "To prompt": the same message, pasted into the CLI's input and left there
 // for the user to finish — no CR. The renderer is told so it can roll the
-// viewer up and focus the terminal: the user is about to type there.
+// viewer up and focus the terminal: the user is about to type there. Text
+// already in the composer gets a newline first, so the message does not run on
+// from it; an empty composer takes the message as it is.
 function writeAsBracketedPasteToPrompt(body) {
   const text = normalizeInlineCommentSubmission(body);
   if (!text || !ptyProcess) return false;
-  const lfSafe = LF_INSERTS_NEWLINE_CLIS.has(detectedCli);
-  // The separator LFs must be a SEPARATE write, after the CLI has echoed the
-  // paste: claude drops the whole paste when the LFs share its chunk. Same
-  // echo-then-finish pattern as a submission, with LFs instead of the CR.
-  const ok = lfSafe
-    ? writeBodyThenSubmit(`\x1b[200~${text}\x1b[201~`, '\n\n')
-    : (() => {
-        try { ptyProcess.write(`\x1b[200~${text}\n\n\x1b[201~`); return true; } catch (e) {
-          log('[to-prompt] body write FAILED: ' + (e && e.message));
-          return false;
-        }
-      })();
-  if (!ok) return false;
-  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('to-prompt'); } catch {}
+  readPromptTarget().then(({ cliInFront, holdsInput }) => {
+    // The LFs must be SEPARATE writes around the paste, each after the CLI has
+    // echoed the last: claude drops the whole paste when LFs share its chunk,
+    // and a LF inside the bracket vanishes into a [Pasted text] chip. Same
+    // echo-then-finish pattern as a submission, with LFs instead of the CR.
+    const writePaste = () => writeBodyThenSubmit(`\x1b[200~${text}\x1b[201~`, '\n\n');
+    const lfSafe = cliInFront && LF_INSERTS_NEWLINE_CLIS.has(detectedCli);
+    const ok = lfSafe
+      ? (holdsInput ? writeBodyThenSubmit('\n', writePaste) : writePaste())
+      : (() => {
+          try { ptyProcess.write(`\x1b[200~${holdsInput ? '\n' : ''}${text}\n\n\x1b[201~`); return true; } catch (e) {
+            log('[to-prompt] body write FAILED: ' + (e && e.message));
+            return false;
+          }
+        })();
+    if (!ok) return;
+    try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('to-prompt'); } catch {}
+  });
   return true;
 }
 

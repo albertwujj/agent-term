@@ -4,7 +4,12 @@
 
 const MAX_ROWS = 80;
 const MAX_CHARS = 32768;
-const PROMPT_START = /^([ \t]*(?:[│┃|▎][ \t]*)?[>›❯❱→][ \t]+)(.*)$/u;
+// The space after the marker can be a no-break one: Claude Code draws it.
+const PROMPT_START = /^([ \t]*(?:[│┃|▎][ \t]*)?[>›❯❱→][ \t\u00a0]+)(.*)$/u;
+// All a composer row can start with besides text: a box edge, a marker, both.
+// Copilot's rows have only the edge.
+const PROMPT_GUTTER = /^[ \t]*(?:[│┃|▎][ \t]*)?(?:[>›❯❱→][ \t\u00a0]*)?/u;
+const GUTTERED_ROW = /^[ \t]*(?:[│┃|▎]|[>›❯❱→][ \t\u00a0])/u;
 const normalize = text => text.replace(/\s+/g, ' ').trim();
 
 function readPromptSnapshot(terminal) {
@@ -30,6 +35,52 @@ function readPromptSnapshot(terminal) {
     }
   }
   return { type: buffer.type, lines };
+}
+
+function textBeforeCaret(line, col) {
+  return line.isWrapped || /\S/.test(line.translateToString(false, 0, col).replace(PROMPT_GUTTER, ''));
+}
+
+// Whether the composer of the running CLI holds text that a message pasted at
+// its caret would run into: anything before the caret on its row. A placeholder
+// follows the caret, and a caret on an empty row under earlier text is already
+// on a line of its own. Read off the screen, not the keystrokes: a CLI can empty
+// its composer (Esc Esc) or fill it (history) without those bytes saying so.
+// Ask only while a CLI runs: at a bare shell its own prompt would read as text.
+function promptHoldsInput(terminal) {
+  const buffer = terminal && terminal.buffer && terminal.buffer.active;
+  if (!buffer || typeof buffer.getLine !== 'function') return false;
+  if (!terminal._core?.coreService?.isCursorHidden) {
+    const line = buffer.getLine(buffer.baseY + buffer.cursorY);
+    return !!line && textBeforeCaret(line, buffer.cursorX);
+  }
+  // A CLI can hide the terminal's cursor and draw its own caret, an inverted
+  // cell in the composer. Unfocused it may show neither, as Cursor Agent and
+  // Copilot do, which leaves the last row with a gutter to answer: the composer
+  // is the bottom of the screen. Its placeholder is the dim part.
+  const end = Math.min(buffer.length, buffer.baseY + terminal.rows);
+  let anchor = -1;
+  for (let row = end - 1; row >= buffer.baseY && anchor < 0; row--) {
+    const line = buffer.getLine(row);
+    if (line && GUTTERED_ROW.test(line.translateToString(false))) anchor = row;
+  }
+  if (anchor < 0) return false;
+  const cell = buffer.getNullCell();
+  for (let row = anchor; row < end; row++) {
+    const line = buffer.getLine(row);
+    for (let col = 0; line && col < line.length; col++) {
+      line.getCell(col, cell);
+      if (cell.isInverse()) return textBeforeCaret(line, col);
+    }
+  }
+  const line = buffer.getLine(anchor);
+  const gutter = PROMPT_GUTTER.exec(line.translateToString(false))[0].length;
+  let typed = '';
+  for (let col = gutter; col < line.length; col++) {
+    line.getCell(col, cell);
+    if (!cell.isDim()) typed += cell.getChars();
+  }
+  return /\S/.test(typed.replace(/[│┃|▎][ \t]*$/, ''));
 }
 
 function promptRows(snapshot) {
@@ -176,6 +227,6 @@ function dropUnrecoveredMentions(typed, tokens, snapshot, completion = null) {
 }
 
 module.exports = {
-  readPromptSnapshot, beginMentionCompletion, recoverMentionCompletion,
+  readPromptSnapshot, promptHoldsInput, beginMentionCompletion, recoverMentionCompletion,
   mentionTokenAt, dropUnrecoveredMentions,
 };
