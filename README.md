@@ -115,8 +115,7 @@ Below are just examples. Follow the links to explore more features.
 
 ## How it works
 
-[![Multiple AgentTerm instances on macOS and Windows/WSL use editable agent guides, with optional external IDE integration and one shared hub for phone or browser access.](docs/assets/architecture.svg#gh-light-mode-only)](docs/assets/architecture.svg)
-[![Multiple AgentTerm instances on macOS and Windows/WSL use editable agent guides, with optional external IDE integration and one shared hub for phone or browser access.](docs/assets/architecture-dark.svg#gh-dark-mode-only)](docs/assets/architecture-dark.svg)
+[![Multiple AgentTerm instances on macOS and Windows/WSL use editable agent guides, with optional external IDE integration and one shared hub for phone or browser access.](docs/assets/architecture.svg)](docs/assets/architecture.svg)
 
 AgentTerm runs your existing AI CLI in a full terminal, using Electron for the window, xterm.js for terminal emulation, and node-pty for the shell connection. The host parses terminal output for file references and recognized conventions, and keeps track of mentioned documents even when the CLI redraws the screen.
 

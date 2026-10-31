@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="784" height="646" viewBox="0 0 784 646" data-theme="light" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" width="784" height="646" viewBox="0 0 784 646" role="img" aria-labelledby="title description">
   <title id="title">AgentTerm, editable agent guides, IDEs and your phone</title>
   <desc id="description">Multiple AgentTerm instances run on both macOS and Windows with WSL. Each instance keeps its AI CLI, documents and reviews together on its own computer. The AI CLIs read editable Markdown guides from companion repositories. For example, agent-threads guides curated reviews and document feedback; editing those guides customizes the agent’s behavior. An external IDE can exchange code references over an open JSON protocol through a plugin; the available integration is for JetBrains IDEs. Sessions from all computers can connect over HTTPS to the same optional, self-hosted agent-stream-hub relay. A phone or browser connects to the hub to view sessions and reply.</desc>
   <defs>
@@ -7,7 +7,6 @@
     </marker>
     <style>
       :root {
-        color-scheme: light;
         --frame: #e8e8dd;
         --paper: #fcfcfa;
         --ink: #24292f;
@@ -26,8 +25,8 @@
         --gold: #f8f3e7;
         --gold-line: #b2a075;
       }
-      :root[data-theme="dark"] {
-        color-scheme: dark;
+      @media (prefers-color-scheme: dark) {
+        :root {
         --frame: #303832;
         --paper: #161b22;
         --ink: #e6edf3;
@@ -45,6 +44,7 @@
         --green-line: #80a78e;
         --gold: #3e3524;
         --gold-line: #b5a06b;
+        }
       }
       text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; fill: var(--ink); }
       .host { font-size: 18px; font-weight: 600; }
