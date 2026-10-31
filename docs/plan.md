@@ -27,7 +27,7 @@ English is where the real planning happens: much of a design is settled in words
 Editing supports new sections and blocks: Shift+Enter starts a new line on the rendered page, and the agent formats what you typed into headings, paragraphs and bullets.
 
 <p align="center">
-<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/change-highlight.png"><img src="assets/change-highlight.png" width="65%" alt="a long changed paragraph: a bar in the margin marks the block, and hovering shows the exact words that changed"></a>
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/change-highlight-framed-78e94b782e20.svg"><img src="assets/change-highlight-framed-78e94b782e20.svg" width="65%" alt="a long changed paragraph: a bar in the margin marks the block, and hovering shows the exact words that changed"></a>
 </p>
 
 You can also track what the agent changed. A bar in the margin marks each block it edited. Hover one and the exact words show.
