@@ -409,7 +409,97 @@ await test('no cwd line when no start dir is known', () => {
   picker.destroy();
 });
 
-await test('nothing typed: no start row, most recent selectable session selected, Enter resumes it', () => {
+const openSessionFixture = () => [
+  { id: 1, cli: 'claude', prompt: 'alpha in an open window', touchedAt: 3, isActive: true },
+  { id: 2, cli: 'codex', prompt: 'alpha resumable', touchedAt: 2 },
+];
+
+// Runs fn with pickerBringForward recording its ids, and hands them over.
+function recordingBringForward(fn) {
+  const ids = [];
+  const original = window.pty.pickerBringForward;
+  window.pty.pickerBringForward = (id) => { ids.push(id); };
+  try { fn(ids); } finally { window.pty.pickerBringForward = original; }
+}
+
+await test('moving to an open session and pressing Enter brings its window forward', () => {
+  recordingBringForward((ids) => {
+    let picked = null;
+    let closed = 0;
+    const picker = createPicker({
+      sessions: openSessionFixture(),
+      activeIds: [1],
+      onPick: (id) => { picked = id; }, onStartNew: () => {}, onClose: () => { closed++; },
+    });
+    const el = document.querySelector('.at-picker-input');
+    assert.strictEqual(document.querySelector('.at-picker-row-selected').dataset.id, '2');
+    key(el, 'ArrowUp');
+    const selected = document.querySelector('.at-picker-row-selected');
+    assert.strictEqual(selected.dataset.id, '1');
+    assert.ok(selected.querySelector('.at-picker-active-badge'));
+    key(el, 'Enter');
+    assert.deepStrictEqual(ids, [1]);
+    assert.strictEqual(picked, null);
+    assert.strictEqual(closed, 1);
+    picker.destroy();
+  });
+});
+
+await test('clicking an open session brings its window forward', () => {
+  recordingBringForward((ids) => {
+    let picked = null;
+    let closed = 0;
+    const picker = createPicker({
+      sessions: openSessionFixture(),
+      activeIds: [1],
+      onPick: (id) => { picked = id; }, onStartNew: () => {}, onClose: () => { closed++; },
+    });
+    document.querySelector('.at-picker-row[data-id="1"]').click();
+    assert.deepStrictEqual(ids, [1]);
+    assert.strictEqual(picked, null);
+    assert.strictEqual(closed, 1);
+    picker.destroy();
+  });
+});
+
+await test('with only open sessions, Enter right away brings the top one forward', () => {
+  recordingBringForward((ids) => {
+    const picker = createPicker({
+      sessions: [openSessionFixture()[0]],
+      activeIds: [1],
+      onPick: () => {}, onStartNew: () => {}, onClose: () => {},
+    });
+    key(document.querySelector('.at-picker-input'), 'Enter');
+    assert.deepStrictEqual(ids, [1]);
+    picker.destroy();
+  });
+});
+
+await test('a re-render leaves the selection on the open session the user moved to', async () => {
+  let search = null;
+  const picker = createPicker({
+    sessions: openSessionFixture(),
+    activeIds: [1],
+    startHiddenPromptSearch: (payload) => { search = payload; },
+    cancelHiddenPromptSearch: () => {},
+    deepSearchDebounceMs: 0,
+    onPick: () => {}, onStartNew: () => {}, onClose: () => {},
+  });
+  const el = document.querySelector('.at-picker-input');
+  input(el, 'alpha');
+  await wait(5);
+  key(el, 'ArrowDown');
+  assert.strictEqual(document.querySelector('.at-picker-row-selected').dataset.id, '1');
+  picker.handleHiddenSearchProgress({
+    requestId: search.requestId, query: 'alpha', done: true, matchCount: 0, sessions: [],
+  });
+  assert.strictEqual(document.querySelector('.at-picker-row-selected').dataset.id, '1');
+  input(el, 'alph');
+  assert.strictEqual(document.querySelector('.at-picker-row-selected').dataset.kind, 'new');
+  picker.destroy();
+});
+
+await test('nothing typed: no start row, most recent session without a window selected, Enter resumes it', () => {
   let picked = null;
   const picker = createPicker({
     sessions: [

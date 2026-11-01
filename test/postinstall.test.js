@@ -1,5 +1,7 @@
 const assert = require('assert');
 const { spawnSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { runPostinstall } = require('../scripts/postinstall');
 
@@ -54,6 +56,7 @@ test('installs Electron before applying the node-pty permission fix', () => {
   runPostinstall({
     nodePath: 'node-test',
     stamp: () => calls.push(['stamp']),
+    nameBundle: () => calls.push(['nameBundle']),
     resolve: (request) => {
       assert.strictEqual(request, 'electron/install.js');
       return 'electron-install-test.js';
@@ -72,7 +75,56 @@ test('installs Electron before applying the node-pty permission fix', () => {
   ]);
   assert.strictEqual(calls[0][3].stdio, 'inherit');
   assert.deepStrictEqual(calls[1], ['load', './fix-pty-perms']);
-  assert.deepStrictEqual(calls[2], ['stamp'], 'the tree is stamped after it is installed');
+  assert.deepStrictEqual(calls[2], ['nameBundle'], 'Electron is named once it is installed');
+  assert.deepStrictEqual(calls[3], ['stamp'], 'the tree is stamped after it is installed');
+});
+
+test('a macOS install puts back the AgentTerm.app link and the plist name', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'postinstall-bundle-'));
+  const electronDir = path.join(dir, 'electron');
+  const contents = path.join(electronDir, 'dist', 'Electron.app', 'Contents');
+  fs.mkdirSync(contents, { recursive: true });
+  fs.writeFileSync(path.join(contents, 'Info.plist'), [
+    '<key>CFBundleDisplayName</key><string>Electron</string>',
+    '<key>CFBundleName</key><string>Electron</string>',
+  ].join('\n'));
+  const entry = JSON.stringify(path.join(__dirname, '..', 'scripts', 'postinstall.js'));
+  const install = spawnSync(process.execPath, ['-e', `
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    require(${entry}).runPostinstall({
+      resolve: (request) => request === 'electron/package.json'
+        ? ${JSON.stringify(path.join(electronDir, 'package.json'))} : 'electron-install-test.js',
+      spawn: () => ({ status: 0 }),
+      load: () => {},
+      stamp: () => {},
+    });
+  `], { encoding: 'utf8' });
+  assert.strictEqual(install.status, 0, install.stderr);
+  assert.strictEqual(install.stderr, '');
+  assert.strictEqual(fs.readlinkSync(path.join(electronDir, 'dist', 'AgentTerm.app')), 'Electron.app');
+  assert.match(fs.readFileSync(path.join(contents, 'Info.plist'), 'utf8'), /<key>CFBundleName<\/key><string>AgentTerm<\/string>/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a bundle naming failure warns but does not fail the install', () => {
+  const warnings = [];
+  const warn = console.warn;
+  console.warn = (message) => warnings.push(message);
+  let stamped = false;
+  try {
+    runPostinstall({
+      resolve: () => 'electron-install-test.js',
+      spawn: () => ({ status: 0 }),
+      load: () => {},
+      nameBundle: () => { throw new Error('dist is read-only'); },
+      stamp: () => { stamped = true; },
+    });
+  } finally {
+    console.warn = warn;
+  }
+  assert.strictEqual(warnings.length, 1);
+  assert.ok(warnings[0].includes('dist is read-only'));
+  assert.strictEqual(stamped, true);
 });
 
 test('stops before the permission fix when Electron installation fails', () => {
@@ -98,6 +150,7 @@ test('a stamp failure warns but does not fail the install', () => {
       resolve: () => 'electron-install-test.js',
       spawn: () => ({ status: 0 }),
       load: () => {},
+      nameBundle: () => {},
       stamp: () => { throw new Error('node_modules is read-only'); },
     });
   } finally {

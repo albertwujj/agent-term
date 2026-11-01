@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const esbuild = require('esbuild');
 const { rebuildRuntimeBundles } = require('../src/runtime-build');
-const { electronPlistPath, applyElectronAppName, ensureNamedBundleLink } = require('../src/electron-app-name');
+const { nameElectronBundle } = require('../src/electron-app-name');
 
 const repoRoot = path.resolve(__dirname, '..');
 rebuildRuntimeBundles({
@@ -15,7 +15,5 @@ rebuildRuntimeBundles({
 });
 
 if (process.platform === 'darwin') {
-  const electronDir = path.dirname(require.resolve('electron/package.json'));
-  applyElectronAppName({ fs, plistPath: electronPlistPath(electronDir) });
-  ensureNamedBundleLink({ fs, electronDir });
+  nameElectronBundle({ fs, electronDir: path.dirname(require.resolve('electron/package.json')) });
 }

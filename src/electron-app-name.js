@@ -7,7 +7,8 @@
 // the bundle, and `npm run start` launches through that link. The bundle
 // carries only a linker signature on its executable (no _CodeSignature seal),
 // so both are safe to touch. Running on every build lets a pulled checkout pick
-// the name up on its next start.
+// the name up on its next start. `npm ci` removes both, so an install applies
+// them too, and a window returning to the Dock makes sure of the link.
 const path = require('path');
 
 const APP_NAME = 'AgentTerm';
@@ -64,6 +65,11 @@ function ensureNamedBundleLink({ fs, electronDir, name = APP_NAME }) {
   return true;
 }
 
+function nameElectronBundle({ fs, electronDir, name = APP_NAME }) {
+  applyElectronAppName({ fs, plistPath: electronPlistPath(electronDir), name });
+  ensureNamedBundleLink({ fs, electronDir, name });
+}
+
 // Electron reports its real executable path, inside Electron.app, whatever link
 // it was launched through. A successor spawned from that path would lose the
 // name, so route it through the link when the link is there.
@@ -76,13 +82,26 @@ function namedLaunchPath(execPath, { fs, name = APP_NAME }) {
   return fs.existsSync(named) ? named : execPath;
 }
 
+// A process coming back from app.dock.hide() gets its Dock tile through the path
+// it launched through. With the link gone it returns to the foreground with no
+// tile, and making the link afterwards does not bring one, so a returning window
+// makes it first. Same return as ensureNamedBundleLink; false for an executable
+// outside an electron package.
+function restoreNamedBundleLink(execPath, { fs, name = APP_NAME }) {
+  const suffix = path.join('dist', BUNDLE, 'Contents', 'MacOS', 'Electron');
+  if (!execPath.endsWith(path.sep + suffix)) return false;
+  return ensureNamedBundleLink({ fs, electronDir: execPath.slice(0, -(suffix.length + 1)), name });
+}
+
 module.exports = {
   APP_NAME,
   electronPlistPath,
   namedBundlePath,
   namedBundleExecPath,
   namedLaunchPath,
+  restoreNamedBundleLink,
   renamePlist,
   applyElectronAppName,
   ensureNamedBundleLink,
+  nameElectronBundle,
 };

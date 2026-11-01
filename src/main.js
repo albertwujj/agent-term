@@ -94,7 +94,7 @@ const {
   resolveLatestRelaunchTarget,
   spawnNewInstance,
 } = require('./relaunch');
-const { namedLaunchPath } = require('./electron-app-name');
+const { namedLaunchPath, restoreNamedBundleLink } = require('./electron-app-name');
 const { launchEnvFile, writeLaunchEnv, taskbarTask } = require('./windows-launch-env');
 // Successors (Cmd/Ctrl+Shift+N, relaunch) start from the path that carries the
 // app's name; on macOS that is the AgentTerm.app link the build makes.
@@ -2063,6 +2063,11 @@ function setHidden(hidden, { focus = false } = {}) {
       try { app.dock.hide(); } catch {}
     }
   } else if (process.platform === 'darwin' && app.dock) {
+    try {
+      if (restoreNamedBundleLink(process.execPath, { fs })) log('[auto-hide] made the AgentTerm.app link again');
+    } catch (err) {
+      log('[auto-hide] AgentTerm.app link failed, the Dock tile will not return: ' + (err && err.message));
+    }
     Promise.resolve()
       .then(() => app.dock.show())
       .catch((err) => log('[auto-hide] dock show failed: ' + (err && err.message)))
@@ -3704,8 +3709,10 @@ async function latestSourceChange() {
 }
 
 // This window was opened to find a session another window holds; once that
-// window is back in front, it closes. The hand-over is confirmed through the
-// registry first, so a window that failed to come back leaves this one open.
+// window is back in front, it closes. The hand-over is confirmed first, so a
+// window that failed to come back leaves this one open: the registry says it is
+// no longer hidden, and it has taken the message, the only sign from a window
+// that was never hidden.
 const HANDOFF_CONFIRM_MS = 3000;
 const HANDOFF_POLL_MS = 100;
 function bringForwardFromPicker(id) {
@@ -3719,7 +3726,7 @@ function bringForwardFromPicker(id) {
   const deadline = Date.now() + HANDOFF_CONFIRM_MS;
   const poll = setInterval(() => {
     const rec = sessionsLog.readActiveFile(userDataDir, id);
-    if (rec && !rec.hiddenAt) {
+    if (rec && !rec.hiddenAt && !windowCap.controlPending(userDataDir, id)) {
       clearInterval(poll);
       log('[resume] session ' + id + ' is back; closing the picker window');
       app.quit();
@@ -3928,8 +3935,8 @@ ipcMain.on('cancel-resume-intercept', () => {
   pendingResumeIntercept = false;
 });
 
-// Picker → a hidden session's row. Brought forward while it lives; one that
-// closed since the picker opened resumes here like any past session.
+// Picker → a live session's row, hidden or not. Brought forward while it lives;
+// one that closed since the picker opened resumes here like any past session.
 ipcMain.on('picker-bring-forward', (event, id) => {
   if (typeof id !== 'number') return;
   pickerOpen = false;

@@ -2,6 +2,9 @@
 // order, turn detection, and the last-window relaunch threshold.
 
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   MAX_LIVE,
   STALE_AFTER_MINUTES,
@@ -15,6 +18,9 @@ const {
   capVictims,
   createTurnTracker,
   shouldRelaunchAfterUserClose,
+  sendControl,
+  controlPending,
+  startCapControlWatcher,
 } = require('../src/window-cap');
 
 let testsPassed = 0, testsFailed = 0;
@@ -165,6 +171,21 @@ test('relaunch threshold is satisfied by a single visible session', () => {
     rec(2, { hiddenAt: NOW - 5 * 60_000 }),
   ];
   assert.strictEqual(shouldRelaunchAfterUserClose(records), false);
+});
+
+// ---- control messages ----
+
+test('a control message is pending until its window takes it', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'window-cap-control-'));
+  assert.strictEqual(controlPending(dir, 3), false);
+  sendControl(dir, 3, 'show');
+  assert.strictEqual(controlPending(dir, 3), true);
+  let shown = 0;
+  const stop = startCapControlWatcher(dir, 3, { show: () => { shown++; } });
+  stop();
+  assert.strictEqual(shown, 1);
+  assert.strictEqual(controlPending(dir, 3), false);
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);

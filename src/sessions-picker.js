@@ -6,7 +6,7 @@
 //     sessions: [{ id, hue, cli, title, prompt, identityParts, lastPrompt, isActive, touchedAt }, ...],
 //                 prompt is the identity: the first prompt, joined with the
 //                 next one or two while short; identityParts are those prompts
-//     activeIds: [number],          // ids that are currently active (disabled in list)
+//     activeIds: [number],          // ids that are currently active (brought forward when chosen)
 //     cwd: string | null,           // where a new session starts (the shell's start dir)
 //     onPick(id):           user resumed a past session
 //     onStartNew(command, { typeOnly }):
@@ -30,7 +30,7 @@
 //     the past sessions alone; a plain shell is reached by Esc.
 //
 // Keyboard:
-//   ↑/↓        navigate between rows (skipping disabled active rows)
+//   ↑/↓        navigate between rows
 //   Enter      activate the highlighted row
 //   ⇧Enter     on row 0: type the command into the shell without running it
 //   Esc        dismiss → onClose
@@ -66,6 +66,7 @@ function createPicker({
   const activeSet = new Set(activeIds);
   let filterText = '';
   let selectedIndex = 0;          // rows in DOM order: [row 0 when typed] then visibleRows[]
+  let selectionMoved = false;     // the user moved it here, so it stays on an open session
   let visibleRows = [];
   let mode = 'normal';            // normal | deep
   let deepSearchTimer = null;
@@ -108,8 +109,15 @@ function createPicker({
   function rowOffset() {
     return hasNewRow() ? 1 : 0;
   }
-  function isDisabledSession(session) {
+  // A session whose window is open. A picker opens to find what has no window
+  // yet, so Enter right away means that; moving to an open session or clicking
+  // it brings its window forward.
+  function isOpenSession(session) {
     return !!session && (activeSet.has(session.id) || session.isActive) && !session.isHidden;
+  }
+  function resetSelection() {
+    selectedIndex = 0;
+    selectionMoved = false;
   }
 
   function filterSessions(text) {
@@ -189,7 +197,7 @@ function createPicker({
       stat.addEventListener('click', (e) => {
         e.preventDefault();
         mode = 'deep';
-        selectedIndex = 0;
+        resetSelection();
         render();
       });
     }
@@ -504,11 +512,9 @@ function createPicker({
       row.dataset.id = String(s.id);
       const isActive = activeSet.has(s.id) || s.isActive;
       const isHidden = !!s.isHidden;
-      // Visible-active rows are disabled (the user already has them).
       // A hidden session's row reads like any past session's, since closing
       // a window puts its session away: choosing it brings the window back
       // (or resumes it on the current code), and past rows resume.
-      if (isActive && !isHidden) row.classList.add('at-picker-row-disabled');
       const stripeColor = (typeof s.hue === 'number')
         ? `oklch(65% 0.27 ${s.hue})`
         : '#444';
@@ -584,32 +590,21 @@ function createPicker({
         </div>
       `;
       const activationIndex = i + rowOffset();
-      if (!isActive) {
-        row.addEventListener('click', () => activate(activationIndex));
-      } else if (isHidden) {
-        row.addEventListener('click', () => {
-          // Bring-forward action (different from resume): main asks the
-          // target window to show and focus itself, then closes this
-          // picker's window without spawning anything in it.
-          cancelActiveHiddenSearch();
-          try { window.pty.pickerBringForward(s.id); } catch {}
-          if (typeof onClose === 'function') onClose();
-        });
-      }
+      row.addEventListener('click', () => activate(activationIndex));
       listEl.appendChild(row);
     });
 
-    // Clamp the selection, then settle it on a selectable row: with nothing
-    // typed the top row is the most recent past session, which may be a
-    // disabled (visible-active) one.
+    // Clamp the selection. Until the user moves it, it settles past open
+    // sessions: with nothing typed the top row is the most recent session,
+    // whose window may be open.
     const offset = rowOffset();
     const n = visibleRows.length;
     const maxIndex = Math.max(0, offset + n - 1);
     if (selectedIndex > maxIndex) selectedIndex = maxIndex;
     if (selectedIndex < 0) selectedIndex = 0;
-    if (n > 0 && !(offset && selectedIndex === 0)) {
+    if (!selectionMoved && n > 0 && !(offset && selectedIndex === 0)) {
       let k = selectedIndex - offset;
-      for (let attempts = 0; attempts < n && isDisabledSession(visibleRows[k]); attempts++) k = (k + 1) % n;
+      for (let attempts = 0; attempts < n && isOpenSession(visibleRows[k]); attempts++) k = (k + 1) % n;
       selectedIndex = offset + k;
     }
     applySelectionStyles();
@@ -629,19 +624,10 @@ function createPicker({
   }
 
   function moveSelection(delta) {
-    const offset = rowOffset();
-    const total = offset + visibleRows.length;
+    const total = rowOffset() + visibleRows.length;
     if (total === 0) return;
-    let next = selectedIndex;
-    for (let attempts = 0; attempts < total; attempts++) {
-      next = (next + delta + total) % total;
-      if (next < offset) break;                                      // row 0 always selectable
-      // Visible-active rows are skipped (nothing to do); hidden-active
-      // rows are selectable (Enter brings them forward); past rows are
-      // selectable (Enter resumes them).
-      if (!isDisabledSession(visibleRows[next - offset])) break;
-    }
-    selectedIndex = next;
+    selectedIndex = (selectedIndex + delta + total) % total;
+    selectionMoved = true;
     applySelectionStyles();
   }
 
@@ -666,14 +652,15 @@ function createPicker({
       }
       return;
     }
-    const isActiveRow = activeSet.has(session.id) || session.isActive;
-    if (isActiveRow && session.isHidden) {
+    if (activeSet.has(session.id) || session.isActive) {
+      // Bring-forward action (different from resume): main asks the target
+      // window to show and focus itself, then closes this picker's window
+      // without spawning anything in it.
       cancelActiveHiddenSearch();
       try { window.pty.pickerBringForward(session.id); } catch {}
       if (typeof onClose === 'function') onClose();
       return;
     }
-    if (isActiveRow) return;   // visible-active rows: nothing to activate
     if (typeof onPick === 'function') {
       cancelActiveHiddenSearch();
       onPick(session.id);
@@ -711,7 +698,7 @@ function createPicker({
       if (launch && launch.command !== filterText.trim()) {
         input.value = launch.command;
         filterText = launch.command;
-        selectedIndex = 0;
+        resetSelection();
         render();
       }
       return;
@@ -722,7 +709,7 @@ function createPicker({
     filterText = input.value;
     mode = 'normal';
     deepSearchState = null;
-    selectedIndex = 0;             // back to the top row on any filter change
+    resetSelection();              // back to the top row on any filter change
     render();
     scheduleDeepSearch();
   });
@@ -865,13 +852,6 @@ function injectStyles() {
 }
 .at-picker-row-selected:hover {
   background: #234071;
-}
-.at-picker-row-disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.at-picker-row-disabled:hover {
-  background: transparent;
 }
 .at-picker-stripe {
   flex: 0 0 auto;

@@ -5,13 +5,14 @@
 //   1. opening a window asks stale windows to hide, and only those: a working
 //      one and a recently used one are left alone
 //   2. a stale window asked to hide leaves the screen (and, on macOS, the Dock)
-//   3. a picker's 'show' brings it back in front with its timer restarted
+//   3. a picker's 'show' brings it back in front with its timer restarted, and
+//      on macOS with a Dock tile even though `npm ci` removed its bundle link
 //   4. a turn its agent finishes while hidden brings it back without taking
 //      focus from the app in front
 //   5. past MAX_LIVE live sessions, a hidden window whose timer is among the
 //      oldest closes itself and is recorded as closed
 //   6. a fresh window whose picker brings a live session forward closes once
-//      that session's window is back
+//      that session's window is back, and stays if it never answers
 //   7. closing a session's window hides it, even while its agent works; a
 //      window with no session closes, and closing the last visible window
 //      opens a fresh one
@@ -28,6 +29,7 @@
 // Run: node test/e2e/auto-hide.mjs
 
 import { followMainLog, launchElectron } from './electron.mjs';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -39,12 +41,38 @@ const APP_DIR = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '
 const sessionsLog = require(path.join(APP_DIR, 'src', 'sessions-log.js'));
 const guiSession = require(path.join(APP_DIR, 'src', 'gui-session.js'));
 const { MAX_LIVE } = require(path.join(APP_DIR, 'src', 'window-cap.js'));
+const { ensureNamedBundleLink, namedBundleExecPath, namedBundlePath } = require(path.join(APP_DIR, 'src', 'electron-app-name.js'));
 const ELECTRON_BIN = process.platform === 'darwin'
   ? path.join(APP_DIR, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
   : path.join(APP_DIR, 'node_modules/electron/dist/electron');
+// macOS launches through the AgentTerm.app link, which every window of a checkout
+// shares. A clone of the bundle gives this run a link of its own to delete.
+const BUNDLE_CLONE = process.platform === 'darwin'
+  ? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-bundle-e2e-')))
+  : null;
+if (BUNDLE_CLONE) {
+  fs.mkdirSync(path.join(BUNDLE_CLONE, 'dist'));
+  execFileSync('cp', ['-cR', path.resolve(ELECTRON_BIN, '../../..'), path.join(BUNDLE_CLONE, 'dist')]);
+  ensureNamedBundleLink({ fs, electronDir: BUNDLE_CLONE });
+}
+const BUNDLE_LINK = BUNDLE_CLONE && namedBundlePath(BUNDLE_CLONE);
+// The real tiles named AgentTerm, or null when System Events may not read the Dock
+// (the terminal needs Accessibility). app.dock.isVisible() is the process's own
+// state, true even for a process the Dock has no tile for.
+const dockTiles = () => {
+  try {
+    return execFileSync('osascript', ['-e', 'tell application "System Events" to tell process "Dock" to get name of every UI element of list 1'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(', ').filter(n => n.trim() === 'AgentTerm').length;
+  } catch { return null; }
+};
 // realpath: Electron reports userData resolved through /var -> /private/var.
 const UD = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-auto-hide-e2e-')));
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const waitForTiles = async (want) => {
+  let n = dockTiles();
+  for (const t0 = Date.now(); n !== want && Date.now() - t0 < 5000; n = dockTiles()) await sleep(200);
+  return n;
+};
 let passed = 0; const failures = [];
 const check = (name, cond, extra = '') => { if (cond) { passed++; console.log(`  ✓ ${name}`); } else { failures.push(name); console.log(`  ✗ ${name} ${extra}`); } };
 
@@ -89,7 +117,7 @@ if (foreground) await foreground.firstWindow();
 const foregroundFocused = () => foreground.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused());
 
 const app = await launchElectron({
-  executablePath: ELECTRON_BIN,
+  executablePath: BUNDLE_CLONE ? namedBundleExecPath(BUNDLE_CLONE) : ELECTRON_BIN,
   args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR],
   env: { ...process.env, AGENT_TERM_WORKING_GRACE_MS: '2000' },
   timeout: 45_000,
@@ -150,22 +178,28 @@ try {
     return waitForLog(/hiding session 6|staying: [a-z ]+/, 5000, from);
   };
   await sleep(7000);                     // past the 5s idle and the 2s grace since the shell's last output
+  const tilesUp = BUNDLE_CLONE ? dockTiles() : null;
+  if (BUNDLE_CLONE && tilesUp === null) console.log('  - Dock tile checks skipped: System Events cannot read the Dock (grant this terminal Accessibility)');
   let hid = await hideNow();
   check('stale window hides when asked', hid && /hiding/.test(hid[0]), hid && hid[0]);
   await sleep(500);
   let state = await windowState();
   check('hidden window is off screen', state.visible === false, JSON.stringify(state));
   if (process.platform === 'darwin') check('hidden window is off the Dock', state.dock === false, JSON.stringify(state));
+  if (tilesUp !== null) check('its Dock tile is gone', await waitForTiles(tilesUp - 1) === tilesUp - 1);
   rec6 = sessionsLog.readActiveFile(UD, 6);
   check('registry marks it hidden', rec6 && rec6.hiddenAt, JSON.stringify(rec6));
 
-  // 3. Brought forward from a picker.
+  // 3. Brought forward from a picker, after `npm ci` removed the bundle link.
+  if (BUNDLE_LINK) fs.unlinkSync(BUNDLE_LINK);
   control(6, 'show');
   await sleep(1500);
   state = await windowState();
   rec6 = sessionsLog.readActiveFile(UD, 6);
   check('shown window is on screen', state.visible === true, JSON.stringify(state));
   if (process.platform === 'darwin') check('shown window is back on the Dock', state.dock === true, JSON.stringify(state));
+  if (BUNDLE_LINK) check('the return makes the deleted bundle link again', fs.existsSync(BUNDLE_LINK));
+  if (tilesUp !== null) check('and the window has a Dock tile again', await waitForTiles(tilesUp) === tilesUp);
   check('registry marks it visible', rec6 && !rec6.hiddenAt, JSON.stringify(rec6));
   check('bringing it forward restarted its timer', rec6 && rec6.touchedClock === readClock(), `${rec6 && rec6.touchedClock} vs ${readClock()}`);
   check('bringing it forward focused it', state.focused === true, JSON.stringify(state));
@@ -252,8 +286,9 @@ try {
   if (foreground) try { await foreground.close(); } catch {}
 }
 
-// 6. A picker window hands over to the session it found, then closes. The
-//    fake session 7 reads as back at once (its record is not hidden).
+// 6. A picker window hands over to the session it found, then closes. The fake
+//    session 7's record is not hidden, so it is back once it takes the message,
+//    which this test does in its place.
 {
   const b = await launchElectron({
     executablePath: ELECTRON_BIN,
@@ -265,14 +300,39 @@ try {
   try {
     const page = await b.firstWindow();
     await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });
-    try { fs.unlinkSync(path.join(UD, 'cap-control', '7.json')); } catch {}
-    await b.evaluate(({ ipcMain }) => { ipcMain.emit('picker-bring-forward', {}, 7); });
-    const code = await Promise.race([bExited, sleep(10_000).then(() => 'timeout')]);
+    const control7 = path.join(UD, 'cap-control', '7.json');
+    try { fs.unlinkSync(control7); } catch {}
+    await page.waitForSelector('.at-picker-row[data-id="7"]', { timeout: 30_000 });
+    check('a session with an open window reads as active', await page.locator('.at-picker-row[data-id="7"] .at-picker-active-badge').count() === 1);
+    await page.click('.at-picker-row[data-id="7"]');
+    for (const t0 = Date.now(); !readControl(7) && Date.now() - t0 < 5000;) await sleep(100);
     check('the found session is asked to show', (readControl(7) || {}).action === 'show');
+    const early = await Promise.race([bExited, sleep(1000).then(() => 'waiting')]);
+    check('the picker window waits for it to take the message', early === 'waiting', String(early));
+    fs.unlinkSync(control7);
+    const code = await Promise.race([bExited, sleep(10_000).then(() => 'timeout')]);
     check('the picker window closes once it is back', code !== 'timeout', String(code));
     check('the log says so', /session 7 is back; closing the picker window/.test(bLog.text));
   } finally {
     try { await b.close(); } catch {}
+  }
+
+  const c = await launchElectron({
+    executablePath: ELECTRON_BIN,
+    args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR],
+    timeout: 45_000,
+  });
+  const cLog = await followMainLog(c);
+  const cExited = new Promise(r => c.process().once('exit', (code) => r(code)));
+  try {
+    const page = await c.firstWindow();
+    await page.click('.at-picker-row[data-id="7"]', { timeout: 30_000 });
+    const stayed = await Promise.race([cExited, sleep(4000).then(() => 'running')]);
+    check('a session that never answers leaves the picker window open', stayed === 'running', String(stayed));
+    check('the log says that too', /session 7 did not come back; keeping this window/.test(cLog.text));
+  } finally {
+    try { await c.close(); } catch {}
+    try { fs.unlinkSync(path.join(UD, 'cap-control', '7.json')); } catch {}
   }
 }
 
@@ -335,7 +395,8 @@ const launchPicker = async () => {
     check('the second press asks the most recent hidden session to show', (readControl(30) || {}).action === 'show', JSON.stringify(readControl(30)));
     check('the picker says which one it brings back', /bringing back session 30, the hidden one used most recently/.test(d.log));
     const rec30 = sessionsLog.readActiveFile(UD, 30);
-    sessionsLog.writeActiveFile(UD, 30, { ...rec30, hiddenAt: null });   // its window is back
+    fs.unlinkSync(path.join(UD, 'cap-control', '30.json'));
+    sessionsLog.writeActiveFile(UD, 30, { ...rec30, hiddenAt: null });   // its window took the message and is back
     const code = await Promise.race([d.exited, sleep(10_000).then(() => 'timeout')]);
     check('the picker closes once that session is back', code !== 'timeout', String(code));
   } finally {
@@ -385,6 +446,8 @@ const launchPicker = async () => {
     try { await f.app.close(); } catch {}
   }
 }
+
+if (BUNDLE_CLONE) fs.rmSync(BUNDLE_CLONE, { recursive: true, force: true });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {

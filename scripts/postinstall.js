@@ -17,12 +17,22 @@ function stampInstalledTree(options) {
   return require(source).writeLockStamp(options);
 }
 
+// `npm ci` has just removed the AgentTerm.app link and the name in Electron's
+// plist. The next start would make them again, but a window already running needs
+// the link now: one coming back from hiding before then would have no Dock tile.
+function nameInstalledBundle({ resolve, fsApi }) {
+  if (process.platform !== 'darwin') return;
+  const { nameElectronBundle } = require(path.join(repoRoot, 'src', 'electron-app-name.js'));
+  nameElectronBundle({ fs: fsApi, electronDir: path.dirname(resolve('electron/package.json')) });
+}
+
 function runPostinstall({
   spawn = spawnSync,
   nodePath = process.execPath,
   resolve = require.resolve,
   load = require,
   stamp = stampInstalledTree,
+  nameBundle = nameInstalledBundle,
   fsApi = fs,
   cryptoApi = crypto,
   root = repoRoot,
@@ -39,6 +49,14 @@ function runPostinstall({
   }
 
   load('./fix-pty-perms');
+
+  // A failure here must not fail the install: the next start makes them again,
+  // and says why if it cannot.
+  try {
+    nameBundle({ resolve, fsApi });
+  } catch (err) {
+    console.warn(`[postinstall] AgentTerm bundle name skipped: ${err.message}`);
+  }
 
   // Stamp the tree with the lockfile it was installed from, so a later start
   // can tell that node_modules and package-lock.json have drifted apart. A

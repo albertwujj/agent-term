@@ -168,6 +168,11 @@ function sendControl(userDataDir, id, action) {
   writeFileAtomicSync(controlFile(userDataDir, id), JSON.stringify({ action, t: Date.now() }));
 }
 
+// Whether a message still waits for its window, which removes it on taking it.
+function controlPending(userDataDir, id) {
+  return fs.existsSync(controlFile(userDataDir, id));
+}
+
 // Watcher: each window calls this with its own id and a handler map. The
 // returned function tears down the watcher when the window is closing.
 function startCapControlWatcher(userDataDir, ownId, handlers = {}) {
@@ -223,5 +228,6 @@ module.exports = {
   countVisible,
   shouldRelaunchAfterUserClose,
   sendControl,
+  controlPending,
   startCapControlWatcher,
 };

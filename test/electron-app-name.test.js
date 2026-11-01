@@ -1,8 +1,8 @@
 const assert = require('assert');
 const path = require('path');
 const {
-  APP_NAME, electronPlistPath, namedBundleExecPath, namedLaunchPath, renamePlist,
-  applyElectronAppName, ensureNamedBundleLink,
+  APP_NAME, electronPlistPath, namedBundleExecPath, namedLaunchPath, restoreNamedBundleLink, renamePlist,
+  applyElectronAppName, ensureNamedBundleLink, nameElectronBundle,
 } = require('../src/electron-app-name');
 
 let testsPassed = 0, testsFailed = 0;
@@ -129,6 +129,33 @@ test('leaves other executables alone', () => {
   const fakeFs = { existsSync: () => { throw new Error('should not look'); } };
   assert.strictEqual(namedLaunchPath(packaged, { fs: fakeFs }), packaged);
   assert.strictEqual(namedLaunchPath('C:\\app\\electron.exe', { fs: fakeFs }), 'C:\\app\\electron.exe');
+});
+
+test('naming the bundle applies the plist name and the link together', () => {
+  const fakeFs = linkFs(null);
+  let plist = PLIST;
+  fakeFs.readFileSync = () => plist;
+  fakeFs.writeFileSync = (_file, data) => { plist = data; };
+  nameElectronBundle({ fs: fakeFs, electronDir });
+  assert.match(plist, new RegExp(`<key>CFBundleName</key>\\n\\t<string>${APP_NAME}</string>`));
+  assert.deepStrictEqual(fakeFs.events, [['symlink', 'Electron.app', link, 'dir']]);
+});
+
+test('a returning window makes the deleted link from the real path Electron reports', () => {
+  const real = path.join(electronDir, 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron');
+  const deleted = linkFs(null);
+  assert.strictEqual(restoreNamedBundleLink(real, { fs: deleted }), true);
+  assert.deepStrictEqual(deleted.events, [['symlink', 'Electron.app', link, 'dir']]);
+  const intact = linkFs({ type: 'symlink', target: 'Electron.app' });
+  assert.strictEqual(restoreNamedBundleLink(real, { fs: intact }), false);
+  assert.deepStrictEqual(intact.events, []);
+});
+
+test('restoring the link leaves other executables alone', () => {
+  const fakeFs = { lstatSync: () => { throw new Error('should not look'); } };
+  const packaged = path.join('/Applications', 'AgentTerm.app', 'Contents', 'MacOS', 'AgentTerm');
+  assert.strictEqual(restoreNamedBundleLink(packaged, { fs: fakeFs }), false);
+  assert.strictEqual(restoreNamedBundleLink('C:\\app\\electron.exe', { fs: fakeFs }), false);
 });
 
 test('refuses to replace a real directory at the link path', () => {
