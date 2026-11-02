@@ -70,6 +70,7 @@ const { writeFileAtomic } = require('./atomic-file');
 const guiSession = require('./gui-session');
 const lockStatus = require('./lock-status'); // pure lock-icon decision (agent-lock)
 const jobWatch = require('./job-watch'); // pure background-job monitor logic (docs/dev/job-events.md)
+const { isTerminalProtocol } = require('./terminal-input');
 const {
   ICON_OKLCH_L,
   ICON_OKLCH_C,
@@ -691,13 +692,15 @@ function setViewerAutoOpenArmed(armed) {
 // paste implies — the prompt went to a live CLI, so a still-armed resume
 // intercept is stale; the click was the user's input (the job-watch and
 // stall checks read it); and the typing suppression releases so the progress
-// bar can show the pickup.
+// bar can show the pickup. Text left in the prompt has no pickup to show: it is
+// a composition like any typed line, and the compose hold must cover it, or a
+// host notice's CR submits it.
 function pasteAgentPing(body, { toPrompt = false } = {}) {
   if (!pasteCommentMessage(body, { toPrompt })) return false;
   setViewerAutoOpenArmed(true);
   pendingResumeIntercept = false;
   lastInputTime = Date.now();
-  lastTypingTime = 0;
+  lastTypingTime = toPrompt ? Date.now() : 0;
   lastInputByte = '';
   return true;
 }
@@ -741,8 +744,8 @@ const PROGRESS_POLL_MS = 500;
 // user is now watching the AI.
 const USER_QUIET_MS = 5000;
 let lastTypingTime = 0;
-// The prompt box belongs to the user from their first composing keystroke
-// until they submit (lastTypingTime resets to 0 on submit-Enter). Host
+// The prompt box belongs to the user from the first text they put there, typed
+// or pasted, until they submit (lastTypingTime resets to 0 on submit-Enter). Host
 // injections (job notices, branch warnings) hold during that span — a
 // paste mid-compose would splice into their text and the auto-CR would
 // submit the fragment.
@@ -3313,16 +3316,7 @@ ipcMain.on('pty-input', (event, data, promptSnapshot) => {
   //      terminal reads as the user typing: host notices hold as if a
   //      prompt were being composed, and the progress bar stays off.
   // Both must be gated on this flag.
-  //
-  // Rule: any multi-byte ESC-prefixed control sequence is treated as
-  // protocol, never as user input. Bare ESC (the Esc key) still counts
-  // as user input — that's a real "get out of my way" signal.
-  const isAutoTerminalProtocol = (
-    typeof data === 'string' &&
-    data.length > 1 &&
-    data.charCodeAt(0) === 0x1b &&
-    /^\x1b[\[\]OP_^]/.test(data)
-  );
+  const isAutoTerminalProtocol = isTerminalProtocol(data);
 
   // Resume intercept: if a past session was just picked, replace the user's
   // first plain Enter with the /resume submission so the CLI opens its
@@ -5193,15 +5187,14 @@ function updateJobsIndicator(running) {
 // submission, the same as when the hold ends by itself. Text there is theirs: the
 // report joins it unsubmitted and the compose hold stays on, since the line is
 // still unsent and a later notice's CR would send it. Each signal sees text the
-// other misses: the screen sees history and a paste, the keys see a draft whose
-// caret sits on a fresh line, which reads as empty. Either one means text. So a
-// prompt emptied by Esc or a line typed and deleted takes the report unsubmitted
-// too, which costs an Enter, where the other guess submits a half-written draft.
+// other misses: the screen sees a recalled history line, the keys see a draft
+// whose caret sits on a fresh line, which reads as empty. Either one means text.
+// So a prompt emptied by Esc or a line typed and deleted takes the report
+// unsubmitted too, which costs an Enter, where the other guess submits a
+// half-written draft.
 async function sendHeldNotice(text) {
   const { holdsInput } = await readPromptTarget();
-  const draft = holdsInput || userComposing();
-  if (!pasteAgentPing(text, { toPrompt: draft })) return;
-  if (draft) lastTypingTime = Date.now();
+  pasteAgentPing(text, { toPrompt: holdsInput || userComposing() });
 }
 
 function sendHeldJobReportsNow() {

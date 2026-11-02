@@ -78,9 +78,10 @@ liveness (`kill -0` on the filename pid) in the same read.
   launched out of the CLI's sight still reaches it. Idle is judged on
   substantive screen output: spinner frames, token counters, and
   status-line repaints don't count as activity. A notice is held from the
-  first key typed after a submit until the next submit, with no time limit;
-  keys that compose nothing count too (Esc, a one-key answer, a line typed
-  and deleted). The event file is deleted on delivery.
+  first text put in the prompt after a submit, typed or pasted, until the
+  next submit, with no time limit; keys that compose nothing count too (Esc,
+  a one-key answer, a line typed and deleted). The event file is deleted on
+  delivery.
 
       [Notice from terminal host] Background job report (as of 14:05):
       - <msg> (ran 52m)

@@ -31,6 +31,7 @@ const { showNotice } = require('./notice-strip');
 const launcherBand = require('./launcher-band');
 const { parseLaunch } = require('./cli-detect');
 const { readPromptSnapshot, promptHoldsInput } = require('./prompt-completion');
+const { isTerminalProtocol } = require('./terminal-input');
 const streamWatch = require('./stream/renderer-watch');
 const streamIndicator = require('./stream/stream-indicator');
 const { EMAIL_SOURCE, ideHandoffLabel, createHttpUrlOpener, urlClickWantsExternal } = require('./url-open');
@@ -1491,16 +1492,11 @@ terminal.onData((data) => {
   // probes the terminal at startup — exactly when a launch-time auto-open
   // lands — and a fullscreen TUI (unsupported, but seen in the wild) probes
   // continuously. Treating replies as typing collapsed the viewer the instant
-  // it opened and unfroze a commenting-frozen terminal. Same rule as main's
-  // isAutoTerminalProtocol: any multi-byte ESC-prefixed sequence is protocol,
-  // never user input; bare ESC (the Esc key) still counts, and so does a
-  // bracketed paste (ESC[200~ … ESC[201~), which is the user's. Deliberate
-  // tradeoff (same as main): arrow/F/nav keys ride ESC prefixes too, so they
-  // don't withdraw the viewer. Either way the data is forwarded to the pty so
-  // the shell's protocol handling works.
-  const isAutoProtocol = data.length > 1 && /^\u001b[\[\]OP_^]/.test(data)
-    && !data.startsWith('\u001b[200~');
-  if (!isAutoProtocol) {
+  // it opened and unfroze a commenting-frozen terminal. Arrow/F/nav keys read
+  // as protocol too (terminal-input.js), so they don't withdraw the viewer.
+  // Either way the data is forwarded to the pty so the shell's protocol
+  // handling works.
+  if (!isTerminalProtocol(data)) {
     if (terminalOutputFrozen) unfreezeTerminalOutput('terminal-input');
     // Genuine input reaching the shell (Enter, Esc, Ctrl-*) means attention is
     // back on the CLI — disarm the type-to-comment pill. Plain chars never get

@@ -12,6 +12,9 @@
 //   Case C: a bare Esc holds a report just the same, and Enter ends the hold.
 //   Case D: To prompt after a bare Esc submits nothing either: the keys cannot
 //     tell an emptied prompt from a draft whose caret is on a fresh line.
+//   Case E: text pasted into the prompt holds a report as typed text does: the
+//     notice's CR would otherwise submit the pasted line.
+//   Case F: so does text left there by To prompt, for the same reason.
 //
 // The idle window is far longer than any check here, so only the click can
 // explain a notice in A and B.
@@ -193,6 +196,41 @@ async function main() {
     await sleep(1000);
     check('nothing was submitted', !logged(/\[submit\] terminator sent/, mark));
     await page.keyboard.press('Control+C');
+    await sleep(1500);
+
+    // ---- Cases E and F ----
+    // Both drafts end in "; #", so a report glued on by a CR cannot hide the run.
+    const holdsLikeTyping = async (name, putDraft) => {
+      await clearHold();
+      await sleep(1000);
+      mark = mainLog.text.length;
+      const ran = path.join(tmp, `${name}-ran`);
+      await putDraft(`touch "${ran}"; #`);
+      await sleep(300);
+      const msg = `job-${name}-finished`;
+      const file = writeEvent(msg);
+      check('envelope appears', await waitFor(() => icon.count(), 5000));
+      check('amber', await waitFor(async () => (await iconColor()) === AMBER, 3000));
+      await sleep(6500);
+      check('held past the quiet period', !logged(/\[job-watch\] notice:/, mark) && fs.existsSync(file));
+      check('the draft did not run', !fs.existsSync(ran));
+      await page.keyboard.press('Control+C');
+      await sleep(300);
+      await page.keyboard.press('Enter');
+      check('goes out once the line is gone',
+        await waitFor(() => logged(new RegExp(`\\[job-watch\\] notice: job-report .*${msg}`), mark), 10_000));
+      await sleep(1500);
+    };
+    console.log('Case E — a pasted draft holds a report');
+    await holdsLikeTyping('pasted', (line) => page.evaluate((text) => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+      document.querySelector('.xterm-helper-textarea')
+        .dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, line));
+    console.log('Case F — To prompt text holds a report');
+    await holdsLikeTyping('to-prompt', (line) => page.evaluate(
+      (text) => window.pty.submitInlineComment(text, { toPrompt: true }), line));
   } finally {
     await app.close();
     fs.rmSync(tmp, { recursive: true, force: true });

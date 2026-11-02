@@ -38,6 +38,8 @@
 //      prefix: the identity must match the submitted line, not typing order
 //  11. a real clipboard-image paste crosses renderer/main IPC as structured
 //      attachment metadata, while adjacent prose alone names the session
+//  12. a paste at the armed resume intercept is the user's own line: the Enter
+//      after it submits the paste, with no /resume run on from it
 //
 // Run: npm run test:e2e
 
@@ -395,6 +397,34 @@ console.log('11 — clipboard image path is attachment metadata, not identity te
     first && first.prompt === instruction && first.attachments?.length === 1 &&
       first.attachments[0].kind === 'image' && /clipboard-\d+\.png$/.test(first.attachments[0].path),
     JSON.stringify(first));
+}
+
+console.log('12 — a paste at the armed resume intercept cancels it');
+{
+  const received = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-attach-paste-'))), 'line');
+  const pasted = 'use the second uploader';
+  // Bracketed paste on, as any real CLI has it: without it xterm sends raw text,
+  // which was never mistaken for terminal protocol.
+  const fake = [
+    `printf '\\033[?2004h'`, osc('Claude Code'), 'read -r a', `printf '%s' "$a" > "${received}"`, 'read -r b',
+  ].join('; ') + ';';
+  await runScenario('paste-at-intercept', fake, [
+    (page) => page.evaluate((text) => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+      document.querySelector('.xterm-helper-textarea')
+        .dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, pasted),
+  ], {
+    seed: [
+      { e: 'started', id: 171, hue: 48 },
+      { e: 'cli', id: 171, cli: 'claude' },
+      { e: 'prompt', id: 171, prompt: PROMPT },
+    ],
+  });
+  const line = fs.existsSync(received) ? fs.readFileSync(received, 'utf8') : '';
+  check('the CLI got the pasted line', line.includes(pasted), JSON.stringify(line));
+  check('with no /resume run on from it', !line.includes('/resume'), JSON.stringify(line));
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
