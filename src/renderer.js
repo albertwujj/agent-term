@@ -70,6 +70,7 @@ chromeBar.mount({
   onContextMenu: () => { try { window.pty.chromeBarContextMenu(); } catch {} },
   // Before a CLI: the start line brings the picker back (main gates it).
   onSessionsClick: () => { try { window.pty.reopenPicker(); } catch {} },
+  onSendHeldReports: () => { try { window.pty.sendHeldJobReports(); } catch {} },
 });
 
 // Streaming indicator (status dot + toasts on transitions).

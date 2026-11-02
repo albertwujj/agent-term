@@ -109,6 +109,88 @@ test('jobs: bar renders the jobs icon beside the lock', () => {
   assert.ok(m.indexOf('at-chrome-jobs') < m.indexOf('at-chrome-lock'), 'jobs left of lock');
 });
 
+// --- held-reports indicator ---
+
+const held = (over = {}) => ({
+  count: 1, reason: 'quiet', quietMs: 120_000,
+  items: [{ text: 'watch-build.sh: VERDICT=SUCCESS', finishedAt: 1000, gone: false }],
+  ...over,
+});
+
+test('held: nothing waiting → no icon', () => {
+  assert.equal(bar.renderHeldMarkup(null), '');
+  assert.equal(bar.renderHeldMarkup({ count: 0, items: [] }), '');
+  assert.ok(!bar.renderBarMarkup({ cli: 'claude', prompt: 'x' }).includes('at-chrome-held'));
+});
+
+test('held: in the quiet period → grey, saying how long and naming the report', () => {
+  const m = bar.renderHeldMarkup(held());
+  assert.ok(m.includes('class="at-chrome-held"'));
+  assert.ok(m.includes('color:#909090'));
+  assert.ok(m.includes('title="job report waiting: it goes out after 2m of quiet\nwatch-build.sh: VERDICT=SUCCESS"'));
+  assert.ok(!m.includes('at-chrome-jobs-count'), 'no number for one report');
+});
+
+test('held: agent active → grey, saying the agent is why', () => {
+  const m = bar.renderHeldMarkup(held({ reason: 'active' }));
+  assert.ok(m.includes('color:#909090'));
+  assert.ok(m.includes('the agent is active, and it goes out after 2m of quiet'));
+});
+
+test('held: composing → amber, the hold only the user ends, naming what ends it', () => {
+  const m = bar.renderHeldMarkup(held({ reason: 'composing' }));
+  assert.ok(m.includes('color:#dcdcaa'));
+  assert.ok(m.includes('keys were typed here since the last Enter, and it waits for the next one'));
+});
+
+test('held: several → count beside the envelope and in the tooltip', () => {
+  const m = bar.renderHeldMarkup(held({ count: 2, items: [{ text: 'a' }, { text: 'b' }] }));
+  assert.ok(m.includes('2 job reports waiting:'));
+  assert.match(m, /<\/svg><span class="at-chrome-jobs-count">2<\/span><\/span>$/);
+});
+
+test('held: a report with no text still names something, and a short quiet period reads in seconds', () => {
+  const m = bar.renderHeldMarkup(held({ quietMs: 3000, items: [{ text: '' }] }));
+  assert.ok(m.includes('after 3s of quiet\nbackground job'));
+});
+
+test('held: tooltip is escaped', () => {
+  const m = bar.renderHeldMarkup(held({ items: [{ text: 'echo "<hi>"' }] }));
+  assert.ok(m.includes('&quot;&lt;hi&gt;&quot;'));
+});
+
+test('held: bar draws it between the jobs icon and the lock', () => {
+  const m = bar.renderBarMarkup({
+    cli: 'claude', prompt: 'x', heldReports: held(),
+    jobs: { count: 1, jobs: [{ cmd: 'demo' }] },
+    lock: { state: 'mine', tooltip: 'you' },
+  });
+  assert.ok(m.indexOf('at-chrome-jobs') < m.indexOf('at-chrome-held'), 'right of the jobs icon');
+  assert.ok(m.indexOf('at-chrome-held') < m.indexOf('at-chrome-lock'), 'left of the lock');
+});
+
+test('held popover: one row per report, why it waits, and the send button', () => {
+  const m = bar.renderHeldPopoverMarkup(held({
+    count: 2, reason: 'composing',
+    items: [
+      { text: 'a <b>', finishedAt: 1000, gone: false },
+      { text: 'c', finishedAt: 1000, gone: true },
+    ],
+  }), 1000 + 180_000);
+  assert.ok(m.includes('a &lt;b&gt;'), 'escaped');
+  assert.ok(m.includes('finished 3m ago'));
+  assert.ok(m.includes('gone 3m ago'));
+  assert.ok(m.includes('keys were typed here since the last Enter'));
+  assert.ok(m.includes('class="at-chrome-held-send">To prompt<'), 'the user\'s Enter sends it');
+});
+
+test('held popover: with no keys typed, the button sends', () => {
+  for (const reason of ['quiet', 'active']) {
+    const m = bar.renderHeldPopoverMarkup(held({ reason }), 2000);
+    assert.ok(m.includes('class="at-chrome-held-send">Send now<'), reason);
+  }
+});
+
 test('text slot: the start line before any CLI, then waiting, then the prompt', () => {
   const before = bar.renderBarMarkup({});
   assert.ok(before.includes(bar.START_LINE), 'start line');

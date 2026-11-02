@@ -144,6 +144,8 @@ contextBridge.exposeInMainWorld('pty', {
   onChromeState: (callback) => ipcRenderer.on('chrome-state', (event, payload) => callback(payload)),
   // Right-click on the chrome bar -> copy the full captured prompt.
   chromeBarContextMenu: () => ipcRenderer.send('chrome-bar-contextmenu'),
+  // The held-reports popover's send button: what is waiting goes out now.
+  sendHeldJobReports: () => ipcRenderer.send('job-reports-send-now'),
   // User dismissed the resume hint (clicked ✕). Main clears the
   // pendingResumeIntercept flag so the next Enter goes through to the CLI
   // as a normal keystroke instead of being replaced with /resume.

@@ -1872,6 +1872,7 @@ function syncChromeState() {
     isWorking,
     lock: lockState,
     jobs: jobsState,
+    heldReports: heldReportsState,
   };
   try {
     mainWindow.webContents.send('chrome-state', payload);
@@ -5128,8 +5129,13 @@ function agentNoticeFor(m) {
 // report waits for its turn to end. A start record whose process died with
 // no event follows the same discipline with the death detected at the poll;
 // one with a live process drives the chrome bar's background-jobs indicator.
+// While either waits, the bar's held-reports indicator says so and why, and
+// lets the user send it now (sendHeldJobReportsNow).
 const JOB_IDLE_MS = Number(process.env.AGENT_TERM_JOB_IDLE_MS) || 120_000;
 const JOB_POLL_MS = Number(process.env.AGENT_TERM_JOB_POLL_MS) || 60_000;
+// The next notice after one the user asked for, when both were waiting. Outlasts
+// the first one's submit, which takes at most SUBMIT_FALLBACK_MS.
+const JOB_SEND_NOW_GAP_MS = 2000;
 // This window's session token (docs/dev/job-events.md; agent-lock records it as
 // session= in its owner file). Fresh per process, then replaced by the stored
 // one when this window resumes a recorded session, so the token means the
@@ -5146,6 +5152,22 @@ let jobWatchPrevPollAt = 0;      // last COMPLETED poll (a skipped cycle must no
 // chrome bar draws it amber past one job (0 or 1 running is the expected
 // shape) and serves details on hover/click.
 let jobsState = null;
+// Held-reports indicator: null (nothing waiting) or
+// { count, reason, quietMs, items: [{ text, finishedAt, gone }] }.
+let heldReportsState = null;
+let jobWatchSendNow = false;  // the user asked for what is waiting; the next poll takes it
+let jobWatchPolling = false;
+
+function updateHeldReports(held) {
+  const next = held
+    ? { count: held.items.length, reason: held.reason, quietMs: JOB_IDLE_MS, items: held.items }
+    : null;
+  if (JSON.stringify(next) !== JSON.stringify(heldReportsState)) {
+    heldReportsState = next;
+    log('[job-watch] held: ' + (next ? `${next.count} (${next.reason})` : 0));
+    syncChromeState();
+  }
+}
 
 // Presence drives the chrome bar's background-jobs indicator; the per-job
 // command and start time feed its tooltip and click popover. Pushed only
@@ -5167,8 +5189,33 @@ function updateJobsIndicator(running) {
   }
 }
 
+// The user's "send now" on a held report. An empty prompt takes it as a
+// submission, the same as when the hold ends by itself. Text there is theirs: the
+// report joins it unsubmitted and the compose hold stays on, since the line is
+// still unsent and a later notice's CR would send it. Each signal sees text the
+// other misses: the screen sees history and a paste, the keys see a draft whose
+// caret sits on a fresh line, which reads as empty. Either one means text. So a
+// prompt emptied by Esc or a line typed and deleted takes the report unsubmitted
+// too, which costs an Enter, where the other guess submits a half-written draft.
+async function sendHeldNotice(text) {
+  const { holdsInput } = await readPromptTarget();
+  const draft = holdsInput || userComposing();
+  if (!pasteAgentPing(text, { toPrompt: draft })) return;
+  if (draft) lastTypingTime = Date.now();
+}
+
+function sendHeldJobReportsNow() {
+  jobWatchSendNow = true;
+  if (jobWatchPolling) return; // that poll's finally comes back for it
+  clearTimeout(jobWatchTimer);
+  pollJobWatch();
+}
+
 async function pollJobWatch() {
   const timerAtEntry = jobWatchTimer;
+  const force = jobWatchSendNow;
+  jobWatchSendNow = false;
+  jobWatchPolling = true;
   try {
     if (!ptyProcess) return;
     const now = Date.now();
@@ -5191,15 +5238,19 @@ async function pollJobWatch() {
     const res = jobWatch.evaluate(
       { now, agentActiveAt: lastAgentOutputTime, composing, events, starts,
         pending: jobWatchPending, prevPollAt: jobWatchPrevPollAt, windowStartAt: ptyStartedAt,
-        quietMs: JOB_IDLE_MS });
+        quietMs: JOB_IDLE_MS, force });
     // The composing check ran before the shell read above; a first
     // keystroke could have landed since. Drop the cycle wholesale rather
     // than splice a paste into a steer being typed — the spool still holds
-    // the events and the next poll re-resolves.
-    if (lastInputTime !== inputAtEntry) return;
+    // the events and the next poll re-resolves. A send the user asked for
+    // goes on: sendHeldNotice reads the prompt right before it writes.
+    if (!force && lastInputTime !== inputAtEntry) return;
     jobWatchPending = res.pending;
     jobWatchPrevPollAt = now;
     updateJobsIndicator(res.running);
+    updateHeldReports(res.held);
+    // One notice per poll: a vanish waiting behind a report goes out next.
+    if (force && res.pending.size) jobWatchSendNow = true;
     if (res.remove.length) {
       await posixSh(`rm -f ${res.remove.map(shellEscape).join(' ')}`);
     }
@@ -5208,9 +5259,11 @@ async function pollJobWatch() {
       // detail — absolute timestamps, per-item data — lives here in the
       // host log, and the sessions-log record feeds a future past-notices
       // viewer. The transcript records the injected line in-band.
-      log('[job-watch] notice: ' + res.notice.kind + ' ' + JSON.stringify(res.notice.items));
+      log('[job-watch] notice: ' + res.notice.kind + (force ? ' (sent now by the user) ' : ' ')
+        + JSON.stringify(res.notice.items));
       const text = agentNoticeFor(res.notice);
-      writeAsBracketedPasteSubmission(text);
+      if (force) await sendHeldNotice(text);
+      else writeAsBracketedPasteSubmission(text);
       if (sessionIndex !== null) {
         sessionsLog.appendEvent(app.getPath('userData'),
           { e: 'host-notice', id: sessionIndex, kind: res.notice.kind, text, items: res.notice.items });
@@ -5218,17 +5271,25 @@ async function pollJobWatch() {
     }
   } catch { /* transient read error: try again next tick */ }
   finally {
+    jobWatchPolling = false;
     if (jobWatchTimer === timerAtEntry) {
-      jobWatchTimer = setTimeout(pollJobWatch, JOB_POLL_MS);
+      jobWatchTimer = setTimeout(pollJobWatch, jobWatchSendNow ? JOB_SEND_NOW_GAP_MS : JOB_POLL_MS);
     }
   }
 }
+
+ipcMain.on('job-reports-send-now', (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  sendHeldJobReportsNow();
+});
 
 function startJobWatch() {
   if (jobWatchTimer) clearTimeout(jobWatchTimer);
   jobWatchPending = new Map();
   jobWatchPrevPollAt = 0;
+  jobWatchSendNow = false;
   updateJobsIndicator(null);
+  updateHeldReports(null);
   log(`[job-watch] armed (session ${agentSessionId}, poll ${JOB_POLL_MS}ms)`);
   // GC spool files no session ever claimed (their window is gone for good).
   posixSh(`find ${JOB_SPOOL} \\( -name '*.event' -o -name '*.started' \\) -mtime +7 -delete 2>/dev/null || true`);

@@ -3,8 +3,9 @@
 // it one spool dump per poll (completion events plus start records, each
 // start record carrying a liveness bit main resolved with kill -0); this
 // decides which spool files to remove, which to keep pending, which jobs
-// are running (the chrome bar's background-jobs indicator), and what
-// notice (at most one per poll) to inject. Two signals:
+// are running (the chrome bar's background-jobs indicator), which reports
+// are waiting and why (its held-reports indicator), and what notice (at most
+// one per poll) to inject. Two signals:
 //   events — a participating script announced its own completion (rich,
 //            durable, topology-proof); the primary signal.
 //   starts — a start record whose process is gone with NO event:
@@ -68,8 +69,10 @@ function oneLine(s, max = 200) {
 // composing (keys typed since the last submit), events, starts (this
 // session's only), pending (Map file → { finishedAt } from earlier polls),
 // prevPollAt (the last completed poll, 0 if none), windowStartAt (when this
-// window's shell came up), quietMs }.
-// Returns { pending, notice|null, remove: [files], running: [{ cmd, startedMs }] }.
+// window's shell came up), quietMs, force (the user asked for what is waiting
+// now: every hold below is off for this poll) }.
+// Returns { pending, notice|null, remove: [files], running: [{ cmd, startedMs }],
+// held: { reason, items: [{ text, finishedAt, gone }] } | null }.
 //
 // A completion event is delivered once the agent has been quiet for quietMs
 // after both the job's finish and its own last activity, and the user is not
@@ -97,8 +100,13 @@ function oneLine(s, max = 200) {
 // looking, at a time nobody knows (goneMs null). Start records with a live
 // process are reported as running and left in the spool; their EXIT trap
 // removes them.
+//
+// Whatever stays pending is reported as held, with the reason worth telling
+// the user: 'composing' never ends by itself, so it outranks the rest; then
+// 'active' (the agent moved after the job finished) and 'quiet' (only the
+// quiet period is left to run).
 function evaluate(input) {
-  const { now, composing, quietMs } = input;
+  const { now, composing, quietMs, force } = input;
   const agentActiveAt = input.agentActiveAt || 0;
   const prevPollAt = input.prevPollAt || 0;
   const windowStartAt = input.windowStartAt || 0;
@@ -108,15 +116,19 @@ function evaluate(input) {
   const pending = new Map();
   const remove = [];
   const running = [];
+  const heldItems = [];
   let notice = null;
-  const ripe = (p) => !composing && now - Math.max(p.finishedAt, agentActiveAt) >= quietMs;
+  const ripe = (p) => force || (!composing && now - Math.max(p.finishedAt, agentActiveAt) >= quietMs);
 
   const ripeEvents = [];
   for (const e of events) {
     const p = pendingIn.get(e.file)
       || { finishedAt: Math.min(Math.max(e.tsMs, prevPollAt, windowStartAt), now) };
     if (ripe(p)) ripeEvents.push(e);
-    else pending.set(e.file, p);
+    else {
+      pending.set(e.file, p);
+      heldItems.push({ text: oneLine(e.msg, 120), finishedAt: p.finishedAt, gone: false });
+    }
   }
   if (ripeEvents.length) {
     for (const e of ripeEvents) remove.push(e.file);
@@ -141,7 +153,10 @@ function evaluate(input) {
     // One notice per poll: a ripe report going out this cycle leaves the
     // gone records pending (still ripe) for the next one.
     if (ripe(p) && !notice) ripeGone.push({ s, p });
-    else pending.set(s.file, p);
+    else {
+      pending.set(s.file, p);
+      heldItems.push({ text: oneLine(s.cmd, 120), finishedAt: p.finishedAt, gone: true });
+    }
   }
   if (ripeGone.length) {
     for (const { s } of ripeGone) remove.push(s.file);
@@ -154,7 +169,15 @@ function evaluate(input) {
     };
   }
 
-  return { pending, notice, remove, running };
+  const held = heldItems.length
+    ? {
+      reason: composing ? 'composing'
+        : heldItems.some((it) => agentActiveAt > it.finishedAt) ? 'active' : 'quiet',
+      items: heldItems,
+    }
+    : null;
+
+  return { pending, notice, remove, running, held };
 }
 
 module.exports = { parseSpool, oneLine, evaluate };

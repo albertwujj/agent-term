@@ -69,6 +69,31 @@ const SCENARIOS = [
       lock: { state: 'mine', tooltip: 'lock/agent · work/release · you' },
     },
   },
+  {
+    label: 'A report in its quiet period (grey envelope)',
+    state: {
+      hue: 87, cli: 'agent', prompt: 'Watch CI', isWorking: false,
+      heldReports: {
+        count: 1, reason: 'quiet', quietMs: 120_000,
+        items: [{ text: 'watch-build.sh change 123: VERDICT=SUCCESS', finishedAt: Date.now() - 30_000, gone: false }],
+      },
+    },
+  },
+  {
+    label: 'Two reports held by typing (amber envelope), with a job still running',
+    state: {
+      hue: 200, cli: 'agent', prompt: 'Watch CI', isWorking: false,
+      jobs: { count: 1, jobs: [{ cmd: 'agent-job npm run test:slow', startedMs: Date.now() - 300_000 }] },
+      heldReports: {
+        count: 2, reason: 'composing', quietMs: 120_000,
+        items: [
+          { text: 'watch-build.sh change 123: VERDICT=STAGE_FAIL', finishedAt: Date.now() - 300_000, gone: false },
+          { text: 'cicd-retry-loop.sh', finishedAt: Date.now() - 60_000, gone: true },
+        ],
+      },
+      lock: { state: 'mine', tooltip: 'lock/agent · work/release · you' },
+    },
+  },
 ];
 
 // In production, titleBarOverlay reserves space at the top of the window

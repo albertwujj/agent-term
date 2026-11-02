@@ -17,6 +17,12 @@
 //     once usually means something was left behind. Hover names the jobs;
 //     click opens a popover with per-job running durations. Static
 //     open-arc glyph; never animates.
+//   · Held-reports icon — a job has ended and its report has not reached the
+//     agent yet, so the runner going away never reads as "and nothing is
+//     coming". Grey while the hold ends by itself (the quiet period, an active
+//     agent); amber when only the user can end it (keys typed since the last
+//     Enter). Hover says why; click lists the reports and offers to send them
+//     now. Static envelope; never animates.
 //   · Lock icon — who holds agent-lock's lock/agent on the session's repo:
 //     shape = what the lock is doing (open outline free on a work branch,
 //     filled held by an active holder, outline held by an idle one, dashed
@@ -122,19 +128,20 @@ const BAR_CSS = `
 }
 .at-chrome-text.at-chrome-sessions { cursor: pointer; }
 .at-chrome-text.at-chrome-sessions:hover { color: #c8c8c8; }
-.at-chrome-lock, .at-chrome-jobs {
+.at-chrome-lock, .at-chrome-jobs, .at-chrome-held {
   flex: 0 0 auto;
   width: 16px; height: 16px;
   margin: 0 6px 0 10px;
   display: inline-block;
   -webkit-app-region: no-drag;
 }
-.at-chrome-lock svg, .at-chrome-jobs svg { width: 16px; height: 16px; display: block; }
-.at-chrome-jobs {
+.at-chrome-lock svg, .at-chrome-jobs svg, .at-chrome-held svg { width: 16px; height: 16px; display: block; }
+.at-chrome-jobs, .at-chrome-held {
   width: auto;
   display: inline-flex; align-items: center; gap: 3px;
   cursor: default;
 }
+.at-chrome-held { cursor: pointer; }
 .at-chrome-jobs-count { font-size: 13px; line-height: 16px; }
 .at-chrome-jobs-pop {
   position: fixed;
@@ -160,6 +167,24 @@ const BAR_CSS = `
 }
 .at-chrome-jobs-pop .cmd { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
 .at-chrome-jobs-pop .dur { flex: 0 0 auto; color: #909090; }
+.at-chrome-jobs-pop .at-chrome-held-foot {
+  display: flex; gap: 16px; align-items: center; justify-content: space-between;
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px solid #2a2a2a;
+  color: #909090;
+}
+.at-chrome-held-send {
+  flex: 0 0 auto;
+  font: inherit;
+  color: #e6e6e6;
+  background: #2a2a2a;
+  border: 1px solid #444444;
+  border-radius: 3px;
+  padding: 2px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.at-chrome-held-send:hover { background: #363636; }
 `;
 
 // Padlock glyphs, 16x16; `currentColor` is set per state on the wrapper.
@@ -202,24 +227,78 @@ function renderJobsMarkup(jobs) {
     + '</span>';
 }
 
+// Report envelope: a message on its way to the agent, drawn still.
+const HELD_GLYPH = '<rect x="2.25" y="3.75" width="11.5" height="8.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.5"/>'
+  + '<path d="M3 5l5 3.8L13 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
+
+function fmtQuiet(ms) {
+  const s = Math.round((ms || 0) / 1000);
+  return s < 60 ? `${s}s` : `${Math.round(s / 60)}m`;
+}
+
+// Why the report is waiting, and what ends that.
+function heldReasonText(held) {
+  if (held.reason === 'composing') return 'keys were typed here since the last Enter, and it waits for the next one';
+  const quiet = `${fmtQuiet(held.quietMs)} of quiet`;
+  return held.reason === 'active' ? `the agent is active, and it goes out after ${quiet}` : `it goes out after ${quiet}`;
+}
+
+// Markup for the held-reports indicator, or '' when nothing is waiting.
+// held: { count, reason, quietMs, items: [{ text, finishedAt, gone }] } from
+// main's job-watch poll. Amber is the hold only the user can end.
+function renderHeldMarkup(held) {
+  if (!held || !held.count) return '';
+  const color = held.reason === 'composing' ? JOBS_WARN_COLOR : '#909090';
+  const tooltip = `${held.count > 1 ? `${held.count} job reports` : 'job report'} waiting: ${heldReasonText(held)}`
+    + '\n' + (held.items || []).map(heldItemText).join('\n');
+  return `<span class="at-chrome-held" style="color:${color}" title="${escapeHtml(tooltip)}">`
+    + `<svg viewBox="0 0 16 16" aria-hidden="true">${HELD_GLYPH}</svg>`
+    + (held.count > 1 ? `<span class="at-chrome-jobs-count">${held.count}</span>` : '')
+    + '</span>';
+}
+
+function heldItemText(it) {
+  return it.text || 'background job';
+}
+
 // "running 42m" for the popover rows, computed when it opens.
 function fmtRunning(startedMs, now) {
   if (!startedMs) return '';
-  const s = Math.max(0, Math.round((now - startedMs) / 1000));
-  if (s < 60) return `running ${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `running ${m}m`;
-  const h = Math.floor(m / 60), rm = m % 60;
-  return `running ${h}h${rm ? ` ${rm}m` : ''}`;
+  return `running ${fmtSpan(now - startedMs)}`;
 }
 
+function fmtSpan(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60), rm = m % 60;
+  return `${h}h${rm ? ` ${rm}m` : ''}`;
+}
+
+// Rows of the held-reports popover, then why they wait and the way past it:
+// with keys typed, the report joins the prompt and the user's Enter sends both.
+// Pure, like the bar's other markup; toggleHeldPopover stamps `now`.
+function renderHeldPopoverMarkup(held, now) {
+  const rows = (held.items || []).map((it) =>
+    `<div class="at-chrome-jobs-row"><span class="cmd">${escapeHtml(heldItemText(it))}</span>`
+    + `<span class="dur">${it.gone ? 'gone' : 'finished'} ${escapeHtml(fmtSpan(now - it.finishedAt))} ago</span></div>`);
+  return rows.join('')
+    + `<div class="at-chrome-held-foot"><span>${escapeHtml(heldReasonText(held))}</span>`
+    + `<button type="button" class="at-chrome-held-send">${held.reason === 'composing' ? 'To prompt' : 'Send now'}</button></div>`;
+}
+
+// The open popover, running jobs or held reports, and which: only one at a time.
 let jobsPopover = null;
+let jobsPopoverKind = null;
+let sendHeldReports = null;
 
 function closeJobsPopover() {
   if (!jobsPopover) return;
   try { jobsPopover.remove(); } catch {}
   document.removeEventListener('mousedown', onJobsPopoverOutside, true);
   jobsPopover = null;
+  jobsPopoverKind = null;
 }
 
 // Dismiss on a press OUTSIDE the popover — not on click, and not on
@@ -229,8 +308,40 @@ function closeJobsPopover() {
 // this just closed.
 function onJobsPopoverOutside(ev) {
   const t = ev.target;
-  if (t && t.closest && (t.closest('.at-chrome-jobs-pop') || t.closest('.at-chrome-jobs'))) return;
+  if (t && t.closest && (t.closest('.at-chrome-jobs-pop') || t.closest('.at-chrome-jobs')
+    || t.closest('.at-chrome-held'))) return;
   closeJobsPopover();
+}
+
+function showJobsPopover(kind, html) {
+  const pop = document.createElement('div');
+  pop.className = 'at-chrome-jobs-pop';
+  pop.innerHTML = html;
+  document.body.appendChild(pop);
+  jobsPopover = pop;
+  jobsPopoverKind = kind;
+  // The opening gesture's mousedown already happened (we open on click),
+  // so the outside-press listener can attach immediately.
+  document.addEventListener('mousedown', onJobsPopoverOutside, true);
+  return pop;
+}
+
+// Click detail on the held-reports icon. Pressing the button keeps focus where
+// it was (the bar's mousedown handler does the same for the icon), so typing
+// carries on in whatever had it.
+function toggleHeldPopover() {
+  const wasOpen = jobsPopoverKind === 'held';
+  closeJobsPopover();
+  if (wasOpen) return;
+  const held = lastState && lastState.heldReports;
+  if (!held || !held.count) return;
+  const pop = showJobsPopover('held', renderHeldPopoverMarkup(held, Date.now()));
+  const button = pop.querySelector('.at-chrome-held-send');
+  button.addEventListener('mousedown', (ev) => ev.preventDefault());
+  button.addEventListener('click', () => {
+    closeJobsPopover();
+    if (typeof sendHeldReports === 'function') sendHeldReports();
+  });
 }
 
 // Click detail: one row per job — command, and how long it has been
@@ -238,20 +349,15 @@ function onJobsPopoverOutside(ev) {
 // by a press outside it or the next state push. Rows are selectable text:
 // the command line is exactly what a kill or a re-run needs.
 function toggleJobsPopover() {
-  if (jobsPopover) { closeJobsPopover(); return; }
+  const wasOpen = jobsPopoverKind === 'jobs';
+  closeJobsPopover();
+  if (wasOpen) return;
   const jobs = lastState && lastState.jobs;
   if (!jobs || !jobs.count) return;
   const now = Date.now();
-  const pop = document.createElement('div');
-  pop.className = 'at-chrome-jobs-pop';
-  pop.innerHTML = (jobs.jobs || []).map((j) =>
+  showJobsPopover('jobs', (jobs.jobs || []).map((j) =>
     `<div class="at-chrome-jobs-row"><span class="cmd">${escapeHtml(j.cmd)}</span>`
-    + `<span class="dur">${escapeHtml(fmtRunning(j.startedMs, now))}</span></div>`).join('');
-  document.body.appendChild(pop);
-  jobsPopover = pop;
-  // The opening gesture's mousedown already happened (we open on click),
-  // so the outside-press listener can attach immediately.
-  document.addEventListener('mousedown', onJobsPopoverOutside, true);
+    + `<span class="dur">${escapeHtml(fmtRunning(j.startedMs, now))}</span></div>`).join(''));
 }
 
 // Markup for the lock icon, or '' when there is nothing to coordinate.
@@ -281,8 +387,9 @@ function escapeHtml(s) {
   }[ch]));
 }
 
-function ensureMounted({ onContextMenu, onSessionsClick } = {}) {
+function ensureMounted({ onContextMenu, onSessionsClick, onSendHeldReports } = {}) {
   if (mountedRoot) return mountedRoot;
+  sendHeldReports = onSendHeldReports;
   injectStyles();
   const el = document.createElement('div');
   el.className = 'at-chrome';
@@ -290,6 +397,8 @@ function ensureMounted({ onContextMenu, onSessionsClick } = {}) {
   document.body.appendChild(el);
   el.style.webkitAppRegion = 'drag';
   el.addEventListener('mousedown', (ev) => {
+    // A press on the held-reports icon leaves focus where it was.
+    if (ev.target && ev.target.closest && ev.target.closest('.at-chrome-held')) ev.preventDefault();
     if (ev.button !== 2) return;
     ev.preventDefault();
     ev.stopPropagation();
@@ -299,13 +408,18 @@ function ensureMounted({ onContextMenu, onSessionsClick } = {}) {
     ev.stopPropagation();
     if (typeof onContextMenu === 'function') onContextMenu();
   });
-  // Jobs-icon click → detail popover; start line → the picker again.
-  // Delegated so both survive the innerHTML replacement update() does.
+  // Jobs and held-reports icon click → detail popover; start line → the picker
+  // again. Delegated so they survive the innerHTML replacement update() does.
   el.addEventListener('click', (ev) => {
     const closest = (sel) => ev.target && ev.target.closest && ev.target.closest(sel);
     if (closest('.at-chrome-jobs')) {
       ev.stopPropagation();
       toggleJobsPopover();
+      return;
+    }
+    if (closest('.at-chrome-held')) {
+      ev.stopPropagation();
+      toggleHeldPopover();
       return;
     }
     if (closest('.at-chrome-sessions') && typeof onSessionsClick === 'function') {
@@ -347,6 +461,7 @@ function renderBarMarkup(state) {
     <span class="at-chrome-text${dim ? ' dim' : ''}${sessions ? ' at-chrome-sessions' : ''}">${escapeHtml(text)}</span>
     <span class="at-chrome-grip"></span>
     ${renderJobsMarkup(s.jobs)}
+    ${renderHeldMarkup(s.heldReports)}
     ${renderLockMarkup(s.lock)}
   `;
 }
@@ -358,12 +473,18 @@ function hueColor(hue) {
   return `oklch(65% 0.27 ${hue})`;
 }
 
-// Update the bar state. payload: { hue, cli, prompt, isWorking, lock, jobs };
-// isWorking is carried for other consumers and not drawn here.
+// Update the bar state. payload: { hue, cli, prompt, isWorking, lock, jobs,
+// heldReports }; isWorking is carried for other consumers and not drawn here.
 function update(payload) {
+  const heldBefore = JSON.stringify((lastState && lastState.heldReports) || null);
   lastState = payload || {};
   if (!mountedRoot) return;
-  closeJobsPopover(); // state moved on; open detail rows would be stale
+  // State moved on; open detail rows would be stale. The held-reports popover
+  // holds a button and an active agent pushes state every few seconds, so it
+  // goes only when its own rows change, not out from under the pointer.
+  if (jobsPopoverKind !== 'held' || heldBefore !== JSON.stringify(lastState.heldReports || null)) {
+    closeJobsPopover();
+  }
 
   // Hue accent: drive the full-width divider color via a CSS variable on
   // the document root. Setting it on :root means both the chrome bar AND
@@ -392,6 +513,8 @@ module.exports = {
   renderBarMarkup,
   renderLockMarkup,
   renderJobsMarkup,
+  renderHeldMarkup,
+  renderHeldPopoverMarkup,
   hueColor,
   mount,
   update,

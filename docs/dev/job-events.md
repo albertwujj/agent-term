@@ -77,8 +77,10 @@ liveness (`kill -0` on the filename pid) in the same read.
   output. A busy agent's report waits for its turn to end, so a job
   launched out of the CLI's sight still reaches it. Idle is judged on
   substantive screen output: spinner frames, token counters, and
-  status-line repaints don't count as activity. A notice is held while
-  the user is mid-compose. The event file is deleted on delivery.
+  status-line repaints don't count as activity. A notice is held from the
+  first key typed after a submit until the next submit, with no time limit;
+  keys that compose nothing count too (Esc, a one-key answer, a line typed
+  and deleted). The event file is deleted on delivery.
 
       [Notice from terminal host] Background job report (as of 14:05):
       - <msg> (ran 52m)
@@ -90,6 +92,11 @@ liveness (`kill -0` on the filename pid) in the same read.
 - A start record whose process is gone with no event → a "gone without a
   completion report" notice quoting the record's `cmd`, under the same
   idle discipline with the death detected at the poll.
+- While an event or a gone record waits, the chrome bar shows a
+  held-reports indicator with the reason, drawn amber when only the user can
+  end the hold. The user can send it early: it is submitted when no key has
+  been typed since the last submit and the prompt reads empty, and otherwise
+  it joins the prompt unsubmitted, so a draft is never sent half-written.
 - The notice carries the clock time it was written and the run duration,
   derived from the timestamps; the absolute times go to the host's logs.
 - Events persist until consumed. A spool file whose session window is gone

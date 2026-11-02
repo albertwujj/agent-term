@@ -14,7 +14,7 @@ Use `agent-jobs` when native background execution or completion follow-up is mis
 
 A runner icon at the top right of the window shows the running jobs; click it for the list. How soon the icon and the report follow is in [job-events.md](dev/job-events.md). Closing a session and resuming it does not lose a job: one started before still reports to the session that comes back.
 
-If the agent is busy when the job finishes, the report waits until it is idle. A job that is killed outright writes no report, but the terminal sees that it is gone and tells the agent so, under the same idle rule.
+If the agent is busy when the job finishes, or you have started typing to it, the report waits until it is idle. A second icon shows a report that is waiting and why, and you can send it early. A job that is killed outright writes no report, but the terminal sees that it is gone and tells the agent so, under the same idle rule.
 
 ## An example: CI
 

@@ -240,6 +240,78 @@ test('evaluate: composing holds a ripe vanish notice', () => {
   assert.equal(held.pending.has(gone.file), true);
 });
 
+// --- held reports: what waits, why, and sending it now ---
+
+test('evaluate: nothing pending → nothing held', () => {
+  assert.equal(jw.evaluate(inp()).held, null);
+  assert.equal(jw.evaluate(inp({ events: [ev()] })).held, null, 'delivered, so not held');
+  assert.equal(jw.evaluate(inp({ starts: [st()] })).held, null, 'still running, so not held');
+});
+
+test('evaluate: a job just finished → held for the quiet period, with its finish time', () => {
+  const young = ev({ tsMs: T0 - MIN });
+  const r = jw.evaluate(inp({ events: [young] }));
+  assert.equal(r.held.reason, 'quiet');
+  assert.deepEqual(r.held.items, [{ text: young.msg, finishedAt: T0 - MIN, gone: false }]);
+});
+
+test('evaluate: the agent moved after the finish → held as active', () => {
+  const r = jw.evaluate(inp({ agentActiveAt: T0 - 10_000, events: [ev()] }));
+  assert.equal(r.held.reason, 'active');
+});
+
+test('evaluate: an agent active before a job finished is not why it waits', () => {
+  const young = ev({ tsMs: T0 - 30_000 });
+  const r = jw.evaluate(inp({ agentActiveAt: T0 - MIN, events: [young] }));
+  assert.equal(r.held.reason, 'quiet');
+});
+
+test('evaluate: composing outranks the rest, the hold nothing else ends', () => {
+  const r = jw.evaluate(inp({ composing: true, agentActiveAt: T0 - 10_000, events: [ev()] }));
+  assert.equal(r.held.reason, 'composing');
+});
+
+test('evaluate: a vanished job is held too, marked gone, by its command', () => {
+  const gone = st({ alive: false });
+  const r = jw.evaluate(inp({ composing: true, starts: [gone] }));
+  assert.equal(r.held.reason, 'composing');
+  assert.deepEqual(r.held.items, [{ text: gone.cmd, finishedAt: T0, gone: true }]);
+});
+
+test('evaluate: the finish time stays fixed across polls, so the state is stable', () => {
+  const young = ev({ tsMs: T0 - MIN });
+  const p1 = jw.evaluate(inp({ events: [young] }));
+  const p2 = jw.evaluate(inp({ now: T0 + 30_000, events: [young], pending: p1.pending }));
+  assert.deepEqual(p2.held, p1.held);
+});
+
+test('evaluate: force sends what composing and activity would hold', () => {
+  const r = jw.evaluate(inp({ force: true, composing: true, agentActiveAt: T0 - 1000, events: [ev()] }));
+  assert.equal(r.notice.kind, 'job-report');
+  assert.deepEqual(r.remove, [ev().file]);
+  assert.equal(r.held, null);
+  assert.equal(r.pending.size, 0);
+});
+
+test('evaluate: force keeps one notice per poll: a vanish behind a report stays held for the next', () => {
+  const e = ev({ file: '/tmp/agent-events/1.300.event', pid: 300 });
+  const gone = st({ file: '/tmp/agent-events/1.400.started', pid: 400, alive: false });
+  const p1 = jw.evaluate(inp({ force: true, composing: true, events: [e], starts: [gone] }));
+  assert.equal(p1.notice.kind, 'job-report');
+  assert.equal(p1.pending.has(gone.file), true);
+  assert.equal(p1.held.items[0].gone, true);
+  const p2 = jw.evaluate(inp({ force: true, composing: true, starts: [gone], pending: p1.pending }));
+  assert.equal(p2.notice.kind, 'job-vanished');
+  assert.equal(p2.held, null);
+});
+
+test('evaluate: force leaves a running job running', () => {
+  const r = jw.evaluate(inp({ force: true, starts: [st()] }));
+  assert.equal(r.notice, null);
+  assert.equal(r.running.length, 1);
+  assert.deepEqual(r.remove, []);
+});
+
 test('oneLine strips escapes and collapses whitespace', () => {
   assert.equal(jw.oneLine('a\x1b[2Jb\n  c'), 'a[2Jb c');
 });
