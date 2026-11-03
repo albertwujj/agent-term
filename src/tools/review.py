@@ -21,6 +21,7 @@ This is a local review artifact generator; the HTML it writes is meant to be
 opened in a browser, not committed.
 """
 import argparse
+import collections
 import difflib
 import html
 import json
@@ -404,7 +405,7 @@ def md_available():
     return _MD_AVAILABLE
 
 
-def md_render(text):
+def md_parser():
     global _MD
     if _MD is None:
         try:
@@ -421,7 +422,11 @@ def md_render(text):
         # "default" ≈ the markdown-it config the agent-term viewer uses (tables +
         # strikethrough; html disabled so embedded HTML can't break structure).
         _MD = MarkdownIt("default", {"html": False})
-    return _MD.render(text or "")
+    return _MD
+
+
+def md_render(text):
+    return md_parser().render(text or "")
 
 
 # Two short columns only pay off when there's enough prose; below the threshold a
@@ -514,6 +519,166 @@ def html_word_diff(old_html, new_html):
 def render_markdown_diff(git, diff_args, repo, path):
     old_text, new_text = file_versions(git, diff_args, repo, path)
     return html_word_diff(md_render(old_text), md_render(new_text))
+
+
+# A ranged markdown embed shows only the blocks that changed, not the slice of
+# source lines: a line range can cut a paragraph or a list in half, and a slice
+# rendered alone loses the link definitions the rest of the file holds. So both
+# sides are parsed whole and compared block by block on their rendered HTML, which
+# also means a reflow that renders the same is not a change.
+# `key` is what two blocks must share to be unchanged; `words` is what they're compared
+# on when they differ. `list_tag` and `number` place a list item back in a list; empty
+# for other blocks.
+MdBlock = collections.namedtuple("MdBlock", "tag html key words start end list_tag number")
+
+MD_HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+# Share of words two changed blocks must have in common to read as one block edited
+# in place. Below it, marking up one as the other shows noise; they read better as
+# one block removed and another added.
+MD_SAME_BLOCK_RATIO = 0.5
+_MD_PRE_OR_SPACE = re.compile(r"(<pre>.*?</pre>)|\s+", re.S)
+
+
+def _md_block_key(html_str, list_tag):
+    """Comparison key for a block. A soft line break renders as a newline, so runs of
+    whitespace compare equal, except in code where they show. A list item's number is
+    not in the key, so inserting an item doesn't mark the ones after it as changed."""
+    return list_tag, _MD_PRE_OR_SPACE.sub(lambda m: m.group(1) or " ", html_str)
+
+
+def _md_blocks(text):
+    """The document's blocks in source order: each top-level block, with a list
+    split into its items so that editing one item doesn't bring in the whole list."""
+    md = md_parser()
+    env = {}
+    tokens = md.parse(text or "", env)
+
+    def block(toks, list_tag="", number=0):
+        head = toks[0]
+        rendered = md.renderer.render(toks, md.options, env)
+        return MdBlock(head.tag, rendered, _md_block_key(rendered, list_tag),
+                       _visible_text(rendered).split(),
+                       head.map[0], head.map[1], list_tag, number)
+
+    blocks, first = [], 0
+    for i, tok in enumerate(tokens):
+        if tok.level or tok.nesting > 0:
+            continue  # inside a block; a level-0 close or leaf token ends one
+        span, first = tokens[first:i + 1], i + 1
+        head = span[0]
+        if head.type not in ("bullet_list_open", "ordered_list_open"):
+            blocks.append(block(span))
+            continue
+        start = head.attrGet("start")
+        number = 1 if start is None else int(start)
+        item_first = 1
+        for k, t in enumerate(span):
+            if t.type == "list_item_close" and t.level == 1:
+                blocks.append(block(span[item_first:k + 1], head.tag, number))
+                number += 1
+                item_first = k + 1
+    return blocks
+
+
+def _pair_changed_blocks(olds, news):
+    """Pair blocks from one changed stretch, in order: [(old | None, new | None)].
+    Takes the most alike pair and recurses on each side of it, so an edit to one
+    of several adjacent blocks stays with that block's previous version. Only
+    blocks of one element pair, since word-diffing two would interleave their tags."""
+    best, at = 0, None
+    for j, new in enumerate(news):
+        sm = difflib.SequenceMatcher(None, [], new.words, autojunk=False)
+        for i, old in enumerate(olds):
+            if old.tag != new.tag:
+                continue
+            sm.set_seq1(old.words)
+            if sm.real_quick_ratio() > best and sm.quick_ratio() > best and sm.ratio() > best:
+                best, at = sm.ratio(), (i, j)
+    if best < MD_SAME_BLOCK_RATIO:
+        return [(old, None) for old in olds] + [(None, new) for new in news]
+    i, j = at
+    return (_pair_changed_blocks(olds[:i], news[:j]) + [(olds[i], news[j])]
+            + _pair_changed_blocks(olds[i + 1:], news[j + 1:]))
+
+
+def _align_md_blocks(olds, news):
+    """Every block of both sides in document order: [(old | None, new | None)]. A
+    pair with equal keys is unchanged."""
+    sm = difflib.SequenceMatcher(None, [b.key for b in olds], [b.key for b in news], autojunk=False)
+    ops = []
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == "equal":
+            ops.extend(zip(olds[i1:i2], news[j1:j2]))
+        else:
+            ops.extend(_pair_changed_blocks(olds[i1:i2], news[j1:j2]))
+    return ops
+
+
+def _md_runs_in_range(ops, lo, hi):
+    """Runs of adjacent changed blocks touching new-side lines [lo, hi], each as
+    (heading it sits under, ops); the heading is blank when the run opens on one.
+    A removed block has no new-side lines, so it counts when the gap it left
+    between the surviving blocks reaches the range: a removal right at the edge of
+    a range is shown, rather than hidden by an off-by-one in the agent's numbers."""
+    gap_ends, at = [], float("inf")
+    for _, new in reversed(ops):
+        if new:
+            at = new.start
+        gap_ends.append(at)
+    gap_ends.reverse()
+
+    runs, run, heading, gap_start = [], None, "", 0
+    for (old, new), gap_end in zip(ops, gap_ends):
+        if new:
+            hit = (not old or old.key != new.key) and new.start < hi and new.end >= lo
+        else:
+            hit = gap_start <= hi and lo - 1 <= gap_end
+        if hit:
+            if run is None:
+                run = []
+                runs.append(("" if (new or old).tag in MD_HEADING_TAGS else heading, run))
+            run.append((old, new))
+        else:
+            run = None
+        if new:
+            gap_start = new.end
+            if new.tag in MD_HEADING_TAGS:
+                heading = _visible_text(new.html)
+    return runs
+
+
+def _render_md_run(run):
+    """A run's word-diffed blocks, with adjacent list items back in one list."""
+    out, open_tag = [], ""
+    for old, new in run:
+        shown = new or old
+        if open_tag != shown.list_tag:
+            if open_tag:
+                out.append(f"</{open_tag}>\n")
+            open_tag = shown.list_tag
+            if open_tag:
+                start = f' start="{shown.number}"' if open_tag == "ol" and shown.number != 1 else ""
+                out.append(f"<{open_tag}{start}>\n")
+        out.append(html_word_diff(old.html if old else "", new.html if new else ""))
+    if open_tag:
+        out.append(f"</{open_tag}>\n")
+    return "".join(out)
+
+
+def render_markdown_diff_range(git, diff_args, repo, path, lo, hi):
+    """The rendered diff of just the blocks that changed within new-side lines
+    [lo, hi]; "" when none did. Each run of blocks is its own .md-render, so the
+    host's nearest-heading lookup can't name a heading from an earlier run. A band
+    above it says which section it's in and, past the first run, that text was skipped."""
+    old_text, new_text = file_versions(git, diff_args, repo, path)
+    ops = _align_md_blocks(_md_blocks(old_text), _md_blocks(new_text))
+    out = []
+    for k, (heading, run) in enumerate(_md_runs_in_range(ops, lo, hi)):
+        band = " ".join(part for part in ("⋯" if k else "", heading) if part)
+        if band:
+            out.append(f'<div class="md-hh">{html.escape(band)}</div>')
+        out.append(f'<div class="md-render">{_render_md_run(run)}</div>')
+    return "\n".join(out)
 
 
 # ----------------------- review package (markdown data model) -----------------
@@ -612,8 +777,13 @@ def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
 
     if is_markdown_path(path) and md_available():
         if lo and hi:
-            errors.append(f"{path}: line ranges aren't supported for markdown embeds; rendered whole.")
-        out.append(f'<div class="md-render">{render_markdown_diff(git, diff_args, repo, path)}</div></section>')
+            shown = render_markdown_diff_range(git, diff_args, repo, path, int(lo), int(hi))
+            if not shown:
+                errors.append(f"{path}: no rendered change in range L{lo}-{hi}.")
+                shown = f'<div class="why muted">(no rendered change in L{lo}-{hi})</div>'
+            out.append(f'{shown}</section>')
+        else:
+            out.append(f'<div class="md-render">{render_markdown_diff(git, diff_args, repo, path)}</div></section>')
         return "\n".join(out)
 
     hunks = split_hunks(git("diff", *diff_args, "--", path))
@@ -1655,6 +1825,7 @@ user-select:none;background:var(--canvas);border-right:1px solid var(--border)}
 .md-render td,.md-render th{border:1px solid var(--border);padding:4px 8px}
 .md-render ins,.md-render ins *{background:var(--add-bg);text-decoration:none;box-shadow:0 0 0 1px var(--add-ln) inset}
 .md-render del,.md-render del *{background:var(--del-bg);text-decoration:line-through;box-shadow:0 0 0 1px var(--del-ln) inset}
+.md-hh{background:var(--hh-bg);color:var(--hh-fg);padding:0 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
 .c-com{color:var(--t-com);font-style:italic}
 .c-str{color:var(--t-str)}
 .c-kw{color:var(--t-kw)}

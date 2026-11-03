@@ -303,3 +303,32 @@ Selection as a second code-comment gesture was weighed and left out:
   `data-md-anchor-id` blocks and source lines in the host renderer, against its
   own store; the review's quote path already reuses the shared `comment-ui`
   pieces, and diff cells fit neither model.
+
+## Ranged `:::diff` on markdown (2026-11-02)
+
+A range on a markdown file used to render the whole file and raise a directive
+error. It now shows the blocks that changed and touch the range. An unchanged
+block never shows, even inside the range, and a block the range only partly
+covers shows whole. A `:::diff` with no range still renders the whole file.
+
+- **Rendered blocks, not source lines.** Rendering a slice of lines can cut a
+  block in half and loses link definitions held elsewhere in the file. Both sides
+  are parsed whole, each block is rendered from its tokens, and the HTML decides
+  what changed. A reflow that renders the same is not a change, and a range with
+  no rendered change is a directive error, as a range with no changed lines is
+  for code.
+- **A block is a top-level block or a list item.** Without the split, an edit to
+  a long list brings in the whole list, and the docs here have bullet lists of
+  nearly 40 lines. Nested lists, tables and quotes stay whole; a table row needs
+  its header to read.
+- **Changed blocks pair by shared words.** An edit to one of several adjacent
+  blocks has to stay with that block's old version, or a range on one of them
+  shows the others as deleted. Pairs must share half their words and the same
+  element; anything else reads as one block removed and another added.
+- **A removal at the edge of a range shows.** A removed block has no new-side
+  lines, so it counts when the gap it left reaches the range. A hidden deletion
+  costs more than an extra one.
+- **Each run is its own `.md-render`, under a band in the hunk header's colours.**
+  The band names the section, since the unchanged heading no longer shows, and
+  past the first run marks the skipped text. Separate roots keep `nearestHeading`
+  from naming a heading from an earlier run in a comment's anchor.

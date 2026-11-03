@@ -222,7 +222,7 @@ def indent(text):
     return "".join("    " + line for line in text.splitlines(True))
 
 
-class MovesAndRanges(unittest.TestCase):
+class PackageRepoCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name).resolve()
@@ -251,6 +251,8 @@ class MovesAndRanges(unittest.TestCase):
         return (self.pkg.with_suffix(".html").read_text(),
                 json.loads(errors.read_text()) if errors.exists() else [])
 
+
+class MovesAndRanges(PackageRepoCase):
     def tints(self, page):
         return dict((int(ln), cls.strip() or "ctx") for cls, ln in re.findall(
             r'<td class="code([^"]*)" data-side="new" data-line="(\d+)"', page))
@@ -302,6 +304,221 @@ class MovesAndRanges(unittest.TestCase):
         for side in ("old", "new"):
             for ln in (5, 30):
                 self.assertIn(f'data-side="{side}" data-line="{ln}"', page)
+
+
+def main_html(page):
+    """The page's generated content, without the template's CSS and script."""
+    return page[page.index("<main>"):page.index("</main>")]
+
+
+# Lines:     1            3                 5                 7
+DOC = ("# Title\n\nAlpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.\n\n"
+       # 9          11               13                 15
+       "## Second\n\nDelta paragraph.\n\nEcho paragraph.\n\nFoxtrot paragraph.\n")
+
+
+class MarkdownRanges(PackageRepoCase):
+    def render_md(self, old, new, directive):
+        base = self.commit({"d.md": old})
+        tip = self.commit({"d.md": new})
+        page, errors = self.render(base, tip, directive + "\n")
+        return main_html(page), errors
+
+    def test_range_shows_only_the_changed_block(self):
+        page, errors = self.render_md(
+            DOC, DOC.replace("Bravo paragraph", "Bravo edited paragraph"), ":::diff d.md L1-16")
+
+        self.assertEqual(errors, [])
+        self.assertIn("<ins> edited</ins>", page)
+        for unchanged in ("Alpha", "Charlie", "Delta", "Foxtrot"):
+            self.assertNotIn(unchanged, page)
+        self.assertIn('<div class="md-hh">Title</div>', page)
+
+    def test_range_touching_part_of_a_block_shows_all_of_it(self):
+        old = "Intro.\n\nFirst wrapped line\nsecond wrapped line\nthird wrapped line\n\nOutro.\n"
+        page, errors = self.render_md(
+            old, old.replace("third wrapped", "third rewrapped"), ":::diff d.md L5-5")
+
+        self.assertEqual(errors, [])
+        self.assertIn("First wrapped line", page)
+        self.assertNotIn("Intro", page)
+
+    def test_change_outside_the_range_stays_out(self):
+        new = DOC.replace("Bravo paragraph", "Bravo edited paragraph") \
+                 .replace("Echo paragraph", "Echo edited paragraph")
+        page, errors = self.render_md(DOC, new, ":::diff d.md L1-9")
+
+        self.assertEqual(errors, [])
+        self.assertIn("Bravo", page)
+        self.assertNotIn("Echo", page)
+
+    def test_blocks_apart_are_separate_runs_under_their_headings(self):
+        new = DOC.replace("Bravo paragraph", "Bravo edited paragraph") \
+                 .replace("Echo paragraph", "Echo edited paragraph")
+        page, errors = self.render_md(DOC, new, ":::diff d.md L1-16")
+
+        self.assertEqual(errors, [])
+        self.assertEqual(page.count('class="md-render"'), 2)
+        self.assertIn('<div class="md-hh">⋯ Second</div>', page)
+        self.assertNotIn("Delta", page)
+
+    def test_adjacent_blocks_share_a_run(self):
+        new = DOC.replace("Bravo paragraph", "Bravo edited paragraph") \
+                 .replace("Charlie paragraph", "Charlie edited paragraph")
+        page, _ = self.render_md(DOC, new, ":::diff d.md L1-16")
+
+        self.assertEqual(page.count('class="md-render"'), 1)
+
+    def test_run_opening_on_a_heading_has_no_section_band(self):
+        page, errors = self.render_md(DOC, DOC.replace("## Second", "## Second part"), ":::diff d.md L9-9")
+
+        self.assertEqual(errors, [])
+        self.assertNotIn("md-hh", page)
+        self.assertIn("<ins> part</ins>", page)
+
+    def test_range_with_no_change_is_an_error(self):
+        new = DOC.replace("Echo paragraph", "Echo edited paragraph")
+        page, errors = self.render_md(DOC, new, ":::diff d.md L1-5")
+
+        self.assertEqual(errors, ["d.md: no rendered change in range L1-5."])
+        self.assertIn("(no rendered change in L1-5)", page)
+        self.assertNotIn('class="md-render"', page)
+
+    def test_reflow_that_renders_the_same_is_not_a_change(self):
+        old = "One two three four.\n\nOutro.\n"
+        _, errors = self.render_md(old, "One two\nthree four.\n\nOutro.\n", ":::diff d.md L1-2")
+
+        self.assertEqual(errors, ["d.md: no rendered change in range L1-2."])
+
+    def test_reindenting_code_is_a_change(self):
+        old = "Intro.\n\n```py\nif x:\n  y()\n```\n"
+        _, errors = self.render_md(old, old.replace("  y()", "    y()"), ":::diff d.md L3-6")
+
+        self.assertEqual(errors, [])
+
+    def test_whole_file_diff_still_renders_everything(self):
+        page, errors = self.render_md(
+            DOC, DOC.replace("Bravo paragraph", "Bravo edited paragraph"), ":::diff d.md")
+
+        self.assertEqual(errors, [])
+        self.assertIn("Foxtrot", page)
+        self.assertIn("<ins> edited</ins>", page)
+
+    def test_removed_block_inside_the_range_shows_as_deleted(self):
+        page, errors = self.render_md(DOC, DOC.replace("Echo paragraph.\n\n", ""), ":::diff d.md L9-14")
+
+        self.assertEqual(errors, [])
+        self.assertIn("<del>Echo", page)
+        self.assertNotIn("Delta", page)
+
+    def test_removed_block_at_the_range_edge_shows_and_away_from_it_does_not(self):
+        new = DOC.replace("Echo paragraph.\n\n", "")
+        at_edge, _ = self.render_md(DOC, new, ":::diff d.md L11-11")
+        away, errors = self.render_md(DOC, new, ":::diff d.md L1-5")
+
+        self.assertIn("<del>Echo", at_edge)
+        self.assertNotIn("Echo", away)
+        self.assertEqual(errors, ["d.md: no rendered change in range L1-5."])
+
+    def test_edit_stays_with_its_own_block_among_adjacent_edits(self):
+        old = ("The quick brown fox jumps over the lazy dog today.\n\n"
+               "Pack my box with five dozen liquor jugs right now.\n\n"
+               "How vexingly quick daft zebras jump over fences here.\n")
+        new = (old.replace("today", "tonight").replace("right now", "right away")
+               .replace("fences here", "fences there"))
+        page, errors = self.render_md(old, new, ":::diff d.md L3-3")
+
+        self.assertEqual(errors, [])
+        self.assertIn("Pack my box", page)
+        self.assertIn("<del>now.</del>", page)
+        self.assertNotIn("quick", page)
+
+    def test_rewritten_block_reads_as_removed_and_added(self):
+        page, errors = self.render_md(
+            "Intro.\n\nCompletely different words appear here now.\n",
+            "Intro.\n\nNothing about this sentence survives from before.\n", ":::diff d.md L3-3")
+
+        self.assertEqual(errors, [])
+        self.assertIn("<p><del>Completely different words appear here now.</del></p>", page)
+        self.assertIn("<p><ins>Nothing about this sentence survives from before.</ins></p>", page)
+
+    def test_block_changing_element_does_not_interleave_tags(self):
+        page, errors = self.render_md("Intro.\n\nSame words here.\n", "Intro.\n\n## Same words here.\n", ":::diff d.md L3-3")
+
+        self.assertEqual(errors, [])
+        self.assertIn("<p><del>Same words here.</del></p>", page)
+        self.assertIn("<h2><ins>Same words here.</ins></h2>", page)
+
+    def test_range_in_an_added_file_shows_blocks_in_the_range(self):
+        base = self.commit({"other.md": "x\n"})
+        tip = self.commit({"d.md": DOC})
+        page, errors = self.render(base, tip, ":::diff d.md L5-7\n")
+
+        self.assertEqual(errors, [])
+        page = main_html(page)
+        self.assertIn("<ins>Bravo", page)
+        self.assertIn("<ins>Charlie", page)
+        self.assertNotIn("Alpha", page)
+        self.assertNotIn("Delta", page)
+
+    def test_only_the_changed_list_item_shows(self):
+        old = "".join(f"- item {i}\n" for i in range(1, 11))
+        page, errors = self.render_md(old, old.replace("item 5", "item five"), ":::diff d.md L1-10")
+
+        self.assertEqual(errors, [])
+        self.assertRegex(page, r"<ul>\s*<li>item <del>5</del><ins>five</ins></li>\s*</ul>")
+        self.assertNotIn("item 4", page)
+        self.assertNotIn("item 6", page)
+
+    def test_ordered_item_keeps_its_number(self):
+        old = "".join(f"{i}. item {i}\n" for i in range(1, 11))
+        page, errors = self.render_md(old, old.replace("item 5", "item five"), ":::diff d.md L1-10")
+
+        self.assertEqual(errors, [])
+        self.assertIn('<ol start="5">', page)
+
+    def test_inserting_a_list_item_changes_only_that_item(self):
+        old = "".join(f"{i}. item {i}\n" for i in range(1, 6))
+        new = "1. item 1\n2. inserted\n" + "".join(f"{i + 1}. item {i}\n" for i in range(2, 6))
+        page, errors = self.render_md(old, new, ":::diff d.md L1-6")
+
+        self.assertEqual(errors, [])
+        self.assertIn("<ins>inserted</ins>", page)
+        self.assertNotIn("item 3", page)
+
+    def test_adjacent_items_share_one_list(self):
+        old = "- item 1\n- item 2\n- item 3\n- item 4\n"
+        new = old.replace("item 2", "item two").replace("item 3", "item three")
+        page, _ = self.render_md(old, new, ":::diff d.md L1-4")
+
+        self.assertEqual(page.count("<ul>"), 1)
+        self.assertEqual(page.count("<li>"), 2)
+
+    def test_list_kind_change_is_a_change(self):
+        page, errors = self.render_md("- item 1\n- item 2\n", "1. item 1\n2. item 2\n", ":::diff d.md L1-2")
+
+        self.assertEqual(errors, [])
+        self.assertIn("<ol>", page)
+
+    def test_link_definition_outside_the_range_still_resolves(self):
+        old = "See [the guide][g] first.\n\nOutro.\n\n[g]: https://example.com/guide\n"
+        page, errors = self.render_md(old, old.replace("first", "before anything"), ":::diff d.md L1-1")
+
+        self.assertEqual(errors, [])
+        self.assertIn('href="https://example.com/guide"', page)
+
+    def test_blocks_reassemble_into_the_whole_render(self):
+        text = ("# T\n\nPara [a][r].\n\n- one\n- two\n\n  nested para\n\n3. three\n4. four\n\n"
+                "> quote\n\n```py\nx = 1\n```\n\n| a |\n|---|\n| 1 |\n\n---\n\n[r]: https://e.x\n")
+
+        blocks = review._md_blocks(text)
+        tags = [b.tag for b in blocks]
+        self.assertEqual(tags, ["h1", "p", "li", "li", "li", "li", "blockquote", "code", "table", "hr"])
+        for b in blocks:
+            self.assertLess(b.start, b.end)
+        self.assertEqual(blocks[4].number, 3)
+
+        self.assertEqual(review._render_md_run([(b, b) for b in blocks]), review.md_render(text))
 
 
 if __name__ == "__main__":
