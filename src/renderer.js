@@ -1169,13 +1169,16 @@ if (window.pty.platform !== 'darwin') {
 // Fit terminal to container
 fitAddon.fit();
 
-function syncPtyResize() {
-  fitAddon.fit();
-  window.pty.resize(terminal.cols, terminal.rows);
-}
-
 // Start PTY with current dimensions
 window.pty.start(terminal.cols, terminal.rows);
+
+// The pty follows the grid, whatever re-fit it. A window resize is not the
+// only thing that does: the launcher strip takes rows when it mounts and gives
+// them back when it goes, with the window unchanged. A pty left at another
+// size has the CLI (and ConPTY, on Windows) draw for a screen that is not
+// there. Its scrolls land short, so the lines just written are painted over
+// and stale rows stay at the bottom, until the next window resize.
+terminal.onResize(({ cols, rows }) => window.pty.resize(cols, rows));
 
 // Streaming buffer watcher: polls the active xterm buffer, pushes
 // snapshots (or alt-screen flip events) to main via IPC. Quiet until
@@ -1536,12 +1539,12 @@ window.pty.onExit((code) => {
 
 // Handle window resize
 window.addEventListener('resize', () => {
-  syncPtyResize();
+  fitAddon.fit();
 });
 
 // Also handle resize events from main process
 window.pty.onResize(() => {
-  syncPtyResize();
+  fitAddon.fit();
 });
 
 // Sync terminal title (from OSC sequences) to the Electron window title
