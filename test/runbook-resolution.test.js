@@ -113,6 +113,53 @@ test('a runbook above the repo\'s immediate parent still resolves', () => {
   ]), '/home/me/work/agent-threads/md/user-intent.md');
 });
 
+test('a repo\'s ai/ wins over a clone above the repo, HOME included', () => {
+  // conventions.md: a clone inside a project overrides the home clone there,
+  // and ai/ counts as in the repo. The reference chain reaches HOME before
+  // the fallbacks, so the repo root on that chain must bring its ai/ along.
+  const options = {
+    referenceFile: '/home/me/proj/docs/plan.md',
+    relativeRunbookPath: 'agent-threads/md/user-intent.md',
+    repoRoots: ['/home/me/proj'],
+    fallbackRoots: [...repoRunbookRoots('/home/me/proj'), '/home/me'],
+  };
+  assert.strictEqual(firstExisting(options, [
+    '/home/me/agent-threads/md/user-intent.md',
+    '/home/me/proj/ai/agent-threads/md/user-intent.md',
+  ]), '/home/me/proj/ai/agent-threads/md/user-intent.md');
+});
+
+test('the voice ladder from a subfolder: the repo and its ai/, then up the tree', () => {
+  const cwd = '/home/me/proj/src';
+  assert.deepStrictEqual(orderedRunbookCandidates({
+    referenceFile: `${cwd}/voice-input`,
+    relativeRunbookPath: 'voice-to-agent/interpret.md',
+    repoRoots: ['/home/me/proj'],
+    fallbackRoots: [...repoRunbookRoots('/home/me/proj'), '/home/me'],
+  }), [
+    '/home/me/proj/src/voice-to-agent/interpret.md',
+    '/home/me/proj/voice-to-agent/interpret.md',
+    '/home/me/proj/ai/voice-to-agent/interpret.md',
+    '/home/me/voice-to-agent/interpret.md',
+    '/home/voice-to-agent/interpret.md',
+    '/voice-to-agent/interpret.md',
+  ]);
+});
+
+test('only a repo root on the chain brings its ai/', () => {
+  // A document outside every repo, beside HOME's own files: neither its
+  // folder nor HOME is a repo, so neither ai/ is a candidate.
+  const candidates = orderedRunbookCandidates({
+    referenceFile: '/home/me/notes/plan.md',
+    relativeRunbookPath: 'kit/run.md',
+    repoRoots: ['/home/me/proj'],
+    fallbackRoots: ['/home/me'],
+  });
+  assert.ok(!candidates.includes('/home/me/notes/ai/kit/run.md'));
+  assert.ok(!candidates.includes('/home/me/ai/kit/run.md'));
+  assert.ok(!candidates.includes('/home/me/proj/ai/kit/run.md'));
+});
+
 test('candidate inputs reject ambiguous or escaping paths', () => {
   assert.throws(() => orderedRunbookCandidates({
     referenceFile: 'relative/doc.md',

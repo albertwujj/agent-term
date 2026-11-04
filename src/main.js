@@ -585,8 +585,8 @@ function writeBodyThenSubmit(body, terminator = '\r') {
 // rendered), then send a CR-as-submit. Adaptive — fast CLIs finish in
 // ~130ms, slow ones wait until they're ready. Used by the resume
 // intercept and the remote-input drain.
-function writeAsSubmission(body) {
-  return writeBodyThenSubmit(body);
+function writeAsSubmission(body, terminator) {
+  return writeBodyThenSubmit(body, terminator);
 }
 
 function normalizeInlineCommentSubmission(body) {
@@ -599,10 +599,10 @@ function normalizeInlineCommentSubmission(body) {
     .trim();
 }
 
-function writeAsBracketedPasteSubmission(body) {
+function writeAsBracketedPasteSubmission(body, terminator) {
   const text = normalizeInlineCommentSubmission(body);
   if (!text) return false;
-  return writeBodyThenSubmit(`\x1b[200~${text}\x1b[201~`);
+  return writeBodyThenSubmit(`\x1b[200~${text}\x1b[201~`, terminator);
 }
 
 // CLIs verified LIVE to treat a bare LF (Ctrl+J) as insert-newline in their
@@ -2526,6 +2526,39 @@ function shellArgs() {
   return [];
 }
 
+// Phone input reaches the pty in the order the hub drained it. A voice
+// transcript waits for its guide lookup before it is written, so everything
+// drained after it waits too: a typed line or a key must not overtake it.
+let phoneInputTail = Promise.resolve();
+function queuePhoneInput(step) {
+  phoneInputTail = phoneInputTail.then(step).catch((err) => {
+    log('[stream] phone input failed: ' + (err && err.message));
+  });
+}
+
+// A queued submission ends when its CR has gone out, not when its body has:
+// the CR waits for the CLI's echo, and a next input written in that gap
+// would join this one in the composer and go out with it as one prompt.
+// `write` is a submit writer handed the terminator to use. Resolves whether
+// the body was written; a pty gone before the CR never sends it, so past
+// the submit's own fallback there is nothing left to wait for.
+function submitInTurn(write) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(giveUp);
+      resolve(ok);
+    };
+    const giveUp = setTimeout(() => settle(true), SUBMIT_FALLBACK_MS + 500);
+    const ok = write(() => {
+      try { ptyProcess.write('\r'); } finally { settle(true); }
+    });
+    if (!ok) settle(false);
+  });
+}
+
 function createWindow() {
   // Custom title-bar: we draw our own session bar (cli + prompt + working
   // dot) into the titleBarOverlay region on Windows. height: 42px fits
@@ -2611,45 +2644,48 @@ function createWindow() {
     onInputs: (inputs) => {
       if (!ptyProcess) return;
       restartWindowTimer();
-      for (const raw of inputs) {
-        if (typeof raw !== 'string' || raw.length === 0) continue;
-        // Raw key event (viewer-side ↑/↓/Enter button) — input starts
-        // with a control byte (ESC for arrow keys, CR for Enter, etc.).
-        // Write verbatim, no auto-CR. Lets the viewer drive interactive
-        // TUI navigation (pickers, dialogs) one keypress at a time so
-        // the user can see each step and only commit when ready.
-        if (raw.charCodeAt(0) < 0x20) {
-          let wrote = false;
-          try {
-            ptyProcess.write(raw);
-            wrote = true;
-          } catch (err) {
-            log('[stream] PTY write failed for raw key: ' + (err && err.message));
+      queuePhoneInput(async () => {
+        for (const raw of inputs) {
+          if (!ptyProcess) return;
+          if (typeof raw !== 'string' || raw.length === 0) continue;
+          // Raw key event (viewer-side ↑/↓/Enter button) — input starts
+          // with a control byte (ESC for arrow keys, CR for Enter, etc.).
+          // Write verbatim, no auto-CR. Lets the viewer drive interactive
+          // TUI navigation (pickers, dialogs) one keypress at a time so
+          // the user can see each step and only commit when ready.
+          if (raw.charCodeAt(0) < 0x20) {
+            let wrote = false;
+            try {
+              ptyProcess.write(raw);
+              wrote = true;
+            } catch (err) {
+              log('[stream] PTY write failed for raw key: ' + (err && err.message));
+            }
+            if (wrote && isPlainEnter(raw)) notifyResumeHintSubmit();
+            continue;
           }
-          if (wrote && isPlainEnter(raw)) notifyResumeHintSubmit();
-          continue;
+          // Typed prompt — type as keystrokes + auto-CR via writeAsSubmission.
+          const prompt = raw.replace(/[\r\n]+/g, ' ').trim();
+          if (!prompt) continue;
+          const ok = await submitInTurn((terminator) => writeAsSubmission(prompt, terminator));
+          // Every phone prompt is a turn, /resume included: the phone joins a
+          // session only after its first prompt, and stopping or resuming the
+          // CLI from the phone ends the session it streams, so that path is
+          // unsupported rather than checked.
+          if (ok) { notifyResumeHintSubmit(); setViewerAutoOpenArmed(true); }
+          if (!ok) log('[stream] PTY write failed for remote input');
         }
-        // Typed prompt — type as keystrokes + auto-CR via writeAsSubmission.
-        const prompt = raw.replace(/[\r\n]+/g, ' ').trim();
-        if (!prompt) continue;
-        const ok = writeAsSubmission(prompt);
-        // Every phone prompt is a turn, /resume included: the phone joins a
-        // session only after its first prompt, and stopping or resuming the
-        // CLI from the phone ends the session it streams, so that path is
-        // unsupported rather than checked.
-        if (ok) { notifyResumeHintSubmit(); setViewerAutoOpenArmed(true); }
-        if (!ok) log('[stream] PTY write failed for remote input');
-      }
+      });
     },
     // Voice-origin transcripts (hub /voice — voice.md in agent-stream-hub).
-    // Prefixed with a reference to the vendored guide so the agent knows
-    // the text is raw speech-to-text and repairs it against session
-    // context before acting. The transcript starts on its own line —
-    // agent-term's convention for injected prompts — delivered via
-    // bracketed paste (like the review-comment path) so the embedded
-    // newline doesn't submit early. The prefix string is a published
-    // contract (voice-to-agent/.maintainer/guide-design.md) — change it
-    // there first.
+    // Prefixed with a reference to the vendored guide, looked up for each
+    // transcript (voicePromptLead), so the agent knows the text is raw
+    // speech-to-text and repairs it against session context before acting.
+    // The transcript starts on its own line — agent-term's convention for
+    // injected prompts — delivered via bracketed paste (like the
+    // review-comment path) so the embedded newline doesn't submit early.
+    // The prefix string is a published contract
+    // (voice-to-agent/.maintainer/guide-design.md) — change it there first.
     onVoiceInputs: (transcripts) => {
       if (!ptyProcess) return;
       restartWindowTimer();
@@ -2657,14 +2693,17 @@ function createWindow() {
         if (typeof raw !== 'string') continue;
         const transcript = raw.replace(/[\r\n]+/g, ' ').trim();
         if (!transcript) continue;
-        const ok = writeAsBracketedPasteSubmission(voicePromptLead() + '\n' + transcript);
-        if (ok) { notifyResumeHintSubmit(); setViewerAutoOpenArmed(true); }
-        if (!ok) log('[stream] PTY write failed for voice input');
+        queuePhoneInput(async () => {
+          const lead = await voicePromptLead();
+          const ok = await submitInTurn((terminator) =>
+            writeAsBracketedPasteSubmission(lead + '\n' + transcript, terminator));
+          if (ok) { notifyResumeHintSubmit(); setViewerAutoOpenArmed(true); }
+          if (!ok) log('[stream] PTY write failed for voice input');
+        });
       }
     },
   });
   if (streamClient.disabled && streamClient.lastError) log('[stream] ' + streamClient.lastError);
-  primeVoiceRunbookRef();
 
   streamState = new StreamState({
     client: streamClient,
@@ -5815,50 +5854,63 @@ async function fsPathFromPosix(posixPath) {
   return uncFromPosix(posixPath, root.slice('file://wsl.localhost/'.length));
 }
 
+// The git work tree a folder sits in, or null. A folder inside .git (review
+// stores, conversation docs) belongs to the repo that holds that .git, which
+// git itself will not report from in there.
+async function repoRootOf(dir) {
+  const inGit = `${dir}/`.indexOf('/.git/');
+  if (inGit >= 0) return dir.slice(0, inGit) || '/';
+  return gitTopLevel(dir);
+}
+
 // Agent-related runbook repos can be vendored inside the session's repo, sit
 // beside it, or live anywhere up the tree. Anchor on where the session actually
 // is — the pty's current cwd AND its stable starting cwd (where AgentTerm
 // launched) — resolving each to its git repo root, or to the directory itself
 // when it isn't a repo. repoRunbookRoots then walks each anchor's full ancestor
 // chain. This resolves the session's own repo, not AgentTerm's app location
-// (they coincide only when using AgentTerm to develop itself). Failure only
-// drops these fallbacks; document/HOME resolution remains.
-async function currentRepoRunbookRoots() {
+// (they coincide only when using AgentTerm to develop itself).
+//
+// `repoRoots` are those anchors plus the repo the reference file sits in:
+// where the reference's own ancestor chain reaches one, the ladder checks its
+// ai/ folder before climbing past it. Failure only drops these; document/HOME
+// resolution remains.
+async function runbookAnchors(referenceFile) {
   try {
     // repoRunbookRoots needs absolute POSIX paths. getPrimaryCwd is POSIX on both
     // platforms (the WSL cwd on Windows); ptyStartingCwd is a Win32 path on
     // Windows, so the filter drops it there — the current cwd still anchors.
     const cwds = [await getPrimaryCwd(), ptyStartingCwd()]
       .filter((c) => typeof c === 'string' && c.startsWith('/'));
-    const roots = [];
-    const seen = new Set();
-    for (const cwd of cwds) {
-      const base = (await gitTopLevel(cwd)) || cwd;
-      for (const r of repoRunbookRoots(base)) {
-        if (!seen.has(r)) { seen.add(r); roots.push(r); }
-      }
-    }
-    return roots;
+    const referenceDir = path.posix.dirname(referenceFile);
+    // The voice surface's reference sits in the cwd, so one probe serves both.
+    const dirs = [...new Set([...cwds, referenceDir])];
+    const tops = new Map(await Promise.all(dirs.map(async (d) => [d, await repoRootOf(d)])));
+    const bases = [...new Set(cwds.map((c) => tops.get(c) || c))];
+    const fallbackRoots = [...new Set(bases.flatMap((base) => repoRunbookRoots(base)))];
+    const repoRoots = [...new Set([...bases, tops.get(referenceDir)].filter(Boolean))];
+    return { repoRoots, fallbackRoots };
   } catch {
-    return [];
+    return { repoRoots: [], fallbackRoots: [] };
   }
 }
 
 // One resolver for every host-located runbook: the governed file's direct
-// ancestor chain is closest-first, followed by ordered fallbacks walking the
-// session repo's own ancestor chain (vendored in, beside, up the tree) and then
-// under HOME. One shell pass returns the first existing candidate.
+// ancestor chain is closest-first, a repo's ai/ right after the repo root,
+// followed by ordered fallbacks walking the session repo's own ancestor chain
+// (vendored in, beside, up the tree) and then under HOME. One shell pass
+// returns the first existing candidate.
 async function resolveRunbook(referenceFile, relativeRunbookPath) {
-  const [homeProbe, repoRoots] = await Promise.all([
+  const [homeProbe, anchors] = await Promise.all([
     posixSh('printf %s "$HOME"'),
-    currentRepoRunbookRoots(),
+    runbookAnchors(referenceFile),
   ]);
   const home = homeProbe.stdout.trim();
-  const fallbackRoots = [...repoRoots, home].filter(Boolean);
   const candidates = orderedRunbookCandidates({
     referenceFile,
     relativeRunbookPath,
-    fallbackRoots,
+    repoRoots: anchors.repoRoots,
+    fallbackRoots: [...anchors.fallbackRoots, home].filter(Boolean),
   });
   const probe = await posixSh(
     `for p in ${candidates.map(shellEscape).join(' ')}; do if [ -f "$p" ]; then printf %s "$p"; exit 0; fi; done; exit 1`,
@@ -5900,40 +5952,39 @@ async function resolveVoiceRunbook() {
 // empty is silent, after which it reads raw speech-to-text as if it were
 // typed — the single failure the guide exists to prevent.
 //
-// Resolved at stream setup rather than per transcript, because onVoiceInputs
-// is synchronous and the transcript that matters most is the first one. Both
-// live only in this instance, so a resumed session warns again — the host
-// cannot know what a previous agent was told.
-let voiceGuidePath = null;
+// Looked up for each transcript, like the other two surfaces at each send.
+// The shell's directory is the CLI's only once a CLI runs: a picker pick or a
+// cd moves it after the window opens, so a lookup made any earlier anchors on
+// the wrong repo (and on Windows, before the shell exists, finds nothing). A
+// clone made after reading the warning takes effect on the next utterance.
+//
+// The warned state lives only in this instance, so a resumed session warns
+// again — the host cannot know what a previous agent was told.
 let voiceGuideWarned = false;
 
-async function primeVoiceRunbookRef() {
+// An upper bound for a stuck WSL helper, not an estimate of the lookup: past
+// it the transcript goes out with the missing-guide notice rather than
+// holding every phone input queued behind it.
+const VOICE_GUIDE_LOOKUP_CAP_MS = 10_000;
+
+async function voicePromptLead() {
+  let resolved = null;
   try {
-    const resolved = await resolveVoiceRunbook();
-    if (!resolved) {
-      log('[stream] voice guide not found; warning with the bare reference');
-      return;
-    }
-    voiceGuidePath = resolved;
-    log('[stream] voice guide resolved: ' + resolved);
+    resolved = await Promise.race([
+      resolveVoiceRunbook(),
+      new Promise((resolve) => setTimeout(resolve, VOICE_GUIDE_LOOKUP_CAP_MS, null)),
+    ]);
   } catch (err) {
     log('[stream] voice guide resolution failed: ' + (err && err.message));
   }
-}
-
-// Called per transcript. When the guide is missing this also re-runs the
-// ladder, so a clone made after reading the warning takes effect on the next
-// utterance rather than at the next launch — two [ -f ] probes, off the
-// synchronous path, and it makes the warning cancel itself.
-function voicePromptLead() {
+  log(resolved
+    ? '[stream] voice guide resolved: ' + resolved
+    : '[stream] voice guide not found; warning with the bare reference');
   const { prefix, warned } = voicePromptPrefix({
-    resolvedPath: voiceGuidePath,
+    resolvedPath: resolved,
     warned: voiceGuideWarned,
   });
-  if (!voiceGuidePath) {
-    voiceGuideWarned = warned;
-    primeVoiceRunbookRef();
-  }
+  voiceGuideWarned = warned;
   return prefix;
 }
 

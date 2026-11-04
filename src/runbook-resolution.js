@@ -12,10 +12,18 @@ function normalizedRelativeRunbookPath(relativeRunbookPath) {
 
 // Build the deterministic lookup ladder shared by every host-resolved
 // runbook. The governed file's direct ancestor chain is authoritative and is
-// ordered nearest-first. Fallback roots are exact, ordered locations (for
-// example, the current repo, its parent, and then $HOME), never recursive
-// searches; stable deduplication keeps any naturally-nearer occurrence.
-function orderedRunbookCandidates({ referenceFile, relativeRunbookPath, fallbackRoots = [] } = {}) {
+// ordered nearest-first. A folder on that chain listed in `repoRoots` has its
+// `ai/` folder checked right after it: the repo's `ai/` counts as in the repo,
+// so it comes before anything above the repo, a clone under HOME included.
+// Fallback roots are exact, ordered locations (for example, the current repo,
+// its parent, and then $HOME), never recursive searches; stable deduplication
+// keeps any naturally-nearer occurrence.
+function orderedRunbookCandidates({
+  referenceFile,
+  relativeRunbookPath,
+  repoRoots = [],
+  fallbackRoots = [],
+} = {}) {
   const reference = String(referenceFile || '');
   if (!path.posix.isAbsolute(reference)) {
     throw new Error('referenceFile must be an absolute POSIX path');
@@ -35,9 +43,11 @@ function orderedRunbookCandidates({ referenceFile, relativeRunbookPath, fallback
     }
   };
 
+  const repos = new Set(repoRoots.map((root) => path.posix.normalize(String(root || ''))));
   let dir = path.posix.dirname(path.posix.normalize(reference));
   for (;;) {
     addRoot(dir);
+    if (repos.has(dir)) addRoot(path.posix.join(dir, 'ai'));
     const parent = path.posix.dirname(dir);
     if (parent === dir) break;
     dir = parent;
