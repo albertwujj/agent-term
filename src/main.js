@@ -2039,9 +2039,9 @@ function noteUserInput() {
 }
 
 // Something here wants the user's eye without their acting in this window (it
-// opened, it was chosen in a picker, its agent finished a turn, the phone
-// viewer sent it input): restart the timer at the current reading and leave
-// the clock alone.
+// opened, it was chosen in a picker, its agent finished a turn in view, the
+// phone viewer sent it input): restart the timer at the current reading and
+// leave the clock alone.
 function restartWindowTimer() {
   try {
     touchedClock = getInputClock().read();
@@ -2054,9 +2054,9 @@ function restartWindowTimer() {
 // Hidden is gone from every surface a click or keystroke could reach: the
 // screen, the taskbar or Dock, and Cmd/Alt+Tab. Each session is its own
 // process, so on macOS the Dock tile and the Cmd+Tab entry are the app's and
-// go with app.dock.hide(). `focus` is for the user bringing a window back; one
-// returning on its own (a finished turn) comes back without taking focus.
-function setHidden(hidden, { focus = false } = {}) {
+// go with app.dock.hide(). Only the user brings a window back, so it returns
+// in front.
+function setHidden(hidden) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (windowHidden === hidden) return;
   windowHidden = hidden;
@@ -2075,19 +2075,19 @@ function setHidden(hidden, { focus = false } = {}) {
     Promise.resolve()
       .then(() => app.dock.show())
       .catch((err) => log('[auto-hide] dock show failed: ' + (err && err.message)))
-      .then(() => showWindow(focus));
+      .then(() => showWindow());
   } else {
-    showWindow(focus);
+    showWindow();
   }
   if (!hidden) checkOlderCodeOnReturn();
   refreshActivityTimestamps();
 }
 
 // A window that comes back from hiding on older code says so: it returned as it
-// was (its agent was working, it was picked back within seconds of output, or
-// its turn ended) though the checkout changed after it started. The notice
-// waits for the window to be in front and stays until dismissed, since a
-// window returning on its own comes back without focus.
+// was (its agent was working, or it was picked back within seconds of output)
+// though the checkout changed after it started. The notice waits for the
+// window to be in front, which on macOS follows the Dock tile's return, and
+// stays until dismissed.
 let olderCodeNoticePending = false;
 async function checkOlderCodeOnReturn() {
   let changedAt = 0;
@@ -2106,19 +2106,15 @@ function deliverOlderCodeNotice() {
   try { mainWindow.webContents.send('older-code-notice'); } catch {}
 }
 
-function showWindow(focus) {
+function showWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (focus) {
-    try { mainWindow.show(); } catch {}
-    // Another process (the picker's window) is in front; take activation
-    // from it, which a plain focus() does not do across apps on macOS.
-    if (process.platform === 'darwin') {
-      try { app.focus({ steal: true }); } catch {}
-    }
-    try { mainWindow.focus(); } catch {}
-  } else {
-    try { mainWindow.showInactive(); } catch {}
+  try { mainWindow.show(); } catch {}
+  // Another process (the picker's window) is in front; take activation
+  // from it, which a plain focus() does not do across apps on macOS.
+  if (process.platform === 'darwin') {
+    try { app.focus({ steal: true }); } catch {}
   }
+  try { mainWindow.focus(); } catch {}
   // The taskbar button or Dock tile is a new one: draw on it again what this
   // window had drawn on the old.
   setDockIcon(lastDockIcon);
@@ -2179,8 +2175,8 @@ function tidyStaleWindows() {
 // The user chose this session in a picker ('show' control message).
 function bringForward() {
   restartWindowTimer();
-  if (windowHidden) setHidden(false, { focus: true });
-  else showWindow(true);
+  if (windowHidden) setHidden(false);
+  else showWindow();
   tidyStaleWindows();
 }
 
@@ -2202,13 +2198,16 @@ function retireForCurrentCode() {
   app.quit();
 }
 
-// The agent finished a turn: the window gets a full interval from now, and a
-// hidden one returns to the taskbar or Dock, without focus, with the result.
+// The agent finished a turn. In view, the window gets a full interval from now.
+// Hidden, it stays as it is, timer included: the user started none of its
+// turns, and output cannot tell a result waiting for them from the CLI's own
+// upkeep, such as compacting an idle conversation.
 function onTurnEnded() {
+  if (windowHidden) {
+    log('[auto-hide] turn ended while hidden; session ' + sessionIndex + ' stays hidden');
+    return;
+  }
   restartWindowTimer();
-  if (!windowHidden) return;
-  log('[auto-hide] turn ended while hidden; bringing session ' + sessionIndex + ' back');
-  setHidden(false);
 }
 
 // Past MAX_LIVE live sessions, the hidden ones whose timers restarted longest

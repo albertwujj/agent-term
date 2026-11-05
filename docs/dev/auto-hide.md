@@ -9,10 +9,9 @@ Every session is its own window, and a working day leaves several open that you 
 1. **Fewer wrong targets.** Only the sessions you are using are on screen, in the taskbar or Dock, and in Cmd/Alt+Tab. A hidden window cannot take focus or keystrokes.
 2. **Out of view, still at hand.** A hidden session comes back instantly and exactly as it was: scrollback, viewer band, the draft at the prompt, the agent mid-conversation.
 3. **Time away changes nothing.** Leaving the desk, sleep, a locked screen, or an afternoon in other apps hides no window. You return to the windows you left.
-4. **Nothing moves on its own.** The taskbar and Dock rearrange when you open a window, a change you are already making, and otherwise only to bring back finished work (goal 5). The window you are using and one whose agent is working stay.
-5. **Finished work surfaces.** A hidden session whose agent finishes a turn comes back into view.
-6. **Closing puts a running session away.** Closing a session's window hides it at once, whatever its agent is doing. Once its CLI has exited, or never started, the window holds a bare shell, and closing it ends the session as typing `exit` does; resuming then starts the CLI afresh, which is how a CLI picks up an update it installed.
-7. **Bounded cost.** A hidden session costs what a visible one does, so a fixed number of live sessions holds the total to what that many open windows cost today.
+4. **Nothing moves on its own.** The taskbar and Dock rearrange only by your hand: when you open or close a window. The window you are using and one whose agent is working stay, and a hidden one stays hidden whatever its agent does.
+5. **Closing puts a running session away.** Closing a session's window hides it at once, whatever its agent is doing. Once its CLI has exited, or never started, the window holds a bare shell, and closing it ends the session as typing `exit` does; resuming then starts the CLI afresh, which is how a CLI picks up an update it installed.
+6. **Bounded cost.** A hidden session costs what a visible one does, so a fixed number of live sessions holds the total to what that many open windows cost today.
 
 ## The clock
 
@@ -23,7 +22,7 @@ Agent activity leaves the clock alone. Agents run while you are away, and a cloc
 A window's own timer restarts when:
 
 - you focus it or give it input, here or from the phone viewer;
-- its agent finishes a turn. An agent that finishes while you are away leaves its window a full interval once you return.
+- its agent finishes a turn while the window is in view. An agent that finishes while you are away leaves its window a full interval once you return.
 
 The phone viewer lists the sessions waiting on you by this timer, most recent first, and the picker lists sessions by it the same way; a session that ended keeps the reading it ended with.
 
@@ -45,9 +44,10 @@ Hidden means gone from every surface a click or keystroke could reach: the scree
 ## Coming back
 
 - **From the picker, instantly.** The picker lists a hidden session like any past one, since hiding only puts it away; choosing it brings its window back in front. A session whose window is open comes to the front the same way, since a new window can cover it completely; the picker marks it as active and selects it only when you move to it, because a picker opens to find what has no window yet. The window the picker opened in closes, since it was opened only to find that session, and stays open if that session never answers.
-- **On the current code.** A window brought back from the picker, or by the shortcut below, runs the code of the checkout as it is now: every window it opens takes the checkout's current state, and a window brought back counts as one. A hidden window whose process started before the checkout last changed therefore closes, and its session resumes in the picker's window through its CLI, with a banner saying why, since the window the user expected back did not come. That path is slower and leaves the old window's own state behind (scrollback, viewer band), so it is taken only when the code did change. Its one exception is a window whose agent is working: it comes back as it is, so the turn is not lost. A window returning on its own after a turn is also shown as it is. A window that comes back as it is on older code says so, once it is in front, until dismissed; windows that never hid stay quiet, since while you edit AgentTerm every open one would.
+- **On the current code.** A window brought back from the picker, or by the shortcut below, runs the code of the checkout as it is now: every window it opens takes the checkout's current state, and a window brought back counts as one. A hidden window whose process started before the checkout last changed therefore closes, and its session resumes in the picker's window through its CLI, with a banner saying why, since the window the user expected back did not come. That path is slower and leaves the old window's own state behind (scrollback, viewer band), so it is taken only when the code did change. Its one exception is a window whose agent is working: it comes back as it is, so the turn is not lost. A window that comes back as it is on older code says so, once it is in front, until dismissed; windows that never hid stay quiet, since while you edit AgentTerm every open one would.
 - **From the shortcut, pressed twice.** Cmd/Ctrl+Shift+N opens the picker; pressed again with the picker in front, it brings back the hidden session used most recently in the picker's place, as if chosen from the list. With nothing hidden, the picker says so and stays.
-- **On its own, when its agent finishes a turn.** A hidden window takes no prompts, so any turn it runs was started without you: a job-watch nudge, a scheduled wakeup, a background task ending. The window returns to the taskbar or Dock without taking focus, with its timer restarted. It returns at the turn's end, when there is a result to read; at the start there is nothing to see yet.
+
+These are the only ways back. A hidden window takes no prompts, so any turn it runs was started without you: a job-watch nudge, a scheduled wakeup, a background task ending, or the CLI's own upkeep, such as compacting an idle conversation. Its output cannot tell a result waiting for you from upkeep, so a turn leaves a hidden window where it is, with its timer as it was, and the shortcut still brings back the session you used last.
 
 ## Cost
 

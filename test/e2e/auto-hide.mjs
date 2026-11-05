@@ -7,8 +7,8 @@
 //   2. a stale window asked to hide leaves the screen (and, on macOS, the Dock)
 //   3. a picker's 'show' brings it back in front with its timer restarted, and
 //      on macOS with a Dock tile even though `npm ci` removed its bundle link
-//   4. a turn its agent finishes while hidden brings it back without taking
-//      focus from the app in front
+//   4. a turn its agent finishes while hidden leaves it hidden, its timer
+//      as it was
 //   5. past MAX_LIVE live sessions, a hidden window whose timer is among the
 //      oldest closes itself and is recorded as closed
 //   6. a fresh window whose picker brings a live session forward closes once
@@ -211,7 +211,7 @@ try {
     check('the focused window stays when asked to hide', m && m[0] === 'staying: focused', m && m[0]);
   }
 
-  // 4. A turn that ends while hidden brings it back, without focus. The
+  // 4. A turn that ends while hidden leaves it hidden, timer and all. The
   //    command stays quiet long enough to hide, then works ~20s untitled
   //    (past TURN_MIN_MS) and stops.
   await page.evaluate(() => { const ta = document.querySelector('.xterm-helper-textarea'); if (ta) ta.focus(); });
@@ -220,16 +220,30 @@ try {
   await sleep(6500);
   hid = await hideNow();
   check('hides before the turn starts', hid && /hiding/.test(hid[0]), hid && hid[0]);
-  const from = mainLog.text.length;
-  const back = await waitForLog(/turn ended while hidden; bringing session 6 back/, 45_000, from);
-  check('a finished turn brings the hidden window back', !!back);
-  await sleep(1000);
+  const hiddenTimer = sessionsLog.readActiveFile(UD, 6).touchedClock;
+  advanceClock();
+  {
+    const from = mainLog.text.length;
+    const ended = await waitForLog(/turn ended while hidden; session 6 stays hidden/, 45_000, from);
+    check('a finished turn leaves the hidden window hidden', !!ended);
+  }
+  // The timer is read from the record, so wait for a heartbeat written after
+  // the turn ended.
+  {
+    const endedAt = Date.now();
+    const file = path.join(UD, 'active', '6.json');
+    while (fs.statSync(file).mtimeMs <= endedAt && Date.now() - endedAt < 40_000) await sleep(500);
+  }
   state = await windowState();
   rec6 = sessionsLog.readActiveFile(UD, 6);
-  check('it is on screen again', state.visible === true, JSON.stringify(state));
-  check('it came back without taking focus', state.focused === false, JSON.stringify(state));
-  if (foreground) check('the app in front kept focus', await foregroundFocused());
-  check('registry marks it visible again', rec6 && !rec6.hiddenAt, JSON.stringify(rec6));
+  check('it is still off screen', state.visible === false, JSON.stringify(state));
+  if (process.platform === 'darwin') check('it is still off the Dock', state.dock === false, JSON.stringify(state));
+  check('registry still marks it hidden', rec6 && rec6.hiddenAt, JSON.stringify(rec6));
+  check('the turn left its timer as it was', rec6 && rec6.touchedClock === hiddenTimer, `${rec6 && rec6.touchedClock} vs ${hiddenTimer}`);
+  control(6, 'show');
+  await sleep(1500);
+  state = await windowState();
+  check('the picker brings it back', state.visible === true, JSON.stringify(state));
   check('a window on the current code comes back without the older-code notice',
     !(await page.evaluate(() => document.body.innerText.includes('code changed since this window started'))));
 
