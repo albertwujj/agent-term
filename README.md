@@ -41,8 +41,9 @@ Once a window opens, [resume your previous session](docs/sessions.md#resume-an-e
 You can use AgentTerm as is, or [adapt it with your agents](#make-it-fit).
 
 <a name="why-extend-the-terminal"></a>
+<a name="why-expand-the-terminal"></a>
 
-## Why expand the terminal
+## Why build on the terminal
 
 If you are a terminal fan and want to get straight to it, skip ahead to [what AgentTerm adds](#whats-added-so-far).
 
