@@ -15,7 +15,7 @@
 //       { e:"conversation", id, conversation, dir?, t }
 //         the CLI's own id for the conversation the window last ran, and
 //         the POSIX dir to resume it from; conversation null clears it
-//         (Cursor Agent only; src/cli-conversation.js)
+//         (Cursor Agent and Claude Code; src/cli-conversation.js)
 //       { e:"branches", id, repo, branch, t }   // git branch captured from a review://
 //       { e:"closed",   id, touchedAt?, t }   // the user closed the window or exited the shell
 //       { e:"lost",     id, touchedAt?, t }   // the window died under a live process (see main.js exitAsGhost)

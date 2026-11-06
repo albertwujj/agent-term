@@ -111,7 +111,7 @@ const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
 const { cleanAiTitle, aiTitleDedupeKey, isConversationTitle, aiCliLaunchCommand } = require('./ai-title');
 const { detectCli } = require('./cli-detect');
-const { cursorChatScript, readCursorChat, resumeLaunch, sameConversation } = require('./cli-conversation');
+const { conversationProbe, resumeLaunch, sameConversation } = require('./cli-conversation');
 const { aiCliRendererEnv } = require('./cli-renderer-env');
 const { inheritableEnv } = require('./inheritable-env');
 const { isReviewPackagePath } = require('./review-package-path');
@@ -4997,14 +4997,15 @@ async function getPrimaryCwd() {
   return ptyStartingCwd();
 }
 
-// The conversation a Cursor Agent session runs, read a few seconds after each
-// prompt the capture logs, by when the agent has opened the chat that prompt
-// went to (src/cli-conversation.js). A chat not open yet is asked about once
-// more, later; a later prompt starts over. Only a change is logged, so a
-// resumed window that stays on its chat writes nothing.
+// The conversation a Cursor Agent or Claude Code session runs, read a few
+// seconds after each prompt the capture logs, by when the CLI has opened the
+// conversation that prompt went to (src/cli-conversation.js). One not found
+// yet is asked about once more, later; a later prompt starts over. Only a
+// change is logged, so a resumed window that stays on its conversation
+// writes nothing.
 const CONVERSATION_PROBE_DELAYS_MS = [3000, 15000];
 function scheduleConversationProbe() {
-  if (detectedCli !== 'agent' || sessionIndex === null) return;
+  if (!conversationProbe(detectedCli) || sessionIndex === null) return;
   clearTimeout(conversationProbeTimer);
   const id = sessionIndex;
   const shellPty = ptyProcess;
@@ -5028,8 +5029,10 @@ function scheduleConversationProbe() {
   attempt(0);
 }
 
-// null when the probe cannot tell; else readCursorChat's answer.
+// null when the probe cannot tell; else the CLI's reading of it.
 async function probeConversation() {
+  const probe = conversationProbe(detectedCli);
+  if (!probe) return null;
   let pidExpr;
   if (process.platform === 'win32') {
     if (!wslPidFile) return null;
@@ -5038,9 +5041,9 @@ async function probeConversation() {
     if (!ptyProcess || !ptyProcess.pid) return null;
     pidExpr = String(ptyProcess.pid);
   }
-  const r = await posixSh(cursorChatScript(pidExpr), { timeout: 10_000 });
+  const r = await posixSh(probe.script(pidExpr), { timeout: 10_000 });
   if (r.code !== 0) return null;
-  return readCursorChat(r.stdout, (text) => crypto.createHash('md5').update(text).digest('hex'));
+  return probe.read(r.stdout, (text) => crypto.createHash('md5').update(text).digest('hex'));
 }
 
 function recordConversation(found) {
@@ -5050,7 +5053,7 @@ function recordConversation(found) {
   const event = { e: 'conversation', id: sessionIndex, conversation: next ? next.id : null };
   if (next) event.dir = next.dir;
   sessionsLog.appendEvent(app.getPath('userData'), event);
-  log('[conversation] session ' + sessionIndex + ' runs ' + (next ? next.id : 'a chat it cannot resume by id'));
+  log('[conversation] session ' + sessionIndex + ' runs ' + (next ? next.id : 'a conversation it cannot resume by id'));
 }
 
 // Whether the shell is at its prompt, running nothing: the terminal's
