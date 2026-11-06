@@ -30,6 +30,7 @@ const resumeHint = require('./resume-hint');
 const { showNotice } = require('./notice-strip');
 const launcherBand = require('./launcher-band');
 const { parseLaunch } = require('./cli-detect');
+const { resumeLaunch } = require('./cli-conversation');
 const { readPromptSnapshot, promptHoldsInput } = require('./prompt-completion');
 const { isTerminalProtocol } = require('./terminal-input');
 const streamWatch = require('./stream/renderer-watch');
@@ -138,11 +139,12 @@ window.pty.onShowPicker((payload) => {
       // Surface the resume hint immediately. `title` is the identity
       // title (the CLI's name for this conversation, first after the
       // first prompt), so it always agrees with the prompt shown in the
-      // chrome line; the CLI's own resume dialog lists it.
+      // chrome line; the CLI's own resume dialog lists it. A session
+      // that resumes by id has no dialog, and no hint.
       const picked = sessions.find(s => s.id === id);
       launcherBand.destroy();
       window.pty.pickerPick(id);
-      if (picked) {
+      if (picked && !resumeLaunch(picked)) {
         resumeHint.show({
           cli: picked.cli,
           prompt: picked.prompt,
@@ -177,18 +179,24 @@ window.pty.onResumeHintSubmit(() => {
 // back: it was hidden, and its window started before the code changed or was
 // closed by the live-session cap. The resume band shows as for a picked row
 // (again, when the row pick already showed it), with a note under it saying
-// why.
+// why. A session that resumes by id has no band, so the note stands alone
+// under the chrome bar.
 const RESUME_REASONS = {
-  'older-code': "AgentTerm's code changed. This session is re-established on the new code, "
-    + 'so it needs to resume through the CLI.',
-  'closed-while-hidden': 'AgentTerm closed this session while it was hidden, '
-    + 'to keep at most 8 running, so it needs to resume through the CLI.',
+  'older-code': "AgentTerm's code changed. This session is re-established on the new code",
+  'closed-while-hidden': 'AgentTerm closed this session while it was hidden, to keep at most 8 running',
 };
 window.pty.onResumeWithReason((picked) => {
   launcherBand.destroy();
   closeActivePicker();
   if (!picked || !RESUME_REASONS[picked.reason]) return;
-  resumeHint.show({ cli: picked.cli, prompt: picked.prompt, title: picked.title, note: RESUME_REASONS[picked.reason] });
+  const why = RESUME_REASONS[picked.reason];
+  if (resumeLaunch(picked)) {
+    showNotice(`${why}, so it resumed through the CLI.`, { top: 'calc(env(titlebar-area-height, 42px) + 1px)' });
+    return;
+  }
+  resumeHint.show({
+    cli: picked.cli, prompt: picked.prompt, title: picked.title, note: `${why}, so it needs to resume through the CLI.`,
+  });
 });
 window.pty.onResumeHintInterceptOff(() => {
   resumeHint.recordInterceptOff();

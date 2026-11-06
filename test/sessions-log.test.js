@@ -80,6 +80,22 @@ test('listSessions folds cwd last-wins, defaults null', (dir) => {
   assert.strictEqual(sessions.find(s => s.id === 2).cwd, null);
 });
 
+test('listSessions folds the conversation last-wins; null clears it, and none is null', (dir) => {
+  const a = 'e9a5cddb-0e7d-454c-bf8f-9f1cd6c56270';
+  const b = '0d96eecd-5e1d-47ba-adf1-545fd873f436';
+  log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
+  log.appendEvent(dir, { e: 'conversation', id: 1, conversation: a, dir: '/home/u/repo' });
+  log.appendEvent(dir, { e: 'conversation', id: 1, conversation: b, dir: '/home/u/other' });
+  log.appendEvent(dir, { e: 'started', id: 2, hue: 24 });
+  log.appendEvent(dir, { e: 'conversation', id: 2, conversation: a, dir: '/home/u/repo' });
+  log.appendEvent(dir, { e: 'conversation', id: 2, conversation: null });
+  log.appendEvent(dir, { e: 'started', id: 3, hue: 48 });
+  const sessions = log.listSessions(dir);
+  assert.deepStrictEqual(sessions.find(s => s.id === 1).conversation, { id: b, dir: '/home/u/other' });
+  assert.strictEqual(sessions.find(s => s.id === 2).conversation, null);
+  assert.strictEqual(sessions.find(s => s.id === 3).conversation, null);
+});
+
 test('closedBy follows the last end: the cap, then a loss or a plain close clears it', (dir) => {
   log.appendEvent(dir, { e: 'started', id: 1, hue: 0 });
   log.appendEvent(dir, { e: 'closed',  id: 1, by: 'cap' });

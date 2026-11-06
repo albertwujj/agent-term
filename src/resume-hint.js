@@ -4,7 +4,9 @@
 // few words around one object (the Enter keycap before the shortcut fires,
 // the title chip after), with segments split by a middle dot.
 //
-// Two picks mount it. A resume (show) walks the states below. A start-new
+// Two picks mount it. A resume (show) walks the states below; a session
+// that resumes by its chat id has no dialog to walk, and no band
+// (cli-conversation.js). A start-new
 // taken with Shift+Enter (showLaunch) has one moment: main has typed the
 // CLI's launch line into the shell and left it at the prompt, so the band
 // reads

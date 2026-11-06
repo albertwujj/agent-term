@@ -111,6 +111,7 @@ const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
 const { cleanAiTitle, aiTitleDedupeKey, isConversationTitle, aiCliLaunchCommand } = require('./ai-title');
 const { detectCli } = require('./cli-detect');
+const { cursorChatScript, readCursorChat, resumeLaunch, sameConversation } = require('./cli-conversation');
 const { aiCliRendererEnv } = require('./cli-renderer-env');
 const { inheritableEnv } = require('./inheritable-env');
 const { isReviewPackagePath } = require('./review-package-path');
@@ -485,6 +486,11 @@ let identityComplete = false;
 // to a session (or a recorded session is resumed). Successor windows use it in
 // that state; pre-session windows retain shellStartCwd().
 let sessionCwd = null;
+// The CLI's own id for the conversation this session runs, and the directory
+// to resume it from, as last logged: { id, dir }, or null. A resume inherits
+// it; the probe after each prompt logs a change (src/cli-conversation.js).
+let sessionConversation = null;
+let conversationProbeTimer = null;
 // Boot vocabulary: dedupe keys of every OSC title seen before the first
 // prompt. A session title worth logging is, by definition, something the
 // CLI could not have said before it saw a prompt — so anything in this set
@@ -1668,6 +1674,7 @@ function onPromptCaptured(promptText, mentions = null, attachments = []) {
       event.attachments = attachments;
     }
     sessionsLog.appendEvent(app.getPath('userData'), event);
+    scheduleConversationProbe();
   }
 
   // How often a Tab-completed @ mention survives into the prompt. A dropped
@@ -1781,6 +1788,7 @@ function resumeFromSession(picked) {
     : (firstPrompt ? [{ prompt: firstPrompt, t: picked.startedAt || 0 }] : []);
   identityComplete = identityFromPrompts(identityPrompts).complete;
   sessionCwd = picked.cwd || shellStartCwd();
+  sessionConversation = picked.conversation || null;
   detectedCli = picked.cli || null;
   titleActivity.reset(); // a saved title describes the old process, not its new run
   setViewerAutoOpenArmed(false); // the CLI is about to reprint this conversation
@@ -1903,6 +1911,7 @@ function pickerSessionPayload(userDataDir, s) {
     isActive: s.isActive,
     isHidden,
     capturedBranches: s.capturedBranches || [],
+    conversation: s.conversation || null,
   };
 }
 
@@ -3844,20 +3853,29 @@ async function pickSession(id) {
 // the resume band with a banner: `onCurrentCode` marks a hidden window that
 // just closed for older code, and a session the live cap closed while it was
 // hidden reads `closedBy: 'cap'` in the log.
+//
+// A session whose conversation is recorded (src/cli-conversation.js) opens it
+// by id, from the directory the CLI keeps it under, with no dialog to go
+// through and so no intercept and no band. Every other resume relaunches the
+// CLI and arms the intercept.
 function resumeHere(id, { onCurrentCode = false } = {}) {
   const userDataDir = app.getPath('userData');
   const sessions = sessionsLog.listSessions(userDataDir);
   const picked = sessions.find(s => s.id === id);
   if (!picked || !picked.cli) return;
   pickerOpen = false;
+  const direct = resumeLaunch(picked);
   const reason = onCurrentCode ? 'older-code' : (picked.closedBy === 'cap' ? 'closed-while-hidden' : null);
   if (reason) {
-    sendHint('resume-with-reason', { cli: picked.cli, prompt: picked.prompt, title: picked.title, reason });
+    sendHint('resume-with-reason', {
+      cli: picked.cli, prompt: picked.prompt, title: picked.title, conversation: picked.conversation, reason,
+    });
   }
   // Inherit the picked session's identity (id, hue, prompt, active-file) so
   // this window IS that session, not a new one. Other windows then see it
-  // as currently active.
-  resumeFromSession(picked);
+  // as currently active. A conversation kept under another directory than
+  // the one the session started in runs there, and the session with it.
+  resumeFromSession(direct ? { ...picked, cwd: direct.cwd } : picked);
   // Spawn the CLI command (e.g. `claude\r`) and arm the resume intercept.
   // The intercept replaces the user's first plain Enter with a timed
   // /resume submission — see the pty-input handler. User-as-timing-
@@ -3866,16 +3884,24 @@ function resumeHere(id, { onCurrentCode = false } = {}) {
     // The shell was spawned with this process's fresh token; a stored one
     // reaches the resumed CLI (and every tool shell under it) through its
     // environment instead. `env` works in every shell the pty may run.
-    const cliCommand = aiCliLaunchCommand(picked.cli);
+    const cliCommand = aiCliLaunchCommand(picked.cli)
+      + (direct ? ' ' + direct.args.map(shellEscape).join(' ') : '');
     const launch = picked.token ? `env AGENT_SESSION_ID=${agentSessionId} ${cliCommand}` : cliCommand;
     // Relaunch from the directory the session was recorded in. The stored
     // path is in this shell's own terms (captured via getPrimaryCwd on the
     // same platform), so a plain cd replays it on macOS and WSL alike. &&
     // keeps the failure loud: if the directory is gone the CLI doesn't
     // launch somewhere wrong — the shell prints the cd error instead.
-    const command = picked.cwd ? `cd ${shellEscape(picked.cwd)} && ${launch}` : launch;
+    const cwd = direct ? direct.cwd : picked.cwd;
+    const command = cwd ? `cd ${shellEscape(cwd)} && ${launch}` : launch;
     clearPendingLaunchLine();
     try { ptyProcess.write(command + '\r'); } catch {}
+    if (direct) {
+      pendingResumeIntercept = false;
+      log('[resume] resumed by id after picker-pick id=' + id + ' cli=' + picked.cli +
+          ' conversation=' + picked.conversation.id);
+      return;
+    }
     pendingResumeIntercept = true;
     log('[resume] armed intercept after picker-pick id=' + id +
         ' cli=' + picked.cli);
@@ -4969,6 +4995,62 @@ async function getPrimaryCwd() {
     }
   } catch {}
   return ptyStartingCwd();
+}
+
+// The conversation a Cursor Agent session runs, read a few seconds after each
+// prompt the capture logs, by when the agent has opened the chat that prompt
+// went to (src/cli-conversation.js). A chat not open yet is asked about once
+// more, later; a later prompt starts over. Only a change is logged, so a
+// resumed window that stays on its chat writes nothing.
+const CONVERSATION_PROBE_DELAYS_MS = [3000, 15000];
+function scheduleConversationProbe() {
+  if (detectedCli !== 'agent' || sessionIndex === null) return;
+  clearTimeout(conversationProbeTimer);
+  const id = sessionIndex;
+  const shellPty = ptyProcess;
+  const attempt = (n) => {
+    conversationProbeTimer = setTimeout(async () => {
+      conversationProbeTimer = null;
+      let found;
+      try { found = await probeConversation(); } catch (err) {
+        log('[conversation] probe failed: ' + (err && err.message));
+        return;
+      }
+      if (sessionIndex !== id || ptyProcess !== shellPty) return;
+      if (found === null) {
+        if (n + 1 < CONVERSATION_PROBE_DELAYS_MS.length) attempt(n + 1);
+        return;
+      }
+      recordConversation(found);
+    }, CONVERSATION_PROBE_DELAYS_MS[n]);
+    if (typeof conversationProbeTimer.unref === 'function') conversationProbeTimer.unref();
+  };
+  attempt(0);
+}
+
+// null when the probe cannot tell; else readCursorChat's answer.
+async function probeConversation() {
+  let pidExpr;
+  if (process.platform === 'win32') {
+    if (!wslPidFile) return null;
+    pidExpr = `$(cat -- ${shellEscape(wslPidFile)})`;
+  } else {
+    if (!ptyProcess || !ptyProcess.pid) return null;
+    pidExpr = String(ptyProcess.pid);
+  }
+  const r = await posixSh(cursorChatScript(pidExpr), { timeout: 10_000 });
+  if (r.code !== 0) return null;
+  return readCursorChat(r.stdout, (text) => crypto.createHash('md5').update(text).digest('hex'));
+}
+
+function recordConversation(found) {
+  const next = found && found.id ? { id: found.id, dir: found.dir } : null;
+  if (sameConversation(next, sessionConversation)) return;
+  sessionConversation = next;
+  const event = { e: 'conversation', id: sessionIndex, conversation: next ? next.id : null };
+  if (next) event.dir = next.dir;
+  sessionsLog.appendEvent(app.getPath('userData'), event);
+  log('[conversation] session ' + sessionIndex + ' runs ' + (next ? next.id : 'a chat it cannot resume by id'));
 }
 
 // Whether the shell is at its prompt, running nothing: the terminal's

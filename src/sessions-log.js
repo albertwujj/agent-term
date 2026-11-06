@@ -12,6 +12,10 @@
 //         images. Legacy prompt events simply omit it; readers do not infer or
 //         rewrite attachments from old prompt text.
 //       { e:"cwd",      id, cwd,    t }   // POSIX dir the CLI was launched from
+//       { e:"conversation", id, conversation, dir?, t }
+//         the CLI's own id for the conversation the window last ran, and
+//         the POSIX dir to resume it from; conversation null clears it
+//         (Cursor Agent only; src/cli-conversation.js)
 //       { e:"branches", id, repo, branch, t }   // git branch captured from a review://
 //       { e:"closed",   id, touchedAt?, t }   // the user closed the window or exited the shell
 //       { e:"lost",     id, touchedAt?, t }   // the window died under a live process (see main.js exitAsGhost)
@@ -203,7 +207,7 @@ function listSessions(userDataDir) {
     if (typeof ev.id !== 'number') continue;
     let s = map.get(ev.id);
     if (!s) {
-      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, touchedAt: null, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, capturedBranches: [], closedBy: null, token: null };
+      s = { id: ev.id, startedAt: null, lastEventAt: ev.t, touchedAt: null, hue: null, cli: null, title: null, lastTitle: null, prompt: null, identityPrompts: [], lastPrompt: null, cwd: null, conversation: null, capturedBranches: [], closedBy: null, token: null };
       map.set(ev.id, s);
     }
     s.lastEventAt = ev.t;
@@ -259,6 +263,13 @@ function listSessions(userDataDir) {
       // Last-wins; a resume cds here before relaunching the CLI.
       case 'cwd':
         if (ev.cwd) s.cwd = ev.cwd;
+        break;
+      // Last-wins: the conversation a resume opens by id (cli-conversation.js),
+      // or null for one to find in the CLI's own dialog.
+      case 'conversation':
+        s.conversation = (typeof ev.conversation === 'string' && ev.conversation && typeof ev.dir === 'string')
+          ? { id: ev.conversation, dir: ev.dir }
+          : null;
         break;
       // Every branch captured from a review:// in this session, deduped — kept
       // as history so the picker's search can match a session by any of them.
