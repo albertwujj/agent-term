@@ -16,20 +16,21 @@
 //      → the banner is never logged; the topic is the identity title
 //   3. cursor fresh start: the "Cursor Agent" banner, prompt, topic title
 //      → the banner reads as a brand label and is never logged
-//   4. codex picker start-new: the launch carries the supported
-//      tui.terminal_title override, so codex emits "codex | <thread>"
-//      → the pre-name thread UUID is never logged, the named thread is
+//   4. codex picker start-new: the launch is `codex --no-alt-screen` and
+//      nothing more (no -c, which would leave the shared daemon), and codex
+//      emits its default title: the project, then "<thread> | <project>"
+//      → the project label is never logged, the named thread is
 //      → the macOS window/Dock title stays "codex" until the thread is named
-//      → trailing spinner frames neither bypass the UUID check nor log churn
-//   5. codex picker resume: the resume launch carries the same override, and
-//      saved project/UUID spinner labels are skipped in favor of the named
-//      thread in both the picker and its "Filter for" hint
-//   6. codex typed by hand, so no override: the project label and its
-//      spinner frames never become a conversation title
+//      → spinner frames in front of the name do not log churn
+//   5. codex picker resume: the resume launch is the same line, and saved
+//      project/UUID spinner labels from older builds are skipped in favor of
+//      the named thread in both the picker and its "Filter for" hint
+//   6. codex typed by hand: the project label and its spinner frames never
+//      become a conversation title
 //   7. codex after a shell command: the launcher strip stays up, a
 //      Shift-click on its codex chip types the line, an option is added by
 //      hand, Enter runs it
-//      → the override reached codex, and the named thread is the title
+//      → the launch line reached codex, and the named thread is the title
 //   8. mention completion: one Enter picks the @ query, the next submits
 //      the target URL → only the submitted target names the session
 //   9. a rendered composer recovers only the picked prompt references,
@@ -189,25 +190,30 @@ console.log('3 — Cursor fresh start: startup banner, prompt, then the topic');
     JSON.stringify(events.filter(e => e.e === 'title')));
 }
 
-const CODEX_TOPIC = 'codex | Investigate WSL launch failures';
-// Make the fake emit a topic only if the actual launch path supplies the
-// supported setting. This tests wiring through main, not just the helper.
-const codexWithTitleSetting = (body) =>
-  `if [ "$1" != '--no-alt-screen' ] || [ "$2" != '--no-daemon' ] || [ "$3" != '-c' ] || [ "$4" != 'tui.terminal_title=["status","app-name","thread","spinner"]' ]; then ${osc('agent-term-debug')}; read -r missing; return; fi; ${body}`;
+// Codex 0.167's default title once the thread is named: "<thread> | <project>",
+// with a braille spinner in front while a turn runs.
+const CODEX_TOPIC = 'Investigate WSL launch failures | agent-term-debug';
+// Make the fake emit a topic only if the launch path is AgentTerm's line:
+// `codex --no-alt-screen`, whatever the user added after it, and never a -c or
+// --no-daemon, which run Codex outside the shared daemon. This tests wiring
+// through main, not just the helper.
+const codexLaunchedByUs = (body) =>
+  `case " $* " in *" -c "*|*" --no-daemon "*) ${osc('agent-term-debug')}; read -r missing; return;; esac; `
+  + `if [ "$1" != '--no-alt-screen' ]; then ${osc('agent-term-debug')}; read -r missing; return; fi; ${body}`;
 
-console.log('4 — Codex picker launch: unnamed ID, prompt, then named thread');
+console.log('4 — Codex picker launch: project label, prompt, then named thread');
 {
-  const fake = codexWithTitleSetting([
-    osc('codex | 01a072c1-544f-7153-9da1-a39c29e6e9b9'), 'read -r a',
-    osc('codex | 01a072c1-544f-7153-9da1-a39c29e6e9b9 ⠸'),
-    osc('codex | 01a072c1-544f-7153-9da1-a39c29e6e9b9 ⠼'), 'read -r b',
-    osc(CODEX_TOPIC), osc(CODEX_TOPIC + ' ⠋'), osc(CODEX_TOPIC + ' ⠙'), 'read -r c',
+  const fake = codexLaunchedByUs([
+    osc('agent-term-debug'), 'read -r a',
+    osc('⠸ agent-term-debug'),
+    osc('⠼ agent-term-debug'), 'read -r b',
+    osc(CODEX_TOPIC), osc('⠋ ' + CODEX_TOPIC), osc('⠙ ' + CODEX_TOPIC), 'read -r c',
   ].join('; ') + ';');
   const { events, session, windowTitles } = await runScenario('codex-fresh', fake, [PROMPT, 'continue'], { cli: 'codex', pickerLaunch: true });
-  check('Codex picker launch supplies the title setting', session && session.title === CODEX_TOPIC, session && session.title);
-  check('Codex unnamed ID never logged', events.filter(e => e.e === 'title').every(e => e.title === CODEX_TOPIC),
+  check('Codex picker launch records the named thread from its default title', session && session.title === CODEX_TOPIC, session && session.title);
+  check('Codex project label never logged', events.filter(e => e.e === 'title').every(e => e.title === CODEX_TOPIC),
     JSON.stringify(events.filter(e => e.e === 'title')));
-  check('Codex trailing spinner changes do not add title events', events.filter(e => e.e === 'title').length === 1);
+  check('Codex spinner frames do not add title events', events.filter(e => e.e === 'title').length === 1);
   if (process.platform === 'darwin') {
     check('Codex window/Dock title hides the UUID before and after the first prompt',
       windowTitles[0] === 'codex' && windowTitles[1] === 'codex', JSON.stringify(windowTitles));
@@ -218,8 +224,8 @@ console.log('4 — Codex picker launch: unnamed ID, prompt, then named thread');
 
 console.log('5 — Codex resume repairs saved spinner UUIDs in the picker and filter hint');
 {
-  const resumedTopic = 'codex | Resumed WSL launch investigation';
-  const fake = codexWithTitleSetting([
+  const resumedTopic = 'Resumed WSL launch investigation | agent-term-debug';
+  const fake = codexLaunchedByUs([
     osc('codex'), 'read -r a', // intercepted Enter supplies /resume
     osc(resumedTopic), 'read -r b',
   ].join('; ') + ';');
@@ -231,11 +237,11 @@ console.log('5 — Codex resume repairs saved spinner UUIDs in the picker and fi
       { e: 'prompt', id: 152, prompt: PROMPT },
       { e: 'title', id: 152, title: 'agent-term-debug' },
       { e: 'title', id: 152, title: 'codex | 01a0bacf-9f1a-7c22-926f-1a2db761b353 ⠸' },
-      { e: 'title', id: 152, title: CODEX_TOPIC + ' ⠼' },
+      { e: 'title', id: 152, title: 'codex | Investigate WSL launch failures ⠼' },
     ],
   });
-  check('Codex resume supplies title setting', session && session.lastTitle === resumedTopic, session && session.lastTitle);
-  check('Codex saved identity skips the spinner UUID', session && session.title === CODEX_TOPIC + ' ⠼', session && session.title);
+  check('Codex resume records the resumed thread from its default title', session && session.lastTitle === resumedTopic, session && session.lastTitle);
+  check('Codex saved identity skips the spinner UUID', session && session.title === 'codex | Investigate WSL launch failures ⠼', session && session.title);
   check('Codex picker shows the saved conversation name',
     JSON.stringify(pickerTitle) === JSON.stringify(['Investigate WSL launch failures']), JSON.stringify(pickerTitle));
   check('Codex filter hint shows the picked conversation name without its spinner',
@@ -258,12 +264,12 @@ console.log('6 — Codex manually launched with default title never claims a pro
 
 console.log('7 — Codex after a shell command: the launcher strip types the line, an option added by hand');
 {
-  const fake = codexWithTitleSetting([
-    osc('codex | 01a072c1-544f-7153-9da1-a39c29e6e9b9'), 'read -r a',
+  const fake = codexLaunchedByUs([
+    osc('agent-term-debug'), 'read -r a',
     osc(CODEX_TOPIC), 'read -r b',
   ].join('; ') + ';');
   const { events, session } = await runScenario('codex-strip', fake, [PROMPT], { cli: 'codex', stripLaunch: true });
-  check('the strip\'s line carries the title setting past a hand-typed option',
+  check('the strip\'s line reaches codex past a hand-typed option, and the named thread is the title',
     session && session.title === CODEX_TOPIC, session && session.title);
   check('the session records codex and the typed prompt',
     session && session.cli === 'codex' && session.prompt === PROMPT, JSON.stringify(session));
@@ -333,7 +339,7 @@ console.log('10 — Codex start-new, resume inside, then insert a prefix before 
   const submittedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-prompt-edit-e2e-'));
   const submittedFile = path.join(submittedDir, 'submitted.json');
   const quote = value => `'${value.replace(/'/g, "'\\''")}'`;
-  const fake = codexWithTitleSetting(`python3 ${quote(fixture)} ${quote(submittedFile)};`);
+  const fake = codexLaunchedByUs(`python3 ${quote(fixture)} ${quote(submittedFile)};`);
   const expected = 'commit and push using github data api';
   try {
     const { events, session } = await runScenario('codex-resume-edit', fake, [
@@ -351,7 +357,7 @@ console.log('10 — Codex start-new, resume inside, then insert a prefix before 
       JSON.stringify(events.filter(e => e.e === 'prompt').map(e => e.prompt)) === JSON.stringify(submitted),
       JSON.stringify(events));
     check('the session identity starts with the inserted prefix', session?.prompt === expected, session?.prompt);
-    check('the resumed topic remains the identity title', session?.title === 'codex | Fix xterm npm vulnerability', session?.title);
+    check('the resumed topic remains the identity title', session?.title === 'Fix xterm npm vulnerability | agent-term-debug', session?.title);
   } finally {
     fs.rmSync(submittedDir, { recursive: true, force: true });
   }

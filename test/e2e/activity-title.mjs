@@ -54,10 +54,10 @@ async function exercise(cli, titles) {
     const titles = ${JSON.stringify(titles)};
     const control = ${JSON.stringify(control)};
     const ack = ${JSON.stringify(ack)};
-    if (${JSON.stringify(cli)} === 'codex' &&
-      (process.argv[2] !== '--no-alt-screen' || process.argv[3] !== '--no-daemon' ||
-       process.argv[4] !== '-c' ||
-       process.argv[5] !== 'tui.terminal_title=["status","app-name","thread","spinner"]')) process.exit(2);
+    // AgentTerm's Codex launch line is \`codex --no-alt-screen\` and nothing
+    // more. The status titles below are what Codex shows when the user
+    // configured them (docs/dev/session-titles.md).
+    if (${JSON.stringify(cli)} === 'codex' && process.argv.slice(2).join(' ') !== '--no-alt-screen') process.exit(2);
     process.stdin.resume();
     let last, frame = 0;
     process.stdout.write('Activity test output\\r\\nHold this text to comment\\r\\n');

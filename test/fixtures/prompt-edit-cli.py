@@ -9,10 +9,10 @@ def title(text):
     print("\x1b]0;" + text + "\x07", end="", flush=True)
 
 
-title("codex")
+title("agent-term-debug")
 assert input("› ") == "/resume"
 input("Resume filter: ")
-title("codex | Fix xterm npm vulnerability")
+title("Fix xterm npm vulnerability | agent-term-debug")
 prompts = [input("› "), input("› ")]
 Path(sys.argv[1]).write_text(json.dumps(prompts))
 input("› ")  # Keep the CLI alive until the test closes its window.

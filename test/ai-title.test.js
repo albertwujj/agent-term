@@ -66,6 +66,22 @@ test('Codex accepts its named thread output, not project or unnamed-thread label
   assert.strictEqual(cleanAiTitle('codex | Investigate A | B', 'codex'), 'Investigate A | B');
 });
 
+test('Codex default title: the generated thread name before the project, never the project alone', () => {
+  // Real titles from Codex 0.167.0 on 2026-11-06, idle and working.
+  for (const title of ['Reply PONG | agent-term-debug', '⠹ Reply PONG | agent-term-debug']) {
+    assert.strictEqual(isConversationTitle(title, 'codex'), true, title);
+    assert.strictEqual(cleanAiTitle(title, 'codex'), 'Reply PONG', title);
+  }
+  // A working frame and an idle one are the same subject: no title churn.
+  assert.strictEqual(aiTitleDedupeKey('⠹ Reply PONG | agent-term-debug', 'codex'),
+    aiTitleDedupeKey('Reply PONG | agent-term-debug', 'codex'));
+  // Only the last field is the project; a name may hold '|' itself.
+  assert.strictEqual(cleanAiTitle('Investigate A | B | agent-term-debug', 'codex'), 'Investigate A | B');
+  for (const title of ['agent-term-debug', '⠹ agent-term-debug', '01a0bacf-9f1a-7c22-926f-1a2db761b353 | agent-term-debug']) {
+    assert.strictEqual(isConversationTitle(title, 'codex'), false, title);
+  }
+});
+
 test('Codex trailing spinner frames cannot turn a thread UUID into a name', () => {
   for (const frame of '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏') {
     assert.strictEqual(isConversationTitle(`codex | 01a0bacf-9f1a-7c22-926f-1a2db761b353 ${frame}`, 'codex'), false);
@@ -85,16 +101,16 @@ test('Claude title cleanup and resumed topic acceptance stay unchanged', () => {
   assert.strictEqual(cleanAiTitle('Fix A | B', 'claude'), 'Fix A | B');
 });
 
-test('only Codex launches get inline rendering and an explicit embedded thread-title override', () => {
-  const prefix = 'codex --no-alt-screen --no-daemon -c \'tui.terminal_title=["status","app-name","thread","spinner"]\'';
-  assert.strictEqual(aiCliLaunchCommand('codex'), prefix);
-  assert.strictEqual(aiCliLaunchCommand('codex --resume abc'), prefix + ' --resume abc');
-  const remotePrefix = prefix.replace(' --no-daemon', '');
+test('only Codex launches get inline rendering, and nothing that leaves the shared daemon', () => {
+  assert.strictEqual(aiCliLaunchCommand('codex'), 'codex --no-alt-screen');
+  assert.strictEqual(aiCliLaunchCommand('codex resume abc'), 'codex --no-alt-screen resume abc');
   assert.strictEqual(aiCliLaunchCommand('codex --remote wss://example.test'),
-    remotePrefix + ' --remote wss://example.test');
-  assert.strictEqual(aiCliLaunchCommand('codex --remote=wss://example.test'),
-    remotePrefix + ' --remote=wss://example.test');
-  assert.strictEqual(aiCliLaunchCommand('codex --no-daemon'), remotePrefix + ' --no-daemon');
+    'codex --no-alt-screen --remote wss://example.test');
+  // An option the user already gave is not repeated.
+  assert.strictEqual(aiCliLaunchCommand('codex --no-alt-screen --model x'), 'codex --no-alt-screen --model x');
+  for (const command of ['codex', 'codex resume abc']) {
+    assert.ok(!/ -c |--no-daemon|terminal_title/.test(aiCliLaunchCommand(command)), command);
+  }
   for (const command of ['claude', 'claude --resume abc', 'agent', 'copilot',
     'echo codex', 'codex-tools', 'cd /tmp && codex']) {
     assert.strictEqual(aiCliLaunchCommand(command), command);

@@ -46,17 +46,36 @@ function ignoredKeysForCli(cli) {
   return keys;
 }
 
+// The thread's name in a Codex title, or null when the title names none.
+// Codex titles come in two shapes (docs/dev/session-titles.md):
+//   configured   "codex | <thread>", with an optional status in front, from
+//                a `tui.terminal_title` the user set (AgentTerm's launches
+//                asked for it until they stopped passing -c)
+//   default      "<thread> | <project>" once Codex has named the thread, and
+//                "<project>" alone before that, with a braille spinner in
+//                front while a turn runs (Codex 0.167.0)
+// Only the app field or the project field is stripped: a thread name may
+// itself contain '|'. Title generation and activity can each append a
+// braille spinner; it goes before display, semantic deduplication, and UUID
+// checks.
+function codexThread(title) {
+  const subject = cliTitleStatus(title, 'codex').title.replace(/(?:\s+[\u2800-\u28ff]+)+\s*$/u, '');
+  const configured = /^codex\s+\|\s*(.*)$/i.exec(subject);
+  if (configured) return configured[1];
+  const named = /^(.+)\s\|\s[^|]+$/.exec(subject.replace(/^[\u2800-\u28ff]+\s*/u, ''));
+  return named ? named[1] : null;
+}
+
 function cleanAiTitleSegments(title, cli) {
   const ignored = ignoredKeysForCli(cli);
   const seen = new Set();
   const out = [];
-  // Normalize vendor status to Codex's original "codex | <name>" form.
-  // Only strip its leading app field: a conversation name may contain '|'.
-  // Title generation and activity can each append a braille spinner.
-  // Strip those suffixes before display, semantic deduplication, and UUID checks.
   const subject = cliTitleStatus(title, cli).title;
+  // A Codex title without a thread keeps its old cleanup: the project label,
+  // which isConversationTitle rejects.
+  const thread = cli === 'codex' ? codexThread(title) : null;
   const text = cli === 'codex'
-    ? subject.replace(/(?:\s+[\u2800-\u28ff]+)+\s*$/u, '').replace(/^codex\s+\|\s*/i, '')
+    ? (thread !== null ? thread : subject.replace(/(?:\s+[\u2800-\u28ff]+)+\s*$/u, ''))
     : subject;
   for (const rawPart of text.split(/\s+·\s+/u)) {
     const part = stripStatusPrefix(rawPart);
@@ -80,11 +99,11 @@ function aiTitleDedupeKey(title, cli) {
 function isConversationTitle(title, cli) {
   const subject = cleanAiTitle(title, cli);
   if (cli === 'codex') {
-    // The default OSC title is only a project label. Accept the explicit
-    // app-name + thread output contract, including on read of old logs.
-    // Before Codex has a name its thread field is a UUID, not a subject.
-    const match = /^codex\s+\|\s*(.+)$/i.exec(cliTitleStatus(title, cli).title);
-    if (!match || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(subject)) return false;
+    // A project label alone names no conversation. Before Codex has a name
+    // the configured thread field is a UUID, not a subject. Both shapes are
+    // accepted on read of old logs too.
+    const thread = codexThread(title);
+    if (thread === null || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(subject)) return false;
   }
   return !!subject;
 }
@@ -92,23 +111,16 @@ function isConversationTitle(title, cli) {
 function aiCliLaunchCommand(command) {
   const line = String(command || '');
   if (!/^codex(?=\s|$)/i.test(line)) return line;
-  // Supported per-invocation options, scoped to Codex launches we own.
-  // Keep the conversation in scrollback for AgentTerm's selection, search,
-  // and comment marks, even when Codex defaults to a fullscreen transcript.
-  // The title override requires an embedded app server in current Codex.
-  // Request it explicitly so Codex does not warn about switching modes.
-  // See docs/dev/cli-rendering.md and docs/dev/session-titles.md.
-  // Status distinguishes idle animations from work; spinner also enables the
-  // explicit Action Required title on approval/input waits. Put status first
-  // so old thread names cannot be mistaken for this field.
-  // No shell wrappers, input rewriting, config writes, or metadata guessing.
-  // --remote uses an explicit server and is incompatible with --no-daemon.
-  // Avoid repeating a --no-daemon the user already supplied as well.
-  const explicitServer = /(?:^|\s)--remote(?:=|\s|$)/.test(line);
-  const noDaemon = /(?:^|\s)--no-daemon(?:\s|$)/.test(line);
-  const embedded = explicitServer || noDaemon ? '' : ' --no-daemon';
-  return line.replace(/^codex(?=\s|$)/i,
-    `codex --no-alt-screen${embedded} -c 'tui.terminal_title=["status","app-name","thread","spinner"]'`);
+  // One option, scoped to Codex launches we own: keep the conversation in
+  // scrollback for AgentTerm's selection, search, and comment marks, even
+  // when Codex defaults to a fullscreen transcript (docs/dev/cli-rendering.md).
+  // No -c override: any -c runs Codex's app server inside the TUI instead of
+  // the shared daemon, and that server re-reads the account at every launch,
+  // which a corporate gateway can refuse (docs/dev/session-titles.md). The
+  // thread's name comes from Codex's thread store instead (cli-conversation.js).
+  // No shell wrappers, input rewriting, or config writes.
+  if (/(?:^|\s)--no-alt-screen(?:\s|$)/.test(line)) return line;
+  return line.replace(/^codex(?=\s|$)/i, 'codex --no-alt-screen');
 }
 
 module.exports = {

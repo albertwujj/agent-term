@@ -22,12 +22,24 @@ also push several dot-separated segments at once, repeating one of them.
 then the task title once it has one. Its optional status indicators append
 an emoji and status, such as ` - ⏳ Working ...` or ` - ✅ Ready`.
 
-**Codex** pushes, by default, the project directory's name and then
-spinner frames of it — `agent-term-debug`, `⠋ agent-term-debug`. That is
-never a conversation name. Codex can name the thread in the title
-instead, through its `tui.terminal_title` setting, which takes a list of
-item identifiers. With AgentTerm’s
-`["status", "app-name", "thread", "spinner"]` selection it emits:
+**Codex** 0.167.0 pushes, by default, the project directory's name until it
+has named the thread, then the thread's name in front of it, with a braille
+spinner in front while a turn runs:
+
+```
+agent-term-debug                                  before the thread has a name
+⠋ agent-term-debug                                working, not yet named
+Reply PONG | agent-term-debug                     named (about 12 s after the first prompt)
+⠋ Reply PONG | agent-term-debug                   named, working
+```
+
+The name is the one Codex's own `codex resume` picker lists for the thread.
+Codex 0.155.1 showed only the project in its default title.
+
+A user can choose the title's items instead, through Codex's
+`tui.terminal_title` setting, which takes a list of item identifiers. With
+`["status", "app-name", "thread", "spinner"]` (what AgentTerm's launches
+asked for until they stopped passing `-c`, below) it emits:
 
 ```
 Ready | codex                                     before a thread exists
@@ -50,55 +62,62 @@ The app field still provides readiness and identifies the thread-title
 format. Verified against codex-cli 0.155.1 and its matching source:
 [status surfaces](https://github.com/openai/codex/blob/rust-v0.155.1/codex-rs/tui/src/chatwidget/status_surfaces.rs).
 
-## Asking Codex for the name
+## Codex launches
 
-The picker's own launches — start-new and resume alike — prepend
-per-invocation options in `aiCliLaunchCommand`:
+The picker's own launches, start-new and resume alike, add one option in
+`aiCliLaunchCommand`:
 
 ```
-codex --no-alt-screen --no-daemon -c 'tui.terminal_title=["status","app-name","thread","spinner"]'
+codex --no-alt-screen
 ```
 
-`--no-alt-screen` keeps the transcript in scrollback for AgentTerm's
-selection, search and comments. `-c` overrides one key for that process
-only, so it wins over the user's config file and leaves it untouched.
-Current Codex runs configuration overrides in embedded mode; `--no-daemon`
-requests that mode explicitly, so it does not show the startup warning about
-running without the shared background server. This requires Codex 0.156.0 or
-newer. The shared server's remote control and daemon-wide `codex agents`
-overview cannot control these AgentTerm-launched sessions. These options are
-scoped to launches AgentTerm issues and to Codex: no
-shell wrappers, no rewriting what the user typed, no config writes, no
-guessing at metadata.
-An explicit `--remote` option omits `--no-daemon`, which Codex does not allow
-with a remote endpoint.
+It keeps the transcript in scrollback for AgentTerm's selection, search and
+comments (docs/dev/cli-rendering.md). The default title already carries the
+thread's name, so nothing else is needed for names.
+
+Until 2026-11-06 the line also carried
+`--no-daemon -c 'tui.terminal_title=["status","app-name","thread","spinner"]'`.
+Any `-c` makes Codex run its app server inside the TUI instead of the shared
+background daemon, and an in-process server reads the account and its
+workspace routing afresh at every launch. Behind a corporate gateway that
+answers chatgpt.com with a time-bound policy page (Zscaler, on the machine
+where this was found), that read gets the page instead of JSON, and Codex
+refuses every submit with `account/read failed during TUI bootstrap: …
+workspace routing discovery failed`. A hand-typed `codex` kept working, because the
+daemon already had its routing. Tested with one prompt each while the
+gateway redirected: both lines with `-c` failed, with or without
+`--no-daemon`; `--no-alt-screen` alone and bare `codex` replied.
+
+Dropping the override has two costs. A picker-launched Codex now gives the
+activity detector no explicit status (below), as a hand-typed one never
+did. And a Codex resume still goes through Codex's own `/resume` dialog.
+Run by the shared daemon, a Codex thread leaves nothing in the TUI's process
+that names it: the daemon holds every live thread's rollout, the TUI's log
+rows carry no thread id, and Codex has no option that sets or prints one
+(the id appears only in the line it prints on exit). So AgentTerm cannot
+hand Codex a thread id as it does Cursor's and Claude's
+(src/cli-conversation.js). The resume band's filter chip carries the
+captured name, which is the row Codex's picker lists.
+
+A user who wants the status items can set `tui.terminal_title` in their own
+`~/.codex/config.toml`; the predicate and the status reader below take that
+shape too. Whether a config-file setting leaves Codex on the shared daemon,
+as the default does, has not been checked.
 
 A start-new pick runs the line. Taken with Shift+Enter it is typed into
-the shell and left at the prompt instead, so the override is in view and
+the shell and left at the prompt instead, so the option is in view and
 the user's own options follow it; their Enter runs it (`picker-start-new`
 in `main.js`, the launch band in `resume-hint.js`). Either way the line
 goes through prompt-capture as typed keystrokes, so the Enter reports the
 whole command and the CLI is recorded the way a hand-typed launch is.
 
-A resume goes through the same launch. AgentTerm does not hand Codex a
-thread id — it starts a fresh process and the user picks the conversation
-in Codex's own `/resume` dialog — but the process outlives that dialog,
-so the setting still governs the resumed thread's title.
-
 A `codex` the user types in the shell is not ours to rewrite, so it keeps
-the default project title and Codex's screen setting. A user who types
-the command can use `codex --no-alt-screen` for scrollback. Once the picker
-hands a window to the shell (Esc, or a shell command such as `cd` from its
-Run row), the launcher strip
-(`launcher-band.js`) keeps the CLIs on offer, and a chip starts Codex
-through the same launch, setting included; the picker itself is one step
-away too (Sessions in the chrome bar, Cmd/Ctrl+Shift+S). To get names
-from a hand-typed `codex`, the user adds it to their own configuration:
-
-```toml
-[tui]
-terminal_title = ["status", "app-name", "thread", "spinner"]
-```
+Codex's screen setting; `codex --no-alt-screen` gives it scrollback. Its
+default title names the thread the same way. Once the picker hands a
+window to the shell (Esc, or a shell command such as `cd` from its Run
+row), the launcher strip (`launcher-band.js`) keeps the CLIs on offer, and
+a chip starts Codex through the same launch; the picker itself is one step
+away too (Sessions in the chrome bar, Cmd/Ctrl+Shift+S).
 
 ## The predicate
 
@@ -111,8 +130,10 @@ brand vocabulary; without it the banner survives cleaning and becomes an
 identity.
 
 Codex is the exception, because its rejects are not brand labels — a
-project name looks like ordinary text. There the predicate demands the
-`codex | …` shape, and rejects a cleaned thread field that is still a UUID.
+project name looks like ordinary text. There the predicate demands a thread
+field: the name in front of the last ` | ` in the default shape, or after
+`codex | ` in the configured one. A project label alone has none, and a
+thread field that is still a UUID is rejected.
 
 The predicate gates two things:
 
@@ -132,10 +153,11 @@ of this.
 
 ## Display
 
-`cleanAiTitle` strips the leading `codex | ` app field for display, so
-the picker line, the resume hint, and the macOS window title read the
-conversation's name alone. It strips only the leading field: a name may
-itself contain `|`.
+`cleanAiTitle` strips the trailing ` | <project>` field of Codex's default
+title, or the leading `codex | ` app field of the configured one, so the
+picker line, the resume hint, and the macOS window title read the
+conversation's name alone. It strips only that one field: a name may itself
+contain `|`.
 
 The macOS window title, also used by the Dock's window list, applies
 `isConversationTitle` before displaying a subject. Until a conversation
@@ -177,9 +199,10 @@ with CLI and session id, without recording the title or prompt contents.
 
 Vendor adapters are conservative:
 
-- **Codex:** AgentTerm launches enable the explicit status and approval
-  fields above. Hand-typed launches need that configuration to get the
-  additional evidence; legacy title formats keep the fallback.
+- **Codex:** only the configured title's status and approval fields count.
+  The default title's spinner is not read as status, so AgentTerm's
+  launches, like hand-typed ones, keep the fallback unless the user
+  configured those fields.
 - **Claude Code:** require an observed half-circle or braille busy marker
   before trusting an idle asterisk. Older star-only spinners retain the
   fallback. Multiplexer launches also keep the fallback because Claude
