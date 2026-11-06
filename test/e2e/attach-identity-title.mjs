@@ -78,7 +78,14 @@ const PROMPT = 'please add retry logic to the uploader';
 async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch = false, stripLaunch = false, seed = [], args = [] } = {}) {
   const UD = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-attach-e2e-')));
   for (const event of seed) sessionsLog.appendEvent(UD, event);
-  const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', ...args, `--user-data-dir=${UD}`, APP_DIR], timeout: 45_000 });
+  // An empty Codex home: a Codex name the app captures or resumes is looked
+  // up in Codex's thread store (src/cli-conversation.js), and this machine's
+  // own store may hold a thread with the same name, which would resume it by
+  // id instead of through the dialog under test.
+  const codexHome = path.join(UD, 'codex-home');
+  fs.mkdirSync(codexHome);
+  const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', ...args, `--user-data-dir=${UD}`, APP_DIR],
+    env: { ...process.env, CODEX_HOME: codexHome }, timeout: 45_000 });
   const page = await app.firstWindow();
   await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });
   await sleep(1500);

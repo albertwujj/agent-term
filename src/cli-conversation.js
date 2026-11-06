@@ -1,9 +1,10 @@
 // The CLI's own id for the conversation a session runs, so a pick in the
 // picker resumes that conversation by id instead of sending /resume and
 // leaving the user to find it in the CLI's resume dialog (resume-hint.js).
-// Two CLIs take the id on their command line: Cursor Agent
-// (`agent --resume <chat id>`) and Claude Code (`claude --resume <session
-// id>`). Every other CLI resumes through its dialog.
+// Three CLIs take the id on their command line: Cursor Agent
+// (`agent --resume <chat id>`), Claude Code (`claude --resume <session id>`)
+// and Codex (`codex resume <thread id>`). Every other CLI resumes through
+// its dialog.
 //
 // Where Cursor's id comes from. Cursor keeps each chat in
 // <config dir>/chats/<md5 of the workspace path>/<chat id>/store.db, an
@@ -34,11 +35,38 @@
 // one. The same record already serves the WSL spin heal (wsl-spin-watch.js),
 // which reads it for the shell's direct children only and on Linux only.
 //
-// When main asks: a few seconds after each prompt the capture logs in a
-// session of one of these CLIs, when that prompt has reached a conversation
-// (main.js scheduleConversationProbe). The answer is logged as a
-// `conversation` event when it changes (sessions-log.js), and the picker's
-// resume reads it back.
+// Where Codex's id comes from. Codex runs its threads in a shared daemon,
+// so the processes under the window's shell hold nothing that names the
+// thread: the daemon holds every live thread's rollout, and Codex has no
+// option that sets or prints the id (it appears only in the line Codex
+// prints on exit). What the window does have is the thread's name, which
+// Codex's default title carries (ai-title.js codexThreadName). Codex keeps
+// each thread's name and directory in its thread store,
+// <codex home>/state_<n>.sqlite, so the name and the session's directory
+// find the thread: one of the user's threads (not a helper's, such as a
+// guardian review) with that name in that directory, or, when none ran
+// there, the only one with that name anywhere (a thread the CLI's own
+// /resume brought in from another directory, which then resumes from its
+// own). Two threads with one name leave the record cleared, and the session
+// resumes through the dialog, unless the name was just read off the
+// session's title and only one of them was updated in the last two minutes:
+// that one is on screen (readCodexThread). On 2026-11-06 no two of the
+// user's 25 named Codex threads shared a name in one directory, but Codex
+// named two test threads with the same prompt alike. Codex's own `codex resume
+// <name>` was not used: how it picks between two threads with one name is
+// unknown, and the store answers that. The store is read through python3's
+// sqlite3, read-only; without python3, or with a store whose shape changed,
+// nothing is found and the dialog stays. A thread renamed with /rename is
+// found again once its new name reaches the title; renames after the last
+// title are not followed (the user does not rename threads).
+//
+// When main asks: Cursor and Claude a few seconds after each prompt the
+// capture logs in their sessions, when that prompt has reached a
+// conversation (main.js scheduleConversationProbe); Codex when a title with
+// its thread's name is logged (main.js scheduleCodexLookup), and at a pick
+// of a session recorded before that, which has a name and no id. The answer
+// is logged as a `conversation` event when it changes (sessions-log.js), and
+// the picker's resume reads it back.
 //
 // The probe and the reading are separate so the reading can be tested on
 // real output; the hash is passed in, so this module stays free of Node
@@ -153,28 +181,97 @@ function readClaudeRecord(stdout) {
   return dir ? { id, dir } : { id: null };
 }
 
-// Per CLI (cli-detect.js names): the probe script and its reading.
+// python3, given a directory and a thread name: "codexdb<TAB><id><TAB><cwd>
+// <TAB><seconds since Codex last updated it>" for each of the user's Codex
+// threads with that name, from the newest state_<n>.sqlite in Codex's home.
+// The age is taken on the side that runs Codex, so a clock that differs on
+// the app's side (Windows, against WSL) cannot skew it. Any failure (no
+// store, another shape) prints nothing. No single quotes: the shell passes it
+// in them.
+const CODEX_LOOKUP_PY = String.raw`
+import glob, os, re, sqlite3, sys, time, urllib.parse
+try:
+    home = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
+    stores = sorted(glob.glob(os.path.join(home, "state_*.sqlite")), key=lambda p: int(re.findall(r"state_(\d+)\.sqlite$", p)[0]))
+    if stores:
+        db = sqlite3.connect("file:" + urllib.parse.quote(stores[-1]) + "?mode=ro", uri=True)
+        where = " from threads where name = ? and (thread_source = ? or thread_source is null)"
+        try:
+            rows = db.execute("select id, cwd, updated_at" + where, (sys.argv[2], "user")).fetchall()
+        except sqlite3.OperationalError:
+            rows = [row + (None,) for row in db.execute("select id, cwd" + where, (sys.argv[2], "user")).fetchall()]
+        now = time.time()
+        for thread, cwd, updated in rows:
+            age = str(int(now - updated)) if isinstance(updated, (int, float)) else ""
+            print("\t".join(["codexdb", str(thread), " ".join(str(cwd or "").split()), age]))
+except Exception:
+    pass
+`;
+
+// POSIX: the store's threads named `name`. `shellEscape` quotes an argument
+// for the shell; the directory travels along for symmetry with the reading.
+function codexThreadScript(dir, name, shellEscape) {
+  return `python3 -c '${CODEX_LOOKUP_PY}' ${shellEscape(dir)} ${shellEscape(name)} 2>/dev/null; exit 0`;
+}
+
+// The thread for a session in `dir`, by the rule in the header: null when
+// none is named so, { id: null } when two could be it. `live` is set when the
+// name was just read off the session's own title: the thread on screen is
+// then the one Codex updated a moment ago, which tells it from an older
+// thread that happens to share its name (Codex names similar prompts alike,
+// "Reply PONG" twice in one directory). A pick reads an older name, where
+// recency says nothing.
+const LIVE_THREAD_MAX_AGE_S = 120;
+function readCodexThread(stdout, dir, { live = false } = {}) {
+  const rows = [];
+  for (const line of String(stdout || '').split('\n')) {
+    const [tag, id, cwd, age] = line.replace(/\r$/, '').split('\t');
+    if (tag !== 'codexdb' || !id || !UUID_RE.test(id)) continue;
+    if (!rows.some((r) => r.id === id.toLowerCase())) {
+      rows.push({ id: id.toLowerCase(), cwd: cwd || '', age: /^-?\d+$/.test(age || '') ? Number(age) : null });
+    }
+  }
+  const here = rows.filter((r) => r.cwd === dir);
+  let pick = here.length > 0 ? here : rows;
+  if (live && pick.length > 1) {
+    const recent = pick.filter((r) => r.age !== null && r.age <= LIVE_THREAD_MAX_AGE_S);
+    if (recent.length === 1) pick = recent;
+  }
+  if (pick.length === 0) return null;
+  if (pick.length > 1) return { id: null };
+  return pick[0].cwd.startsWith('/') ? { id: pick[0].id, dir: pick[0].cwd } : { id: null };
+}
+
+// Per CLI (cli-detect.js names): the probe script and its reading. Codex has
+// none: its id is looked up by name (codexThreadScript).
 const PROBES = {
   agent: { script: cursorChatScript, read: readCursorChat },
   claude: { script: claudeRecordScript, read: readClaudeRecord },
 };
 
-// The probe for a CLI, or null for one that resumes through its dialog.
+// The probe for a CLI, or null for one without.
 function conversationProbe(cli) {
   return Object.prototype.hasOwnProperty.call(PROBES, cli) ? PROBES[cli] : null;
 }
 
+// The arguments after the CLI's name that resume a conversation by id.
+const RESUME_ARGS = {
+  agent: (id) => ['--resume', id],
+  claude: (id) => ['--resume', id],
+  codex: (id) => ['resume', id],
+};
+
 // How a picked session resumes by id, or null when it goes through the
 // CLI's dialog. One rule for main (which launches it) and the renderer
-// (which then shows no resume band). Both CLIs take `--resume <id>`.
+// (which then shows no resume band).
 //   cwd   the directory to start the CLI in
 //   args  the arguments after the CLI's name
 function resumeLaunch(session) {
-  if (!session || !conversationProbe(session.cli)) return null;
+  if (!session || !Object.prototype.hasOwnProperty.call(RESUME_ARGS, session.cli)) return null;
   const c = session.conversation;
   if (!c || typeof c.id !== 'string' || !UUID_RE.test(c.id)) return null;
   if (typeof c.dir !== 'string' || !c.dir.startsWith('/')) return null;
-  return { cwd: c.dir, args: ['--resume', c.id] };
+  return { cwd: c.dir, args: RESUME_ARGS[session.cli](c.id) };
 }
 
 // Whether two recorded conversations are the same; a cleared one ({ id:
@@ -189,6 +286,8 @@ module.exports = {
   readCursorChat,
   claudeRecordScript,
   readClaudeRecord,
+  codexThreadScript,
+  readCodexThread,
   conversationProbe,
   resumeLaunch,
   sameConversation,

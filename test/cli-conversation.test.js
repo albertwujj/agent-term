@@ -13,6 +13,8 @@ const {
   readCursorChat,
   claudeRecordScript,
   readClaudeRecord,
+  codexThreadScript,
+  readCodexThread,
   conversationProbe,
   resumeLaunch,
   sameConversation,
@@ -66,13 +68,14 @@ const storeFor = (dir, id = CHAT) => `/home/u/.cursor/chats/${md5(dir)}/${id}/st
     assert.strictEqual(readCursorChat('Welcome to Ubuntu\nchat\t/home/u/notes/store.db\t/w\t\n', md5), null);
   });
 
-  await check('resumeLaunch: a Cursor or Claude session with a recorded conversation, else the dialog', () => {
+  await check('resumeLaunch: a Cursor, Claude or Codex session with a recorded conversation, else the dialog', () => {
     const conversation = { id: CHAT, dir: '/home/u/repo' };
     assert.deepStrictEqual(resumeLaunch({ cli: 'agent', conversation }),
       { cwd: '/home/u/repo', args: ['--resume', CHAT] });
     assert.deepStrictEqual(resumeLaunch({ cli: 'claude', conversation }),
       { cwd: '/home/u/repo', args: ['--resume', CHAT] });
-    assert.strictEqual(resumeLaunch({ cli: 'codex', conversation }), null);
+    assert.deepStrictEqual(resumeLaunch({ cli: 'codex', conversation }),
+      { cwd: '/home/u/repo', args: ['resume', CHAT] });
     assert.strictEqual(resumeLaunch({ cli: 'copilot', conversation }), null);
     assert.strictEqual(resumeLaunch({ cli: 'agent', conversation: null }), null);
     assert.strictEqual(resumeLaunch({ cli: 'agent' }), null);
@@ -106,6 +109,36 @@ const storeFor = (dir, id = CHAT) => `/home/u/.cursor/chats/${md5(dir)}/${id}/st
     assert.strictEqual(readClaudeRecord(''), null);
   });
 
+  await check('Codex lookup: the named thread in the session\'s directory, else the only one anywhere', () => {
+    const A = '01a1b21a-2714-77f3-bdb7-0eb1a0a5b5d6';
+    const B = '01a0d986-d8d8-7a11-81ef-277863951c88';
+    const row = (id, cwd) => `codexdb\t${id}\t${cwd}`;
+    assert.deepStrictEqual(readCodexThread(row(A, '/w/repo'), '/w/repo'), { id: A, dir: '/w/repo' });
+    // A thread of that name in this directory wins over one elsewhere.
+    assert.deepStrictEqual(readCodexThread([row(B, '/w/other'), row(A, '/w/repo')].join('\n'), '/w/repo'), { id: A, dir: '/w/repo' });
+    // None here: the only one anywhere, resumed from its own directory.
+    assert.deepStrictEqual(readCodexThread(row(B, '/w/other'), '/w/repo'), { id: B, dir: '/w/other' });
+    // Two candidates either way cannot be told apart.
+    assert.deepStrictEqual(readCodexThread([row(A, '/w/repo'), row(B, '/w/repo')].join('\n'), '/w/repo'), { id: null });
+    assert.deepStrictEqual(readCodexThread([row(A, '/w/x'), row(B, '/w/y')].join('\n'), '/w/repo'), { id: null });
+    assert.strictEqual(readCodexThread('', '/w/repo'), null);
+    assert.strictEqual(readCodexThread('codexdb\tnot-a-uuid\t/w/repo', '/w/repo'), null);
+  });
+
+  await check('Codex lookup: a name just read off the title picks the thread Codex just updated', () => {
+    const A = '01a1b276-df21-7481-b370-33e6093c7dc8';
+    const B = '01a1b278-7b06-7883-8aee-b45438a6d7b3';
+    const row = (id, age) => `codexdb\t${id}\t/w/repo\t${age}`;
+    // Codex named two threads alike ("Reply PONG"); the live one was updated seconds ago.
+    const two = [row(A, 3600), row(B, 4)].join('\n');
+    assert.deepStrictEqual(readCodexThread(two, '/w/repo', { live: true }), { id: B, dir: '/w/repo' });
+    // At a pick the name is old news: recency says nothing.
+    assert.deepStrictEqual(readCodexThread(two, '/w/repo'), { id: null });
+    // Both recent, or no age at all: still two candidates.
+    assert.deepStrictEqual(readCodexThread([row(A, 30), row(B, 4)].join('\n'), '/w/repo', { live: true }), { id: null });
+    assert.deepStrictEqual(readCodexThread([row(A, ''), row(B, '')].join('\n'), '/w/repo', { live: true }), { id: null });
+  });
+
   await check('conversationProbe: Cursor and Claude, nothing else', () => {
     assert.strictEqual(conversationProbe('agent').script, cursorChatScript);
     assert.strictEqual(conversationProbe('claude').read, readClaudeRecord);
@@ -120,6 +153,56 @@ const storeFor = (dir, id = CHAT) => `/home/u/.cursor/chats/${md5(dir)}/${id}/st
     assert.ok(!sameConversation({ id: CHAT, dir: '/a' }, { id: CHAT, dir: '/b' }));
     assert.ok(!sameConversation({ id: CHAT, dir: '/a' }, null));
   });
+
+  let python = true;
+  try { execFileSync('python3', ['-c', 'import sqlite3']); } catch { python = false; }
+  if (python) {
+    await check('Codex lookup script: reads the user\'s threads by name from the newest store, read-only', () => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-codex-'));
+      const A = '01a1b21a-2714-77f3-bdb7-0eb1a0a5b5d6';
+      const B = '01a0d986-d8d8-7a11-81ef-277863951c88';
+      // An older store with another shape, and the current one.
+      execFileSync('python3', ['-c', `
+import sqlite3, sys
+old = sqlite3.connect(sys.argv[1] + "/state_4.sqlite"); old.execute("create table threads (id text)"); old.commit()
+db = sqlite3.connect(sys.argv[1] + "/state_5.sqlite")
+db.execute("create table threads (id text primary key, cwd text, name text, thread_source text)")
+db.executemany("insert into threads values (?, ?, ?, ?)", [
+    ("${A}", "/w/repo", "Check uncommitted files", "user"),
+    ("${B}", "/w/repo", "Guardian review", "guardian_review"),
+    ("01a0d9a6-0000-7000-8000-000000000000", "/w/repo", "it's quoted", "user")])
+db.commit()`, home]);
+      const env = { ...process.env, CODEX_HOME: home };
+      const shellEscape = (s) => "'" + s.replace(/'/g, "'\\''") + "'";
+      const run = (name) => readCodexThread(execFileSync('bash', ['-c', codexThreadScript('/w/repo', name, shellEscape)], { env }).toString(), '/w/repo');
+      try {
+        assert.deepStrictEqual(run('Check uncommitted files'), { id: A, dir: '/w/repo' });
+        assert.strictEqual(run('Guardian review'), null, 'a helper thread is not the conversation');
+        assert.deepStrictEqual(run("it's quoted"), { id: '01a0d9a6-0000-7000-8000-000000000000', dir: '/w/repo' });
+        assert.strictEqual(run('No such thread'), null);
+        // A store with updated_at: each row carries its age, taken on this side.
+        const aged = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-codex-aged-'));
+        execFileSync('python3', ['-c', `
+import sqlite3, sys, time
+db = sqlite3.connect(sys.argv[1] + "/state_5.sqlite")
+db.execute("create table threads (id text primary key, cwd text, name text, thread_source text, updated_at integer)")
+db.executemany("insert into threads values (?, ?, ?, ?, ?)", [
+    ("${A}", "/w/repo", "Reply PONG", "user", int(time.time()) - 3600),
+    ("${B}", "/w/repo", "Reply PONG", "user", int(time.time()))])
+db.commit()`, aged]);
+        const out = execFileSync('bash', ['-c', codexThreadScript('/w/repo', 'Reply PONG', shellEscape)], { env: { ...env, CODEX_HOME: aged } }).toString();
+        assert.deepStrictEqual(readCodexThread(out, '/w/repo', { live: true }), { id: B, dir: '/w/repo' }, out);
+        assert.deepStrictEqual(readCodexThread(out, '/w/repo'), { id: null });
+        fs.rmSync(aged, { recursive: true, force: true });
+        // No store at all: nothing, and still exit 0.
+        const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-codex-empty-'));
+        assert.strictEqual(execFileSync('bash', ['-c', codexThreadScript('/w/repo', 'x', shellEscape)], { env: { ...env, CODEX_HOME: empty } }).toString(), '');
+        fs.rmSync(empty, { recursive: true, force: true });
+      } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
 
   if (fs.existsSync('/proc/self/fd') || process.platform === 'darwin') {
     await check('probe script: finds the chat a grandchild of the shell holds open', async () => {

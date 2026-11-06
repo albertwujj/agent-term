@@ -109,9 +109,9 @@ const PROCESS_STARTED_AT = Date.now() - Math.round(process.uptime() * 1000);
 const { rebuildRuntimeBundles } = require('./runtime-build');
 const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
-const { cleanAiTitle, aiTitleDedupeKey, isConversationTitle, aiCliLaunchCommand } = require('./ai-title');
+const { cleanAiTitle, aiTitleDedupeKey, isConversationTitle, aiCliLaunchCommand, codexThreadName } = require('./ai-title');
 const { detectCli } = require('./cli-detect');
-const { conversationProbe, resumeLaunch, sameConversation } = require('./cli-conversation');
+const { conversationProbe, resumeLaunch, sameConversation, codexThreadScript, readCodexThread } = require('./cli-conversation');
 const { aiCliRendererEnv } = require('./cli-renderer-env');
 const { inheritableEnv } = require('./inheritable-env');
 const { isReviewPackagePath } = require('./review-package-path');
@@ -1722,6 +1722,7 @@ function onPromptCaptured(promptText, mentions = null, attachments = []) {
       sessionsLog.appendEvent(app.getPath('userData'), {
         e: 'title', id: sessionIndex, title: lockedTitle,
       });
+      scheduleCodexLookup(lockedTitle);
     }
     // Window title is the "rest" of the identity string — everything past
     // the first N letters that the icon ended up drawing (N is 3 by default,
@@ -3514,6 +3515,7 @@ ipcMain.on('set-title', (event, title) => {
           e: 'title', id: sessionIndex, title: lockedTitle,
         });
       } catch {}
+      scheduleCodexLookup(lockedTitle);
       // A semantic title change lands in the thumbnail card's timeline —
       // re-render so it shows without waiting for the next prompt event.
       renderAndPushIconicBitmaps();
@@ -3858,13 +3860,33 @@ async function pickSession(id) {
 // by id, from the directory the CLI keeps it under, with no dialog to go
 // through and so no intercept and no band. Every other resume relaunches the
 // CLI and arms the intercept.
-function resumeHere(id, { onCurrentCode = false } = {}) {
+//
+// A Codex session recorded before its thread could be found by name has a
+// name in its titles and no conversation; its thread is looked up here, by
+// the name it last showed. The renderer showed the resume band at the pick
+// (its payload had no conversation), and drops it when the thread is found.
+async function resumeHere(id, { onCurrentCode = false } = {}) {
   const userDataDir = app.getPath('userData');
   const sessions = sessionsLog.listSessions(userDataDir);
   const picked = sessions.find(s => s.id === id);
   if (!picked || !picked.cli) return;
   pickerOpen = false;
+  if (picked.cli === 'codex' && !picked.conversation) {
+    const name = codexThreadName(picked.lastTitle || '') || codexThreadName(picked.title || '');
+    let found = null;
+    if (name) {
+      try { found = await lookupCodexThread(picked.cwd, name); } catch (err) {
+        log('[conversation] codex lookup at pick failed: ' + (err && err.message));
+      }
+    }
+    if (found && found.id) {
+      picked.conversation = { id: found.id, dir: found.dir };
+      sessionsLog.appendEvent(userDataDir, { e: 'conversation', id, conversation: found.id, dir: found.dir });
+      log('[conversation] session ' + id + ' runs ' + found.id + ' (found by name at the pick)');
+    }
+  }
   const direct = resumeLaunch(picked);
+  if (direct) sendHint('resume-direct');
   const reason = onCurrentCode ? 'older-code' : (picked.closedBy === 'cap' ? 'closed-while-hidden' : null);
   if (reason) {
     sendHint('resume-with-reason', {
@@ -5044,6 +5066,49 @@ async function probeConversation() {
   const r = await posixSh(probe.script(pidExpr), { timeout: 10_000 });
   if (r.code !== 0) return null;
   return probe.read(r.stdout, (text) => crypto.createHash('md5').update(text).digest('hex'));
+}
+
+// A Codex session's thread, found by the name its title carries (Codex keeps
+// no per-window trace of the id: src/cli-conversation.js). Asked when a title
+// with a name is logged; the store may record the name a moment after the
+// title shows it, so a miss is asked again, a little later. A newer name
+// starts over.
+const CODEX_LOOKUP_DELAYS_MS = [500, 5000, 20000];
+let codexLookupTimer = null;
+function scheduleCodexLookup(title) {
+  if (detectedCli !== 'codex' || sessionIndex === null) return;
+  const name = codexThreadName(title);
+  if (!name) return;
+  clearTimeout(codexLookupTimer);
+  const id = sessionIndex;
+  const shellPty = ptyProcess;
+  const dir = sessionCwd;
+  const attempt = (n) => {
+    codexLookupTimer = setTimeout(async () => {
+      codexLookupTimer = null;
+      let found;
+      try { found = await lookupCodexThread(dir, name, { live: true }); } catch (err) {
+        log('[conversation] codex lookup failed: ' + (err && err.message));
+        return;
+      }
+      if (sessionIndex !== id || ptyProcess !== shellPty) return;
+      if (found !== null) recordConversation(found);
+      else if (n + 1 < CODEX_LOOKUP_DELAYS_MS.length) attempt(n + 1);
+    }, CODEX_LOOKUP_DELAYS_MS[n]);
+    if (typeof codexLookupTimer.unref === 'function') codexLookupTimer.unref();
+  };
+  attempt(0);
+}
+
+// null when no thread of that name is found; else readCodexThread's answer.
+// Without a directory, only a name no other thread shares finds one. `live`
+// when the name was just read off this session's title.
+async function lookupCodexThread(dir, name, { live = false } = {}) {
+  if (!name) return null;
+  dir = dir || '';
+  const r = await posixSh(codexThreadScript(dir, name, shellEscape), { timeout: 10_000 });
+  if (r.code !== 0) return null;
+  return readCodexThread(r.stdout, dir, { live });
 }
 
 function recordConversation(found) {

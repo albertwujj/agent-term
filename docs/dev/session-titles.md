@@ -88,16 +88,16 @@ daemon already had its routing. Tested with one prompt each while the
 gateway redirected: both lines with `-c` failed, with or without
 `--no-daemon`; `--no-alt-screen` alone and bare `codex` replied.
 
-Dropping the override has two costs. A picker-launched Codex now gives the
-activity detector no explicit status (below), as a hand-typed one never
-did. And a Codex resume still goes through Codex's own `/resume` dialog.
-Run by the shared daemon, a Codex thread leaves nothing in the TUI's process
-that names it: the daemon holds every live thread's rollout, the TUI's log
-rows carry no thread id, and Codex has no option that sets or prints one
-(the id appears only in the line it prints on exit). So AgentTerm cannot
-hand Codex a thread id as it does Cursor's and Claude's
-(src/cli-conversation.js). The resume band's filter chip carries the
-captured name, which is the row Codex's picker lists.
+Dropping the override costs the activity detector its explicit status: a
+picker-launched Codex now gives none (below), as a hand-typed one never
+did. Resume is not lost. Run by the shared daemon, a Codex thread leaves
+nothing in the TUI's process that names it (the daemon holds every live
+thread's rollout, and Codex has no option that sets or prints the id), but
+the name the title carries does: AgentTerm looks it up in Codex's thread
+store with the session's directory, and a pick resumes that thread by id,
+as it does Cursor's and Claude's conversations (src/cli-conversation.js).
+A name shared by two threads falls back to Codex's `/resume` dialog, where
+the band's filter chip carries the name, the row Codex's picker lists.
 
 A user who wants the status items can set `tui.terminal_title` in their own
 `~/.codex/config.toml`; the predicate and the status reader below take that

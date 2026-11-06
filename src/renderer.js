@@ -201,6 +201,12 @@ window.pty.onResumeWithReason((picked) => {
 window.pty.onResumeHintInterceptOff(() => {
   resumeHint.recordInterceptOff();
 });
+// Main resumed the pick by id after all: a Codex session recorded before its
+// thread could be found, whose thread main found by name at the pick. The band
+// shown at the pick promised a /resume that will not come.
+if (typeof window.pty.onResumeDirect === 'function') {
+  window.pty.onResumeDirect(() => resumeHint.destroy({ cancelIntercept: false }));
+}
 window.pty.onWslNotice((text) => showToast(text, { variant: 'error' }));
 // A picker launch typed into the shell: the band asks for the Enter that
 // runs it, and goes when main says the line ran, was cleared, or replaced.

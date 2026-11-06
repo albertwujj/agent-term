@@ -108,6 +108,15 @@ function isConversationTitle(title, cli) {
   return !!subject;
 }
 
+// The thread name a Codex title carries, as Codex stores it for the thread
+// (its resume picker lists the same text), or null when the title names no
+// conversation. The key for finding the thread's id (cli-conversation.js).
+function codexThreadName(title) {
+  if (!isConversationTitle(title, 'codex')) return null;
+  const name = collapseWhitespace(codexThread(title));
+  return name || null;
+}
+
 function aiCliLaunchCommand(command) {
   const line = String(command || '');
   if (!/^codex(?=\s|$)/i.test(line)) return line;
@@ -124,6 +133,7 @@ function aiCliLaunchCommand(command) {
 }
 
 module.exports = {
+  codexThreadName,
   cleanAiTitle,
   cleanAiTitleSegments,
   aiTitleDedupeKey,

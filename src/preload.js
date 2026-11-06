@@ -155,6 +155,7 @@ contextBridge.exposeInMainWorld('pty', {
   // never sends this event.
   onResumeHintSubmit: (callback) => ipcRenderer.on('resume-hint-submit', () => callback()),
   onResumeWithReason: (callback) => ipcRenderer.on('resume-with-reason', (_event, picked) => callback(picked)),
+  onResumeDirect: (callback) => ipcRenderer.on('resume-direct', () => callback()),
   // Main cancelled the resume intercept on non-Enter input (a startup
   // dialog answered, or the user typing their own command). The next Enter
   // is plain; the hint switches to its manual /resume wording.
