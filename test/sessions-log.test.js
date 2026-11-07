@@ -458,11 +458,11 @@ test('menuList excludes sessions without a recorded cli (shell-only / non-CLI)',
   assert.strictEqual(list.length, 0);
 });
 
-test('menuList drops sessions older than the 4-week window', (dir) => {
+test('menuList drops sessions older than the 8-week window', (dir) => {
   log.appendEvent(dir, { e: 'started', id: 1 });
   log.appendEvent(dir, { e: 'cli',     id: 1, cli: 'claude' });
   log.appendEvent(dir, { e: 'prompt',  id: 1, prompt: 'Old prompt long enough' });
-  // Manually rewrite the file with very old timestamps (60 days > the 28-day window)
+  // Manually rewrite the file with very old timestamps (60 days > the 56-day window)
   const file = path.join(dir, 'sessions.jsonl');
   const old = Date.now() - 60 * 24 * 60 * 60 * 1000;
   const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => {

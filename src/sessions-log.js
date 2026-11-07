@@ -60,7 +60,7 @@ const { writeFileAtomicSync } = require('./atomic-file');
 const { isConversationTitle } = require('./ai-title');
 const { identityFromPrompts } = require('./session-identity');
 
-const RECENT_WINDOW_MS = 28 * 24 * 60 * 60 * 1000;   // 4 weeks: the picker shows a session this long after it was last touched, the log keeps it this long after its last event
+const RECENT_WINDOW_MS = 56 * 24 * 60 * 60 * 1000;   // 8 weeks: the picker shows a session this long after it was last touched, the log keeps it this long after its last event
 
 // Round to the nearest minute so os.uptime()'s second-resolution ticks don't
 // break equality comparisons across rapid-fire reads/writes within one boot.
