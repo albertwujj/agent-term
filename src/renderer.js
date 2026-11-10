@@ -1830,48 +1830,6 @@ function ensureTerminalCommentStyles() {
     .terminal-output-frozen-pill:hover {
       background: rgba(48, 49, 52, 0.98);
     }
-    .terminal-comment-queued-card {
-      position: fixed;
-      right: 18px;
-      z-index: 9998;
-      width: min(320px, calc(100vw - 28px));
-      max-height: 96px;
-      overflow: hidden;
-      padding: 7px 9px;
-      border: 1px solid rgba(138, 180, 248, 0.42);
-      border-radius: 6px;
-      background: rgba(32, 33, 36, 0.96);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.36);
-      color: #e8eaed;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      -webkit-app-region: no-drag;
-      pointer-events: auto;
-      cursor: pointer;
-      transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
-    }
-    .terminal-comment-queued-card:hover {
-      border-color: rgba(138, 180, 248, 0.72);
-      background: rgba(37, 39, 43, 0.98);
-      transform: translateX(-2px);
-    }
-    .terminal-comment-queued-card-label {
-      display: block;
-      margin-bottom: 3px;
-      color: #8ab4f8;
-      font-size: 11px;
-      font-weight: 600;
-      line-height: 1.2;
-    }
-    .terminal-comment-queued-card-body {
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      font-size: 12px;
-      line-height: 1.35;
-    }
     .terminal-comment-selection-hint {
       position: fixed;
       z-index: 9999;
@@ -1977,9 +1935,8 @@ function paintTerminalMarkRow(row, startCol, endCol, { ruler = false } = {}) {
     layer: 'top',
     backgroundColor: TERMINAL_MARK_BG,
     // A tick in the overview ruler, so the scrollbar maps where unsent work
-    // sits in the scrollback: the card itself hides once its row leaves the
-    // viewport, and a count alone cannot say where to look. First row only —
-    // a selection spanning several rows is one comment, not several.
+    // sits in the scrollback even while its passage is off screen. First row
+    // only — a selection spanning several rows is one comment, not several.
     ...(ruler
       ? { overviewRulerOptions: { color: 'rgba(138, 180, 248, 0.9)', position: 'right' } }
       : {}),
@@ -2101,31 +2058,12 @@ function getTerminalRowTop(bufferRow) {
   const rect = screenElement.getBoundingClientRect();
   const rowHeight = rect.height / Math.max(1, terminal.rows);
   const top = rect.top + viewportLine * rowHeight;
-  // Covered by a viewer band counts as off-screen: everything anchored here (the
-  // type-to-comment pill, a queued card) sits above the band in z-order, so it
-  // would otherwise float over the viewer pointing at text nobody can see. The
-  // 1px slack absorbs the band's grid-snap rounding.
+  // Covered by a viewer band counts as off-screen: the type-to-comment pill
+  // sits above the band in z-order, so it would otherwise float over the viewer
+  // pointing at text nobody can see. The 1px slack absorbs the band's grid-snap
+  // rounding.
   if (top < getVisibleTerminalTop() - 1) return null;
   return top;
-}
-
-function positionQueuedTerminalCommentCard(comment) {
-  if (!comment || !comment.card) return;
-  const top = getTerminalRowTop(comment.targetRow);
-  if (top == null) {
-    comment.card.style.display = 'none';
-    return;
-  }
-
-  comment.card.style.display = '';
-  const maxTop = window.innerHeight - 126;
-  comment.card.style.top = `${Math.max(14, Math.min(top + 2, maxTop))}px`;
-}
-
-function updateQueuedTerminalCommentCards() {
-  for (const comment of queuedTerminalComments) {
-    positionQueuedTerminalCommentCard(comment);
-  }
 }
 
 function clearTerminalSelection() {
@@ -2235,8 +2173,7 @@ function positionTerminalSelectionCommentHint(hint, range) {
   const top = getTerminalRowTop(endRow == null ? range.start.row : endRow);
   if (top == null) {
     // Selection scrolled off-screen (e.g. streaming output pushed it past the
-    // viewport): hide rather than strand the pill at the terminal's edge. Mirrors
-    // positionQueuedTerminalCommentCard, which hides its card the same way.
+    // viewport): hide rather than strand the pill at the terminal's edge.
     hideTerminalSelectionCommentHint();
     return;
   }
@@ -2376,33 +2313,6 @@ function handleSelectionCommentHintKeydown(event) {
   openTerminalSelectionComment({ initialComment: event.key });
 }
 
-function createQueuedTerminalCommentCard(comment) {
-  ensureTerminalCommentStyles();
-  const card = document.createElement('div');
-  card.className = 'terminal-comment-queued-card';
-  card.title = 'Click to edit';
-
-  const label = document.createElement('span');
-  label.className = 'terminal-comment-queued-card-label';
-  label.textContent = comment.kind === 'selection' ? 'Queued selection - edit' : 'Queued line - edit';
-
-  const body = document.createElement('div');
-  body.className = 'terminal-comment-queued-card-body';
-  body.textContent = comment.comment;
-
-  card.append(label, body);
-  card.addEventListener('mousedown', (e) => e.stopPropagation());
-  card.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openQueuedTerminalCommentForEdit(comment);
-  });
-  card.addEventListener('dblclick', (e) => e.stopPropagation());
-  document.body.appendChild(card);
-  comment.card = card;
-  positionQueuedTerminalCommentCard(comment);
-}
-
 function getActiveTerminalCommentText() {
   return activeTerminalComment && activeTerminalComment.textarea
     ? activeTerminalComment.textarea.value.trim()
@@ -2432,18 +2342,10 @@ function isTerminalCommentQueueMode() {
     || !!(activeTerminalComment && activeTerminalComment.queueMode);
 }
 
-function removeQueuedTerminalCommentCard(comment) {
-  try {
-    if (comment && comment.card) comment.card.remove();
-  } catch {}
-  if (comment) comment.card = null;
-}
-
 function disposeQueuedTerminalComment(comment) {
   try {
     if (comment && comment.highlight) comment.highlight.dispose();
   } catch {}
-  removeQueuedTerminalCommentCard(comment);
 }
 
 function insertQueuedTerminalComment(comment, index) {
@@ -2451,7 +2353,6 @@ function insertQueuedTerminalComment(comment, index) {
     ? Math.max(0, Math.min(index, queuedTerminalComments.length))
     : queuedTerminalComments.length;
   queuedTerminalComments.splice(targetIndex, 0, comment);
-  createQueuedTerminalCommentCard(comment);
   updateTerminalCommentFooter();
 }
 
@@ -2473,27 +2374,34 @@ function getQueuedTerminalCommentContext(comment) {
   };
 }
 
-// Scroll the next unsent comment into view, cycling through the batch.
-//
-// A queued card hides when its row leaves the viewport, so once output scrolls
-// past, the footer count was the only trace left and it was inert text — you
-// could see that unsent work existed and not reach it, while the one control
-// that always worked was Discard. Walking the buffer top-down rather than in
-// authoring order makes repeated clicks read as a sweep through the scrollback.
-let queuedTerminalCommentCursor = 0;
+// Queued comments rest as their passage highlights and ruler ticks, leaving the
+// output readable. The footer count opens one editor at a time, walking the
+// buffer top-down. Track the last comment by id: opening it takes it out of the
+// queue until the editor is left, so an array index would skip or repeat notes.
+let lastRevealedTerminalCommentId = null;
 
 function revealNextQueuedTerminalComment() {
+  // Repeated clicks save the editor being left before choosing the next note.
+  if (getActiveTerminalCommentText()) {
+    queueActiveTerminalCommentDraft();
+  } else if (activeTerminalComment) {
+    closeTerminalComment({
+      focusTerminal: false,
+      restoreQueuedDraft: !!activeTerminalComment.queueMode,
+    });
+  }
+
   const ordered = queuedTerminalComments
     .filter((c) => Number.isFinite(c.targetRow))
-    .sort((a, b) => a.targetRow - b.targetRow);
+    .sort((a, b) => a.targetRow - b.targetRow || a.id - b.id);
   if (!ordered.length) return;
-  if (queuedTerminalCommentCursor >= ordered.length) queuedTerminalCommentCursor = 0;
-  const target = ordered[queuedTerminalCommentCursor];
-  queuedTerminalCommentCursor = (queuedTerminalCommentCursor + 1) % ordered.length;
+  const previousIndex = ordered.findIndex((c) => c.id === lastRevealedTerminalCommentId);
+  const target = ordered[(previousIndex + 1) % ordered.length];
+  lastRevealedTerminalCommentId = target.id;
   // Centred, like a search hit: the comment is usually about the lines around
   // its anchor, so landing it at the viewport edge would hide the context.
   terminal.scrollToLine(Math.max(0, target.targetRow - Math.floor(terminal.rows / 2)));
-  updateQueuedTerminalCommentCards();
+  openQueuedTerminalCommentForEdit(target);
 }
 
 function ensureTerminalCommentFooter() {
@@ -2570,7 +2478,7 @@ function updateTerminalCommentFooter() {
   const reachable = queuedTerminalComments.filter((c) => Number.isFinite(c.targetRow)).length;
   footer._count.textContent = `${count} comment${count === 1 ? '' : 's'}`;
   footer._count.disabled = reachable === 0;
-  footer._count.title = reachable ? 'Scroll to the next unsent comment' : '';
+  footer._count.title = reachable ? 'Open the next unsent comment' : '';
 }
 
 function queueActiveTerminalCommentDraft() {
@@ -2623,7 +2531,6 @@ function restoreQueuedTerminalCommentDraft(comment) {
   if (!comment || !comment.originalQueuedComment) return false;
   const restored = comment.originalQueuedComment;
   restored.highlight = comment.highlight;
-  restored.card = null;
   comment.highlight = null;
   insertQueuedTerminalComment(restored, comment.queueIndex);
   return true;
@@ -2848,21 +2755,10 @@ function openTerminalCommentEditor({
 function openQueuedTerminalCommentForEdit(comment) {
   if (!comment) return false;
 
-  if (getActiveTerminalCommentText()) {
-    queueActiveTerminalCommentDraft();
-  } else if (activeTerminalComment) {
-    closeTerminalComment({
-      focusTerminal: false,
-      restoreQueuedDraft: !!activeTerminalComment.queueMode,
-    });
-  }
-
   const queueIndex = queuedTerminalComments.indexOf(comment);
   if (queueIndex === -1) return false;
 
   queuedTerminalComments.splice(queueIndex, 1);
-  removeQueuedTerminalCommentCard(comment);
-  updateTerminalCommentFooter();
 
   const highlight = comment.highlight;
   comment.highlight = null;
@@ -6772,7 +6668,6 @@ terminal.onWriteParsed(() => {
 });
 
 terminal.onScroll(() => {
-  updateQueuedTerminalCommentCards();
   // The live mark only paints the rows on screen, so scrolling is what brings
   // the rest of a long selection into view.
   scheduleLiveTerminalMarkSync();
@@ -6786,7 +6681,6 @@ terminal.onScroll(() => {
 // Handle resize: clear and reprocess
 let searchResizeTimer = null;
 window.addEventListener('resize', () => {
-  updateQueuedTerminalCommentCards();
   scheduleTerminalSelectionCommentHint();
   clearAllDecorations();
   altBufferDirty = isAlternateBufferActive();
@@ -6814,7 +6708,6 @@ document.addEventListener('viewer-band-geometry', () => {
   viewerBandFollowUntil = Date.now() + VIEWER_BAND_TRANSITION_MS;
   if (viewerBandFollowFrame) return;
   const step = () => {
-    updateQueuedTerminalCommentCards();
     // Direct, not the debounced schedule: the debounce exists to keep the pill
     // from flickering up mid-drag, and re-triggering it every frame would defer
     // the pill until after the transition. Uncovering a live selection re-arms

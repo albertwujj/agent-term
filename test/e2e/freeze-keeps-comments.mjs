@@ -103,7 +103,7 @@ async function main() {
       await sleep(600);
     }
     let s = await state();
-    check('both are queued', s.count === '2 comments' && s.cards === 2, s);
+    check('both are queued without covering the output', s.count === '2 comments' && s.cards === 0, s);
     check('the batch has a Send of its own', s.hasSend, s);
 
     console.log('freezing the view');
@@ -127,7 +127,7 @@ async function main() {
     s = await state();
     check('output is running again', !s.frozen, s);
     check('both comments survived', s.count === '2 comments', s);
-    check('and their cards are still anchored', s.cards === 2, s);
+    check('and their preview boxes stay collapsed', s.cards === 0, s);
 
     console.log('the batch sends from the footer');
     await page.click('.terminal-comment-footer-send');
@@ -137,6 +137,7 @@ async function main() {
     check('no queued cards remain', s.cards === 0, s);
     const text = await screenText();
     check('and the message reached the shell', text.includes('note on ANCHOR-ONE'), text.slice(-300));
+    check('with the second comment too', text.includes('note on ANCHOR-TWO'), text.slice(-300));
   } finally {
     await app.close().catch(() => {});
   }
