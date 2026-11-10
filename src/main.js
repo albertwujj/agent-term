@@ -2479,6 +2479,21 @@ function launchNewInstance({ announce: announceToWindow = true } = {}) {
   });
 }
 
+// App-level session management must also work while an embedded review or
+// remote page owns the keyboard. Attach the same handler to both WebContents.
+function handleNewInstanceShortcut(event, input) {
+  if (input.type !== 'keyDown') return false;
+  const cmdShiftN = (input.control || input.meta) && input.shift
+    && (input.key === 'N' || input.key === 'n');
+  if (!cmdShiftN) return false;
+  event.preventDefault();
+  // Pressed again with this window's picker in front, it brings back the
+  // hidden session used most recently in place of the picker.
+  if (pickerOpen && sessionIndex === null && !iconLocked) bringBackLastHidden();
+  else launchNewInstance();
+  return true;
+}
+
 function writeClosedSessionEvent() {
   writeSessionEndEvent('closed');
 }
@@ -2842,15 +2857,7 @@ function createWindow() {
     }
     // Cmd/Ctrl+Shift+N: launch a fresh AgentTerm instance alongside this one.
     // It opens on the sessions picker + launcher, like any fresh start.
-    const cmdShiftN = (input.control || input.meta) && input.shift && (k === 'N' || k === 'n');
-    // Pressed again with this window's picker in front, it brings back the
-    // hidden session used most recently in place of the picker.
-    if (cmdShiftN) {
-      event.preventDefault();
-      if (pickerOpen && sessionIndex === null && !iconLocked) bringBackLastHidden();
-      else launchNewInstance();
-      return;
-    }
+    if (handleNewInstanceShortcut(event, input)) return;
     // Cmd/Ctrl+Shift+S: the sessions picker again in this window, while no
     // CLI has started here (reopenSessionsPicker). With a CLI running the
     // chord is the terminal's.
@@ -6511,6 +6518,7 @@ app.on('web-contents-created', (event, contents) => {
   if (contents.getType() !== 'webview') return;
   // Using the embedded viewer is using this window.
   watchUserInput(contents);
+  contents.on('before-input-event', handleNewInstanceShortcut);
   let guestUnresponsiveAt = null;
   contents.on('unresponsive', () => {
     guestUnresponsiveAt = monotonicMs();
