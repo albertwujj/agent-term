@@ -1176,6 +1176,7 @@ function createMarkdownViewer({
   requestRunbookClone,
   readMarkdownThreads,
   addMarkdownThreadMessage,
+  remindMarkdownThread,
   showToast,
   openURL,
   openDocPath,
@@ -1214,6 +1215,7 @@ function createMarkdownViewer({
     replyDrafts: new Map(), // thread id → reply text typed and clicked away (rests as a row in the card)
     resolvedExpanded: new Set(), // block anchorIds whose resolved history is unfolded to lines
     expandedThreads: new Set(), // thread ids opened from a resolved/waiting line into a full card
+    remindingThreads: new Set(), // open-token + thread id; shared by both article copies
     editing: null, // open block-editor session
     editCaret: null, // blinking caret span at the held click position
     expandedHunkKey: null, // anchorId of the pending edit whose action strip is open
@@ -6343,8 +6345,7 @@ function createMarkdownViewer({
     return line;
   }
 
-  // A sent thread awaiting the agent is locked — the turn is the agent's and
-  // there is nothing here to act on — so it rests as the same one-line row a
+  // A sent thread awaiting the agent rests as the same one-line row a
   // queued draft collapses to, rather than restating words you just wrote.
   // Click reads it back (opens the full card; the card folds again on click).
   // The working pulse rides this row while the agent runs.
@@ -6487,7 +6488,47 @@ function createMarkdownViewer({
       openThreadReply(card, thread);
     });
     actions.append(reply);
+    if (!composing && threadAwaitsAgent(thread) && typeof remindMarkdownThread === 'function') {
+      const remind = document.createElement('button');
+      remind.type = 'button';
+      remind.className = 'md-thread-remind';
+      remind.dataset.mdRemindThread = thread.id;
+      remind.textContent = 'Remind agent';
+      remind.disabled = state.remindingThreads.has(`${state.openToken}:${thread.id}`);
+      remind.addEventListener('click', (event) => {
+        event.stopPropagation();
+        remindThread(thread);
+      });
+      actions.append(remind);
+    }
     return actions;
+  }
+
+  async function remindThread(thread) {
+    const openToken = state.openToken;
+    const key = `${openToken}:${thread.id}`;
+    if (state.remindingThreads.has(key)) return;
+    state.remindingThreads.add(key);
+    const disable = (value) => {
+      for (const button of state.shell.querySelectorAll('.md-thread-remind')) {
+        if (button.dataset.mdRemindThread === thread.id) button.disabled = value;
+      }
+    };
+    disable(true);
+    try {
+      const result = await remindMarkdownThread({ docPath: state.resolvedPath || state.filePath, threadId: thread.id });
+      if (!isOpen() || state.openToken !== openToken) return;
+      if (!result || !result.success) throw new Error((result && result.error) || 'Could not remind agent');
+      adoptThreadStore(result.data);
+      scheduleThreadLayerRender();
+      if (typeof showToast === 'function') showToast(!result.sent ? 'Thread updated'
+        : result.toPrompt ? 'In the prompt — finish and press Enter' : 'Reminder sent');
+    } catch (e) {
+      if (isOpen() && state.openToken === openToken && typeof showToast === 'function') showToast(e.message || 'Could not remind agent');
+    } finally {
+      state.remindingThreads.delete(key);
+      if (state.openToken === openToken) disable(false);
+    }
   }
 
   function refreshThreadFoot(card, thread, opts) {
@@ -6578,14 +6619,11 @@ function createMarkdownViewer({
               // your words on a sent, waiting thread — the same situation as a
               // waiting comment, so it rests as the same bordered row (click reads
               // the thread back; the card folds again on click). The row and the
-              // seal pulse together while the agent works. Without a note the seal
-              // stands alone.
+              // seal pulse together while the agent works. Even without a note,
+              // the row gives access to Reply and Remind agent.
               target.classList.add('md-await-agent');
-              const noteMsg = (thread.messages || []).find((m, i) => i > 0 && m.author === 'user');
-              if (noteMsg) {
-                insertCommentFlowElementAfterTarget(target,
-                  stampKeepKey(buildOpenThreadElement(thread, false, { skipEnvelope: true }), `thread:${thread.id}`));
-              }
+              insertCommentFlowElementAfterTarget(target,
+                stampKeepKey(buildOpenThreadElement(thread, false, { skipEnvelope: true }), `thread:${thread.id}`));
               continue;
             }
             // Marks can't sit in the live text (structural hunk / conflict lead),
@@ -6597,12 +6635,11 @@ function createMarkdownViewer({
             if (!landed) {
               const box = buildSentDiffElement(thread);
               target.replaceWith(box);
-              if ((thread.messages || []).some((m) => m.author === 'agent')) {
-                box.insertAdjacentElement('afterend',
-                  stampKeepKey(buildOpenThreadElement(thread, false, { skipEnvelope: true }), `thread:${thread.id}`));
-              } else {
+              if (!(thread.messages || []).some((m) => m.author === 'agent')) {
                 box.classList.add('md-await-agent'); // awaiting — pulse like a waiting comment
               }
+              box.insertAdjacentElement('afterend',
+                stampKeepKey(buildOpenThreadElement(thread, false, { skipEnvelope: true }), `thread:${thread.id}`));
               continue;
             }
           }

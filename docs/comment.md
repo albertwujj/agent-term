@@ -19,7 +19,7 @@ You can edit a [rendered plan](plan.md) or a [review's commit message](review.md
 
 ## Send now, or collect and send
 
-Send a note at once, or move on to the next passage without sending: the notes and edits accumulate and go in the next send, and you can revise them until then.
+Send a note at once, or move on to the next passage without sending: the notes and edits accumulate and go in the next send, and you can revise them until then. You can remind the agent about a sent markdown or review thread without adding another comment.
 
 ## Useful details
 

@@ -126,7 +126,6 @@ const {
   threadHasAgentEvents,
 } = require('./agent-journal');
 const { isConfirmMessage } = require('./decision-confirm');
-const { decideStall, unaddressedCount, STALL_IDLE_MS } = require('./comment-stall');
 const { parseScopeArg, createReviewSync, REVIEW_POLL_MS, nextPollDelay } = require('./review-sync');
 const {
   SPIN_PROBE_MS,
@@ -696,8 +695,8 @@ function setViewerAutoOpenArmed(armed) {
 // One finisher for every user-initiated agent ping (inline comment, review
 // send, review banner nudge, md pointer): paste, then the bookkeeping the
 // paste implies — the prompt went to a live CLI, so a still-armed resume
-// intercept is stale; the click was the user's input (the job-watch and
-// stall checks read it); and the typing suppression releases so the progress
+// intercept is stale; the click was the user's input (the job monitor reads
+// it); and the typing suppression releases so the progress
 // bar can show the pickup. Text left in the prompt has no pickup to show: it is
 // a composition like any typed line, and the compose hold must cover it, or a
 // host notice's CR submits it.
@@ -5572,55 +5571,6 @@ function reviewSendState(p) {
   };
 }
 
-// --- Stall watch: one auto-reminder when comment resolution stalls ---
-// Armed per store on every submitted send (md and review alike). A send is the
-// user's explicit request, so one re-ping on a stall is delivery retry of that
-// request, not new intent — and it only fires while the user has stayed
-// hands-off since the send (any terminal input disarms; the user took the
-// wheel, and typing to the agent IS the manual reminder). Decision rules and
-// thresholds live in comment-stall.js; this owns the clocks and the IO.
-const STALL_POLL_MS = 5000;
-const stallWatches = new Map(); // store fs path → { sendTime, coveredIds, remindText }
-let stallTimer = null;
-
-function armStallWatch(p, { coveredIds, remindText }) {
-  if (!Array.isArray(coveredIds) || !coveredIds.length) return;
-  // A newer send replaces the old watch wholesale — its covered set is current.
-  stallWatches.set(p, { sendTime: Date.now(), coveredIds, remindText });
-  if (!stallTimer) {
-    stallTimer = setInterval(() => { tickStallWatches().catch(() => {}); }, STALL_POLL_MS);
-  }
-}
-
-async function tickStallWatches() {
-  for (const [p, w] of [...stallWatches]) {
-    try {
-      const { merged } = await mergedCommentStore(p);
-      const covered = merged.threads.filter((t) => w.coveredIds.includes(t.id));
-      const decision = decideStall(w, {
-        now: Date.now(),
-        lastInputTime,
-        lastAgentOutputTime,
-        coveredThreads: covered,
-      });
-      if (decision === 'wait') continue;
-      stallWatches.delete(p); // every other outcome ends the watch — one shot
-      if (decision === 'remind' && pasteAgentPing(w.remindText)) {
-        const count = unaddressedCount(covered);
-        log(`[stall] reminded agent — ${count} covered thread(s) unaddressed`);
-        try {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('stall-reminder', { count });
-          }
-        } catch {}
-      }
-    } catch {
-      stallWatches.delete(p); // unreadable store: the watch has nothing to stand on
-    }
-  }
-  if (!stallWatches.size && stallTimer) { clearInterval(stallTimer); stallTimer = null; }
-}
-
 ipcMain.handle('read-review-comments', async (event, fileUrl) => {
   try {
     const { fileURLToPath } = require('url');
@@ -5941,12 +5891,10 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false
   // still pluralizes by the count at paste time (its convention carries no
   // number, so it can't mislead the same way).
   let n = 0;
-  let coveredIds = [];
   try {
     const { merged } = await mergedCommentStore(p);
     const open = merged.threads.filter((t) => (t.status || 'open') === 'open');
     n = open.length;
-    coveredIds = open.map((t) => t.id);
   } catch { n = 0; }
   // Prompts point, they don't teach: the journal schema, the store's
   // read-only rule, and commit-before-resolve all live in the runbook the
@@ -5987,16 +5935,36 @@ ipcMain.handle('rv-send-to-agent', async (event, { commentsUrl, toPrompt = false
   });
   const was = reviewSends.get(p);
   reviewSends.set(p, { firstTurn: (was && was.firstTurn) || turn, resolvedAtSend });
-  // Delivery retry: if the agent goes idle with covered threads unaddressed
-  // and the user stays hands-off, one reminder re-pings it (comment-stall.js).
-  // To prompt hands delivery to the user's own typing, so it never arms.
-  if (!toPrompt) {
-    armStallWatch(p, {
-      coveredIds,
-      remindText: 'Reminder: open review comment threads remain unaddressed.\n' + addressLine,
-    });
-  }
   return { success: true, ...reviewSendState(p) };
+});
+
+// A reminder retries one sent thread without adding a message or a send wave.
+// Both viewers use the same fresh-state check and terminal-draft protection.
+async function remindCommentThread(p, agentPath, runbook, threadId, { doc, kind = 'review comment' } = {}) {
+  const { holdsInput } = await readPromptTarget();
+  // Read after the probes: the agent may have answered since the card loaded.
+  const { merged } = await mergedCommentStore(p);
+  const thread = merged.threads.find((t) => t.id === threadId);
+  if (!threadAwaitsAgent(thread)) return { success: true, sent: false, data: merged };
+  const text = (doc ? `Markdown document: ${doc}\n` : '')
+    + `Recheck ${kind} thread ${JSON.stringify(thread.id)} in ${agentPath} `
+    + `and address anything still needing attention${runbook ? ` per ${runbook}` : ''}.`;
+  // Preserve a terminal draft instead of submitting it along with the reminder.
+  const toPrompt = holdsInput || userComposing();
+  if (!pasteAgentPing(text, { toPrompt })) return { success: false, error: 'No active terminal process' };
+  return { success: true, sent: true, toPrompt, data: merged };
+}
+
+ipcMain.handle('rv-remind-agent', async (_event, { commentsUrl, threadId } = {}) => {
+  const p = commentsPathFromUrl(commentsUrl);
+  if (!validCommentsPath(p)) return { success: false, error: 'not a comments store' };
+  try {
+    const agentPath = agentPathFromCommentsUrl(commentsUrl);
+    const runbook = await resolveReviewRunbook(agentPath);
+    return await remindCommentThread(p, agentPath, runbook, threadId);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 });
 
 // --- Markdown document threads (md viewer → sidecar store; the agent-facing
@@ -6224,20 +6192,6 @@ function buildMdPointerText(doc, storePosix, runbook, batchKind) {
   ].join('\n');
 }
 
-// Arm the stall watch for an md send: covered = every open thread in the
-// merged view (the pointer says "the open threads", so one send covers them
-// all). Best-effort — a failed read just means no reminder for this send.
-async function armMdStallWatch(p, doc, storePosix, runbook) {
-  try {
-    const { merged } = await mergedCommentStore(p);
-    armStallWatch(p, {
-      coveredIds: merged.threads.filter((t) => (t.status || 'open') === 'open').map((t) => t.id),
-      remindText: `Reminder: open threads on ${doc} remain unaddressed.\n`
-        + threadsAddressLine(storePosix, runbook),
-    });
-  } catch {}
-}
-
 function pasteMdPointer(doc, storePosix, runbook, batchKind, { toPrompt = false } = {}) {
   return pasteAgentPing(buildMdPointerText(doc, storePosix, runbook, batchKind), { toPrompt });
 }
@@ -6308,7 +6262,6 @@ ipcMain.handle('md-add-threads', async (event, { docPath, threads, followUps, ba
       if (!pasteMdPointer(doc, storePosix, runbook, batchKind, { toPrompt })) {
         return { success: false, error: 'No active terminal process' };
       }
-      if (!toPrompt) await armMdStallWatch(p, doc, storePosix, runbook);
       return { success: true, data: mergeStoreWithJournal(store, await readJournalEvents(p)) };
     } catch (e) { return { success: false, error: e.message }; }
   });
@@ -6344,6 +6297,20 @@ ipcMain.handle('md-read-threads', async (event, { docPath } = {}) => {
   } catch (e) { return { success: false, error: e.message }; }
 });
 
+// A manual retry for a sent document thread, under the same rules as review.
+ipcMain.handle('md-remind-agent', async (_event, { docPath, threadId } = {}) => {
+  const doc = String(docPath || '');
+  if (!doc.startsWith('/') || !isMarkdownFilePath(doc)) {
+    return { success: false, error: 'Not a markdown document path' };
+  }
+  try {
+    const agentPath = mdStorePosixPath(doc);
+    const p = await fsPathFromPosix(agentPath);
+    const runbook = await resolveMdRunbook(doc);
+    return await remindCommentThread(p, agentPath, runbook, threadId, { doc, kind: 'comment' });
+  } catch (e) { return { success: false, error: e.message }; }
+});
+
 // A follow-up on an existing thread. Same send semantics as a new batch —
 // Enter always sends in the md grammar — so it reopens the thread, ticks the
 // turn clock, and pastes the pointer.
@@ -6374,7 +6341,6 @@ ipcMain.handle('md-add-message', async (event, { docPath, threadId, body, allowM
       if (!pasteMdPointer(doc, storePosix, runbook, undefined, { toPrompt })) {
         return { success: false, error: 'No active terminal process' };
       }
-      if (!toPrompt) await armMdStallWatch(p, doc, storePosix, runbook);
       return { success: true, data: mergeStoreWithJournal(store, await readJournalEvents(p)) };
     } catch (e) { return { success: false, error: e.message }; }
   });

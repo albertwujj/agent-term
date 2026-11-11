@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('pty', {
   // No resolve on this surface — collapse is derived from the turn clock.
   mdReadThreads: (payload) => ipcRenderer.invoke('md-read-threads', payload),
   mdAddMessage: (payload) => ipcRenderer.invoke('md-add-message', payload),
+  mdRemindAgent: (payload) => ipcRenderer.invoke('md-remind-agent', payload),
   // Handoff write: the edited document, atomically (editing core).
   mdWriteFile: (payload) => ipcRenderer.invoke('md-write-file', payload),
   resize: (cols, rows) => ipcRenderer.send('pty-resize', { cols, rows }),
@@ -84,7 +85,6 @@ contextBridge.exposeInMainWorld('pty', {
   // That re-render failed (the renderer exited with an error), or the next one worked after a failure.
   onReviewRenderStatus: (cb) => ipcRenderer.on('review-render-status', (e, payload) => cb(payload || {})),
   onReviewCommentsChanged: (cb) => ipcRenderer.on('review-comments-changed', (e, payload) => cb(payload || {})),
-  onStallReminder: (cb) => ipcRenderer.on('stall-reminder', (_event, payload) => cb(payload)),
   // Viewer closed → main stops the review auto-refresh poll/watch.
   reviewViewerClosed: () => ipcRenderer.send('review-viewer-closed'),
   // A review:// was captured → record the reviewed repo's branch in the

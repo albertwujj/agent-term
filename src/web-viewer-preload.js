@@ -34,6 +34,7 @@ const { createCommitEditController } = require('./review-commit-edit');
 const { createSymbolScan } = require('./review-symbol-scan');
 const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
 const { confirmBody, isConfirmMessage, pendingConfirm } = require('./decision-confirm');
+const { threadAwaitsAgent } = require('./agent-journal');
 const { installWebViewerPreloadCommon } = require('./web-viewer-preload-common');
 const { elementIsShown } = require('./viewer-updates');
 
@@ -82,6 +83,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
   // disclosure by default (less clutter); this remembers the ones clicked open.
   // Guest-local, so a full reload re-collapses them — the intended default.
   const expandedSet = new Set();
+  const remindingThreads = new Set();
   // Resolved threads the user folded by hand, overriding the keep-open below.
   // Guest-local like expandedSet, and cleared by a full reload the same way.
   const collapsedSet = new Set();
@@ -1033,7 +1035,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     // newer than the sent boundary): moving away from a composer commits the
     // comment to the store with no composer left, so the card must offer the
     // ping. Once covered by a send it rests as "awaiting agent" — the md
-    // viewer's model — so a sent thread can't be re-sent by mistake; a fresh
+    // viewer's model. Remind agent retries a sent thread explicitly; a fresh
     // follow-up moves past the boundary and brings Send back.
     // Discard is the way back out of a comment you did not mean to leave:
     // click-away commits to the store with no composer left behind, so the
@@ -1052,6 +1054,8 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     div.innerHTML = badge + lost + moved + quote + msgs
       + '<div class="rv-thread-actions">'
       + '<button class="rv-link" data-act="' + (editable ? 'edit' : 'comment') + '">' + (editable ? 'Edit' : 'Comment') + '</button>'
+      + (waiting && threadAwaitsAgent(t) ? '<button class="rv-link" data-act="remind"'
+        + (remindingThreads.has(t.id) ? ' disabled' : '') + '>Remind agent</button>' : '')
       + (needsSend ? '<button class="rv-link" data-act="send">' + esc(sendLabel(0)) + '</button>' : '')
       + (needsSend ? '<button class="rv-link" data-act="toprompt" title="' + esc(toPromptAction(function(){}).title) + '">To prompt</button>' : '')
       + (discardable ? '<button class="rv-link" data-act="discard">' + (editParsed ? 'Discard edit' : 'Discard') + '</button>' : '')
@@ -1070,6 +1074,8 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     }
     const commentBtn = div.querySelector('[data-act=comment]');
     if (commentBtn) commentBtn.onclick = function () { openReply(div, t.id); };
+    const remindBtn = div.querySelector('[data-act=remind]');
+    if (remindBtn) remindBtn.onclick = function () { remindThread(t.id, remindBtn); };
     const editBtn = div.querySelector('[data-act=edit]');
     if (editBtn) editBtn.onclick = function () { openPendingEdit(div, t); };
     const sendBtn = div.querySelector('[data-act=send]');
@@ -1309,6 +1315,31 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     toast(okMsg);
     try { ipcRenderer.sendToHost(channel); } catch {}
     return true;
+  }
+
+  async function remindThread(threadId, button) {
+    if (remindingThreads.has(threadId)) return;
+    remindingThreads.add(threadId);
+    button.disabled = true;
+    try {
+      const res = await ipcRenderer.invoke('rv-remind-agent', { commentsUrl: commentsUrl, threadId: threadId });
+      if (!res || !res.success) { toast((res && res.error) || 'Could not remind agent'); return; }
+      store = res.data;
+      renderAndTrack(false);
+      if (!res.sent) { toast('Thread updated'); return; }
+      pingFinished(res, res.toPrompt ? 'rv-to-prompt' : 'rv-nudged',
+        res.toPrompt ? 'In the prompt — finish and press Enter' : 'Reminder sent');
+    } catch (e) {
+      toast(e.message || 'Could not remind agent');
+    } finally {
+      remindingThreads.delete(threadId);
+      // The refreshed card may have replaced the original button.
+      document.querySelectorAll('.rv-thread').forEach(function (card) {
+        if (card.getAttribute('data-rv-tid') !== threadId) return;
+        const current = card.querySelector('[data-act=remind]');
+        if (current) current.disabled = false;
+      });
+    }
   }
 
   // Ping the agent: pastes a pointer prompt ("read the N open threads in
