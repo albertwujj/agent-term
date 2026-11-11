@@ -54,9 +54,18 @@ try {
       // The size chord toggles golden⇄full (a click on the bar at full would
       // roll it up instead).
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('viewer-shortcut', 'size'));
-      await page.waitForTimeout(450);
     }
-    assert.equal(await page.locator('.vb-shell.vb-md').evaluate((el) => el.classList.contains('vb-full')), full);
+    // The mode class changes before its height transition starts. Headless
+    // Chromium can leave that transition pending past a fixed sleep, so wait
+    // for the requested geometry before reading either page's measurements.
+    await page.waitForFunction((full) => {
+      const band = document.querySelector('.vb-shell.vb-md.open');
+      if (!band || band.classList.contains('vb-full') !== full) return false;
+      const target = parseFloat(band.style.getPropertyValue('--vb-open-h'));
+      return target > 0 && Math.abs(band.getBoundingClientRect().height - target) < 0.5;
+    }, full, { polling: 50, timeout: 5000 });
+    // Let the resize observer and its page-alignment frame finish too.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   }
 
   async function assertComposer(pane, draft) {
@@ -85,7 +94,7 @@ try {
       if (await page.locator('.vb-shell.vb-md .vb-close').count()) await page.locator('.vb-shell.vb-md .vb-close').click();
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('open-recent-viewer-url'));
       await page.waitForSelector('.vb-shell.vb-md.open .md-viewer-body h1');
-      await page.waitForTimeout(350);
+      await size(true);
       const fullHeight = await page.locator('.primary .md-page-viewport').evaluate((el) => el.clientHeight);
       await size(false);
       // Choose prose on the golden right page which fits on the full left
