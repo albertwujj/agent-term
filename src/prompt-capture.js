@@ -465,8 +465,8 @@ function createPromptCapture({ onPrompt, onShellCommand, onResumeCommand, classi
         }
         // Pre-cliStarted Enter with content = a shell command. Surface it so
         // the wiring layer can detect AI-CLI invocations (claude, codex, etc.).
-        // Pastes aren't shell commands — skip onShellCommand for them.
-        if (!cliStarted && trimmed.length > 0 && !hadPaste) {
+        // Pasted text belongs to that line too (e.g. a pasted --resume id).
+        if (!cliStarted && trimmed.length > 0) {
           emitShellCommand(trimmed);
         }
         reset();

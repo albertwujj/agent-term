@@ -808,6 +808,50 @@ test('a launch line fed as keystrokes is reported whole, with options typed afte
   assert.deepStrictEqual(getShell(), ['codex -c \'tui.terminal_title=["app-name","thread"]\' --model gpt-5']);
 });
 
+test('a pasted resume id is part of the submitted shell command', (cap, get, getShell, getAll) => {
+  const id = '11111111-2222-4333-8444-555555555555';
+  cap.handleInput('agent ');                       // the picker's unsubmitted launch line
+  cap.handleInput('--resume ');
+  cap.handleInput('\x1b[200~' + id + '\x1b[201~');
+  assert.deepStrictEqual(getShell(), []);          // paste alone does not submit
+  cap.handleInput('\r');
+  assert.deepStrictEqual(getShell(), ['agent --resume ' + id]);
+  assert.strictEqual(get(), null);                // the launch is never a prompt
+  cap.notifyCliStarted();                         // main receives the CLI's title
+  cap.handleInput('Continue the investigation\r');
+  assert.deepStrictEqual(getAll(), ['Continue the investigation']);
+});
+
+test('fully pasted shell commands are reported only when submitted', (cap, get, getShell) => {
+  for (const command of ['echo hello', 'codex resume 11111111-2222-4333-8444-555555555555']) {
+    const count = getShell().length;
+    cap.handleInput('\x1b[200~' + command + '\x1b[201~');
+    assert.strictEqual(getShell().length, count);
+    cap.handleInput('\r');
+    assert.strictEqual(getShell()[count], command);
+  }
+  assert.strictEqual(get(), null);
+});
+
+test('editing and cancelling a pasted launch affects the submitted shell line', (cap, _get, getShell) => {
+  cap.handleInput('agent --resume ');
+  cap.handleInput('\x1b[200~wrong-id\x1b[201~');
+  cap.handleInput('\x17');                         // erase the pasted id
+  cap.handleInput('correct-id\r');
+  cap.handleInput('\x1b[200~claude --resume cancelled-id\x1b[201~');
+  cap.handleInput('\x03');                         // abandon that launch
+  cap.handleInput('echo hello\r');
+  assert.deepStrictEqual(getShell(), ['agent --resume correct-id', 'echo hello']);
+});
+
+test('a pasted launch command after cliStarted remains prompt content', (cap, _get, getShell, getAll) => {
+  cap.notifyCliStarted();
+  cap.handleInput('\x1b[200~agent --resume example-id\x1b[201~');
+  cap.handleInput('\r');
+  assert.deepStrictEqual(getShell(), []);
+  assert.deepStrictEqual(getAll(), ['agent --resume example-id']);
+});
+
 test('Ctrl+C abandons the line, so a cancelled launch line is not read at the next Enter', (cap, _get, getShell) => {
   cap.handleInput('codex -c \'tui.terminal_title=["app-name","thread"]\' ');
   cap.handleInput('\x03');                          // Ctrl+C

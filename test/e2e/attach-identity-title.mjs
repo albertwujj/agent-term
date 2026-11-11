@@ -28,8 +28,8 @@
 //   6. codex typed by hand: the project label and its spinner frames never
 //      become a conversation title
 //   7. codex after a shell command: the launcher strip stays up, a
-//      Shift-click on its codex chip types the line, an option is added by
-//      hand, Enter runs it
+//      Shift-click on its codex chip types the line, an option is typed
+//      with its value pasted, Enter runs it
 //      → the launch line reached codex, and the named thread is the title
 //   8. mention completion: one Enter picks the @ query, the next submits
 //      the target URL → only the submitted target names the session
@@ -119,7 +119,13 @@ async function runScenario(name, fakeBody, lines, { cli = 'claude', pickerLaunch
     await page.waitForSelector('.at-resume-hint.launch', { timeout: 5_000 });
     await page.waitForFunction(() => !document.querySelector('.at-launcher'), null, { timeout: 5_000 });
     await sleep(300);
-    await page.keyboard.type('--model fake');   // an option added onto the typed line
+    await page.keyboard.type('--model ');
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', 'fake');
+      document.querySelector('.xterm-helper-textarea')
+        .dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => !document.querySelector('.at-resume-hint'), null, { timeout: 5_000 });
   } else {
@@ -269,14 +275,14 @@ console.log('6 — Codex manually launched with default title never claims a pro
   }
 }
 
-console.log('7 — Codex after a shell command: the launcher strip types the line, an option added by hand');
+console.log('7 — Codex after a shell command: the launcher strip types the line, an option value is pasted');
 {
   const fake = codexLaunchedByUs([
     osc('agent-term-debug'), 'read -r a',
     osc(CODEX_TOPIC), 'read -r b',
   ].join('; ') + ';');
   const { events, session } = await runScenario('codex-strip', fake, [PROMPT], { cli: 'codex', stripLaunch: true });
-  check('the strip\'s line reaches codex past a hand-typed option, and the named thread is the title',
+  check('the strip\'s line reaches codex past a pasted option, and the named thread is the title',
     session && session.title === CODEX_TOPIC, session && session.title);
   check('the session records codex and the typed prompt',
     session && session.cli === 'codex' && session.prompt === PROMPT, JSON.stringify(session));
