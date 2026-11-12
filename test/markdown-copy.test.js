@@ -296,6 +296,60 @@ async function run() {
     check('messages without links keep using the plain clipboard', richWrites === before && copiedHtml === null);
   }
 
+  const tableSource = [
+    '| Lab | Host | Status |', '| --- | --- | --- |',
+    '| **Orion** | `host-a` | [Unreachable & <check>](https://example.test/status?a=1&b=2) |',
+    '| Phoenix | host-b | Needs<br>NR exports |',
+  ].join('\n');
+  currentSource = `# Message\n\nIntro.\n\n## Draft\n\nBefore the table.\n\n${tableSource}\n\nAfter the table.\n\n## Notes\n\nPrivate notes.`;
+  viewer.close();
+  await viewer.open({ filePath: '/fake/table.md' });
+  await sleep(30);
+  const tableText = 'Lab: Orion\nHost: host-a\nStatus: Unreachable & <check> (https://example.test/status?a=1&b=2)'
+    + '\n\nLab: Phoenix\nHost: host-b\nStatus: Needs NR exports';
+  {
+    const text = await pressCopy();
+    check('document copy keeps table rows between the surrounding paragraphs',
+      text === ['Intro.', 'Before the table.', tableText, 'After the table.', 'Private notes.'].join('\n\n'), text);
+  }
+  clickBlock('Draft');
+  {
+    const text = await pressCopy();
+    check('section copy keeps table rows and excludes the next section',
+      text === ['Before the table.', tableText, 'After the table.'].join('\n\n'), text);
+  }
+  clickBlock('Orion');
+  check('clicking a table scopes copy to that table', copyBtn()._restLabel === '⧉ table', copyBtn()._restLabel);
+  {
+    const text = await pressCopy();
+    check('plain table copy repeats headers as labels and separates records with a blank line', text === tableText, text);
+    const html = document.createElement('div');
+    html.innerHTML = copiedHtml;
+    const rows = Array.from(html.querySelectorAll('tr')).map((row) => Array.from(row.cells).map((cell) => cell.textContent));
+    check('rich table copy preserves headers, cells, and row boundaries', JSON.stringify(rows) === JSON.stringify([
+      ['Lab', 'Host', 'Status'], ['Orion', 'host-a', 'Unreachable & <check>'], ['Phoenix', 'host-b', 'Needs NR exports'],
+    ]), rows);
+    check('rich table copy keeps clickable cell links and escapes literal markup',
+      html.querySelector('td a').getAttribute('href') === 'https://example.test/status?a=1&b=2'
+      && !html.querySelector('check, strong, code, [data-md-anchor-id]'), copiedHtml);
+  }
+  {
+    check('table source copy stays verbatim', await pressCopy({ metaKey: true }) === tableSource && copiedHtml === null, copied);
+    richCopyFails = true;
+    check('a rejected rich table write keeps labeled rows in the fallback', await pressCopy() === tableText && copiedHtml === null, copied);
+    richCopyFails = false;
+  }
+  currentSource = '| | Status |\n| --- | --- |\n| Orion | Up |\n| Phoenix | |';
+  viewer.close();
+  await viewer.open({ filePath: '/fake/unlinked-table.md' });
+  await sleep(30);
+  {
+    const text = await pressCopy();
+    check('blank headers get numbered labels and empty cells retain their label',
+      text === 'Column 1: Orion\nStatus: Up\n\nColumn 1: Phoenix\nStatus:', text);
+    check('a table without links still offers an HTML table', copiedHtml && copiedHtml.includes('<table'), copiedHtml);
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }

@@ -1389,7 +1389,7 @@ function createMarkdownViewer({
       const modClick = (isMac() ? '⌘' : 'Ctrl') + '-click';
       const copyBtn = band.makeBtn(
         '⧉ text',
-        `Copy message text (no headings, no comments; keeps links), for Teams or email: the whole document, or click a heading first for just its section, a paragraph for just that paragraph. ${modClick}: the markdown source instead, for Reddit or GitHub`,
+        `Copy message text (no headings, no comments; keeps links and tables), for Teams or email: the whole document, or click a heading first for just its section, a paragraph for just that paragraph. ${modClick}: the markdown source instead, for Reddit or GitHub`,
         (e) => copyDocBody(!!(e && (e.ctrlKey || e.metaKey || e.altKey))),
       );
       copyBtn.classList.add('md-copy-body');
@@ -4872,9 +4872,9 @@ function createMarkdownViewer({
   // items on their own lines (not repeated inside the parent's line). Ordered
   // items keep their literal numbers in both clipboard flavors. Code blocks keep
   // their line breaks; blocks are separated by a blank line. The HTML flavor
-  // carries only links and block/line breaks, so a rich editor can keep named
-  // links without importing the viewer's typography. Plain text spells out
-  // each link's destination instead.
+  // carries links, tables and block/line breaks, so a rich editor keeps their
+  // structure without importing the viewer's typography. Plain text spells
+  // out link destinations and gives each table row a block of labeled cells.
   function buildMessageCopy(src) {
     if (!String(src || '').trim()) return { text: '', html: '' };
     const host = document.createElement('div');
@@ -4882,7 +4882,7 @@ function createMarkdownViewer({
       String(src), markdownImageOptions({ path: state.resolvedPath || state.filePath }),
     ).html;
     const oneLine = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-    let hasLinks = false;
+    let needsRichText = false;
     const inlineCopy = (el) => {
       const flat = document.createElement('span');
       const append = (node) => {
@@ -4895,7 +4895,9 @@ function createMarkdownViewer({
             link.setAttribute('href', href);
             link.textContent = oneLine(node.textContent) || href;
             flat.appendChild(link);
-            hasLinks = true;
+            needsRichText = true;
+          } else if (node.tagName === 'BR') {
+            flat.appendChild(document.createTextNode(' '));
           } else {
             for (const child of node.childNodes) append(child);
           }
@@ -4927,6 +4929,41 @@ function createMarkdownViewer({
       }
       return part;
     };
+    const tableCopy = (el) => {
+      needsRichText = true; // A table needs HTML even when none of its cells link.
+      const table = document.createElement('table');
+      table.setAttribute('border', '1');
+      table.setAttribute('cellpadding', '6');
+      table.style.borderCollapse = 'collapse';
+      let headers = [];
+      const records = [];
+      for (const section of el.children) {
+        const copiedSection = document.createElement(section.tagName);
+        for (const row of section.rows) {
+          const copiedRow = document.createElement('tr');
+          const cells = Array.from(row.cells).map((cell) => {
+            const content = inlineCopy(cell);
+            const copiedCell = document.createElement(cell.tagName);
+            copiedCell.setAttribute('style', 'border:1px solid #888;padding:6px');
+            copiedCell.innerHTML = content.html;
+            copiedRow.appendChild(copiedCell);
+            return content.text;
+          });
+          copiedSection.appendChild(copiedRow);
+          if (section.tagName === 'THEAD') {
+            headers = cells;
+          } else {
+            records.push(cells.map((text, i) => `${headers[i] || `Column ${i + 1}`}: ${text}`).join('\n'));
+          }
+        }
+        table.appendChild(copiedSection);
+      }
+      return {
+        text: records.length ? records.join('\n\n') : headers.join(' | '),
+        html: table.outerHTML,
+        table: true,
+      };
+    };
     const parts = [];
     for (const el of Array.from(host.children)) {
       const tag = (el.tagName || '').toUpperCase();
@@ -4946,6 +4983,8 @@ function createMarkdownViewer({
           });
         }
         continue;
+      } else if (tag === 'TABLE') {
+        part = tableCopy(el);
       } else {
         part = inlineCopy(el);
       }
@@ -4953,7 +4992,7 @@ function createMarkdownViewer({
     }
     return {
       text: parts.map((part) => part.text).join('\n\n'),
-      html: hasLinks ? parts.map((part) => part.pre
+      html: needsRichText ? parts.map((part) => part.table ? part.html : part.pre
         ? `<div style="white-space: pre-wrap">${part.html}</div>`
         : `<p>${part.html}</p>`).join('\n') : '',
     };

@@ -1,5 +1,6 @@
 // Real Chromium clipboard round trip: a named link stays clickable in a rich
 // editor, while a textarea receives its URL and the list's numbers/blank lines.
+// Tables stay tables in the rich editor and become labeled rows in the textarea.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,10 +15,14 @@ const source = [
   '# Message', '', 'Introduction outside the draft.', '', '## Draft', '',
   'See [Support & lab](https://example.test/support?lab=orion&scope=pm).', '',
   '1. Orion: restore the host.', '2. Phoenix: add NR exports.', '',
+  '| Lab | Host | Status |', '| --- | --- | --- |',
+  '| Orion | host-a | Unreachable |', '| Phoenix | host-b | NR exports missing |', '',
   '## Notes', '', 'Private notes outside the draft.',
 ].join('\n');
+const tableExpected = 'Lab: Orion\nHost: host-a\nStatus: Unreachable'
+  + '\n\nLab: Phoenix\nHost: host-b\nStatus: NR exports missing';
 const expected = 'See Support & lab (https://example.test/support?lab=orion&scope=pm).'
-  + '\n\n1. Orion: restore the host.\n\n2. Phoenix: add NR exports.';
+  + '\n\n1. Orion: restore the host.\n\n2. Phoenix: add NR exports.\n\n' + tableExpected;
 
 let app;
 try {
@@ -73,17 +78,35 @@ try {
   await page.locator('#plain').focus();
   await page.keyboard.press(paste);
   assert.equal(await page.locator('#plain').inputValue(), expected);
-  console.log('PASS plain paste retains URLs, literal list numbers, and blank lines');
+  console.log('PASS plain paste retains URLs, list numbers, blank lines, and labeled table rows');
 
   await page.locator('#rich').focus();
   await page.keyboard.press(paste);
   const rich = await page.locator('#rich').evaluate((el) => ({
     text: el.innerText,
+    paragraphs: Array.from(el.querySelectorAll('p')).map((p) => p.textContent),
     links: Array.from(el.querySelectorAll('a')).map((a) => [a.textContent, a.getAttribute('href')]),
+    rows: Array.from(el.querySelectorAll('tr')).map((row) => Array.from(row.cells).map((cell) => cell.textContent)),
   }));
   assert.deepEqual(rich.links, [['Support & lab', 'https://example.test/support?lab=orion&scope=pm']]);
-  assert.equal(rich.text, 'See Support & lab.\n\n1. Orion: restore the host.\n\n2. Phoenix: add NR exports.');
-  console.log('PASS rich paste retains clickable titles and blank lines between numbered options');
+  assert.ok(rich.text.startsWith('See Support & lab.\n\n1. Orion: restore the host.\n\n2. Phoenix: add NR exports.'));
+  assert.deepEqual(rich.paragraphs, ['See Support & lab.', '1. Orion: restore the host.', '2. Phoenix: add NR exports.']);
+  assert.deepEqual(rich.rows, [
+    ['Lab', 'Host', 'Status'], ['Orion', 'host-a', 'Unreachable'], ['Phoenix', 'host-b', 'NR exports missing'],
+  ]);
+  console.log('PASS rich paste retains clickable titles, numbered options, and a real table');
+
+  // Copying only the table must offer HTML even though no cell contains a link.
+  await page.evaluate(() => window.viewer.open({ filePath: '/copy-test.md' }));
+  await page.locator('.md-viewer-body table').first().click();
+  // Wait out the preceding copy's success flash before waiting for this copy.
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '⧉ table');
+  await page.locator('.md-copy-body').click();
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓');
+  const tableOnly = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), html: clipboard.readHTML() }));
+  assert.equal(tableOnly.text, tableExpected);
+  assert.ok(tableOnly.html.includes('<table'));
+  console.log('PASS a table without links copies as HTML with labeled plain-text rows');
 
   // A source copy replaces the rich clipboard, rather than leaving stale HTML.
   await page.evaluate(() => window.viewer.open({ filePath: '/copy-test.md' }));
