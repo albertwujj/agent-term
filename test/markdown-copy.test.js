@@ -97,7 +97,7 @@ const viewer = createMarkdownViewer({
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const primary = () => document.querySelectorAll('.md-viewer-body')[0];
 const copyBtn = () => document.querySelector('.md-copy-body');
-const key = (init) => document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+const key = (init, type = 'keydown') => document.dispatchEvent(new dom.window.KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
 
 // The innermost block holding the text (an outer list item's text includes
 // its nested items').
@@ -129,6 +129,29 @@ async function run() {
   await sleep(30);
 
   check('button starts as the whole text', copyBtn().textContent === '⧉ text', copyBtn().textContent);
+  const messageTitle = copyBtn().title;
+  for (const [name, flag] of [['Control', 'ctrlKey'], ['Meta', 'metaKey'], ['Alt', 'altKey']]) {
+    const event = new dom.window.KeyboardEvent('keydown', { key: name, [flag]: true, bubbles: true, cancelable: true });
+    document.dispatchEvent(event);
+    check(`${name} previews Markdown in the visible label and tooltip`,
+      copyBtn().textContent === '⧉ text · md' && copyBtn().title.startsWith('Copy as Markdown:'), copyBtn().textContent);
+    check(`${name} preview leaves the key available to the app`, !event.defaultPrevented);
+    key({ key: name }, 'keyup');
+    check(`${name} release restores the normal copy label and tooltip`,
+      copyBtn().textContent === '⧉ text' && copyBtn().title === messageTitle, copyBtn().textContent);
+  }
+  {
+    key({ key: 'Control', ctrlKey: true });
+    key({ key: 'Alt', ctrlKey: true, altKey: true });
+    key({ key: 'Control', altKey: true }, 'keyup');
+    check('releasing one modifier keeps Markdown preview while another is held', copyBtn().textContent === '⧉ text · md');
+    window.dispatchEvent(new dom.window.Event('blur'));
+    check('losing window focus resets the preview without a keyup', copyBtn().textContent === '⧉ text' && copyBtn().title === messageTitle);
+    copyBtn().dispatchEvent(new dom.window.PointerEvent('pointerenter', { ctrlKey: true }));
+    check('hover recovers a modifier held before focus returned', copyBtn().textContent === '⧉ text · md');
+    copyBtn().dispatchEvent(new dom.window.PointerEvent('pointermove'));
+    check('pointer movement clears a stale modifier', copyBtn().textContent === '⧉ text');
+  }
   {
     const text = await pressCopy();
     check('unarmed copy is the whole body, headings out, paragraphs one-lined, nested items once each',
@@ -140,12 +163,21 @@ async function run() {
         'Beta body paragraph.',
       ].join('\n\n'), text);
     check('the flash confirms', copyBtn().textContent === '✓', copyBtn().textContent);
+    key({ key: 'Control', ctrlKey: true });
+    check('the tooltip updates during a copy confirmation', copyBtn().title.startsWith('Copy as Markdown:'));
+    await sleep(1450);
+    check('the confirmation ends on the current Markdown preview', copyBtn().textContent === '⧉ text · md', copyBtn().textContent);
+    key({ key: 'Control' }, 'keyup');
   }
 
   // --- a clicked heading marks its section ---
   clickBlock('Alpha');
   await sleep(5);
   check('arming a heading relabels the button as the section', copyBtn()._restLabel === '⧉ section', copyBtn()._restLabel);
+  key({ key: 'Control', ctrlKey: true });
+  check('Markdown preview retains the armed section scope',
+    copyBtn().textContent === '⧉ section · md' && copyBtn().title.includes('the section'), copyBtn().textContent);
+  key({ key: 'Control' }, 'keyup');
   {
     const text = await pressCopy();
     check('heading copy is the section body through its sub-section, stopping at the next peer heading',

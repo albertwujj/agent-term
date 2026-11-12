@@ -1196,6 +1196,7 @@ function createMarkdownViewer({
     activeTarget: null,
     activeTargetPane: null,
     activeSelection: null,
+    copySourceHint: false,
     activeLink: null, // the link a click armed its block on, for the hint
     activeCard: null,
     queuedComments: [],
@@ -1310,11 +1311,12 @@ function createMarkdownViewer({
       // Rolling up abandons the transient target/selection (and clears the bar
       // hint with it). Leaves live edits and open composers untouched.
       clearActiveTarget();
+      resetCopyModifier();
       if (!state.search.isOpen) return;
       if (typeof closeSearchBar === 'function') closeSearchBar();
       else closeSearch();
     },
-    onClose: () => { teardownMarkdown(); if (typeof onClose === 'function') onClose(); },
+    onClose: () => { resetCopyModifier(); teardownMarkdown(); if (typeof onClose === 'function') onClose(); },
   });
 
   const unseen = createUnseenTracker((on) => band.setUnseen(on));
@@ -1390,12 +1392,17 @@ function createMarkdownViewer({
       const copyBtn = band.makeBtn(
         '⧉ text',
         `Copy message text (no headings, no comments; keeps links and tables), for Teams or email: the whole document, or click a heading first for just its section, a paragraph for just that paragraph. ${modClick}: the markdown source instead, for Reddit or GitHub`,
-        (e) => copyDocBody(!!(e && (e.ctrlKey || e.metaKey || e.altKey))),
+        (e) => copyDocBody(isFollowModifier(e)),
       );
       copyBtn.classList.add('md-copy-body');
-      copyBtn._restLabel = copyBtn.textContent;
+      copyBtn._messageTitle = copyBtn.title;
+      // Pointer events recover modifiers held before the window gained focus;
+      // key events below also update a pointer already resting on the button.
+      copyBtn.addEventListener('pointerenter', handleCopyModifier);
+      copyBtn.addEventListener('pointermove', handleCopyModifier);
       band.barRight.appendChild(copyBtn);
       state.copyBtn = copyBtn;
+      syncCopyLabel();
     }
 
     const scroll = document.createElement('div');
@@ -1450,6 +1457,10 @@ function createMarkdownViewer({
     spreadLayout.addEventListener('wheel', handleSpreadWheel, { passive: false });
     band.shell.addEventListener('mousedown', (event) => event.stopPropagation());
     band.shell.addEventListener('dblclick', (event) => event.stopPropagation());
+    document.addEventListener('keydown', handleCopyModifier, true);
+    document.addEventListener('keyup', handleCopyModifier, true);
+    window.addEventListener('blur', resetCopyModifier);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) resetCopyModifier(); });
     document.addEventListener('keydown', handleDocumentKeydown, true);
     window.addEventListener('resize', () => {
       updateBottomSpacer();
@@ -5034,13 +5045,31 @@ function createMarkdownViewer({
     return { label, src: slice.map((l) => l.slice(indent)).join('\n') };
   }
 
-  // The bar button names what copy will take, so the scope reads before the
-  // click. Called wherever the armed target changes; a flash in progress
-  // finishes on the new label.
+  function handleCopyModifier(event) {
+    if (!band.isOpen()) return;
+    const source = isFollowModifier(event);
+    if (source === state.copySourceHint) return;
+    state.copySourceHint = source;
+    syncCopyLabel();
+  }
+
+  function resetCopyModifier() {
+    if (!state.copySourceHint) return;
+    state.copySourceHint = false;
+    syncCopyLabel();
+  }
+
+  // Name both the scope and the modifier-click format before the click. The
+  // visible label updates even if a native tooltip has already appeared; a
+  // copy confirmation in progress finishes on the current label.
   function syncCopyLabel() {
     const btn = state.copyBtn;
     if (!btn) return;
-    btn._restLabel = '⧉ ' + copyScope().label;
+    const scope = copyScope().label;
+    btn._restLabel = '⧉ ' + scope + (state.copySourceHint ? ' · md' : '');
+    btn.title = state.copySourceHint
+      ? `Copy as Markdown: ${scope === 'text' ? 'the whole document' : `the ${scope}`}, for Reddit or GitHub`
+      : btn._messageTitle;
     if (!btn._copyTimer) btn.textContent = btn._restLabel;
   }
 

@@ -61,8 +61,33 @@ try {
     });
     await window.viewer.open({ filePath: '/copy-test.md' });
   }, source);
+  const copyButton = page.locator('.md-copy-body');
+  await copyButton.hover();
+  const messageTitle = await copyButton.getAttribute('title');
+  // The pointer stays over the button while Control goes down and back up.
+  await page.keyboard.down('Control');
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '⧉ text · md');
+  assert.ok((await copyButton.getAttribute('title')).startsWith('Copy as Markdown:'));
+  await page.keyboard.up('Control');
+  assert.equal(await copyButton.textContent(), '⧉ text');
+  assert.equal(await copyButton.getAttribute('title'), messageTitle);
+  console.log('PASS Control updates the label and tooltip while the pointer is already over copy');
+
+  await page.mouse.move(10, 10);
+  await page.keyboard.down('Control');
+  await copyButton.hover();
+  assert.equal(await copyButton.textContent(), '⧉ text · md');
+  await page.keyboard.up('Control');
+  assert.equal(await copyButton.textContent(), '⧉ text');
+  console.log('PASS holding Control before hovering also previews Markdown');
+
   const heading = page.locator('.md-viewer-body h2').filter({ hasText: 'Draft' });
   await heading.first().click();
+  await copyButton.hover();
+  await page.keyboard.down('Control');
+  assert.equal(await copyButton.textContent(), '⧉ section · md');
+  assert.ok((await copyButton.getAttribute('title')).includes('the section'));
+  await page.keyboard.up('Control');
   await page.locator('.md-copy-body').click();
   await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓');
   const clipboard = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), html: clipboard.readHTML() }));
