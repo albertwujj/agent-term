@@ -1,0 +1,101 @@
+// Real Chromium clipboard round trip: a named link stays clickable in a rich
+// editor, while a textarea receives its URL and the list's numbers/blank lines.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { build } from 'esbuild';
+import { launchElectron, CHECKOUT_DIR } from './electron.mjs';
+
+const require = createRequire(import.meta.url);
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-md-copy-'));
+const source = [
+  '# Message', '', 'Introduction outside the draft.', '', '## Draft', '',
+  'See [Support & lab](https://example.test/support?lab=orion&scope=pm).', '',
+  '1. Orion: restore the host.', '2. Phoenix: add NR exports.', '',
+  '## Notes', '', 'Private notes outside the draft.',
+].join('\n');
+const expected = 'See Support & lab (https://example.test/support?lab=orion&scope=pm).'
+  + '\n\n1. Orion: restore the host.\n\n2. Phoenix: add NR exports.';
+
+let app;
+try {
+  await build({
+    entryPoints: [path.join(CHECKOUT_DIR, 'src/markdown-viewer.js')],
+    bundle: true, format: 'iife', globalName: 'MarkdownViewer',
+    outfile: path.join(tmp, 'viewer.js'),
+  });
+  fs.writeFileSync(path.join(tmp, 'index.html'), '<!doctype html><html><body><script src="viewer.js"></script></body></html>');
+  fs.writeFileSync(path.join(tmp, 'main.cjs'), `
+    const { app, BrowserWindow } = require('electron');
+    app.whenReady().then(() => {
+      const win = new BrowserWindow({ width: 1200, height: 900 });
+      win.loadFile(require('node:path').join(__dirname, 'index.html'));
+    });
+    app.on('window-all-closed', () => app.quit());
+  `);
+  app = await launchElectron({
+    executablePath: require('electron'),
+    args: ['--no-sandbox', path.join(tmp, 'main.cjs')], timeout: 45_000,
+  });
+  const page = await app.firstWindow();
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.waitForFunction(() => !!window.MarkdownViewer);
+  await page.evaluate(async (source) => {
+    const noop = () => {};
+    window.viewer = MarkdownViewer.createMarkdownViewer({
+      readMarkdownFile: async () => ({ success: true, path: '/copy-test.md', content: source, mtimeMs: 1, size: source.length }),
+      statMarkdownFile: async () => ({ success: true, mtimeMs: 1, size: source.length }),
+      readMarkdownThreads: async () => ({ success: true, data: { threads: [] } }),
+      preflightMarkdownRunbook: async () => ({ runbook: '/stub/user-intent.md' }),
+      showToast: noop, openURL: noop, focusTerminal: noop, onClose: noop,
+      getTerminalMetrics: () => ({ cols: 80, rows: 24, cellWidth: 8, cellHeight: 16 }),
+      platform: 'linux',
+    });
+    await window.viewer.open({ filePath: '/copy-test.md' });
+  }, source);
+  const heading = page.locator('.md-viewer-body h2').filter({ hasText: 'Draft' });
+  await heading.first().click();
+  await page.locator('.md-copy-body').click();
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓');
+  const clipboard = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), html: clipboard.readHTML() }));
+  assert.equal(clipboard.text, expected);
+  assert.ok(clipboard.html.includes('https://example.test/support?lab=orion&amp;scope=pm'));
+
+  // Close the viewer and paste into ordinary browser fields using native paste.
+  await page.evaluate(() => {
+    window.viewer.close();
+    document.body.insertAdjacentHTML('beforeend', '<textarea id="plain"></textarea><div id="rich" contenteditable="true"></div>');
+  });
+  const paste = process.platform === 'darwin' ? 'Meta+v' : 'Control+v';
+  await page.locator('#plain').focus();
+  await page.keyboard.press(paste);
+  assert.equal(await page.locator('#plain').inputValue(), expected);
+  console.log('PASS plain paste retains URLs, literal list numbers, and blank lines');
+
+  await page.locator('#rich').focus();
+  await page.keyboard.press(paste);
+  const rich = await page.locator('#rich').evaluate((el) => ({
+    text: el.innerText,
+    links: Array.from(el.querySelectorAll('a')).map((a) => [a.textContent, a.getAttribute('href')]),
+  }));
+  assert.deepEqual(rich.links, [['Support & lab', 'https://example.test/support?lab=orion&scope=pm']]);
+  assert.equal(rich.text, 'See Support & lab.\n\n1. Orion: restore the host.\n\n2. Phoenix: add NR exports.');
+  console.log('PASS rich paste retains clickable titles and blank lines between numbered options');
+
+  // A source copy replaces the rich clipboard, rather than leaving stale HTML.
+  await page.evaluate(() => window.viewer.open({ filePath: '/copy-test.md' }));
+  await heading.first().click();
+  await page.locator('.md-copy-body').click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓ md');
+  const raw = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), html: clipboard.readHTML() }));
+  assert.equal(raw.text, source.split('## Draft\n\n')[1].split('\n\n## Notes')[0]);
+  assert.equal(raw.html, '');
+  assert.deepEqual(errors, []);
+  console.log('PASS markdown source copy replaces both clipboard flavors');
+} finally {
+  if (app) await app.close();
+  fs.rmSync(tmp, { recursive: true, force: true });
+}

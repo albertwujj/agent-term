@@ -1374,7 +1374,7 @@ function createMarkdownViewer({
     }
     state.barHint = band.barRight ? band.barRight.querySelector('.md-bar-hint') : null;
 
-    // Right-side bar button: copy as plain text (headings and comments out),
+    // Right-side bar button: copy message text (headings and comments out),
     // for pasting a drafted message into Teams or email. Sits apart from the
     // (left-aligned) file path — it's the body, not the filename. Copy takes
     // what's armed (copyScope): nothing → the whole document; a clicked
@@ -1389,7 +1389,7 @@ function createMarkdownViewer({
       const modClick = (isMac() ? '⌘' : 'Ctrl') + '-click';
       const copyBtn = band.makeBtn(
         '⧉ text',
-        `Copy as plain text (no headings, no comments), for Teams or email: the whole document, or click a heading first for just its section, a paragraph for just that paragraph. ${modClick}: the markdown source instead, for Reddit or GitHub`,
+        `Copy message text (no headings, no comments; keeps links), for Teams or email: the whole document, or click a heading first for just its section, a paragraph for just that paragraph. ${modClick}: the markdown source instead, for Reddit or GitHub`,
         (e) => copyDocBody(!!(e && (e.ctrlKey || e.metaKey || e.altKey))),
       );
       copyBtn.classList.add('md-copy-body');
@@ -4864,40 +4864,99 @@ function createMarkdownViewer({
     return el;
   }
 
-  // Plain text from a slice of the FROZEN SOURCE, for pasting a drafted
+  // Message text from a slice of the FROZEN SOURCE, for pasting a drafted
   // message into Teams or email — so comments and un-sent edits, which live in
   // the sidecar store, never the source, are excluded for free. Headings and
   // rules are dropped; each paragraph collapses to a single line (soft wraps
-  // gone); list items stay one per line, each its own text (a nested list is
-  // its own items, not a repeat inside the parent's line); code blocks keep
-  // their line breaks; blocks are separated by a blank line.
-  function buildPlainText(src) {
-    if (!String(src || '').trim()) return '';
+  // gone); top-level list items get a blank line between them, with nested
+  // items on their own lines (not repeated inside the parent's line). Ordered
+  // items keep their literal numbers in both clipboard flavors. Code blocks keep
+  // their line breaks; blocks are separated by a blank line. The HTML flavor
+  // carries only links and block/line breaks, so a rich editor can keep named
+  // links without importing the viewer's typography. Plain text spells out
+  // each link's destination instead.
+  function buildMessageCopy(src) {
+    if (!String(src || '').trim()) return { text: '', html: '' };
     const host = document.createElement('div');
     host.innerHTML = renderMarkdownDocument(
       String(src), markdownImageOptions({ path: state.resolvedPath || state.filePath }),
     ).html;
     const oneLine = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-    const ownText = (li) => {
+    let hasLinks = false;
+    const inlineCopy = (el) => {
+      const flat = document.createElement('span');
+      const append = (node) => {
+        if (node.nodeType === 3) {
+          flat.appendChild(document.createTextNode(node.nodeValue));
+        } else if (node.nodeType === 1) {
+          if (node.tagName === 'A' && node.hasAttribute('href')) {
+            const link = document.createElement('a');
+            const href = node.getAttribute('href');
+            link.setAttribute('href', href);
+            link.textContent = oneLine(node.textContent) || href;
+            flat.appendChild(link);
+            hasLinks = true;
+          } else {
+            for (const child of node.childNodes) append(child);
+          }
+        }
+      };
+      append(el);
+      const html = oneLine(flat.innerHTML);
+      for (const link of flat.querySelectorAll('a')) {
+        const href = link.getAttribute('href');
+        const label = link.textContent;
+        // Autolinks and email addresses already display their destination.
+        const bareHref = href.replace(/^(?:https?:\/\/|mailto:|tel:)/i, '');
+        link.replaceWith(document.createTextNode(
+          label === href || label === bareHref ? label : `${label} (${href})`,
+        ));
+      }
+      return { text: oneLine(flat.textContent), html };
+    };
+    const ownCopy = (li) => {
       const clone = li.cloneNode(true);
       for (const nested of clone.querySelectorAll('ul, ol')) nested.remove();
-      return oneLine(clone.textContent);
+      const part = inlineCopy(clone);
+      const list = li.parentElement;
+      if (list && list.tagName === 'OL') {
+        const index = Array.from(list.children).indexOf(li);
+        const number = Number(list.getAttribute('start') || 1) + index;
+        part.text = `${number}. ${part.text}`;
+        part.html = `${number}. ${part.html}`;
+      }
+      return part;
     };
     const parts = [];
     for (const el of Array.from(host.children)) {
       const tag = (el.tagName || '').toUpperCase();
       if (/^H[1-6]$/.test(tag) || tag === 'HR') continue;
-      let text;
+      let part;
       if (tag === 'PRE') {
-        text = String(el.textContent || '').replace(/\s+$/, ''); // code: keep line breaks
+        const text = String(el.textContent || '').replace(/\s+$/, ''); // code: keep line breaks
+        const escaped = document.createElement('span');
+        escaped.textContent = text;
+        part = { text, html: escaped.innerHTML, pre: true };
       } else if (tag === 'UL' || tag === 'OL') {
-        text = Array.from(el.querySelectorAll('li')).map(ownText).filter(Boolean).join('\n');
+        for (const li of el.children) {
+          const items = [li, ...li.querySelectorAll('li')].map(ownCopy).filter((item) => item.text);
+          if (items.length) parts.push({
+            text: items.map((item) => item.text).join('\n'),
+            html: items.map((item) => item.html).join('<br>'),
+          });
+        }
+        continue;
       } else {
-        text = oneLine(el.textContent);
+        part = inlineCopy(el);
       }
-      if (text) parts.push(text);
+      if (part.text) parts.push(part);
     }
-    return parts.join('\n\n');
+    return {
+      text: parts.map((part) => part.text).join('\n\n'),
+      html: hasLinks ? parts.map((part) => part.pre
+        ? `<div style="white-space: pre-wrap">${part.html}</div>`
+        : `<p>${part.html}</p>`).join('\n') : '',
+    };
   }
 
   // What copy takes: the armed thing, or the whole document when nothing is
@@ -4963,11 +5022,22 @@ function createMarkdownViewer({
     const scope = copyScope();
     // A source slice keeps the blank lines the file puts around a section
     // (after its heading, before the next); pasted, they read as padding.
-    const text = (source || scope.raw ? String(scope.src || '') : buildPlainText(scope.src))
-      .replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
+    const content = source || scope.raw ? { text: String(scope.src || '') } : buildMessageCopy(scope.src);
+    const text = content.text.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
     if (!text.trim()) { flash('∅'); return; }
     Promise.resolve()
-      .then(() => navigator.clipboard.writeText(text))
+      .then(async () => {
+        if (content.html && navigator.clipboard.write && window.ClipboardItem) {
+          try {
+            await navigator.clipboard.write([new window.ClipboardItem({
+              'text/plain': new Blob([text], { type: 'text/plain' }),
+              'text/html': new Blob([content.html], { type: 'text/html' }),
+            })]);
+            return;
+          } catch {} // A host without rich clipboard support still keeps the URLs.
+        }
+        await navigator.clipboard.writeText(text);
+      })
       .then(() => flash(source ? '✓ md' : '✓'), () => flash('✕')); // ✓ mirrors the web viewer's copy-url
     // A bar click moved focus to the button; the armed target keeps taking
     // its keys from the shell.
