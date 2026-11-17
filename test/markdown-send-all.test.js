@@ -57,6 +57,8 @@ const blocked = {
 let store = { version: 1, turn: 2, threads: [blocked] };
 
 const calls = { batches: [], replies: [], opened: [], toasts: [] };
+let preflightResult = { runbook: '/fake/agent-threads/md/user-intent.md' };
+let cloneRequests = 0;
 const noop = () => {};
 const viewer = createMarkdownViewer({
   readMarkdownFile: async () => ({ success: true, path: '/fake/doc.md', content: FIXTURE, mtimeMs: 1, size: FIXTURE.length }),
@@ -75,9 +77,16 @@ const viewer = createMarkdownViewer({
     store = { version: 1, turn, threads };
     return { success: true, data: store };
   },
-  preflightMarkdownRunbook: async () => ({ runbook: '/fake/agent-threads/md/user-intent.md' }),
+  preflightMarkdownRunbook: async () => preflightResult,
+  requestRunbookClone: async () => { cloneRequests++; return { ok: true }; },
   readMarkdownThreads: async () => ({ success: true, data: store }),
-  addMarkdownThreadMessage: async (payload) => { calls.replies.push(payload); return { success: true, data: store }; },
+  addMarkdownThreadMessage: async (payload) => {
+    calls.replies.push(payload);
+    if (!(preflightResult && preflightResult.runbook) && !payload.allowMissingRunbook) {
+      return { success: false, error: 'agent-threads is not installed' };
+    }
+    return { success: true, data: store };
+  },
   writeMarkdownFile: async () => ({ success: true, path: '/fake/doc.md', mtimeMs: 1, size: 0 }),
   showToast: (message) => calls.toasts.push(message),
   openURL: noop,
@@ -221,6 +230,77 @@ async function run() {
   check('to the thread it was written on', last.followUps[0].threadId === calls.replies[0].threadId,
     [last.followUps[0].threadId, calls.replies[0].threadId]);
   check('and the draft row is gone', !find('.md-thread-draft-mark'));
+
+  viewer.close();
+
+  // Standalone replies must offer the same missing-runbook choices as a batch.
+  // Main's preflight only resolves; it no longer returns an `acked` flag.
+  const strip = () => document.querySelector('.md-thread-reply .md-runbook-notice');
+  const stripButton = (label) => Array.from(strip() ? strip().querySelectorAll('button') : [])
+    .find((b) => b.textContent === label);
+  async function freshReply() {
+    viewer.close();
+    store = { version: 1, turn: 2, threads: [blocked] };
+    await viewer.open({ filePath: '/fake/doc.md' });
+    await sleep(40);
+    click(Array.from(find('.md-thread-card.needs-user').querySelectorAll('button')).find((b) => b.textContent === 'Reply'));
+    typeInto(find('.md-thread-reply textarea'), 'the second half');
+    check('the regression case is a standalone reply', !!replyButton('Send') && !replyButton('Send all'));
+  }
+
+  for (const result of [{ canceled: true }, null]) {
+    preflightResult = result;
+    await freshReply();
+    const before = calls.replies.length;
+    click(replyButton('Send'));
+    await sleep(30);
+    check('canceled or absent preflight sends no reply', calls.replies.length === before);
+    check('and leaves the reply draft ready to retry', find('.md-thread-reply textarea').value === 'the second half'
+      && !replyButton('Send').disabled && !strip());
+  }
+
+  for (const action of ['Send', 'To prompt']) {
+    preflightResult = { runbook: null };
+    await freshReply();
+    const before = calls.replies.length;
+    click(replyButton(action));
+    await sleep(30);
+    const buttons = strip() ? Array.from(strip().querySelectorAll('button')).map((b) => b.textContent) : [];
+    check(`${action}: a missing runbook offers clone, send anyway and cancel`,
+      JSON.stringify(buttons) === JSON.stringify(['Ask the agent to clone it into ai/', 'Send anyway', 'Cancel']), buttons);
+    if (!strip()) throw new Error('Missing standalone reply runbook choices');
+    check(`${action}: nothing is submitted before the decision`, calls.replies.length === before);
+    stripButton('Cancel').click();
+    await sleep(20);
+    check(`${action}: cancel keeps the text and enables retry`, !strip()
+      && find('.md-thread-reply textarea').value === 'the second half' && !replyButton('Send').disabled
+      && calls.replies.length === before);
+    click(replyButton(action));
+    await sleep(30);
+    stripButton('Send anyway').click();
+    await sleep(40);
+    const sent = calls.replies[calls.replies.length - 1];
+    check(`${action}: send anyway allows the missing runbook and preserves the destination`, calls.replies.length === before + 1
+      && sent.allowMissingRunbook === true && sent.toPrompt === (action === 'To prompt')
+      && sent.docPath === '/fake/doc.md' && sent.threadId === blocked.id && sent.body === 'the second half', sent);
+    check(`${action}: the reply composer and notice close`, !find('.md-thread-reply') && !strip());
+  }
+
+  preflightResult = { runbook: null };
+  await freshReply();
+  const beforeClone = calls.replies.length;
+  click(replyButton('Send'));
+  await sleep(30);
+  stripButton('Ask the agent to clone it into ai/').click();
+  await sleep(20);
+  check('a standalone reply can ask for the clone and wait', cloneRequests === 1
+    && strip() && /^Waiting for the agent to clone it\./.test(strip().textContent));
+  check('the reply stays unsent while the clone is missing', calls.replies.length === beforeClone);
+  preflightResult = { runbook: '/fake/agent-threads/md/user-intent.md' };
+  await sleep(1300);
+  check('the reply sends automatically when the clone lands', calls.replies.length === beforeClone + 1
+    && calls.replies[calls.replies.length - 1].allowMissingRunbook === false);
+  check('the clone wait and reply composer close after sending', !find('.md-thread-reply') && !strip());
 
   viewer.close();
   console.log(`\n--- Results: ${passed} passed, ${failed} failed ---`);

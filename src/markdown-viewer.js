@@ -5969,6 +5969,11 @@ function createMarkdownViewer({
       const composerActions = anchor.querySelector('.cu-actions');
       const rowDisplay = composerActions ? composerActions.style.display : '';
       if (composerActions) composerActions.style.display = 'none';
+      const fitReply = () => {
+        if (!state.threadReply || state.threadReply.composer.root !== anchor) return;
+        syncThreadReplyMirror();
+        fitThreadReplyCard();
+      };
       let polling = null;
       let done = false;
       const finish = (value) => {
@@ -5977,6 +5982,7 @@ function createMarkdownViewer({
         if (polling) clearInterval(polling);
         notice.remove();
         if (composerActions) composerActions.style.display = rowDisplay;
+        fitReply();
         resolve(value);
       };
       const render = (message, buttons, { link = null } = {}) => {
@@ -6000,9 +6006,12 @@ function createMarkdownViewer({
           if (title) b.title = title;
           // Like the composer's buttons: the click must not blur the editor.
           b.addEventListener('mousedown', (event) => { event.preventDefault(); event.stopPropagation(); });
-          b.onclick = onClick;
+          // A decision can remove its own button. Keep that click from
+          // reaching the article as a click outside the reply card.
+          b.onclick = (event) => { event.stopPropagation(); onClick(); };
           actions.appendChild(b);
         }
+        fitReply();
       };
       const waitForClone = () => {
         render('Waiting for the agent to clone it. The send goes ahead when it lands.', [
@@ -6033,6 +6042,21 @@ function createMarkdownViewer({
     });
   }
 
+  // New threads and standalone replies share the same choice before any send.
+  async function prepareMarkdownSend(host, doc) {
+    let allowMissingRunbook = false;
+    if (typeof preflightMarkdownRunbook === 'function') {
+      const pf = await preflightMarkdownRunbook({ docPath: doc });
+      if (!pf || pf.canceled) return null;
+      if (!pf.runbook) {
+        const choice = await askRunbookDecision(host, doc);
+        if (choice === 'cancel') return null;
+        allowMissingRunbook = choice === 'send';
+      }
+    }
+    return { allowMissingRunbook };
+  }
+
   // `reply` ({ threadId, body }) rides along when the Send was pressed in a
   // thread's reply. Every Send is a Send all: queued comments, edits, and the
   // reply drafts resting in their cards go out together, in one turn and one
@@ -6044,17 +6068,10 @@ function createMarkdownViewer({
     const overlayEntries = Array.from(state.blockOverlays.entries());
     const drafts = restingReplyDrafts({ except: reply ? reply.threadId : null });
     if (!overlayEntries.length && !commentRecords.length && !drafts.length && !reply) return false;
-    let allowMissingRunbook = false;
-    if (typeof preflightMarkdownRunbook === 'function') {
-      const pf = await preflightMarkdownRunbook({ docPath: doc });
-      if (!pf || pf.canceled) return false; // nothing sent
-      if (!pf.runbook) {
-        const choice = await askRunbookDecision(host, doc);
-        if (choice === 'cancel') return false; // nothing sent, draft kept
-        allowMissingRunbook = choice === 'send';
-      }
-    }
     try {
+      const sendOptions = await prepareMarkdownSend(host, doc);
+      if (!sendOptions) return false; // nothing sent, draft kept
+      const { allowMissingRunbook } = sendOptions;
       // The frozen source is the anchor/heading truth; nothing is read back from
       // disk and nothing is written.
       const finalText = state.sourceText;
@@ -6956,18 +6973,14 @@ function createMarkdownViewer({
       return;
     }
     const doc = state.resolvedPath || state.filePath;
-    let allowMissingRunbook = false;
-    if (typeof preflightMarkdownRunbook === 'function') {
-      const pf = await preflightMarkdownRunbook({ docPath: doc });
-      if (pf && pf.canceled) { composer.primaryButton.disabled = false; return; }
-      allowMissingRunbook = !!(pf && pf.acked);
-    }
     try {
+      const sendOptions = await prepareMarkdownSend(composer.root, doc);
+      if (!sendOptions) { composer.primaryButton.disabled = false; return; }
       const result = await addMarkdownThreadMessage({
         docPath: doc,
         threadId: thread.id,
         body: text,
-        allowMissingRunbook,
+        allowMissingRunbook: sendOptions.allowMissingRunbook,
         toPrompt,
       });
       if (!result || !result.success) {

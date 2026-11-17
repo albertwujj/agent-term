@@ -94,7 +94,7 @@ async function main() {
 
   const bandFull = () => page.evaluate(() => !!document.querySelector('.vb-shell.vb-md.open.vb-full'));
   const notice = () => page.evaluate(() => {
-    const n = document.querySelector('.md-comment-card .md-runbook-notice');
+    const n = document.querySelector('.md-runbook-notice');
     if (!n) return null;
     return {
       text: n.querySelector('.md-runbook-text').textContent,
@@ -216,6 +216,42 @@ async function main() {
     await clickSend();
     const three = await waitFor(() => (threads().length === 3 ? threads() : null));
     check('the send goes straight through, no strip', !!three && (await notice()) === null, three && three.length);
+
+    console.log('a standalone reply with no runbook uses the same choices');
+    removeClone();
+    const data = JSON.parse(fs.readFileSync(store, 'utf8'));
+    const threadId = data.threads[0].id;
+    fs.appendFileSync(store.replace(/-comments\.json$/, '-agent.jsonl'), JSON.stringify({
+      thread: threadId, body: 'Which wording do you prefer?', status: 'open', ts: Date.now(), turn: data.turn,
+    }) + '\n');
+    const replyButton = page.locator('.md-spread-pane.primary .md-thread-card.needs-user button', { hasText: /^Reply$/ });
+    await replyButton.waitFor();
+    if (!(await bandFull())) {
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('viewer-shortcut', 'size'));
+      await sleep(400);
+    }
+    await replyButton.click();
+    const reply = page.locator('.md-thread-reply textarea');
+    await reply.fill('Use the shorter wording.');
+    const sendReply = () => page.click('.md-thread-reply .cu-primary');
+    await sendReply();
+    const replyNotice = await waitFor(notice);
+    check('the reply offers clone, send anyway and cancel', !!replyNotice && replyNotice.composerActionsHidden
+      && JSON.stringify(replyNotice.buttons) === JSON.stringify(['Ask the agent to clone it into ai/', 'Send anyway', 'Cancel']), replyNotice);
+    const messageCount = () => threads().find((t) => t.id === threadId).messages.length;
+    check('the reply has not been written before the choice', messageCount() === 1);
+    await clickNotice('Cancel');
+    await sleep(200);
+    check('cancel keeps the standalone reply ready to send', (await notice()) === null
+      && await reply.inputValue() === 'Use the shorter wording.' && messageCount() === 1
+      && await page.locator('.md-thread-reply .cu-primary').isEnabled());
+    await sendReply();
+    check('retry offers the choices again', !!(await waitFor(notice)));
+    await clickNotice('Send anyway');
+    check('send anyway writes the reply to its existing thread', !!(await waitFor(() => messageCount() === 2))
+      && threads().find((t) => t.id === threadId).messages[1].body === 'Use the shorter wording.' && threads().length === 3);
+    check('the sent reply closes its composer and notice', !!(await waitFor(async () =>
+      (await notice()) === null && await page.locator('.md-thread-reply').count() === 0)));
     check('no native dialog was shown at any point', (await nativeDialogs()) === 0, await nativeDialogs());
   } finally {
     await app.close().catch(() => {});
