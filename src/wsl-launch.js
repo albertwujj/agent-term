@@ -1,3 +1,13 @@
+const path = require('path');
+
+// node-pty's ConPTY lookup returns an empty path when a relative executable
+// already exists in the process's cwd. Jump List launches start in System32,
+// where wsl.exe lives, and successors inherit that cwd. Pass an absolute path
+// so these windows can start their terminal too.
+function wslExecutable(env = process.env) {
+  return path.win32.join(env.SystemRoot || env.windir || 'C:\\Windows', 'System32', 'wsl.exe');
+}
+
 function cleanSetting(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -64,6 +74,7 @@ module.exports = {
   bashLauncher,
   wslenvForPty,
   configuredWslDistro,
+  wslExecutable,
   wslCommandArgs,
   wslShellArgs,
 };

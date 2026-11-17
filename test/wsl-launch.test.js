@@ -8,6 +8,7 @@ const {
   bashLauncher,
   configuredWslDistro,
   wslCommandArgs,
+  wslExecutable,
   wslShellArgs,
   wslenvForPty,
 } = require('../src/wsl-launch');
@@ -27,6 +28,13 @@ function test(name, fn) {
 }
 
 console.log('wsl-launch');
+
+test('the PTY uses an absolute WSL executable even when launched from System32', () => {
+  assert.strictEqual(wslExecutable({ SystemRoot: 'C:\\WINDOWS' }), 'C:\\WINDOWS\\System32\\wsl.exe');
+  assert.strictEqual(wslExecutable({ SystemRoot: 'D:\\Windows Root' }), 'D:\\Windows Root\\System32\\wsl.exe');
+  assert.strictEqual(wslExecutable({ windir: 'D:\\Windows' }), 'D:\\Windows\\System32\\wsl.exe');
+  assert.strictEqual(wslExecutable({}), 'C:\\Windows\\System32\\wsl.exe');
+});
 
 test('installed Windows behavior keeps the default distro and cwd', () => {
   assert.strictEqual(configuredWslDistro({}), '');

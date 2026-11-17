@@ -143,6 +143,7 @@ const {
 } = require('./runbook-resolution');
 const {
   wslCommandArgs,
+  wslExecutable,
   wslShellArgs,
   wslenvForPty,
 } = require('./wsl-launch');
@@ -2532,7 +2533,7 @@ function stopCapMachinery() {
 function getShell() {
   if (process.platform === 'win32') {
     // WSL
-    return 'wsl.exe';
+    return wslExecutable();
   }
   return process.env.SHELL || '/bin/zsh';
 }
