@@ -37,7 +37,7 @@ const pkg = path.join(dir, 'main.md');
 // Long prose first, so the thread and the diff sit far below the top.
 const pkgText = (head) => `---\nrange: ${base}..${head}\n---\n\n# Review\n\n`
   + Array.from({ length: 50 }, (_, i) => `Context paragraph ${i + 1} of the review.`).join('\n\n')
-  + '\n\nThe last paragraph, where the thread sits.\n\n:::diff f.js\n';
+  + `\n\nThe last paragraph, where the thread sits.\n\n:::diff f.js L2-${fs.readFileSync(path.join(repo, 'f.js'), 'utf8').trimEnd().split('\n').length}\n`;
 fs.writeFileSync(pkg, pkgText(git('rev-parse', 'HEAD')));
 fs.writeFileSync(path.join(dir, 'main-comments.json'), JSON.stringify({
   version: 1,

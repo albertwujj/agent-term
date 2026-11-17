@@ -194,13 +194,13 @@ class DirectiveErrors(unittest.TestCase):
         self.assertNotIn('<tr class="hh">', page)
         self.assertEqual(err.strip(), "")
 
-    def test_whole_file_diff_hunk_header_uses_full_table_width(self):
+    def test_missing_diff_range_is_a_directive_error(self):
         page, err = self.render(":::diff a.py\n")
 
-        self.assertRegex(
-            page,
-            r'<tr class="hh"><td class="code" colspan="4">@@ [^<]+</td></tr>')
-        self.assertEqual(err.strip(), "")
+        self.assertIn(":::diff needs a line range", page)
+        self.assertIn('class="rv-banner rv-errors"', page)
+        self.assertNotIn('<table class="d-split">', page)
+        self.assertIn("directive errors", err)
 
     def test_range_starting_on_an_edited_line_keeps_its_old_side(self):
         page, _ = self.render(":::diff a.py L8-8\n")
@@ -250,6 +250,51 @@ class PackageRepoCase(unittest.TestCase):
         errors = self.pkg.with_name("rv-errors.json")
         return (self.pkg.with_suffix(".html").read_text(),
                 json.loads(errors.read_text()) if errors.exists() else [])
+
+
+class RequiredRanges(PackageRepoCase):
+    def test_diff_range_is_required_for_every_file_type(self):
+        paths = [f"file.{ext}" for ext in ("py", "js", "ts", "go", "rs", "sh", "txt", "md", "markdown", "cfg")]
+        base = self.commit({p: "original value\n" for p in paths})
+        tip = self.commit({p: "updated value\n" for p in paths})
+        page, errors = self.render(base, tip, "\n".join(f":::diff {p}" for p in paths))
+
+        self.assertEqual(errors, [f"{p}: :::diff needs a line range: L<start>-<end>" for p in paths])
+        page = main_html(page)
+        self.assertNotIn('class="md-render"', page)
+        self.assertNotIn('<table class="d-split">', page)
+        self.assertNotIn("updated value", page)
+
+    def test_deleted_source_file_can_be_reviewed_at_line_one(self):
+        base = self.commit({"a.py": "first = 1\nlast = 2\n"})
+        (self.repo / "a.py").unlink()
+        sh(self.repo, "git", "commit", "-qam", "delete")
+        tip = sh(self.repo, "git", "rev-parse", "HEAD").strip()
+        page, errors = self.render(base, tip, ":::diff a.py L1-1")
+
+        self.assertEqual(errors, [])
+        self.assertIn('data-side="old" data-line="1"', page)
+        self.assertIn('data-side="old" data-line="2"', page)
+        self.assertNotIn('data-side="new"', page)
+
+    def test_deletion_at_end_is_shown_at_the_gap_after_the_last_line(self):
+        base = self.commit({"a.py": "keep = 1\nremove = 2\n"})
+        tip = self.commit({"a.py": "keep = 1\n"})
+        page, errors = self.render(base, tip, ":::diff a.py L2-2")
+
+        self.assertEqual(errors, [])
+        self.assertIn('data-side="old" data-line="2"', page)
+        self.assertNotIn('data-side="new"', page)
+
+    def test_deletion_before_a_surviving_line_is_in_its_range(self):
+        base = self.commit({"a.py": "keep = 1\nremove = 2\nlast = 3\n"})
+        tip = self.commit({"a.py": "keep = 1\nlast = 3\n"})
+        page, errors = self.render(base, tip, ":::diff a.py L2-2")
+
+        self.assertEqual(errors, [])
+        self.assertIn('data-side="old" data-line="2"', page)
+        self.assertIn('data-side="new" data-line="2"', page)
+        self.assertNotIn('data-side="new" data-line="1"', page)
 
 
 class MovesAndRanges(PackageRepoCase):
@@ -396,9 +441,9 @@ class MarkdownRanges(PackageRepoCase):
 
         self.assertEqual(errors, [])
 
-    def test_whole_file_diff_shows_only_changed_blocks(self):
+    def test_broad_range_shows_only_changed_blocks(self):
         page, errors = self.render_md(
-            DOC, DOC.replace("Bravo paragraph", "Bravo edited paragraph"), ":::diff d.md")
+            DOC, DOC.replace("Bravo paragraph", "Bravo edited paragraph"), ":::diff d.md L1-16")
 
         self.assertEqual(errors, [])
         self.assertIn("<ins> edited</ins>", page)
@@ -406,10 +451,10 @@ class MarkdownRanges(PackageRepoCase):
         for unchanged in ("Alpha", "Charlie", "Delta", "Echo", "Foxtrot"):
             self.assertNotIn(unchanged, page)
 
-    def test_whole_file_diff_shows_distant_changes_under_their_headings(self):
+    def test_broad_range_shows_distant_changes_under_their_headings(self):
         new = DOC.replace("Bravo paragraph", "Bravo edited paragraph") \
                  .replace("Echo paragraph", "Echo revised paragraph")
-        page, errors = self.render_md(DOC, new, ":::diff d.md")
+        page, errors = self.render_md(DOC, new, ":::diff d.md L1-16")
 
         self.assertEqual(errors, [])
         self.assertEqual(page.count('class="md-render"'), 2)
@@ -419,21 +464,21 @@ class MarkdownRanges(PackageRepoCase):
         for unchanged in ("Alpha", "Charlie", "Delta", "Foxtrot"):
             self.assertNotIn(unchanged, page)
 
-    def test_whole_file_diff_keeps_deletions_at_both_ends(self):
+    def test_range_keeps_deletions_at_both_ends(self):
         old = "First paragraph.\n\nMiddle paragraph.\n\nLast paragraph.\n"
-        page, errors = self.render_md(old, "Middle paragraph.\n", ":::diff d.md")
+        page, errors = self.render_md(old, "Middle paragraph.\n", ":::diff d.md L1-1")
 
         self.assertEqual(errors, [])
         self.assertIn("<del>First paragraph.</del>", page)
         self.assertIn("<del>Last paragraph.</del>", page)
         self.assertNotIn("Middle", page)
 
-    def test_whole_file_diff_shows_a_deleted_file(self):
+    def test_range_shows_a_deleted_file(self):
         base = self.commit({"d.md": DOC})
         (self.repo / "d.md").unlink()
         sh(self.repo, "git", "commit", "-qam", "delete")
         tip = sh(self.repo, "git", "rev-parse", "HEAD").strip()
-        page, errors = self.render(base, tip, ":::diff d.md\n")
+        page, errors = self.render(base, tip, ":::diff d.md L1-1\n")
 
         self.assertEqual(errors, [])
         page = main_html(page)
@@ -441,10 +486,10 @@ class MarkdownRanges(PackageRepoCase):
             self.assertIn(f"<del>{removed}", page)
         self.assertNotIn("<ins>", page)
 
-    def test_whole_file_diff_shows_an_added_file(self):
+    def test_range_shows_an_added_file(self):
         base = self.commit({"other.py": "x = 1\n"})
         tip = self.commit({"d.md": DOC})
-        page, errors = self.render(base, tip, ":::diff d.md\n")
+        page, errors = self.render(base, tip, ":::diff d.md L1-16\n")
 
         self.assertEqual(errors, [])
         page = main_html(page)
@@ -452,12 +497,12 @@ class MarkdownRanges(PackageRepoCase):
             self.assertIn(f"<ins>{added}", page)
         self.assertNotIn("<del>", page)
 
-    def test_whole_file_reflow_has_no_rendered_change(self):
+    def test_reflow_in_a_broad_range_has_no_rendered_change(self):
         page, errors = self.render_md(
-            "One two three four.\n\nOutro.\n", "One two\nthree four.\n\nOutro.\n", ":::diff d.md")
+            "One two three four.\n\nOutro.\n", "One two\nthree four.\n\nOutro.\n", ":::diff d.md L1-2")
 
-        self.assertEqual(errors, ["d.md: no rendered change in this diff scope."])
-        self.assertIn("(no rendered change in this diff scope)", page)
+        self.assertEqual(errors, ["d.md: no rendered change in range L1-2."])
+        self.assertIn("(no rendered change in L1-2)", page)
         self.assertNotIn('class="md-render"', page)
         self.assertNotIn("Outro", page)
 

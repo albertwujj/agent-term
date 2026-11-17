@@ -31,7 +31,7 @@ function makeReviewRepo() {
   const dir = path.join(repo, '.git', 'review', 'main');
   fs.mkdirSync(dir, { recursive: true });
   const pkg = path.join(dir, 'main.md');
-  fs.writeFileSync(pkg, `---\nrange: ${range}\n---\n\n# Review\n\nA change to wide.py.\n\n:::diff wide.py\n`);
+  fs.writeFileSync(pkg, `---\nrange: ${range}\n---\n\n# Review\n\nA change to wide.py.\n\n:::diff wide.py L1-4\n`);
   return { repo, pkg, store: path.join(dir, 'main-comments.json') };
 }
 

@@ -48,12 +48,15 @@ attributes; they are load-bearing.
 
 **Rendered (preview) sections.** A generator MAY render a file as an in-place
 *rendered* diff instead of source cells (e.g. markdown rendered with inline
-`<ins>/<del>`). Markdown embeds show complete changed blocks: without a line
-range, all changed blocks; with a range, only those touching its new-side lines.
-Unchanged blocks are omitted in both forms. Such a section still has its
+`<ins>/<del>`). Every package `:::diff` and `:::code` directive requires an
+explicit `L<start>-<end>` range, for every file type. A missing range is a
+directive error and embeds no file content. Source diffs show records within
+the new-side range, including deletions at its deletion point; a deleted file
+uses `L1-1`. Markdown embeds show complete changed blocks touching that range,
+omitting unchanged blocks. Such a section still has its
 `data-path`, but anchors at **block granularity**: each prose block carries
-`data-side` + `data-line` (the source
-line of that block), rather than per-line cells. Comment threads anchor the same
+`data-side` + `data-line` (the source line of that block), rather than per-line
+cells. Comment threads anchor the same
 way (`path/side/line/snippet`); only the *compose* affordance differs (block vs
 line gutter). The commit-message block is anchored the same way.
 

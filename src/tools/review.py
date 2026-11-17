@@ -709,8 +709,8 @@ def parse_frontmatter(text):
 
 
 def parse_directive(line):
-    """(kind, path, lo, hi) for a `:::diff` / `:::code` line, else None. lo/hi are
-    None when no range was given (a whole-file diff; an error for :::code)."""
+    """(kind, path, lo, hi) for a `:::diff` / `:::code` line, else None. Missing
+    ranges are recognized so the renderer can report that they are required."""
     text = line.strip()
     for kind, rx in (("diff", _DIFF_DIRECTIVE), ("code", _CODE_DIRECTIVE)):
         m = rx.match(text)
@@ -724,7 +724,7 @@ def render_bad_directive(line, errors):
     where its block would be, and joins the directive errors."""
     text = line.strip()
     kind = _DIRECTIVE_HEAD.match(text).group(1)
-    form = f":::{kind} <path> " + ("[L<start>-<end>]" if kind == "diff" else "L<start>-<end>")
+    form = f":::{kind} <path> L<start>-<end>"
     msg = f"malformed directive; write {form}; a single line is L42-42"
     errors.append(f"{text}: {msg}")
     return (f'<section class="card file"><h2><code>{html.escape(text)}</code>'
@@ -748,18 +748,25 @@ def _index_recs(index, path, recs):
 
 def _recs_in_range(all_recs, lo, hi):
     """Contiguous slice of (hunk, rec) pairs covering new-side lines [lo, hi] —
-    includes any deletions interleaved in that span, and the deletions an added
-    first line replaces: they sit just before it with no new-side number, and
-    without them an edited first line reads as a pure addition."""
+    deletions belong to the next new-side line, or the gap after the last one.
+    A deleted file has no new-side lines, so its deletion point is line 1."""
     lo, hi = int(lo), int(hi)
-    idxs = [i for i, (_, (k, o, n, c)) in enumerate(all_recs) if n is not None and lo <= n <= hi]
-    if not idxs:
-        return []
-    start = idxs[0]
-    if all_recs[start][1][0] == "add":
-        while start > 0 and all_recs[start - 1][1][0] == "del":
-            start -= 1
-    return all_recs[start:idxs[-1] + 1]
+    # Seed each hunk's trailing deletion point, then walk back so removals before
+    # an addition or surviving context line inherit that line's number.
+    line_at = {h: n + 1 for h, (_, _, n, _) in all_recs if n is not None}
+    idxs = []
+    for i in range(len(all_recs) - 1, -1, -1):
+        h, (kind, _, new, _) = all_recs[i]
+        if new is not None:
+            line_at[h] = new
+            line = new
+        elif kind == "del":
+            line = line_at.get(h, 1)
+        else:
+            continue
+        if lo <= line <= hi:
+            idxs.append(i)
+    return all_recs[idxs[-1]:idxs[0] + 1] if idxs else []
 
 
 def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
@@ -772,13 +779,17 @@ def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
              if _is_dirty(git, diff_args, path) else '')
     out.append(f'<h2><code>{html.escape(path)}</code>{rng}{dirty}</h2>')
 
+    if not (lo and hi):
+        msg = ":::diff needs a line range: L<start>-<end>"
+        errors.append(f"{path}: {msg}")
+        out.append(f'<div class="why muted">({html.escape(msg)})</div></section>')
+        return "\n".join(out)
+
     if is_markdown_path(path) and md_available():
         shown = render_markdown_diff(git, diff_args, repo, path, lo, hi)
         if not shown:
-            scope = f"range L{lo}-{hi}" if lo and hi else "this diff scope"
-            errors.append(f"{path}: no rendered change in {scope}.")
-            location = f"L{lo}-{hi}" if lo and hi else scope
-            shown = f'<div class="why muted">(no rendered change in {location})</div>'
+            errors.append(f"{path}: no rendered change in range L{lo}-{hi}.")
+            shown = f'<div class="why muted">(no rendered change in L{lo}-{hi})</div>'
         out.append(f'{shown}</section>')
         return "\n".join(out)
 
@@ -790,31 +801,25 @@ def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
 
     lang = lang_for(path)
     seeds = hunk_seeds(git, diff_args, repo, path, lang)
-    if lo and hi:
-        parsed = [parse_hunk(h, lang, seeds) for h in hunks]
-        picked = _recs_in_range(
-            [(n, rec) for n, (_, recs) in enumerate(parsed) for rec in recs], lo, hi)
-        if not picked:
-            errors.append(f"{path}: no changed lines in range L{lo}-{hi}.")
-            out.append(f'<div class="why muted">(no changed lines in L{lo}-{hi})</div></section>')
-            return "\n".join(out)
-        # The card heading already identifies this exact path and range, so the
-        # first part carries no header: repeating that label adds no information
-        # and consumes a row. A range that spans hunks gives each later part its
-        # hunk header, so the unchanged lines between them read as a gap.
-        parts = []
-        for n, rec in picked:
-            if not parts or parts[-1][0] != n:
-                parts.append((n, []))
-            parts[-1][1].append(rec)
-        for k, (n, recs) in enumerate(parts):
-            _index_recs(index, path, recs)
-            out.append(f'<div class="diff">{render_split(parsed[n][0] if k else None, recs)}</div>')
-    else:
-        for h in hunks:
-            header, recs = parse_hunk(h, lang, seeds)
-            _index_recs(index, path, recs)
-            out.append(f'<div class="diff">{render_split(header, recs)}</div>')
+    parsed = [parse_hunk(h, lang, seeds) for h in hunks]
+    picked = _recs_in_range(
+        [(n, rec) for n, (_, recs) in enumerate(parsed) for rec in recs], lo, hi)
+    if not picked:
+        errors.append(f"{path}: no changed lines in range L{lo}-{hi}.")
+        out.append(f'<div class="why muted">(no changed lines in L{lo}-{hi})</div></section>')
+        return "\n".join(out)
+    # The card heading already identifies this exact path and range, so the
+    # first part carries no header: repeating that label adds no information
+    # and consumes a row. A range that spans hunks gives each later part its
+    # hunk header, so the unchanged lines between them read as a gap.
+    parts = []
+    for n, rec in picked:
+        if not parts or parts[-1][0] != n:
+            parts.append((n, []))
+        parts[-1][1].append(rec)
+    for k, (n, recs) in enumerate(parts):
+        _index_recs(index, path, recs)
+        out.append(f'<div class="diff">{render_split(parsed[n][0] if k else None, recs)}</div>')
     out.append("</section>")
     return "\n".join(out)
 

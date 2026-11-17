@@ -41,7 +41,7 @@ Only unconfirmed decisions need a response.
 
 I defaulted the refill to 10/s; 25/s never sheds but lets a flood reach auth.
 
-:::diff limits.py
+:::diff limits.py L1-2
 
 ## [${retry}] Decision: retry budget
 

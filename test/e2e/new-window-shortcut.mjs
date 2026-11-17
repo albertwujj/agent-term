@@ -27,7 +27,7 @@ git('commit', '-qam', 'Add b');
 const dir = path.join(repo, '.git', 'review', 'main');
 fs.mkdirSync(dir, { recursive: true });
 const pkg = path.join(dir, 'main.md');
-fs.writeFileSync(pkg, `---\nrange: ${base}..HEAD\n---\n\n# Review\n\nA change to f.js.\n\n:::diff f.js\n`);
+fs.writeFileSync(pkg, `---\nrange: ${base}..HEAD\n---\n\n# Review\n\nA change to f.js.\n\n:::diff f.js L1-2\n`);
 
 // Load the real main process with its spawn dependency replaced before it is
 // imported. Every shortcut still runs launchNewInstance, including its cwd

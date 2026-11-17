@@ -309,9 +309,10 @@ Selection as a second code-comment gesture was weighed and left out:
 A range on a markdown file used to render the whole file and raise a directive
 error. It now shows the blocks that changed and touch the range. An unchanged
 block never shows, even inside the range, and a block the range only partly
-covers shows whole. A `:::diff` with no range shows all changed blocks, with
-unchanged blocks omitted, matching a source file's whole diff. Both forms use
-the same block comparison and keep section headings as context.
+covers shows whole. Every `:::diff` now requires an explicit range, for markdown
+and source files alike. Missing ranges surface a directive error and embed no
+file content, so the agent must choose the passage each review point concerns.
+The standalone legacy generator still shows all changed blocks.
 
 - **Rendered blocks, not source lines.** Rendering a slice of lines can cut a
   block in half and loses link definitions held elsewhere in the file. Both sides
@@ -330,6 +331,10 @@ the same block comparison and keep section headings as context.
 - **A removal at the edge of a range shows.** A removed block has no new-side
   lines, so it counts when the gap it left reaches the range. A hidden deletion
   costs more than an extra one.
+- **Source deletions use their deletion point.** A deletion belongs to the next
+  surviving or added line, or the gap after the last surviving line. A fully
+  deleted file is reviewed with `L1-1`, so requiring ranges still permits a
+  review of removals.
 - **Each run is its own `.md-render`, under a band in the hunk header's colours.**
   The band names the section, since the unchanged heading no longer shows, and
   past the first run marks the skipped text. Separate roots keep `nearestHeading`

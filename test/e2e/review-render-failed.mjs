@@ -32,7 +32,7 @@ git('commit', '-qam', 'Add b');
 const dir = path.join(repo, '.git', 'review', 'main');
 fs.mkdirSync(dir, { recursive: true });
 const pkg = path.join(dir, 'main.md');
-const pkgText = (prose) => `---\nrange: ${base}..${git('rev-parse', 'HEAD')}\n---\n\n# Review\n\n${prose}\n\n:::diff f.js\n`;
+const pkgText = (prose) => `---\nrange: ${base}..${git('rev-parse', 'HEAD')}\n---\n\n# Review\n\n${prose}\n\n:::diff f.js L1-2\n`;
 fs.writeFileSync(pkg, pkgText('The first version.'));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

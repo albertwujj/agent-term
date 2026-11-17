@@ -32,7 +32,7 @@ fs.mkdirSync(dir, { recursive: true });
 const pkg = path.join(dir, 'main.md');
 const storePath = path.join(dir, 'main-comments.json');
 const journalPath = path.join(dir, 'main-agent.jsonl');
-fs.writeFileSync(pkg, `---\nrange: ${base}..${git('rev-parse', 'HEAD')}\n---\n\n# Limits\n\n:::diff limits.py\n`);
+fs.writeFileSync(pkg, `---\nrange: ${base}..${git('rev-parse', 'HEAD')}\n---\n\n# Limits\n\n:::diff limits.py L1-3\n`);
 fs.writeFileSync(storePath, JSON.stringify({ version: 1, turn: 0, threads: ['first', 'second'].map((id, i) => ({
   id, anchor: { path: 'limits.py', side: 'new', line: i + 1, snippet: `${id.toUpperCase()} = ${i + 1}` },
   anchor_status: 'ok', messages: [{ author: 'user', body: `Why this ${id} limit?`, ts: Date.now() }],

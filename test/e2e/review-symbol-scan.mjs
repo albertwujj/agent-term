@@ -37,7 +37,7 @@ function makeReviewRepo() {
   const dir = path.join(repo, '.git', 'review', 'main');
   fs.mkdirSync(dir, { recursive: true });
   const pkg = path.join(dir, 'main.md');
-  fs.writeFileSync(pkg, `---\nrange: ${range}\n---\n\n# Review\n\nA change to load.js worth a look.\n\n:::diff load.js\n`);
+  fs.writeFileSync(pkg, `---\nrange: ${range}\n---\n\n# Review\n\nA change to load.js worth a look.\n\n:::diff load.js L1-4\n`);
   return { repo, pkg };
 }
 

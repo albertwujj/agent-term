@@ -32,7 +32,7 @@ const pending = `---\nrange: ${base}..${git('rev-parse', 'HEAD')}\n---\n
 
 New links get a configured lifetime.
 
-:::diff config.js
+:::diff config.js L1-1
 
 ### [unconfirmed] Decision: a longer nested decision that wraps in the outline
 
