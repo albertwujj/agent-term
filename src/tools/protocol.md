@@ -48,8 +48,11 @@ attributes; they are load-bearing.
 
 **Rendered (preview) sections.** A generator MAY render a file as an in-place
 *rendered* diff instead of source cells (e.g. markdown rendered with inline
-`<ins>/<del>`). Such a section still has its `data-path`, but anchors at **block
-granularity**: each prose block carries `data-side` + `data-line` (the source
+`<ins>/<del>`). Markdown embeds show complete changed blocks: without a line
+range, all changed blocks; with a range, only those touching its new-side lines.
+Unchanged blocks are omitted in both forms. Such a section still has its
+`data-path`, but anchors at **block granularity**: each prose block carries
+`data-side` + `data-line` (the source
 line of that block), rather than per-line cells. Comment threads anchor the same
 way (`path/side/line/snippet`); only the *compose* affordance differs (block vs
 line gutter). The commit-message block is anchored the same way.

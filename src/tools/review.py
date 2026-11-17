@@ -516,13 +516,8 @@ def html_word_diff(old_html, new_html):
     return "".join(out)
 
 
-def render_markdown_diff(git, diff_args, repo, path):
-    old_text, new_text = file_versions(git, diff_args, repo, path)
-    return html_word_diff(md_render(old_text), md_render(new_text))
-
-
-# A ranged markdown embed shows only the blocks that changed, not the slice of
-# source lines: a line range can cut a paragraph or a list in half, and a slice
+# A markdown embed shows only the blocks that changed, optionally restricted to
+# a source line range: a range can cut a paragraph or a list in half, and a slice
 # rendered alone loses the link definitions the rest of the file holds. So both
 # sides are parsed whole and compared block by block on their rendered HTML, which
 # also means a reflow that renders the same is not a change.
@@ -614,9 +609,9 @@ def _align_md_blocks(olds, news):
     return ops
 
 
-def _md_runs_in_range(ops, lo, hi):
-    """Runs of adjacent changed blocks touching new-side lines [lo, hi], each as
-    (heading it sits under, ops); the heading is blank when the run opens on one.
+def _md_changed_runs(ops, lo=None, hi=None):
+    """Runs of adjacent changed blocks, optionally touching new-side lines [lo, hi],
+    each as (heading it sits under, ops); the heading is blank when the run opens on one.
     A removed block has no new-side lines, so it counts when the gap it left
     between the surviving blocks reaches the range: a removal right at the edge of
     a range is shown, rather than hidden by an off-by-one in the agent's numbers."""
@@ -630,9 +625,9 @@ def _md_runs_in_range(ops, lo, hi):
     runs, run, heading, gap_start = [], None, "", 0
     for (old, new), gap_end in zip(ops, gap_ends):
         if new:
-            hit = (not old or old.key != new.key) and new.start < hi and new.end >= lo
+            hit = (not old or old.key != new.key) and (lo is None or new.start < hi and new.end >= lo)
         else:
-            hit = gap_start <= hi and lo - 1 <= gap_end
+            hit = lo is None or gap_start <= hi and lo - 1 <= gap_end
         if hit:
             if run is None:
                 run = []
@@ -665,15 +660,17 @@ def _render_md_run(run):
     return "".join(out)
 
 
-def render_markdown_diff_range(git, diff_args, repo, path, lo, hi):
-    """The rendered diff of just the blocks that changed within new-side lines
+def render_markdown_diff(git, diff_args, repo, path, lo=None, hi=None):
+    """The rendered diff of changed blocks, optionally within new-side lines
     [lo, hi]; "" when none did. Each run of blocks is its own .md-render, so the
     host's nearest-heading lookup can't name a heading from an earlier run. A band
     above it says which section it's in and, past the first run, that text was skipped."""
     old_text, new_text = file_versions(git, diff_args, repo, path)
     ops = _align_md_blocks(_md_blocks(old_text), _md_blocks(new_text))
+    if lo is not None:
+        lo, hi = int(lo), int(hi)
     out = []
-    for k, (heading, run) in enumerate(_md_runs_in_range(ops, lo, hi)):
+    for k, (heading, run) in enumerate(_md_changed_runs(ops, lo, hi)):
         band = " ".join(part for part in ("⋯" if k else "", heading) if part)
         if band:
             out.append(f'<div class="md-hh">{html.escape(band)}</div>')
@@ -776,14 +773,13 @@ def render_diff_embed(git, diff_args, repo, path, lo, hi, index, errors):
     out.append(f'<h2><code>{html.escape(path)}</code>{rng}{dirty}</h2>')
 
     if is_markdown_path(path) and md_available():
-        if lo and hi:
-            shown = render_markdown_diff_range(git, diff_args, repo, path, int(lo), int(hi))
-            if not shown:
-                errors.append(f"{path}: no rendered change in range L{lo}-{hi}.")
-                shown = f'<div class="why muted">(no rendered change in L{lo}-{hi})</div>'
-            out.append(f'{shown}</section>')
-        else:
-            out.append(f'<div class="md-render">{render_markdown_diff(git, diff_args, repo, path)}</div></section>')
+        shown = render_markdown_diff(git, diff_args, repo, path, lo, hi)
+        if not shown:
+            scope = f"range L{lo}-{hi}" if lo and hi else "this diff scope"
+            errors.append(f"{path}: no rendered change in {scope}.")
+            location = f"L{lo}-{hi}" if lo and hi else scope
+            shown = f'<div class="why muted">(no rendered change in {location})</div>'
+        out.append(f'{shown}</section>')
         return "\n".join(out)
 
     hunks = split_hunks(git("diff", *diff_args, "--", path))
@@ -1394,10 +1390,9 @@ def build_page(git, diff_args, ann, commit_ref, strip_prefixes, title, slug, rep
             if spec.get("why_html"):
                 main.append(f'<div class="why"><b>Why.</b> {spec["why_html"]}</div>')
             if is_markdown_path(p) and md_available():
-                # Preview-mode diff for markdown: render both sides and word-diff the
-                # rendered HTML in place. (Comment anchoring on rendered md is a
-                # separate model — viewing only for now, so no source-line index.)
-                main.append(f'<div class="md-render">{render_markdown_diff(git, diff_args, repo, p)}</div>')
+                # Same changed-block preview as package embeds; no source-line index.
+                shown = render_markdown_diff(git, diff_args, repo, p)
+                main.append(shown or '<div class="why muted">(no rendered change in this diff scope)</div>')
             elif not hunks:
                 main.append('<div class="why muted">(no textual hunks)</div>')
             else:

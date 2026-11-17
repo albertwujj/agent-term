@@ -396,13 +396,82 @@ class MarkdownRanges(PackageRepoCase):
 
         self.assertEqual(errors, [])
 
-    def test_whole_file_diff_still_renders_everything(self):
+    def test_whole_file_diff_shows_only_changed_blocks(self):
         page, errors = self.render_md(
             DOC, DOC.replace("Bravo paragraph", "Bravo edited paragraph"), ":::diff d.md")
 
         self.assertEqual(errors, [])
-        self.assertIn("Foxtrot", page)
         self.assertIn("<ins> edited</ins>", page)
+        self.assertIn('<div class="md-hh">Title</div>', page)
+        for unchanged in ("Alpha", "Charlie", "Delta", "Echo", "Foxtrot"):
+            self.assertNotIn(unchanged, page)
+
+    def test_whole_file_diff_shows_distant_changes_under_their_headings(self):
+        new = DOC.replace("Bravo paragraph", "Bravo edited paragraph") \
+                 .replace("Echo paragraph", "Echo revised paragraph")
+        page, errors = self.render_md(DOC, new, ":::diff d.md")
+
+        self.assertEqual(errors, [])
+        self.assertEqual(page.count('class="md-render"'), 2)
+        self.assertIn("<ins> edited</ins>", page)
+        self.assertIn("<ins> revised</ins>", page)
+        self.assertIn('<div class="md-hh">⋯ Second</div>', page)
+        for unchanged in ("Alpha", "Charlie", "Delta", "Foxtrot"):
+            self.assertNotIn(unchanged, page)
+
+    def test_whole_file_diff_keeps_deletions_at_both_ends(self):
+        old = "First paragraph.\n\nMiddle paragraph.\n\nLast paragraph.\n"
+        page, errors = self.render_md(old, "Middle paragraph.\n", ":::diff d.md")
+
+        self.assertEqual(errors, [])
+        self.assertIn("<del>First paragraph.</del>", page)
+        self.assertIn("<del>Last paragraph.</del>", page)
+        self.assertNotIn("Middle", page)
+
+    def test_whole_file_diff_shows_a_deleted_file(self):
+        base = self.commit({"d.md": DOC})
+        (self.repo / "d.md").unlink()
+        sh(self.repo, "git", "commit", "-qam", "delete")
+        tip = sh(self.repo, "git", "rev-parse", "HEAD").strip()
+        page, errors = self.render(base, tip, ":::diff d.md\n")
+
+        self.assertEqual(errors, [])
+        page = main_html(page)
+        for removed in ("Title", "Alpha", "Bravo", "Charlie", "Second", "Delta", "Echo", "Foxtrot"):
+            self.assertIn(f"<del>{removed}", page)
+        self.assertNotIn("<ins>", page)
+
+    def test_whole_file_diff_shows_an_added_file(self):
+        base = self.commit({"other.py": "x = 1\n"})
+        tip = self.commit({"d.md": DOC})
+        page, errors = self.render(base, tip, ":::diff d.md\n")
+
+        self.assertEqual(errors, [])
+        page = main_html(page)
+        for added in ("Title", "Alpha", "Bravo", "Charlie", "Second", "Delta", "Echo", "Foxtrot"):
+            self.assertIn(f"<ins>{added}", page)
+        self.assertNotIn("<del>", page)
+
+    def test_whole_file_reflow_has_no_rendered_change(self):
+        page, errors = self.render_md(
+            "One two three four.\n\nOutro.\n", "One two\nthree four.\n\nOutro.\n", ":::diff d.md")
+
+        self.assertEqual(errors, ["d.md: no rendered change in this diff scope."])
+        self.assertIn("(no rendered change in this diff scope)", page)
+        self.assertNotIn('class="md-render"', page)
+        self.assertNotIn("Outro", page)
+
+    def test_legacy_page_also_shows_only_changed_blocks(self):
+        base = self.commit({"d.md": DOC})
+        tip = self.commit({"d.md": DOC.replace("Bravo paragraph", "Bravo edited paragraph")})
+        page, _ = review.build_page(review.make_git(self.repo), [f"{base}..{tip}"], {},
+                                    tip, [], "Review", "rv", self.repo)
+
+        page = main_html(page)
+        self.assertIn("<ins> edited</ins>", page)
+        self.assertIn('<div class="md-hh">Title</div>', page)
+        self.assertNotIn("Alpha", page)
+        self.assertNotIn("Foxtrot", page)
 
     def test_removed_block_inside_the_range_shows_as_deleted(self):
         page, errors = self.render_md(DOC, DOC.replace("Echo paragraph.\n\n", ""), ":::diff d.md L9-14")

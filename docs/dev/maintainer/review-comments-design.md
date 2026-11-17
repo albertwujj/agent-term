@@ -309,7 +309,9 @@ Selection as a second code-comment gesture was weighed and left out:
 A range on a markdown file used to render the whole file and raise a directive
 error. It now shows the blocks that changed and touch the range. An unchanged
 block never shows, even inside the range, and a block the range only partly
-covers shows whole. A `:::diff` with no range still renders the whole file.
+covers shows whole. A `:::diff` with no range shows all changed blocks, with
+unchanged blocks omitted, matching a source file's whole diff. Both forms use
+the same block comparison and keep section headings as context.
 
 - **Rendered blocks, not source lines.** Rendering a slice of lines can cut a
   block in half and loses link definitions held elsewhere in the file. Both sides
