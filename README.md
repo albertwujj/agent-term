@@ -8,6 +8,8 @@
 
 # AgentTerm: [Your portal to AI](https://yunxin.github.io/rethink-terminal/)
 
+Runs from source on macOS and Windows (through WSL). [Quick start](#quick-start).
+
 <a id="demo"></a>
 
 AgentTerm is a full terminal where your existing and new AI CLI sessions run as usual. But it turns each session's terminal window into a rich visual workspace for the new way of working with multiple agents, docs, and code *(autoplays after loading)*:
@@ -18,53 +20,11 @@ AgentTerm is a full terminal where your existing and new AI CLI sessions run as 
 
 *Dive deeper:* [Tell apart](docs/sessions.md#switch-to-the-right-running-session) · [Resume](docs/sessions.md#find-and-resume-sessions) · [Comment](docs/comment.md) · [Docs](docs/plan.md) · [Code](docs/review.md) · [Phone](docs/phone.md).
 
-<a name="quick-start"></a>
+<a name="whats-added-so-far"></a>
 
-**Quick start:** ask your agent. macOS, or Windows through WSL.
-
-Check first? Read the [setup steps](docs/setup.md) and [what AgentTerm touches](SECURITY.md#what-agentterm-touches).
-
-Copy this prompt:
-
-```text
-Clone https://github.com/albertwujj/agent-term to ~/agent-term.
-Follow the recommended setup in its docs/setup.md for my current
-project, then launch AgentTerm there.
-```
-
-Phone access, including recording and transcription, and IDE integration have [separate setup](docs/setup.md#phone-and-ide-integration).
-
-Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual.
-
-**Press `Ctrl/Cmd+Shift+U` to find and open a Markdown file by name**, even if it hasn’t appeared in the terminal. Explore other additions shown in the [demo above](#demo), and follow the [guides below](#whats-next) to start using them.
-
-You can use AgentTerm as is, or [adapt it with your agents](#make-it-fit).
-
-<a name="why-extend-the-terminal"></a>
-<a name="why-expand-the-terminal"></a>
-
-## Why build on the terminal
-
-If you are a terminal fan and want to get straight to it, skip ahead to [what AgentTerm adds](#whats-added-so-far).
-
-The terminal is a natural home for coding agents: text in, text out, with the shell and repo close by. Claude Code and Codex started there; Cursor and Copilot added CLIs alongside their IDE interfaces.
-
-An IDE or desktop app offers richer views and interactions than a text-centric interface alone. Expanding the terminal lets AgentTerm add those capabilities while keeping your existing AI CLIs in the familiar text interface.
+## Work with your agents
 
 As agents take on more implementation, traditional IDE functions take a back seat, and your energy and focus shift toward plans, reviews, and managing several agents at once. The expanded terminal supports that work visually, like an IDE.
-
-AgentTerm controls both the terminal and the visual pages in it, so it can coordinate presentation, focus, and feedback. A document or review takes the center when needed and gets out of the way as your focus shifts. In a CLI conversation, revisions usually arrive as more output. Here, plans and drafts are revised in place, while comments and replies accumulate beside the relevant passage. Your feedback goes back to the same agent. The [design note](https://yunxin.github.io/rethink-terminal/files-in-terminal/) goes deeper into AgentTerm’s design for this workflow.
-
-<p align="center">
-<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window-changes-86df8ad3f2.gif"><img src="docs/assets/viewer-window-changes-86df8ad3f2.gif" alt="An AgentTerm window in three states: document feedback beside the conversation, the revised document filling the window with green change highlights and an inline agent reply, and the document rolled up while typing"></a>
-<br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts. Green highlights show the agent’s changes in response to your feedback.
-</p>
-
-Persistent panels can compete with the agent conversation for your attention. Here the window is dedicated to one agent, shaped by your work, and full screen if you like, resulting in fewer distractions ([one OS window per agent](#one-os-window-per-session)).
-
-A vendor's desktop app moves the conversation out of the terminal and into an interface built around its own agent and workflow. With AgentTerm, you keep your choice of AI CLIs in the terminal's familiar text interface.
-
-Some terminals combine support for AI CLIs with an agent and platform of their own. AgentTerm's whole purpose is to make your existing AI CLIs work better for you.
 
 <a name="one-os-window-per-session"></a>
 
@@ -76,7 +36,119 @@ Some terminals combine support for AI CLIs with an agent and platform of their o
 
 Tools like tmux and manager apps hold every agent session in one window. AgentTerm gives each session its own window instead, since the OS already provides familiar, mature tools for arranging windows and switching between tasks: the taskbar, Dock, Mission Control, and alt-tab. Separate windows and processes let AgentTerm build on those strengths and add what agent sessions need. Each session has a unique visual identity that helps you find it in the taskbar or Dock and recognize it when previewing or switching windows. To keep the taskbar or Dock easy to scan, AgentTerm hides sessions you haven't used recently; the [session picker](docs/sessions.md) brings them back. [The design note on this decision](https://yunxin.github.io/rethink-terminal/own-os-window/) goes deeper, including its challenges.
 
-A manager app that oversees agents across machines can still be used: AgentTerm already sends each session's state to the [phone view](docs/phone.md), and a connector could share it with a manager too.
+[![Switch between sessions using their individual macOS Dock tiles and Windows taskbar buttons](docs/assets/hero-session-switching.gif?v=bd822b091be5)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-session-switching.gif?v=bd822b091be5)
+
+**[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and session titles to help you return to the session.
+
+### Plan, draft, and revise in place
+
+In a CLI conversation, revisions usually arrive as more output. Here, plans and drafts are revised in place, while comments and replies accumulate beside the relevant passage. Your feedback goes back to the same agent.
+
+Ask for a plan as a Markdown file and click its name. On the rendered page, **[comment on any passage or write changes directly](docs/plan.md)**. Your edits are proposals: the agent discusses your feedback in a thread beside the passage and updates the document to reflect your intent. AgentTerm shows what you proposed and what the agent changed.
+
+<p align="center">
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/viewer-window-changes-86df8ad3f2.gif"><img src="docs/assets/viewer-window-changes-86df8ad3f2.gif" alt="An AgentTerm window in three states: document feedback beside the conversation, the revised document filling the window with green change highlights and an inline agent reply, and the document rolled up while typing"></a>
+<br><strong>Work on a document right in the terminal.</strong> The document area expands in full and closes as your focus shifts. Green highlights show the agent’s changes in response to your feedback.
+</p>
+
+### Review changes with context
+
+The agent hands you a **[curated review, rendered](docs/review.md)**, with a narrative you can follow and the parts that need your attention called out; you comment inline, it fixes and replies in place.
+
+It can leave out routine changes and decisions you have already settled, and flag trade-offs for you to confirm. You can ask the agent to expand any part, or include all changes in the review, with the parts that most need your judgment first.
+
+[![Comment on a curated review, let the agent fix and reply, and read the updated review in place](docs/assets/review-loop.gif)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/review-loop.gif)
+
+For example, ask your agent for a curated review with `@produce-r`, which completes to [produce-review.md](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md). The agent curates and presents the changes for you to review and comment on.
+
+## Quick start
+
+AgentTerm runs directly from the rolling `main` branch of a source checkout. There is no installer or release to download.
+
+### Ask your agent
+
+The recommended setup installs the terminal with guides for plans, reviews, checkout locks, long jobs, and voice interpretation. Copy this prompt:
+
+```text
+Clone https://github.com/albertwujj/agent-term to ~/agent-term.
+Follow the recommended setup in its docs/setup.md for my current
+project, then launch AgentTerm there.
+```
+
+### Or start with the terminal, plans, and reviews
+
+Install Node.js first. On Windows, use WSL for the checkout and project, and install Node.js in both WSL and Windows; the [platform instructions](docs/dev/install.md#windows-with-wsl) have the prerequisites.
+
+```bash
+git clone https://github.com/albertwujj/agent-term ~/agent-term
+```
+
+On macOS, install dependencies once:
+
+```bash
+npm --prefix ~/agent-term ci
+```
+
+On Windows, the start command installs the native window's dependencies itself.
+
+Then, from your project's directory, add the document and review guides and launch:
+
+```bash
+git clone https://github.com/albertwujj/agent-threads ai/agent-threads
+npm --prefix ~/agent-term run start
+```
+
+Keep `ai/` out of `.gitignore` so your agent can find the guide files. The [setup guide](docs/setup.md) covers the full suite and reusing existing clones. Read [what AgentTerm touches](SECURITY.md#what-agentterm-touches) if you want to inspect its file, data, and network use first.
+
+Once a window opens, [resume your previous session](docs/sessions.md#resume-an-existing-cli-session) or [start a new one](docs/sessions.md#start-an-agent), and work as usual.
+
+<a id="where-to-go-next"></a>
+
+## What's next
+
+The [recommended setup](docs/setup.md#recommended-setup) also includes guides for the checkout lock and long jobs. Each companion tool can be used on its own; the [suite guide](docs/suite.md#using-the-components) explains when and how to use them.
+
+| Plain terminal | AgentTerm |
+|---|---|
+| **Comment**<br>manually quote past output | **[Select anything the agent prints and comment](docs/comment.md)**. |
+| **Copy**<br>every paste needs cleanup | Copy what the agent wrote and it **[pastes into a chat or email ready to send](docs/copy.md)**, one clean paragraph instead of chopped lines. A doc in the viewer copies the same way. |
+| **View**<br>can't click a file name to see it | Click a file the agent mentions (a doc, an image, a video, a PDF) and **[see it right in the window](docs/viewer.md)**, above your prompt; it gets out of the way as your focus shifts. |
+| **Shared checkout** collisions<br>test ports, even with worktrees | Type one `@` mention (`@proceed-b` completes to the guide doc's path) and the agent **[takes the checkout lock](docs/lock.md)** and cuts a branch before its first edit; a padlock at the top right of each window shows who holds it. |
+| **Long jobs**<br>unresponsive, or a missed finish | The agent starts a CI run or other long job and hands the terminal back; **[the job reports its own completion](docs/jobs.md)** through the terminal and the idle agent is prompted to pick it up, even across a session restart; a runner icon at the top right shows what is running. |
+| Not an **IDE**<br>can't jump from a cited symbol or line to the code | Click any file:line or symbol the agent cites and **[your IDE jumps to that exact line](docs/ide.md)** after a brief pause for selection; Ctrl/Cmd-click jumps immediately. The editor stays read-only so a stray key changes nothing. |
+
+**Press `Ctrl/Cmd+Shift+U` to find and open a Markdown file by name**, even if it hasn’t appeared in the terminal.
+
+### Phone companion
+
+**[See which agents need you across your machines](docs/phone.md)**. Open the same terminal on your phone, with the same layout so you recognize at once what you left behind; reply by voice.
+
+The phone complements desktop sessions: check progress and send a reply while the agent continues running on your computer. It needs a self-hosted [agent-stream-hub](https://github.com/albertwujj/agent-stream-hub) relay; voice input also needs recording and transcription configured there. [Phone setup](docs/phone.md#setup) is separate from the local components above.
+
+[![Continue on your phone: the same terminal, with voice replies](docs/assets/hero-phone-voice-bdfc76906a51.png)](https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/hero-phone-voice-bdfc76906a51.png)
+
+[![Multiple AgentTerm instances on macOS and Windows/WSL use editable agent guides, with optional external IDE integration and one shared hub for phone or browser access.](docs/assets/architecture.svg)](docs/assets/architecture.svg)
+
+<a name="why-extend-the-terminal"></a>
+<a name="why-expand-the-terminal"></a>
+<a name="why-build-on-the-terminal"></a>
+<a name="terminal-as-the-foundation"></a>
+<a name="the-terminal-is-only-the-foundation"></a>
+<a name="transforming-the-terminal-into-an-agent-workspace"></a>
+
+## Turning the terminal into an agent workspace
+
+AgentTerm brings IDE and desktop app capabilities to the work that matters with agents: shaping plans, reviewing results, and steering changes. You keep your choice of AI CLI while working directly in documents and reviews, without expressing every adjustment as another terminal prompt.
+
+The whole window follows your focus. Conversation in the terminal helps an idea unfold; AgentTerm's rendered documents and reviews give the result a stable place to be refined and checked. They take turns filling the window, with revisions and replies beside the relevant passage. The [design note](https://yunxin.github.io/rethink-terminal/files-in-terminal/) explains this approach.
+
+## How it works
+
+AgentTerm runs your existing AI CLI in a full terminal, using Electron for the window, xterm.js for terminal emulation, and node-pty for the shell connection. The host parses terminal output for file references and recognized conventions, and keeps track of mentioned documents even when the CLI redraws the screen.
+
+Those references connect the conversation to host capabilities. A Markdown path identifies a document the host can render. A `review://` reference can trigger validation, rendering, and automatic opening of a review. Document viewing and review build on this mechanism. Guide files tell agents how to follow these conventions. For example, [agent-threads](https://github.com/albertwujj/agent-threads) provides the guides and file protocol for document and review feedback.
+
+To keep the terminal responsive, repeated scans are combined and scheduled, while file checks and review rendering run asynchronously.
 
 ### A stable interface between agents and AgentTerm
 
@@ -95,46 +167,6 @@ You and your agents can change and extend this terminal, down to its code, to fi
 Use it and explore first; what you need may already be there. When you find something is indeed missing while you work, you are best placed to evaluate and fill the gap, with the scenario right in front of you.
 
 This terminal makes that quick: it is already a better tool for working with your agents, including the work to fix itself. Change its source, and every window opened afterward picks up your improvement. Read [Why I run AgentTerm from source](https://yunxin.github.io/rethink-terminal/run-from-source/).
-
-## What's added so far
-
-Below are just examples. Follow the links to explore more features.
-
-| Plain terminal | AgentTerm |
-|---|---|
-| **Sessions**<br>hard to tell apart | Each session has its own OS window, with a **[unique taskbar button or Dock tile](docs/sessions.md#switch-to-the-right-running-session)** (a preview on Windows, the session title on macOS), so you tell them apart at a glance. |
-| **Resume**<br>hard to find | **[Type a few letters to find and resume a closed session](docs/sessions.md#find-and-resume-sessions)**; the picker searches your prompts and session titles to help you return to the session. |
-| **Comment**<br>manually quote past output | **[Select anything the agent prints and comment](docs/comment.md)**. |
-| **Docs**<br>append-only, not rendered | Ask for a plan as a Markdown file and click its name. On the rendered page, **[comment on any passage or write changes directly](docs/plan.md)**. Your edits are proposals: the agent discusses your feedback in a thread beside the passage and updates the document to reflect your intent. AgentTerm shows what you proposed and what the agent changed. |
-| **Code**<br>scrolling fragments, or a wall of diff | The agent hands you a **[curated review, rendered](docs/review.md)**, with a narrative you can follow and the parts that need your attention called out; you comment inline, it fixes and replies in place. |
-| **Phone**<br>phone access depends on the CLI vendor; without it, travel back to check | **[See which agents need you across your machines](docs/phone.md)**. Open the same terminal on your phone, with the same layout so you recognize at once what you left behind; reply by voice. |
-| **Copy**<br>every paste needs cleanup | Copy what the agent wrote and it **[pastes into a chat or email ready to send](docs/copy.md)**, one clean paragraph instead of chopped lines. A doc in the viewer copies the same way. |
-| **View**<br>can't click a file name to see it | Click a file the agent mentions (a doc, an image, a video, a PDF) and **[see it right in the window](docs/viewer.md)**, above your prompt; it gets out of the way as your focus shifts. |
-| **Shared checkout** collisions<br>test ports, even with worktrees | Type one `@` mention (`@proceed-b` completes to the guide doc's path) and the agent **[takes the checkout lock](docs/lock.md)** and cuts a branch before its first edit; a padlock at the top right of each window shows who holds it. |
-| **Long jobs**<br>unresponsive, or a missed finish | The agent starts a CI run or other long job and hands the terminal back; **[the job reports its own completion](docs/jobs.md)** through the terminal and the idle agent is prompted to pick it up, even across a session restart; a runner icon at the top right shows what is running. |
-| Not an **IDE**<br>can't jump from a cited symbol or line to the code | Click any file:line or symbol the agent cites and **[your IDE jumps to that exact line](docs/ide.md)** after a brief pause for selection; Ctrl/Cmd-click jumps immediately. The editor stays read-only so a stray key changes nothing. |
-
-## How it works
-
-[![Multiple AgentTerm instances on macOS and Windows/WSL use editable agent guides, with optional external IDE integration and one shared hub for phone or browser access.](docs/assets/architecture.svg)](docs/assets/architecture.svg)
-
-AgentTerm runs your existing AI CLI in a full terminal, using Electron for the window, xterm.js for terminal emulation, and node-pty for the shell connection. The host parses terminal output for file references and recognized conventions, and keeps track of mentioned documents even when the CLI redraws the screen.
-
-Those references connect the conversation to host capabilities. A Markdown path identifies a document the host can render. A `review://` reference can trigger validation, rendering, and automatic opening of a review. Document viewing and review build on this mechanism. Guide files tell agents how to follow these conventions. For example, [agent-threads](https://github.com/albertwujj/agent-threads) provides the guides and file protocol for document and review feedback.
-
-To keep the terminal responsive, repeated scans are combined and scheduled, while file checks and review rendering run asynchronously.
-
-<a id="where-to-go-next"></a>
-
-## What's next
-
-The [quick start](#quick-start) sets up the terminal together with [plans](docs/plan.md), [reviews](docs/review.md), the [checkout lock](docs/lock.md), [long jobs](docs/jobs.md), and the voice interpretation guide. [Sessions started before you switched to AgentTerm](docs/sessions.md) work too.
-
-Follow the [suite guides](docs/suite.md#using-the-components) to start using them. For example, ask your agent for a curated review with `@produce-r`, which completes to [produce-review.md](https://github.com/albertwujj/agent-threads/blob/main/code/produce-review.md). The agent curates and presents the changes for you to review and comment on.
-
-Add [phone access](docs/phone.md) when you want to continue remotely, or [IDE integration](docs/ide.md) if you use an IDE. These have separate setup; phone voice input also needs recording and transcription configured on the hub.
-
-**Try a change** with your agents. The next window you open picks it up, since every window starts from the latest source ([how a window opens](docs/sessions.md)).
 
 My [design notes](https://yunxin.github.io/rethink-terminal/) share some of the thinking behind AgentTerm.
 
