@@ -10,6 +10,9 @@ const { createDoubleClickIntervalReader } = require('./double-click-interval');
 const { opensExternally, handoffLabel } = require('./url-open');
 const { showStartupError } = require('./startup-error');
 const { MAX_LOG_BYTES, rotateIfLarge, trimToTail } = require('./log-cap');
+const { RUNTIME_SOURCE, latestSourceChange } = require('./runtime-source');
+const runtimeSource = app[RUNTIME_SOURCE];
+const checkoutRoot = runtimeSource?.root || process.env.AGENT_TERM_DEV_SOURCE_WIN || app.getAppPath();
 
 // Before anything native loads, because the requires below are the ones that
 // would crash. Top-level return is a CommonJS module's own exit.
@@ -25,7 +28,7 @@ const { MAX_LOG_BYTES, rotateIfLarge, trimToTail } = require('./log-cap');
 // tests need is checked by neither (dep-freshness.js draws that line).
 const startupWarnings = [];
 if (!app.isPackaged) {
-  const root = path.join(__dirname, '..');
+  const root = runtimeSource && process.platform === 'darwin' ? checkoutRoot : path.join(__dirname, '..');
   const missing = missingRuntimeDependencies({ fs, root });
   if (missing.length) {
     showStartupError({ app, BrowserWindow }, {
@@ -100,11 +103,7 @@ const { launchEnvFile, writeLaunchEnv, taskbarTask } = require('./windows-launch
 // Successors (Cmd/Ctrl+Shift+N, relaunch) start from the path that carries the
 // app's name; on macOS that is the AgentTerm.app link the build makes.
 const successorExecPath = namedLaunchPath(process.execPath, { fs });
-// When this process started, which dates the code it runs: a source launch
-// loads its modules and rebuilds its bundles right after, and on Windows the
-// bootstrap stages its copy of src/ in this same process. A hidden window that
-// started before the checkout last changed resumes on the new code when
-// brought back (latestSourceChange).
+// A hidden window that started before the last source edit can resume on updated code.
 const PROCESS_STARTED_AT = Date.now() - Math.round(process.uptime() * 1000);
 const { rebuildRuntimeBundles } = require('./runtime-build');
 const { StreamClient } = require('./stream/client');
@@ -2101,7 +2100,7 @@ function setHidden(hidden) {
 let olderCodeNoticePending = false;
 async function checkOlderCodeOnReturn() {
   let changedAt = 0;
-  try { changedAt = await latestSourceChange(); } catch (err) {
+  try { changedAt = await latestCheckoutChange(); } catch (err) {
     log('[auto-hide] source check failed: ' + (err && err.message));
   }
   if (PROCESS_STARTED_AT >= changedAt) return;
@@ -3739,24 +3738,8 @@ ipcMain.on('viewer-disk-search-cancel', (event, payload = {}) => {
   cancelViewerDiskSearch(String(payload.requestId || ''));
 });
 
-// When the checkout this app runs from last changed: the newest mtime under
-// src/ and of the package manifests. A window whose process started before it
-// runs older code. On Windows the source is the WSL checkout the bootstrap
-// stages from, not this process's staged copy. A packaged build has no checkout.
-async function latestSourceChange() {
-  if (app.isPackaged) return 0;
-  const root = process.env.AGENT_TERM_DEV_SOURCE_WIN || app.getAppPath();
-  const newestUnder = async (dir) => {
-    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    const times = await Promise.all(entries.map((ent) => {
-      const p = path.join(dir, ent.name);
-      return ent.isDirectory() ? newestUnder(p) : fs.promises.stat(p).then((st) => st.mtimeMs);
-    }));
-    return Math.max(0, ...times);
-  };
-  const manifests = await Promise.all(['package.json', 'package-lock.json'].map((f) =>
-    fs.promises.stat(path.join(root, f)).then((st) => st.mtimeMs, () => 0)));
-  return Math.max(await newestUnder(path.join(root, 'src')), ...manifests);
+async function latestCheckoutChange() {
+  return app.isPackaged ? 0 : latestSourceChange(checkoutRoot);
 }
 
 // This window was opened to find a session another window holds; once that
@@ -3849,7 +3832,7 @@ async function pickSession(id) {
   }
   let changedAt = 0;
   if (rec.hiddenAt) {
-    try { changedAt = await latestSourceChange(); } catch (err) {
+    try { changedAt = await latestCheckoutChange(); } catch (err) {
       log('[resume] source check failed, bringing the window back as it is: ' + (err && err.message));
     }
   }
@@ -6597,20 +6580,21 @@ app.whenReady().then(async () => {
     log('[main] sessions-log startup init failed: ' + (err && err.message));
   }
 
-  // Dev: rebuild every generated runtime bundle on every startup. This covers
-  // both the host renderer and the sandboxed web-viewer preload; main/preload
-  // modules load directly from src. Old outputs are removed first, and any
-  // failure aborts before createWindow, so no launch or relaunch can execute a
-  // stale artifact. Packaged apps ship the bundles produced by the same helper.
+  // The source bootstrap can supply a completed build for this exact source
+  // and dependency generation. Otherwise build before opening the window.
   if (!app.isPackaged) {
     try {
-      rebuildRuntimeBundles({
-        esbuild: require('esbuild'),
-        fs,
-        srcDir: __dirname,
-        distDir: path.join(__dirname, '..', 'dist'),
-      });
-      log('[dev] rebuilt every runtime bundle on startup');
+      const build = () => {
+        rebuildRuntimeBundles({
+          esbuild: require('esbuild'),
+          fs,
+          srcDir: __dirname,
+          distDir: path.join(__dirname, '..', 'dist'),
+        });
+        log('[dev] rebuilt every runtime bundle on startup');
+      };
+      if (runtimeSource) runtimeSource.build(build);
+      else build();
     } catch (err) {
       const message = err && err.message ? err.message : String(err);
       log('[dev] runtime bundle rebuild FAILED:\n' + message);

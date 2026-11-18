@@ -31,9 +31,10 @@ function Get-JsonProperty($Object, [string]$Name) {
 $sourcePackage = Join-Path $SourceRoot 'package.json'
 $sourceLock = Join-Path $SourceRoot 'package-lock.json'
 $sourceBootstrap = Join-Path $SourceRoot 'scripts\windows-dev-bootstrap.js'
+$sourceRuntime = Join-Path $SourceRoot 'src\runtime-source.js'
 $sourcePostinstall = Join-Path $SourceRoot 'scripts\postinstall.js'
 $sourcePtyPerms = Join-Path $SourceRoot 'scripts\fix-pty-perms.js'
-foreach ($required in @($sourcePackage, $sourceLock, $sourceBootstrap, $sourcePostinstall, $sourcePtyPerms)) {
+foreach ($required in @($sourcePackage, $sourceLock, $sourceBootstrap, $sourceRuntime, $sourcePostinstall, $sourcePtyPerms)) {
   if (-not (Test-Path -LiteralPath $required)) {
     throw "Required development file is missing: $required"
   }
@@ -89,6 +90,7 @@ New-Item -ItemType Directory -Force -Path $runnerScripts | Out-Null
 $manifest.main = 'bootstrap.js'
 Write-Utf8NoBom $runnerPackage ($manifest | ConvertTo-Json -Depth 100)
 Copy-Item -Force -LiteralPath $sourceLock -Destination $runnerLock
+Copy-Item -Force -LiteralPath $sourceRuntime -Destination (Join-Path $runnerScripts 'runtime-source.js')
 Copy-Item -Force -LiteralPath $sourceBootstrap -Destination $runnerBootstrap
 Copy-Item -Force -LiteralPath $sourcePostinstall -Destination (Join-Path $runnerScripts 'postinstall.js')
 Copy-Item -Force -LiteralPath $sourcePtyPerms -Destination (Join-Path $runnerScripts 'fix-pty-perms.js')

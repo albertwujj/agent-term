@@ -6,23 +6,18 @@ const path = require('path');
 const {
   RUNTIME_ASSETS,
   RUNTIME_ENTRIES,
-  claimUnusedGenerations,
-  shouldRun,
+  claimUnusedSnapshots,
+  latestSourceChange,
+  prepareSource,
+  publishSnapshot,
   stageSource,
-} = require('../scripts/windows-dev-bootstrap');
+} = require('../src/runtime-source');
+const { claimUnusedGenerations, shouldRun } = require('../scripts/windows-dev-bootstrap');
 
-let testsPassed = 0, testsFailed = 0;
+const tests = [];
 
 function test(name, fn) {
-  try {
-    fn();
-    testsPassed++;
-    console.log(`  ✓ ${name}`);
-  } catch (err) {
-    testsFailed++;
-    console.log(`  ✗ ${name}`);
-    console.log(`      ${err.message}`);
-  }
+  tests.push({ name, fn });
 }
 
 console.log('windows-dev-bootstrap');
@@ -84,6 +79,116 @@ test('a new process snapshot reads fresh source without replacing another snapsh
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+async function withSnapshotFixture(fn) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-snapshot-'));
+  const source = path.join(root, 'checkout with spaces');
+  const runner = path.join(root, 'runner');
+  const main = path.join(source, 'src', 'main.js');
+  try {
+    fs.mkdirSync(path.dirname(main), { recursive: true });
+    fs.writeFileSync(main, 'main-v1');
+    fs.writeFileSync(path.join(source, 'package.json'), '{}');
+    writeRunnerAssets(runner);
+    let editedAt = Date.now();
+    const edit = (file, content) => {
+      fs.writeFileSync(file, content);
+      editedAt += 1000;
+      fs.utimesSync(file, new Date(editedAt), new Date(editedAt));
+    };
+    await fn({ source, runner, main, edit });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('a completed snapshot reuses the staged code and bundles until its runtime inputs change', () =>
+  withSnapshotFixture(async ({ source, runner, main, edit }) => {
+    const first = await prepareSource(source, runner, { pid: 1 });
+    assert.ok(first.snapshot);
+    assert.ok(!fs.existsSync(first.snapshot), 'an unbuilt stage cannot be reused');
+    const bundle = path.join('dist', 'renderer.js');
+    fs.mkdirSync(path.join(first.stageRoot, 'dist'));
+    fs.writeFileSync(path.join(first.stageRoot, bundle), 'compiled-v1');
+    publishSnapshot(first.stageRoot, first.snapshot);
+    publishSnapshot(first.stageRoot, first.snapshot);
+
+    const second = await prepareSource(source, runner, { pid: 2 });
+    assert.strictEqual(second.reused, true);
+    assert.strictEqual(fs.readFileSync(path.join(second.stageRoot, bundle), 'utf8'), 'compiled-v1');
+    edit(main, 'main-v2');
+    const edited = await prepareSource(source, runner, { pid: 3 });
+    assert.notStrictEqual(edited.snapshot, first.snapshot);
+    assert.ok(!fs.existsSync(path.join(edited.stageRoot, bundle)));
+
+    edit(path.join(source, 'src', 'untracked.js'), 'new file');
+    const added = await prepareSource(source, runner, { pid: 4 });
+    assert.notStrictEqual(added.snapshot, edited.snapshot);
+    assert.strictEqual(fs.readFileSync(path.join(added.stageRoot, 'src', 'untracked.js'), 'utf8'), 'new file');
+    edit(path.join(source, 'package-lock.json'), '{}');
+    const manifestChanged = await prepareSource(source, runner, { pid: 5 });
+    assert.notStrictEqual(manifestChanged.snapshot, added.snapshot);
+    assert.strictEqual(fs.readFileSync(path.join(second.stageRoot, 'src', 'main.js'), 'utf8'), 'main-v1');
+  }));
+
+test('source changed during staging never populates the earlier cache key', () =>
+  withSnapshotFixture(async ({ source, runner, main, edit }) => {
+    let firstCheck = true;
+    const staged = await prepareSource(source, runner, {
+      pid: 1,
+      async readChange(root) {
+        const checkedAt = await latestSourceChange(root);
+        if (firstCheck) edit(main, 'main-v2');
+        firstCheck = false;
+        return checkedAt;
+      },
+    });
+    assert.strictEqual(staged.snapshot, undefined);
+    assert.strictEqual(fs.readFileSync(path.join(staged.stageRoot, 'src', 'main.js'), 'utf8'), 'main-v2');
+  }));
+
+test('snapshot pruning leaves a running window’s stage readable', () =>
+  withSnapshotFixture(async ({ source, runner, main, edit }) => {
+    const first = await prepareSource(source, runner, { pid: 1 });
+    publishSnapshot(first.stageRoot, first.snapshot);
+    fs.utimesSync(first.snapshot, new Date(1000), new Date(1000));
+    const live = await prepareSource(source, runner, { pid: 2 });
+    assert.strictEqual(live.reused, true);
+    for (let i = 3; i < 6; i++) {
+      edit(main, `main-v${i}`);
+      const next = await prepareSource(source, runner, { pid: i });
+      publishSnapshot(next.stageRoot, next.snapshot);
+    }
+    const claimed = claimUnusedSnapshots(runner);
+    assert.strictEqual(claimed.length, 1);
+    assert.ok(!fs.existsSync(first.snapshot));
+    fs.rmSync(claimed[0], { recursive: true });
+    assert.strictEqual(fs.readFileSync(path.join(live.stageRoot, 'src', 'main.js'), 'utf8'), 'main-v1');
+  }));
+
+test('a failed modification-time check falls back to a private copy', () =>
+  withSnapshotFixture(async ({ source, runner }) => {
+    const staged = await prepareSource(source, runner, {
+      pid: 1, readChange: async () => { throw new Error('read failed'); },
+    });
+    assert.strictEqual(staged.snapshot, undefined);
+    assert.strictEqual(fs.readFileSync(path.join(staged.stageRoot, 'src', 'main.js'), 'utf8'), 'main-v1');
+  }));
+
+test('local launches use dependencies from the checkout and invalidate on install stamp changes', () =>
+  withSnapshotFixture(async ({ source, runner }) => {
+    writeRunnerAssets(source, 'checkout-xterm-css');
+    const first = await prepareSource(source, runner, {
+      pid: 1, dependencyRoot: source, dependencyStamp: 'old-install',
+    });
+    publishSnapshot(first.stageRoot, first.snapshot);
+    assert.strictEqual(fs.readFileSync(path.join(first.stageRoot, RUNTIME_ASSETS[0]), 'utf8'), 'checkout-xterm-css');
+    const next = await prepareSource(source, runner, {
+      pid: 2, dependencyRoot: source, dependencyStamp: 'new-install',
+    });
+    assert.notStrictEqual(next.snapshot, first.snapshot);
+    assert.strictEqual(next.reused, undefined);
+  }));
 
 test('fails clearly when the staged browser stylesheet is missing', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-win-dev-'));
@@ -321,7 +426,7 @@ test('claimed generations are deleted on a worker thread', () => {
   const { root, runtime } = makeRuntime({ '.delete-a': {}, '.delete-b': {} });
   try {
     const targets = JSON.stringify([path.join(runtime, '.delete-a'), path.join(runtime, '.delete-b')]);
-    const bootstrap = JSON.stringify(path.join(__dirname, '..', 'scripts', 'windows-dev-bootstrap.js'));
+    const bootstrap = JSON.stringify(path.join(__dirname, '..', 'src', 'runtime-source.js'));
     // The worker is unref'd so it never holds a window's process open; this
     // child holds it until the delete is done.
     const run = spawnSync(process.execPath, ['-e', `
@@ -336,5 +441,19 @@ test('claimed generations are deleted on a worker thread', () => {
   }
 });
 
-console.log(`\n${testsPassed} passed, ${testsFailed} failed`);
-process.exit(testsFailed > 0 ? 1 : 0);
+async function runTests() {
+  let failed = 0;
+  for (const { name, fn } of tests) {
+    try {
+      await fn();
+      console.log(`  ✓ ${name}`);
+    } catch (err) {
+      failed++;
+      console.log(`  ✗ ${name}`);
+      console.log(`      ${err.message}`);
+    }
+  }
+  console.log(`\n${tests.length - failed} passed, ${failed} failed`);
+  process.exitCode = failed > 0 ? 1 : 0;
+}
+runTests();

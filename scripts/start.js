@@ -4,7 +4,7 @@
 // UI belongs on Windows, so the launch hands over to the Windows launcher,
 // whose Electron builds the runtime bundles itself; `npm run start:linux`
 // (--linux) keeps it here instead, in Linux Electron through WSLg. On macOS the
-// launch goes through the AgentTerm.app link the build made next to
+// launch goes through the AgentTerm.app link next to
 // Electron.app, because the Dock and Cmd-Tab name a process after the bundle
 // folder it was launched through. Elsewhere the electron package's own binary
 // is used directly.
@@ -29,15 +29,19 @@ if (!linux && (process.env.WSL_DISTRO_NAME || /microsoft/i.test(os.release()))) 
   return;
 }
 
-const build = spawnSync(process.execPath, [path.join(__dirname, 'build-runtime.js')], { stdio: 'inherit' });
-if (build.status !== 0) process.exit(build.status === null ? 1 : build.status);
-
-const { namedBundleExecPath } = require('../src/electron-app-name');
+const { nameElectronBundle, namedBundleExecPath } = require('../src/electron-app-name');
 const { sourceLaunchEnv } = require('../src/source-start-cwd');
 
-const execPath = process.platform === 'darwin'
-  ? namedBundleExecPath(path.dirname(require.resolve('electron/package.json')))
-  : require('electron');
+let execPath;
+if (process.platform === 'darwin') {
+  const electronDir = path.dirname(require.resolve('electron/package.json'));
+  nameElectronBundle({ fs: require('fs'), electronDir });
+  execPath = namedBundleExecPath(electronDir);
+} else {
+  const build = spawnSync(process.execPath, [path.join(__dirname, 'build-runtime.js')], { stdio: 'inherit' });
+  if (build.status !== 0) process.exit(build.status === null ? 1 : build.status);
+  execPath = require('electron');
+}
 
 // The launch directory is npm's, not one inherited from the AgentTerm window
 // this command may have been typed in (sourceLaunchEnv).

@@ -1,61 +1,14 @@
 const fs = require('fs');
 const path = require('path');
-const { Worker } = require('worker_threads');
 
-const RUNTIME_ENTRIES = ['src'];
-// Browser file URLs do not use Node's ancestor-based module resolution.
-const RUNTIME_ASSETS = [
-  path.join('node_modules', '@xterm', 'xterm', 'css', 'xterm.css'),
-];
-
-function stageSource(sourceRoot, runnerRoot, pid = process.pid, fsApi = fs) {
-  if (!sourceRoot) throw new Error('AGENT_TERM_DEV_SOURCE_WIN is not set');
-
-  const stageRoot = path.join(runnerRoot, 'stage', String(pid));
-  fsApi.rmSync(stageRoot, { recursive: true, force: true });
-  fsApi.mkdirSync(stageRoot, { recursive: true });
-
-  for (const entry of RUNTIME_ENTRIES) {
-    const source = path.join(sourceRoot, entry);
-    if (!fsApi.existsSync(source)) throw new Error(`development source is missing ${entry}/`);
-    fsApi.cpSync(source, path.join(stageRoot, entry), { recursive: true });
-  }
-  for (const asset of RUNTIME_ASSETS) {
-    const source = path.join(runnerRoot, asset);
-    if (!fsApi.existsSync(source)) throw new Error(`development dependency asset is missing ${asset}`);
-    const destination = path.join(stageRoot, asset);
-    fsApi.mkdirSync(path.dirname(destination), { recursive: true });
-    fsApi.copyFileSync(source, destination);
-  }
-  fsApi.copyFileSync(
-    path.join(sourceRoot, 'package.json'),
-    path.join(stageRoot, 'package.json'),
-  );
-  return stageRoot;
-}
-
-function run() {
-  const stageRoot = stageSource(
-    process.env.AGENT_TERM_DEV_SOURCE_WIN,
-    __dirname,
-  );
-
-  // Every Electron process gets its own source snapshot. Separate windows can
-  // therefore start concurrently, and a successor reads fresh files without
-  // either process deleting files from underneath the other.
-  process.once('exit', () => {
-    try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch {}
+async function run() {
+  const { loadSource } = require('./scripts/runtime-source');
+  await loadSource({
+    app: require('electron').app,
+    sourceRoot: process.env.AGENT_TERM_DEV_SOURCE_WIN,
+    runnerRoot: __dirname,
+    claimOther: () => claimUnusedGenerations(__dirname),
   });
-
-  require(path.join(stageRoot, 'src', 'main.js'));
-
-  setTimeout(() => {
-    try {
-      removeInBackground(claimUnusedGenerations(__dirname));
-    } catch (err) {
-      console.warn(`[bootstrap] dependency generation cleanup failed: ${err.message}`);
-    }
-  }, PRUNE_DELAY_MS).unref();
 }
 
 // Each dependency change installs a new generation beside the old ones
@@ -68,7 +21,6 @@ function run() {
 // while a program inside it is still running, and from then on nothing can
 // launch from a half-deleted tree. The delete itself runs on a worker thread,
 // well after startup: it is thousands of files, and seconds of disk work.
-const PRUNE_DELAY_MS = 30 * 1000;
 const PRUNE_PREFIX = '.delete-';
 const INSTALL_STAMP = '.dependency-stamp';
 // A generation without its stamp is an install another launch is still
@@ -111,22 +63,6 @@ function claimUnusedGenerations(runnerRoot, { fsApi = fs, alive = isAlive, now =
   return claimed;
 }
 
-function removeInBackground(targets, WorkerImpl = Worker) {
-  if (!targets.length) return null;
-  console.log(`[bootstrap] removing unused dependency generations: ${targets.join(', ')}`);
-  const worker = new WorkerImpl(`
-    const fs = require('fs');
-    for (const target of require('worker_threads').workerData) {
-      fs.rmSync(target, { recursive: true, force: true, maxRetries: 3 });
-    }
-  `, { eval: true, workerData: targets });
-  worker.on('error', (err) => {
-    console.warn(`[bootstrap] dependency generation removal stopped, the next start resumes it: ${err.message}`);
-  });
-  worker.unref();
-  return worker;
-}
-
 function shouldRun(processApi = process) {
   return Boolean(
     processApi.versions &&
@@ -155,9 +91,12 @@ function applyLaunchEnv(argv, env, fsApi = fs) {
 }
 
 applyLaunchEnv(process.argv, process.env);
-if (shouldRun()) run();
+if (shouldRun()) run().catch((error) => {
+  const { app, dialog } = require('electron');
+  dialog.showErrorBox('AgentTerm source launch failed', error.stack || error.message);
+  app.exit(1);
+});
 
 module.exports = {
-  LAUNCH_ENV_ARG, RUNTIME_ASSETS, RUNTIME_ENTRIES, applyLaunchEnv, claimUnusedGenerations,
-  removeInBackground, shouldRun, stageSource,
+  LAUNCH_ENV_ARG, applyLaunchEnv, claimUnusedGenerations, shouldRun,
 };
