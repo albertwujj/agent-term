@@ -50,3 +50,5 @@ See the [full picker demo](#start-or-resume-a-session).
 - Every new window picks up the latest source from your agent-term clone; a build that fails stops that launch rather than running stale bundles.
 - If the picker's directory is not the one you want, `cd` there, then start the CLI.
 - To close the last window without getting a fresh one, type `exit`. Like `cd` and the CLI's name, it is just a shell command.
+
+You can set up the first AgentTerm window to open at sign-in after a reboot. Your coding agent can help with a PowerShell logon task that launches via WSL on Windows, or a per-user LaunchAgent on macOS.
