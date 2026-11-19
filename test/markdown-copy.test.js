@@ -97,6 +97,7 @@ const viewer = createMarkdownViewer({
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const primary = () => document.querySelectorAll('.md-viewer-body')[0];
 const copyBtn = () => document.querySelector('.md-copy-body');
+const copyLabel = () => copyBtn().getAttribute('aria-label');
 const key = (init, type = 'keydown') => document.dispatchEvent(new dom.window.KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
 
 // The innermost block holding the text (an outer list item's text includes
@@ -173,7 +174,7 @@ async function run() {
   // --- a clicked heading marks its section ---
   clickBlock('Alpha');
   await sleep(5);
-  check('arming a heading relabels the button as the section', copyBtn()._restLabel === '⧉ section', copyBtn()._restLabel);
+  check('arming a heading relabels the button as the section', copyLabel() === 'Copy section', copyLabel());
   key({ key: 'Control', ctrlKey: true });
   check('Markdown preview retains the armed section scope',
     copyBtn().textContent === '⧉ section · md' && copyBtn().title.includes('the section'), copyBtn().textContent);
@@ -201,7 +202,7 @@ async function run() {
   // --- a clicked paragraph is itself ---
   clickBlock('Beta body');
   await sleep(5);
-  check('arming a paragraph relabels the button', copyBtn()._restLabel === '⧉ paragraph', copyBtn()._restLabel);
+  check('arming a paragraph relabels the button', copyLabel() === 'Copy paragraph', copyLabel());
   {
     const text = await pressCopy();
     check('paragraph copy is that paragraph', text === 'Beta body paragraph.', text);
@@ -210,7 +211,7 @@ async function run() {
   // --- a nested list item is lifted to column 0 for the source variant ---
   clickBlock('nested');
   await sleep(5);
-  check('a list item labels as an item', copyBtn()._restLabel === '⧉ item', copyBtn()._restLabel);
+  check('a list item labels as an item', copyLabel() === 'Copy item', copyLabel());
   {
     const text = await pressCopy({ metaKey: true });
     check('nested item source copies dedented', text === '- nested', text);
@@ -241,7 +242,7 @@ async function run() {
   }
   key({ key: 'Escape' });
   await sleep(10);
-  check('clearing the target returns the button to the whole text', copyBtn()._restLabel === '⧉ text', copyBtn()._restLabel);
+  check('clearing the target returns the button to the whole text', copyLabel() === 'Copy text', copyLabel());
 
   // Message links must survive both clipboard flavors, including scoped copy.
   currentSource = [
@@ -351,7 +352,7 @@ async function run() {
       text === ['Before the table.', tableText, 'After the table.'].join('\n\n'), text);
   }
   clickBlock('Orion');
-  check('clicking a table scopes copy to that table', copyBtn()._restLabel === '⧉ table', copyBtn()._restLabel);
+  check('clicking a table scopes copy to that table', copyLabel() === 'Copy table', copyLabel());
   {
     const text = await pressCopy();
     check('plain table copy repeats headers as labels and separates records with a blank line', text === tableText, text);

@@ -335,10 +335,6 @@ function ensureStyles() {
       border-radius: 6px;
       transition: background-color 200ms ease;
     }
-    /* The copy-text bar button is a glyph + word ("⧉ text"), not a single icon —
-       widen it past the ✕'s fixed 22px (a two-class selector so it beats the base
-       .vb-btn width). */
-    .vb-btn.md-copy-body { width: auto; padding: 0 9px; }
     .md-viewer-body pre code {
       background: transparent;
       border-radius: 0;
@@ -1389,18 +1385,17 @@ function createMarkdownViewer({
     // the modifier.
     if (band.barRight && !band.barRight.querySelector('.md-copy-body')) {
       const modClick = (isMac() ? '⌘' : 'Ctrl') + '-click';
-      const copyBtn = band.makeBtn(
-        '⧉ text',
+      const copyBtn = band.makeCopyBtn(
+        'text',
         `Copy message text (no headings, no comments; keeps links and tables), for Teams or email: the whole document, or click a heading first for just its section, a paragraph for just that paragraph. ${modClick}: the markdown source instead, for Reddit or GitHub`,
         (e) => copyDocBody(isFollowModifier(e)),
       );
-      copyBtn.classList.add('md-copy-body');
-      copyBtn._messageTitle = copyBtn.title;
+      copyBtn.button.classList.add('md-copy-body');
       // Pointer events recover modifiers held before the window gained focus;
       // key events below also update a pointer already resting on the button.
-      copyBtn.addEventListener('pointerenter', handleCopyModifier);
-      copyBtn.addEventListener('pointermove', handleCopyModifier);
-      band.barRight.appendChild(copyBtn);
+      copyBtn.button.addEventListener('pointerenter', handleCopyModifier);
+      copyBtn.button.addEventListener('pointermove', handleCopyModifier);
+      band.barRight.appendChild(copyBtn.button);
       state.copyBtn = copyBtn;
       syncCopyLabel();
     }
@@ -5066,52 +5061,40 @@ function createMarkdownViewer({
     const btn = state.copyBtn;
     if (!btn) return;
     const scope = copyScope().label;
-    btn._restLabel = '⧉ ' + scope + (state.copySourceHint ? ' · md' : '');
-    btn.title = state.copySourceHint
+    const label = scope + (state.copySourceHint ? ' · md' : '');
+    const title = state.copySourceHint
       ? `Copy as Markdown: ${scope === 'text' ? 'the whole document' : `the ${scope}`}, for Reddit or GitHub`
-      : btn._messageTitle;
-    if (!btn._copyTimer) btn.textContent = btn._restLabel;
+      : undefined;
+    btn.setLabel(label, title);
   }
 
   // `source` copies the markdown source of the scope verbatim (comments and
   // un-sent edits live in the sidecar, so they stay out either way); the flash
   // on the bar button says which copy fired.
-  function copyDocBody(source = false) {
-    const btn = state.copyBtn;
-    const flash = (label) => {
-      if (!btn) return;
-      btn.textContent = label;
-      clearTimeout(btn._copyTimer);
-      btn._copyTimer = setTimeout(() => {
-        btn._copyTimer = null;
-        btn.textContent = btn._restLabel || label;
-      }, 1400);
-    };
+  async function copyDocBody(source) {
     const scope = copyScope();
     // A source slice keeps the blank lines the file puts around a section
     // (after its heading, before the next); pasted, they read as padding.
     const content = source || scope.raw ? { text: String(scope.src || '') } : buildMessageCopy(scope.src);
     const text = content.text.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
-    if (!text.trim()) { flash('∅'); return; }
-    Promise.resolve()
-      .then(async () => {
-        if (content.html && navigator.clipboard.write && window.ClipboardItem) {
-          try {
-            await navigator.clipboard.write([new window.ClipboardItem({
-              'text/plain': new Blob([text], { type: 'text/plain' }),
-              'text/html': new Blob([content.html], { type: 'text/html' }),
-            })]);
-            return;
-          } catch {} // A host without rich clipboard support still keeps the URLs.
-        }
-        await navigator.clipboard.writeText(text);
-      })
-      .then(() => flash(source ? '✓ md' : '✓'), () => flash('✕')); // ✓ mirrors the web viewer's copy-url
+    if (!text.trim()) return '∅';
     // A bar click moved focus to the button; the armed target keeps taking
     // its keys from the shell.
     if (state.activeTarget && state.shell) {
       try { state.shell.focus({ preventScroll: true }); } catch {}
     }
+    const confirmation = source ? '✓ md' : '✓';
+    if (content.html && navigator.clipboard.write && window.ClipboardItem) {
+      try {
+        await navigator.clipboard.write([new window.ClipboardItem({
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+          'text/html': new Blob([content.html], { type: 'text/html' }),
+        })]);
+        return confirmation;
+      } catch {} // A host without rich clipboard support still keeps the URLs.
+    }
+    await navigator.clipboard.writeText(text);
+    return confirmation;
   }
 
   // When an edit ends with no live strike-in-place marks (its content was
@@ -7676,7 +7659,7 @@ function createMarkdownViewer({
       const native = window.getSelection && window.getSelection();
       if (!native || native.isCollapsed) {
         event.preventDefault();
-        copyDocBody(false);
+        state.copyBtn.copy();
         return;
       }
     }

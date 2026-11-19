@@ -8,7 +8,8 @@
 // This drives the REAL app: it prints that exact two-row layout for a real PNG,
 // asserts both fragments are underlined and hover-clickable, and asserts a click
 // on EITHER fragment opens the reassembled full path (captured at the main-side
-// 'open-resource' IPC boundary, so no file is actually opened).
+// 'open-resource' IPC boundary for the OS handoff). The first plain click also
+// exercises copying the opened image to the native clipboard.
 //
 // Run: npm run test:e2e   (builds the renderer first, then this)
 
@@ -55,7 +56,11 @@ fs.writeFileSync(scriptPath, `clear\nprintf '%s\\n' ${JSON.stringify(line1)} ${J
 
 async function main() {
   if (line1.length > 200) throw new Error('head row too long for the test window width');
-  const app = await launchElectron({ executablePath: ELECTRON_BIN, args: ['--no-sandbox', APP_DIR], timeout: 45_000 });
+  const app = await launchElectron({
+    executablePath: ELECTRON_BIN,
+    args: ['--no-sandbox', `--user-data-dir=${path.join(tmp, 'userdata')}`, APP_DIR],
+    timeout: 45_000,
+  });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('.xterm-helper-textarea', { timeout: 30_000 });
@@ -115,6 +120,14 @@ async function main() {
       await page.waitForSelector('.vb-shell.vb-web.open', { timeout: 10_000 }).catch(() => {});
       check(`a click on segment ${i} opens the image in the band`, await bandOpen());
       check(`and hands it to no other application`, (await captured()) === null, `\n     got: ${await captured()}`);
+      if (i === 0) {
+        await app.evaluate(({ clipboard }) => clipboard.clear());
+        await page.getByTitle('Copy image', { exact: true }).click({ timeout: 5000 });
+        await page.waitForFunction(() => document.querySelector('button[title="Copy image"]')?.textContent === '✓',
+          null, { timeout: 5000 });
+        const size = await app.evaluate(({ clipboard }) => clipboard.readImage().getSize());
+        check('Copy image puts the PNG on the clipboard', size.width === 1 && size.height === 1);
+      }
       await closeBand();
 
       await resetCapture();

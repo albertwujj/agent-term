@@ -2,6 +2,8 @@
 
 The viewer band sits above the prompt and shows what you are working on: the agent's markdown docs and its reviews ([edit](plan.md) and [comment](comment.md)), plus images, video, audio, PDFs, and local pages. It is part of the terminal, so it expands and hides on its own.
 
+You can copy an open image to paste into chat, email, or other apps.
+
 ## Open something
 
 Clicking what the agent prints is the usual way in ([what a click does](clicks.md)). `Ctrl/Cmd+Shift+U` opens one without a click: a list of what you opened and what the session has shown, filtered as you type.

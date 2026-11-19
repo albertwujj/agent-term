@@ -10,6 +10,7 @@
 // Requires webviewTag:true on the host BrowserWindow (set in main.js).
 
 const { createViewerBand } = require('./viewer-band');
+const { bandViewableKind } = require('./band-viewable');
 const { createUnseenTracker } = require('./viewer-updates');
 const { isFindShortcut } = require('./search-shortcut');
 
@@ -23,6 +24,19 @@ function normalizeHttpUrl(raw) {
   } catch {
     return null;
   }
+}
+
+async function imageAsPng(url) {
+  const image = new Image();
+  image.src = url;
+  await image.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  canvas.getContext('2d').drawImage(image, 0, 0);
+  const png = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!png) throw new Error('Could not encode image for the clipboard');
+  return png;
 }
 
 function ensureWebStyles() {
@@ -51,7 +65,8 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
   let viewPreloadKind = null;
   let backBtn = null;
   let fwdBtn = null;
-  let copyBtn = null;
+  let imageCopy = null;
+  let imageCopyUrl = '';
   let navReady = false;
   let destroyTimer = null;
   let entryUrl = null;       // the url passed to open() — what we route to the browser on a block
@@ -87,6 +102,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     onClose: () => {
       unseen.reset();
       closeFind();
+      setImageCopyUrl('');
       if (destroyTimer) clearTimeout(destroyTimer);
       destroyTimer = setTimeout(() => { destroyView(); destroyTimer = null; }, 200);
       if (typeof onClose === 'function') onClose();
@@ -116,21 +132,12 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     try { return view.getURL() || ''; } catch { return ''; }
   }
 
-  // Copy the current page URL to the clipboard, with brief inline ✓ feedback. Bound to the
-  // bar's ⧉ button (the discoverable path) and to right-clicking the bar (free, matches the
-  // muscle memory). The button is recreated per session; copyBtn may be null before nav setup.
-  let copyResetTimer = null;
-  function copyUrl() {
-    const url = safeUrl();
-    if (!url) return;
-    try { navigator.clipboard.writeText(url); } catch {}
-    if (!copyBtn) return;
-    copyBtn.textContent = '✓';
-    copyBtn.title = 'Copied';
-    if (copyResetTimer) clearTimeout(copyResetTimer);
-    copyResetTimer = setTimeout(() => {
-      copyBtn.textContent = '⧉'; copyBtn.title = 'Copy URL'; copyResetTimer = null;
-    }, 1000);
+  function setImageCopyUrl(url) {
+    const next = url.startsWith('file:') && bandViewableKind(url) === 'image' ? url : '';
+    if (next === imageCopyUrl) return;
+    imageCopyUrl = next;
+    imageCopy.reset();
+    imageCopy.button.hidden = !next;
   }
 
   // Device-compliance / Conditional Access dead-ends — where the IdP demands a managed,
@@ -189,9 +196,22 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     // application/xhtml+xml content-type — see normalizeViewerContentType in main.js). A
     // cache-bypassing refetch replaces the poisoned entry while cookies (the login) survive.
     const reloadBtn = band.makeBtn('⟳', 'Reload', () => { try { view && view.reloadIgnoringCache(); } catch {} });
-    copyBtn = band.makeBtn('⧉', 'Copy URL', copyUrl);
-    band.barLeft.append(backBtn, fwdBtn, reloadBtn, copyBtn);
-    try { band.bar.addEventListener('contextmenu', (e) => { e.preventDefault(); copyUrl(); }); } catch {}
+    const urlCopy = band.makeCopyBtn('', 'Copy URL', () => {
+      const url = safeUrl();
+      return url ? navigator.clipboard.writeText(url) : false;
+    });
+    band.barLeft.append(backBtn, fwdBtn, reloadBtn, urlCopy.button);
+    band.bar.addEventListener('contextmenu', (e) => { e.preventDefault(); urlCopy.copy(); });
+
+    imageCopy = band.makeCopyBtn('image', 'Copy image', () => {
+      // Give Chromium the promised PNG during the click, while the source
+      // decodes at its intrinsic size regardless of the viewer's zoom.
+      return navigator.clipboard.write([new window.ClipboardItem({
+        'image/png': imageAsPng(imageCopyUrl),
+      })]);
+    });
+    imageCopy.button.hidden = true;
+    band.barRight.appendChild(imageCopy.button);
     navReady = true;
   }
 
@@ -228,8 +248,15 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     // runs, and the click dies silently.
     view.setAttribute('allowpopups', '');
 
-    view.addEventListener('did-navigate', () => { band.setTitle(safeUrl()); refreshNav(); });
-    view.addEventListener('did-navigate-in-page', refreshNav);
+    view.addEventListener('did-navigate', (e) => {
+      band.setTitle(e.url);
+      setImageCopyUrl(e.url);
+      refreshNav();
+    });
+    view.addEventListener('did-navigate-in-page', (e) => {
+      if (e.isMainFrame) setImageCopyUrl(e.url);
+      refreshNav();
+    });
     view.addEventListener('page-title-updated', (e) => {
       band.setTitle(e.title ? `${e.title} — ${safeUrl()}` : safeUrl());
     });
@@ -380,6 +407,7 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     // A reload held for a composer on the previous page must not fire on this one.
     if (heldReloadTimer) { clearTimeout(heldReloadTimer); heldReloadTimer = null; }
     ensureView(review ? 'review' : 'remote');
+    setImageCopyUrl(safeUrl() === target ? target : '');
     band.open();
     band.setTitle(target);
     // Each clicked URL is a normal navigation, so back returns to the previous

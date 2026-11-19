@@ -224,6 +224,8 @@ function ensureBandStyles() {
     }
     .vb-btn:hover { background: #63666c; }
     .vb-btn:disabled { opacity: 0.4; cursor: default; }
+    .vb-btn[hidden] { display: none; }
+    .vb-btn.vb-copy-content { width: auto; padding: 0 9px; }
     .vb-title {
       flex: 1 1 auto; min-width: 0;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -389,6 +391,46 @@ function createViewerBand({
     // event goes along so a widget can offer a modifier-click variant.
     btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(e); });
     return btn;
+  }
+
+  function makeCopyBtn(subject, title, write) {
+    let label = '';
+    let timer = null;
+    let request = 0;
+    const button = makeBtn('', title, copy);
+    setLabel(subject);
+
+    function setLabel(nextSubject, description = title) {
+      label = nextSubject ? `⧉ ${nextSubject}` : '⧉';
+      button.classList.toggle('vb-copy-content', !!nextSubject);
+      button.setAttribute('aria-label', nextSubject ? `Copy ${nextSubject}` : title);
+      button.title = description;
+      if (timer === null) button.textContent = label;
+    }
+
+    function reset() {
+      request++;
+      clearTimeout(timer);
+      timer = null;
+      button.textContent = label;
+    }
+
+    // A writer can return its own confirmation or false when there was nothing to copy.
+    async function copy(event) {
+      reset();
+      const current = request;
+      let feedback;
+      try {
+        feedback = await write(event);
+      } catch {
+        feedback = '✕';
+      }
+      if (current !== request || feedback === false) return;
+      button.textContent = feedback || '✓';
+      timer = setTimeout(reset, 1400);
+    }
+
+    return { button, copy, reset, setLabel };
   }
 
   function mount() {
@@ -800,7 +842,7 @@ function createViewerBand({
 
   const api = {
     mount, open, hide, withdraw, show, toggle, toggleFullSize, close, isOpen, isHidden, isFull,
-    setTitle, makeBtn, flash, setUnseen,
+    setTitle, makeBtn, makeCopyBtn, flash, setUnseen,
     recede, contentArrived, agentWrote, setWriting,
     get shell() { return shell; },
     get bar() { return bar; },
