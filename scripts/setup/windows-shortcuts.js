@@ -164,7 +164,8 @@ Write-Output 'installed'
 
 // Pillow rasterizes the SVG's geometry at 8x and scales down, which keeps the
 // strokes smooth at the small sizes Windows asks an .ico for. The geometry
-// mirrors scripts/setup/icon.svg; the comment there says where it comes from.
+// mirrors scripts/setup/icon.svg: the phone app's glyph at 80%, centered, on
+// white. The comment there says where it comes from.
 function renderIcon() {
   const out = path.join(os.tmpdir(), `${NAME}-${process.pid}.ico`);
   // The path rides as an argument, not inside the program text.
@@ -175,9 +176,10 @@ try:
 except ImportError:
     sys.exit(2)
 S = 1440
+im = Image.new('RGBA', (S, S), '#ffffff')
+tile = Image.new('RGBA', (S, S), '#0c0c0c')
+d = ImageDraw.Draw(tile)
 k = S / 180
-im = Image.new('RGBA', (S, S), '#0c0c0c')
-d = ImageDraw.Draw(im)
 pts = [(54*k, 62*k), (88*k, 90*k), (54*k, 118*k)]
 w = 11*k
 d.line(pts, fill='#61d6d6', width=round(w), joint='curve')
@@ -185,6 +187,8 @@ for x, y in pts:
     r = w/2
     d.ellipse((x-r, y-r, x+r, y+r), fill='#61d6d6')
 d.rounded_rectangle((100*k, 106*k, 138*k, 118*k), radius=2*k, fill='#a3d977')
+tile = tile.resize((round(S*0.8), round(S*0.8)), Image.LANCZOS)
+im.paste(tile, (round(S*0.1), round(S*0.1)))
 sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256]
 im.save(sys.argv[1], format='ICO', sizes=[(s, s) for s in sizes])
 `, out]);
