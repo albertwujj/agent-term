@@ -205,6 +205,15 @@ try {
   const fit = parseInt(await level.textContent(), 10);
   await stage.dblclick();
   assert.ok(parseInt(await level.textContent(), 10) > fit);
+  const panX = frame.x + frame.width / 2;
+  const panY = frame.y + frame.height / 2;
+  const imageLeft = () => stage.locator('img').evaluate((el) => el.getBoundingClientRect().left);
+  const beforePan = await imageLeft();
+  await page.mouse.move(panX, panY);
+  await page.mouse.down();
+  await page.mouse.move(panX + 100, panY, { steps: 24 });
+  await page.mouse.up();
+  assert.ok(Math.abs(await imageLeft() - beforePan - 100) < 1, 'panning follows the entire drag');
   await page.keyboard.press('Escape');
   await expanded.waitFor({ state: 'detached' });
   assert.equal(await page.locator('img.md-copy-image').getAttribute('alt'), 'Wide diagram');

@@ -126,6 +126,8 @@ function createImageInspector() {
       const factor = Math.exp(-clamp(event.deltaY * (event.deltaMode === 0 ? 0.003 : 0.08), 0.35));
       zoomAtPointer(event, factor);
     }, { passive: false });
+    // Starting a browser drag cancels the pointer capture used for panning.
+    stage.addEventListener('dragstart', (event) => event.preventDefault());
     stage.addEventListener('pointerdown', (event) => {
       if (event.button !== 0 || !stage.classList.contains('md-image-can-pan')) return;
       stage.setPointerCapture(event.pointerId);
