@@ -14,6 +14,7 @@ const {
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { findSentenceRange } = require('./sentence-selection');
+const { copyImageToClipboard } = require('./image-clipboard');
 const { createViewerBand } = require('./viewer-band');
 const { createUnseenTracker, elementIsShown } = require('./viewer-updates');
 const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isMac, isPasteCommentShortcut } = require('./comment-ui');
@@ -412,6 +413,10 @@ function ensureStyles() {
     .md-viewer-body .md-comment-target-active {
       background-color: var(--md-block);
       box-shadow: inset 2px 0 #9ca3af;
+    }
+    .md-viewer-body img.md-copy-image {
+      outline: 2px solid #64748b;
+      outline-offset: 2px;
     }
     .md-viewer-body mark.md-search-match {
       border-radius: 3px;
@@ -1192,6 +1197,7 @@ function createMarkdownViewer({
     activeTarget: null,
     activeTargetPane: null,
     activeSelection: null,
+    activeImage: null,
     copySourceHint: false,
     activeLink: null, // the link a click armed its block on, for the hint
     activeCard: null,
@@ -1372,17 +1378,8 @@ function createMarkdownViewer({
     }
     state.barHint = band.barRight ? band.barRight.querySelector('.md-bar-hint') : null;
 
-    // Right-side bar button: copy message text (headings and comments out),
-    // for pasting a drafted message into Teams or email. Sits apart from the
-    // (left-aligned) file path — it's the body, not the filename. Copy takes
-    // what's armed (copyScope): nothing → the whole document; a clicked
-    // heading → its section's body; any other clicked block → that block; an
-    // armed selection → its text. The label names the scope before the click,
-    // so marking a section is the click the viewer already has. A
-    // modifier-click (Ctrl/Cmd/Alt, the viewer's link modifiers) copies the
-    // markdown source of the same scope instead, for a surface that renders
-    // markdown itself (Reddit, GitHub): one button, the rarer variant behind
-    // the modifier.
+    // The right-side button copies the armed image or the text in copyScope().
+    // A modifier-click copies the Markdown source of the armed block or section.
     if (band.barRight && !band.barRight.querySelector('.md-copy-body')) {
       const modClick = (isMac() ? '⌘' : 'Ctrl') + '-click';
       const copyBtn = band.makeCopyBtn(
@@ -2318,6 +2315,7 @@ function createMarkdownViewer({
       selection,
       caret: state.pendingClickCaret,
       link: state.activeLink,
+      imageIndex: imageIndexInBlock(state.activeTarget, state.activeImage),
     };
   }
 
@@ -2325,7 +2323,7 @@ function createMarkdownViewer({
     return !!state.activeTarget && !!state.shell && state.shell.contains(document.activeElement);
   }
 
-  function rearmAfterRefresh({ pane, start, end, selection, caret, link }) {
+  function rearmAfterRefresh({ pane, start, end, selection, caret, link, imageIndex }) {
     const article = pane === 'right' ? state.secondaryArticle : state.article;
     const target = article && getArticleAnchorById(article, start.id);
     if (!target) return;
@@ -2334,7 +2332,8 @@ function createMarkdownViewer({
         selection: { ...selection, target, anchorId: start.id, endAnchorId: end.id, sourceStartLine: start.startLine },
       });
     } else {
-      armBlockAt(target, caret, { link });
+      const image = imageIndex >= 0 ? target.querySelectorAll('img')[imageIndex] : null;
+      armBlockAt(target, caret, { link, image });
     }
   }
 
@@ -4066,6 +4065,7 @@ function createMarkdownViewer({
     const mark = event.target.closest('del.md-pending-del, ins.md-pending-ins');
     const hunk = mark && mark.closest('[data-md-hunk-key]');
     const link = event.target.closest('a[href]');
+    const imageIndex = imageIndexInBlock(pressed, event.target.closest('img'));
     const article = isInSecondaryPane(pressed) ? state.secondaryArticle : state.article;
     commitBlockEditor();
     if (hunk) {
@@ -4083,7 +4083,8 @@ function createMarkdownViewer({
       const twin = getCounterpartAnchorElement(target);
       if (twin && caretOffsetVisible(twin, offset)) target = twin;
     }
-    armBlockAt(target, caret, { link });
+    const image = imageIndex >= 0 ? target.querySelectorAll('img')[imageIndex] : null;
+    armBlockAt(target, caret, { link, image });
     return !!point;
   }
 
@@ -4457,6 +4458,11 @@ function createMarkdownViewer({
     state.activeTarget = null;
     state.activeTargetPane = null;
     state.activeSelection = null;
+    if (state.activeImage) {
+      state.activeImage.classList.remove('md-copy-image');
+      state.activeImage = null;
+      state.copyBtn.reset();
+    }
     state.activeLink = null;
     hideHint();
     syncCopyLabel();
@@ -5060,6 +5066,10 @@ function createMarkdownViewer({
   function syncCopyLabel() {
     const btn = state.copyBtn;
     if (!btn) return;
+    if (state.activeImage && !state.copySourceHint) {
+      btn.setLabel('image', 'Copy image');
+      return;
+    }
     const scope = copyScope().label;
     const label = scope + (state.copySourceHint ? ' · md' : '');
     const title = state.copySourceHint
@@ -5072,17 +5082,19 @@ function createMarkdownViewer({
   // un-sent edits live in the sidecar, so they stay out either way); the flash
   // on the bar button says which copy fired.
   async function copyDocBody(source) {
+    if (state.activeImage && !source) {
+      const image = state.activeImage;
+      focusCopyTarget();
+      await copyImageToClipboard(image);
+      return;
+    }
     const scope = copyScope();
     // A source slice keeps the blank lines the file puts around a section
     // (after its heading, before the next); pasted, they read as padding.
     const content = source || scope.raw ? { text: String(scope.src || '') } : buildMessageCopy(scope.src);
     const text = content.text.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
     if (!text.trim()) return '∅';
-    // A bar click moved focus to the button; the armed target keeps taking
-    // its keys from the shell.
-    if (state.activeTarget && state.shell) {
-      try { state.shell.focus({ preventScroll: true }); } catch {}
-    }
+    focusCopyTarget();
     const confirmation = source ? '✓ md' : '✓';
     if (content.html && navigator.clipboard.write && window.ClipboardItem) {
       try {
@@ -5095,6 +5107,14 @@ function createMarkdownViewer({
     }
     await navigator.clipboard.writeText(text);
     return confirmation;
+  }
+
+  // A bar click moved focus to the button; the armed target keeps taking
+  // its keys from the shell.
+  function focusCopyTarget() {
+    if (state.activeTarget && state.shell) {
+      try { state.shell.focus({ preventScroll: true }); } catch {}
+    }
   }
 
   // When an edit ends with no live strike-in-place marks (its content was
@@ -7278,7 +7298,8 @@ function createMarkdownViewer({
     if (!target || !state.spreadLayout || !state.spreadLayout.contains(target)) return;
     if (state.activeCard && state.activeCard.card.contains(event.target)) return;
 
-    if (getCurrentSelectionContext()) {
+    const image = event.target.closest('img');
+    if (!image && getCurrentSelectionContext()) {
       event.preventDefault();
       activateSelectionFromDom();
       return;
@@ -7300,7 +7321,7 @@ function createMarkdownViewer({
         clearActiveTarget();
       }
     }
-    armBlockAt(target, caret, { link });
+    armBlockAt(target, caret, { link, image });
   }
 
   // Where a click puts the caret in a block, in on-screen text: a click just
@@ -7316,16 +7337,17 @@ function createMarkdownViewer({
     return null;
   }
 
-  // Hold the click position; it materializes as the editor caret on the
-  // first editing key (docs/dev/maintainer/md-editing-design.md). Surface it as a blinking
-  // caret so the edit start point is visible before you type. A null offset
-  // (hit-test miss: image, padding edge) holds the entry default, the block's
-  // end, explicitly — an invisible default reads as a caret that could be
-  // anywhere.
-  function armBlockAt(target, offset, { link = null } = {}) {
+  function imageIndexInBlock(target, image) {
+    return image ? Array.from(target.querySelectorAll('img')).indexOf(image) : -1;
+  }
+
+  // The first editing key uses the held click position. Text clicks show a
+  // blinking caret and image clicks show an outline. A hit-test miss uses the
+  // end of the block as the edit position.
+  function armBlockAt(target, offset, { link = null, image = null } = {}) {
     state.pendingClickCaret = offset != null ? offset : getSearchableTextNodes(target, ON_SCREEN).text.length;
-    setActiveTarget(target, { link });
-    showEditCaret(target, state.pendingClickCaret);
+    setActiveTarget(target, { link, image });
+    if (!image) showEditCaret(target, state.pendingClickCaret);
   }
 
   // A blinking caret at the held click position — an empty span (no text, so
@@ -7369,13 +7391,18 @@ function createMarkdownViewer({
     clearActiveTarget();
   }
 
-  function setActiveTarget(target, { selection = null, link = null } = {}) {
+  function setActiveTarget(target, { selection = null, link = null, image = null } = {}) {
     if (!target) return;
     clearActiveTarget();
     clearLandingTarget();
     target.classList.add('md-comment-target-active');
     state.activeTarget = target;
     state.activeSelection = selection;
+    state.activeImage = image;
+    if (image) {
+      image.classList.add('md-copy-image');
+      state.copyBtn.reset();
+    }
     state.activeLink = link;
     state.activeTargetPane = selection && selection.pane
       ? selection.pane
@@ -7650,7 +7677,7 @@ function createMarkdownViewer({
     // clipboard cannot see a document-space selection record (a cross-page
     // record has no live DOM range) and has nothing at all for a clicked
     // block — so copy what's armed, exactly as the bar's ⧉ button would (a
-    // heading's section, a block, a selection's text). A live native
+    // heading's section, a block, a selection's text, or an image). A live native
     // selection (double-click) and any focused field keep the native copy.
     if ((event.metaKey || event.ctrlKey) && String(event.key).toLowerCase() === 'c'
       && state.activeTarget

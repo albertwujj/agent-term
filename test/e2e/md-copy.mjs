@@ -1,6 +1,7 @@
 // Real Chromium clipboard round trip: a named link stays clickable in a rich
 // editor, while a textarea receives its URL and the list's numbers/blank lines.
 // Tables stay tables in the rich editor and become labeled rows in the textarea.
+// A clicked image copies its pixels, even when it shares a block with another.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -11,13 +12,16 @@ import { launchElectron, CHECKOUT_DIR } from './electron.mjs';
 
 const require = createRequire(import.meta.url);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-md-copy-'));
+const wideImage = path.join(tmp, 'wide.svg');
+const smallImage = path.join(tmp, 'small.svg');
+const imageBlock = '![Wide diagram](wide.svg) ![Small diagram](small.svg)';
 const source = [
   '# Message', '', 'Introduction outside the draft.', '', '## Draft', '',
   'See [Support & lab](https://example.test/support?lab=orion&scope=pm).', '',
   '1. Orion: restore the host.', '2. Phoenix: add NR exports.', '',
   '| Lab | Host | Status |', '| --- | --- | --- |',
   '| Orion | host-a | Unreachable |', '| Phoenix | host-b | NR exports missing |', '',
-  '## Notes', '', 'Private notes outside the draft.',
+  '## Notes', '', 'Private notes outside the draft.', '', imageBlock,
 ].join('\n');
 const tableExpected = 'Lab: Orion\nHost: host-a\nStatus: Unreachable'
   + '\n\nLab: Phoenix\nHost: host-b\nStatus: NR exports missing';
@@ -26,6 +30,8 @@ const expected = 'See Support & lab (https://example.test/support?lab=orion&scop
 
 let app;
 try {
+  fs.writeFileSync(wideImage, '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="120"><rect width="800" height="120" fill="blue"/></svg>');
+  fs.writeFileSync(smallImage, '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="60"><rect width="90" height="60" fill="red"/></svg>');
   await build({
     entryPoints: [path.join(CHECKOUT_DIR, 'src/markdown-viewer.js')],
     bundle: true, format: 'iife', globalName: 'MarkdownViewer',
@@ -48,10 +54,12 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.waitForFunction(() => !!window.MarkdownViewer);
-  await page.evaluate(async (source) => {
+  await page.evaluate(async ({ source, docPath }) => {
     const noop = () => {};
     window.viewer = MarkdownViewer.createMarkdownViewer({
-      readMarkdownFile: async () => ({ success: true, path: '/copy-test.md', content: source, mtimeMs: 1, size: source.length }),
+      readMarkdownFile: async () => ({
+        success: true, path: docPath, imageRoot: 'file://', content: source, mtimeMs: 1, size: source.length,
+      }),
       statMarkdownFile: async () => ({ success: true, mtimeMs: 1, size: source.length }),
       readMarkdownThreads: async () => ({ success: true, data: { threads: [] } }),
       preflightMarkdownRunbook: async () => ({ runbook: '/stub/user-intent.md' }),
@@ -60,7 +68,7 @@ try {
       platform: 'linux',
     });
     await window.viewer.open({ filePath: '/copy-test.md' });
-  }, source);
+  }, { source, docPath: path.join(tmp, 'copy-test.md') });
   const copyButton = page.locator('.md-copy-body');
   await copyButton.hover();
   const messageTitle = await copyButton.getAttribute('title');
@@ -141,8 +149,42 @@ try {
   const raw = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), html: clipboard.readHTML() }));
   assert.equal(raw.text, source.split('## Draft\n\n')[1].split('\n\n## Notes')[0]);
   assert.equal(raw.html, '');
-  assert.deepEqual(errors, []);
   console.log('PASS markdown source copy replaces both clipboard flavors');
+
+  const clickImage = async (alt) => {
+    // Both panes render the block. Click the image where the pane exposes it.
+    const point = await page.waitForFunction((alt) => {
+      for (const image of document.querySelectorAll('.md-viewer-body img')) {
+        if (image.alt !== alt || !image.naturalWidth) continue;
+        const rect = image.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        if (document.elementFromPoint(x, y) === image) return { x, y };
+      }
+    }, alt);
+    const { x, y } = await point.jsonValue();
+    await page.mouse.click(x, y);
+    assert.equal(await copyButton.textContent(), '⧉ image');
+    assert.equal(await page.locator('img.md-copy-image').getAttribute('alt'), alt);
+  };
+  const clipboardImageSize = () => app.evaluate(({ clipboard }) => clipboard.readImage().getSize());
+  await clickImage('Wide diagram');
+  await copyButton.click();
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓');
+  assert.deepEqual(await clipboardImageSize(), { width: 800, height: 120 });
+  console.log('PASS image copy uses intrinsic size even when an image is scaled down');
+
+  await clickImage('Small diagram');
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+c' : 'Control+c');
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓');
+  assert.deepEqual(await clipboardImageSize(), { width: 90, height: 60 });
+  console.log('PASS keyboard copy takes the exact image clicked in a shared block');
+
+  await copyButton.click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓ md');
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), imageBlock);
+  assert.deepEqual(errors, []);
+  console.log('PASS modifier-copy writes the containing block source');
 } finally {
   if (app) await app.close();
   fs.rmSync(tmp, { recursive: true, force: true });

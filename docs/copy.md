@@ -4,12 +4,12 @@ A plan or a draft written in the viewer often ends up as a message: a Teams post
 
 **Message text, for Teams or email.** Headings drop out, each paragraph becomes one line, and a blank line separates paragraphs and top-level list items. Ordered lists keep their numbers, nested items stay on their own lines, and code keeps its line breaks. Rich editors keep clickable link titles and tables; plain-text destinations get visible link URLs and a labeled block for each table row.
 
-**Copy takes what you have clicked.** With nothing clicked, the whole doc. With a heading clicked, the section under it, up to the next heading of the same level. With a paragraph, a list, or a code block clicked, that block. The button's label says which before you click.
+**Copy takes what you have clicked.** With nothing clicked, the whole doc. With a heading clicked, the section under it, up to the next heading of the same level. With a paragraph, a list, or a code block clicked, that block. Select an embedded image to copy it at full size.
 
 <p align="center">
 <a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/copy-states.png"><img src="assets/copy-states.png" width="136" alt="the copy button's four states: ⧉ text with nothing clicked, ⧉ section with a heading clicked, ⧉ paragraph with a paragraph clicked, and ✓ md after a markdown copy"></a>
 </p>
 
-**Markdown, for GitHub or Reddit.** `Ctrl/Cmd`-click the button to copy the markdown source of the same scope, for a surface that renders markdown itself.
+**Markdown, for GitHub or Reddit.** `Ctrl/Cmd`-click the button to copy the markdown source. For a selected image, this copies the source of its containing block.
 
 **From the terminal.** `Ctrl/Cmd+C` on a selection copies it as message text, the terminal's padding removed, so text pasted into an email or a chat needs little or no fixing. `Ctrl/Cmd+Shift+C` copies the selection as a plain terminal would. On Windows, `Enter` with a selection copies the same way.

@@ -11,6 +11,7 @@
 
 const { createViewerBand } = require('./viewer-band');
 const { bandViewableKind } = require('./band-viewable');
+const { copyImageToClipboard } = require('./image-clipboard');
 const { createUnseenTracker } = require('./viewer-updates');
 const { isFindShortcut } = require('./search-shortcut');
 
@@ -24,19 +25,6 @@ function normalizeHttpUrl(raw) {
   } catch {
     return null;
   }
-}
-
-async function imageAsPng(url) {
-  const image = new Image();
-  image.src = url;
-  await image.decode();
-  const canvas = document.createElement('canvas');
-  canvas.width = image.naturalWidth;
-  canvas.height = image.naturalHeight;
-  canvas.getContext('2d').drawImage(image, 0, 0);
-  const png = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-  if (!png) throw new Error('Could not encode image for the clipboard');
-  return png;
 }
 
 function ensureWebStyles() {
@@ -204,11 +192,9 @@ function createWebViewer({ onOpen, onClose, onDeviceAuthBlock, onShortcut, getTe
     band.bar.addEventListener('contextmenu', (e) => { e.preventDefault(); urlCopy.copy(); });
 
     imageCopy = band.makeCopyBtn('image', 'Copy image', () => {
-      // Give Chromium the promised PNG during the click, while the source
-      // decodes at its intrinsic size regardless of the viewer's zoom.
-      return navigator.clipboard.write([new window.ClipboardItem({
-        'image/png': imageAsPng(imageCopyUrl),
-      })]);
+      const image = new Image();
+      image.src = imageCopyUrl;
+      return copyImageToClipboard(image);
     });
     imageCopy.button.hidden = true;
     band.barRight.appendChild(imageCopy.button);
