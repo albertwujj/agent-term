@@ -15,7 +15,9 @@ const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { findSentenceRange } = require('./sentence-selection');
 const { copyImageToClipboard } = require('./image-clipboard');
-const { createImageInspector } = require('./image-inspector');
+const { createFullscreenViewer } = require('./fullscreen-viewer');
+const { openImageInspector } = require('./image-inspector');
+const { openTableInspector } = require('./table-inspector');
 const { createViewerBand } = require('./viewer-band');
 const { createUnseenTracker, elementIsShown } = require('./viewer-updates');
 const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isMac, isPasteCommentShortcut } = require('./comment-ui');
@@ -304,6 +306,11 @@ function ensureStyles() {
       max-width: 100%;
       height: auto;
     }
+    .md-viewer-body img.md-image-reserved {
+      width: var(--md-image-width);
+      height: var(--md-image-height);
+      object-fit: contain;
+    }
     /* A press that moves a pixel or two would start the browser's own image or
        link drag, which fires no click (so no comment, no ctrl/cmd/alt follow)
        and takes over a drag-select that starts on a link. */
@@ -366,6 +373,7 @@ function ensureStyles() {
       font-weight: 600;
       transition: background-color 200ms ease;
     }
+    .md-viewer-body table:not([contenteditable="true"]) thead { cursor: zoom-in; }
     /* The I-beam over link text is the honest cursor here: a plain click puts a
        caret in the block to comment or edit, and only ctrl/cmd/alt+click follows
        the link. Colour and the hover underline still mark it as one. */
@@ -590,6 +598,7 @@ function ensureStyles() {
        12px text) while the resting state stays quiet. Re-arming with the guide
        already up changes no computed style across a frame, so the settle plays
        only when the guide newly appears. */
+    .vb-btn.md-expand-table { width: auto; padding: 0 8px; white-space: nowrap; }
     .md-bar-hint {
       display: none;
       color: #dadee3;
@@ -1287,7 +1296,7 @@ function createMarkdownViewer({
     imageRefreshPending: false,
   };
 
-  const imageInspector = createImageInspector();
+  const fullscreenViewer = createFullscreenViewer();
 
   // Chrome (shell, bar, hide/roll-up, sizing, hue, Esc) is the shared band; this
   // viewer only fills the content slot (the spread) + a bar widget (the comment
@@ -1309,11 +1318,11 @@ function createMarkdownViewer({
       if (!m || !Number.isFinite(m.top) || !Number.isFinite(m.height) || !Number.isFinite(m.rows) || m.rows <= 0) return null;
       return { top: m.top, cellHeight: m.height / m.rows };
     },
-    onShow: () => { updateBottomSpacer(); scheduleSpreadLayout(); },
+    onShow: () => { updateBottomSpacer(); scheduleSpreadLayout(); scheduleArticleImageSettle(); },
     // Rolling up takes the doc off screen, so an md-scoped search has nothing to
     // show — close it (clearing its highlights) so Ctrl-F targets the terminal.
     onHide: () => {
-      imageInspector.close(false);
+      fullscreenViewer.close(false);
       // Rolling up abandons the transient target/selection (and clears the bar
       // hint with it). Leaves live edits and open composers untouched.
       clearActiveTarget();
@@ -1323,7 +1332,7 @@ function createMarkdownViewer({
       else closeSearch();
     },
     onClose: () => {
-      imageInspector.close(false);
+      fullscreenViewer.close(false);
       resetCopyModifier();
       teardownMarkdown();
       if (typeof onClose === 'function') onClose();
@@ -1401,9 +1410,14 @@ function createMarkdownViewer({
       // key events below also update a pointer already resting on the button.
       copyBtn.button.addEventListener('pointerenter', handleCopyModifier);
       copyBtn.button.addEventListener('pointermove', handleCopyModifier);
-      band.barRight.appendChild(copyBtn.button);
+      const expandTableBtn = band.makeBtn('Expand table', 'Expand table (or double-click its header)', () => {
+        openRenderedTable(state.activeTarget);
+      });
+      expandTableBtn.classList.add('md-expand-table');
+      band.barRight.append(expandTableBtn, copyBtn.button);
+      state.expandTableBtn = expandTableBtn;
       state.copyBtn = copyBtn;
-      syncCopyLabel();
+      syncBarActions();
     }
 
     const scroll = document.createElement('div');
@@ -1451,7 +1465,7 @@ function createMarkdownViewer({
 
     band.content.appendChild(scroll);
     spreadLayout.addEventListener('click', handleArticleClick);
-    spreadLayout.addEventListener('dblclick', handleImageDoubleClick);
+    spreadLayout.addEventListener('dblclick', handleArticleDoubleClick);
     spreadLayout.addEventListener('mouseup', handleSelectionMouseup);
     spreadLayout.addEventListener('mousedown', handleVdragDown);
     spreadLayout.addEventListener('mouseover', handleChangeBarHover);
@@ -1662,7 +1676,7 @@ function createMarkdownViewer({
       // contains the probe y is a straddle; anything else means no line is
       // cut at this edge.
       if (line.top > y + 2 || line.bottom < y - 2) continue;
-      return { line, node };
+      return { line, node, range: probe };
     }
     return null;
   }
@@ -2050,10 +2064,20 @@ function createMarkdownViewer({
   // the left page top, run the mutation, then move the scroll AND the page
   // grid by however far that block moved. Below-top changes move no captured
   // block and fall through untouched.
-  function captureSpreadTopMarks() {
+  function captureSpreadTopMarks(keepLine) {
     if (!state.primaryPane || !state.article) return null;
-    const paneTop = state.primaryPane.getBoundingClientRect().top;
+    const pane = state.primaryPane.getBoundingClientRect();
+    const paneTop = pane.top;
     const articleTop = state.article.getBoundingClientRect().top;
+    if (keepLine) {
+      if (state.primaryPane.scrollTop === 0) return null;
+      for (const offset of [1, 10, getRenderedLineHeight()]) {
+        const probe = probeLineAtEdge(pane, paneTop + offset);
+        if (probe && state.article.contains(probe.node)) {
+          return [{ range: probe.range, top: probe.line.top - articleTop }];
+        }
+      }
+    }
     let straddler = null;
     const marks = [];
     for (const el of state.article.querySelectorAll('[data-md-anchor-id]')) {
@@ -2072,84 +2096,89 @@ function createMarkdownViewer({
     return marks.length ? marks : null;
   }
 
-  function preserveSpreadTopAcross(mutate) {
-    const marks = captureSpreadTopMarks();
+  function preserveSpreadTopAcross(mutate, { keepLine = false, realign } = {}) {
+    const previousTop = state.primaryPane?.scrollTop || 0;
+    const marks = captureSpreadTopMarks(keepLine);
     mutate();
-    if (!marks || !state.primaryPane || !state.article) return;
-    const articleTop = state.article.getBoundingClientRect().top;
-    for (const mark of marks) {
-      const el = getAnchorElement({ id: mark.id });
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      if (!rect.height) continue;
-      const shift = (rect.top - articleTop) - mark.top;
-      if (Math.abs(shift) >= 0.5) {
-        state.primaryPane.scrollTop += shift;
-        state.spreadGridTop = (state.spreadGridTop || 0) + shift;
-        syncSecondaryPane();
+    let shifted = false;
+    if (marks && state.primaryPane && state.article) {
+      const articleTop = state.article.getBoundingClientRect().top;
+      for (const mark of marks) {
+        const rect = mark.range
+          ? mark.range.getClientRects()[0]
+          : getAnchorElement(mark)?.getBoundingClientRect();
+        if (!rect?.height) continue;
+        const shift = (rect.top - articleTop) - mark.top;
+        if (Math.abs(shift) >= 0.5) {
+          state.primaryPane.scrollTop = previousTop + shift;
+          state.spreadGridTop = (state.spreadGridTop || 0) + shift;
+          shifted = true;
+        }
+        break;
       }
-      return;
     }
+    if (realign) realign();
+    else if (shifted) syncSecondaryPane();
   }
 
-  // Embedded images carry no width/height and decode async. Every layoutSpread
-  // rebuilds both panes' innerHTML, so on a re-layout (thread-store poll, edit,
-  // resize) the <img> starts over at zero height: the geometry pass measures the
-  // seam and bottom trims against a collapsed column, and once the pixels arrive
-  // and the image springs back to full height, everything below it — comment
-  // cards included — is shoved down out of the overflow:hidden page with no
-  // scrollbar to reveal it. That is the "comments vanish under an image" bug.
-  //
-  // Fix: cache each image's rendered height (keyed by src sans cache-buster) and
-  // stamp it as an explicit height on every render, BEFORE the geometry pass, so
-  // the column never collapses on a re-layout. (An unloaded <img> has zero
-  // intrinsic size, so `aspect-ratio` alone reserves nothing — the box needs a
-  // definite height; width stays responsive under max-width:100%.) Then re-
-  // measure the true height at the current column width and refresh the cache —
-  // complete images on each render, still-loading ones on their load event. A
-  // window resize is what changes the column width, and it re-runs layoutSpread,
-  // whose fresh <img>s re-measure (complete → synchronously), so the reserve
-  // self-corrects at the new width instead of stranding a stale height. (The
-  // band 2/3↔full toggle only changes height, not width, so its geometry-only
-  // realign needs no re-measure.) The very first load can't reserve height yet,
-  // but that happens at scrollTop 0 where no comment is in view.
-  const imageHeightBySrc = new Map();
-  const imageKey = (img) => String(img.src || '').split('?')[0];
-
-  // Reserve known image heights on freshly-rendered HTML, before anything
-  // measures the column. Call right after each innerHTML assignment.
-  function reserveCachedImageHeights(article) {
-    if (!article) return;
-    for (const img of article.querySelectorAll('img')) {
-      const h = imageHeightBySrc.get(imageKey(img));
-      if (h > 0) img.style.height = `${h}px`;
-    }
-  }
+  // Hold the rendered box until both copies can adopt the decoded dimensions.
+  // Even an uncached box must be reserved: otherwise Chromium reflows it before
+  // the load listener can capture the reader's position.
+  const articleImageSizes = new Map();
+  const reservedArticleImages = new Set();
   let imageSettleRaf = 0;
-  function scheduleImageSettleRealign() {
-    if (imageSettleRaf) return;
+  const articleImageKey = (img) => JSON.stringify([
+    img.src.split('?')[0], img.dataset.mdSrc, img.getAttribute('width'), img.getAttribute('height'),
+  ]);
+
+  function rememberArticleImageSize(img, size) {
+    if (img.naturalWidth && size.width > 0 && size.height > 0) {
+      articleImageSizes.set(articleImageKey(img), { width: size.width, height: size.height });
+    }
+  }
+
+  function scheduleArticleImageSettle() {
+    if (imageSettleRaf || !reservedArticleImages.size) return;
     imageSettleRaf = requestAnimationFrame(() => {
       imageSettleRaf = 0;
-      if (band.isOpen()) realignPagesPreservingTop();
+      if (!band.isOpen() || fullscreenViewer.isOpen()) return;
+      for (const img of reservedArticleImages) {
+        if (!img.isConnected) reservedArticleImages.delete(img);
+      }
+      const reserved = [...reservedArticleImages];
+      const loading = new Set(reserved.filter((img) => !img.complete).map((img) => img.src));
+      const settled = reserved.filter((img) => !loading.has(img.src));
+      if (!settled.length) return;
+      preserveSpreadTopAcross(() => {
+        for (const img of settled) {
+          reservedArticleImages.delete(img);
+          img.classList.remove('md-image-reserved');
+          img.style.removeProperty('--md-image-width');
+          img.style.removeProperty('--md-image-height');
+        }
+        for (const img of settled) rememberArticleImageSize(img, img.getBoundingClientRect());
+      }, { keepLine: true, realign: realignPagesPreservingTop });
     });
   }
-  // Measure the image's true rendered height at the current column width: clear
-  // any reserved height first so the read reflects the loaded image, not the
-  // value we stamped. Cache it for the next render, re-apply it, and re-align.
-  function measureAndReserveImage(img) {
-    const key = imageKey(img);
-    img.style.height = '';
-    const h = img.getBoundingClientRect().height;
-    if (h > 0 && key) { imageHeightBySrc.set(key, h); img.style.height = `${h}px`; }
-    scheduleImageSettleRealign();
-  }
-  function watchArticleImages() {
-    for (const article of [state.article, state.secondaryArticle]) {
-      if (!article) continue;
-      for (const img of article.querySelectorAll('img')) {
-        if (img.complete && img.naturalHeight) { measureAndReserveImage(img); continue; }
-        img.addEventListener('load', () => measureAndReserveImage(img), { once: true });
-        img.addEventListener('error', scheduleImageSettleRealign, { once: true });
+
+  function reserveArticleImages() {
+    reservedArticleImages.clear();
+    const images = [...state.article.querySelectorAll('img'), ...state.secondaryArticle.querySelectorAll('img')];
+    const sizes = images.map((img) => {
+      const cached = img.complete ? null : articleImageSizes.get(articleImageKey(img));
+      return cached || img.getBoundingClientRect();
+    });
+    for (const [index, img] of images.entries()) {
+      const size = sizes[index];
+      if (img.complete) {
+        rememberArticleImageSize(img, size);
+      } else {
+        reservedArticleImages.add(img);
+        img.classList.add('md-image-reserved');
+        img.style.setProperty('--md-image-width', `${size.width}px`);
+        img.style.setProperty('--md-image-height', `${size.height}px`);
+        img.addEventListener('load', scheduleArticleImageSettle, { once: true });
+        img.addEventListener('error', scheduleArticleImageSettle, { once: true });
       }
     }
   }
@@ -2167,8 +2196,11 @@ function createMarkdownViewer({
     // An open composer or reply holds them too, since a render rebuilds the
     // article its card sits in. Queued comments alone do not: a render carries
     // their marks through (planRefreshThroughQueue).
-    return imageInspector.isOpen() || !!state.activeCard || !!state.threadReply
-      || !!state.editing || state.blockOverlays.size > 0;
+    return fullscreenViewer.isOpen() || hasPendingMarkdownWork();
+  }
+
+  function hasPendingMarkdownWork() {
+    return !!state.activeCard || !!state.threadReply || !!state.editing || state.blockOverlays.size > 0;
   }
 
   // What holds a thread-layer render. An armed block holds it as well: the
@@ -4376,24 +4408,20 @@ function createMarkdownViewer({
       const html = state.doc.html || '<div class="md-viewer-loading">Empty markdown file</div>';
       state.article.innerHTML = html;
       state.secondaryArticle.innerHTML = html;
-      // Reserve known image heights before anything measures the column, so a
-      // re-layout doesn't collapse images to zero and shove content out of view.
-      reserveCachedImageHeights(state.article);
-      reserveCachedImageHeights(state.secondaryArticle);
-      updateBottomSpacer();
       for (const id of landingIds) {
         for (const target of getAnchorElementsById(id)) target.classList.add('md-landing-target');
       }
       reapplyLandingPulse();
       renderThreadLayer(false);
       renderPendingDiffBlocks();
+      reserveArticleImages();
+      updateBottomSpacer();
     });
     const didRefreshSearch = refreshSearchAfterRender();
     updateChangeHighlights();
     applyChangePulse();
     updateSelectionHighlights();
     if (!didRefreshSearch) syncSecondaryPane();
-    watchArticleImages();
   }
 
   function clearLandingTarget() {
@@ -4475,7 +4503,7 @@ function createMarkdownViewer({
     }
     state.activeLink = null;
     hideHint();
-    syncCopyLabel();
+    syncBarActions();
     updateSelectionHighlights();
   }
 
@@ -4506,6 +4534,7 @@ function createMarkdownViewer({
   // The viewer's own teardown — runs from band.onClose (✕, or md.close()).
   function teardownMarkdown() {
     state.openToken += 1;
+    reservedArticleImages.clear();
     stopMarkdownAutoRefresh();
     if (state.search.isOpen && typeof closeSearchBar === 'function') {
       closeSearchBar();
@@ -5061,19 +5090,20 @@ function createMarkdownViewer({
     const source = isFollowModifier(event);
     if (source === state.copySourceHint) return;
     state.copySourceHint = source;
-    syncCopyLabel();
+    syncBarActions();
   }
 
   function resetCopyModifier() {
     if (!state.copySourceHint) return;
     state.copySourceHint = false;
-    syncCopyLabel();
+    syncBarActions();
   }
 
   // Name both the scope and the modifier-click format before the click. The
   // visible label updates even if a native tooltip has already appeared; a
   // copy confirmation in progress finishes on the current label.
-  function syncCopyLabel() {
+  function syncBarActions() {
+    if (state.expandTableBtn) state.expandTableBtn.hidden = state.activeTarget?.tagName !== 'TABLE';
     const btn = state.copyBtn;
     if (!btn) return;
     if (state.activeImage && !state.copySourceHint) {
@@ -7203,8 +7233,9 @@ function createMarkdownViewer({
   // Drop everything the viewer holds for the doc it shows; the new token
   // retires that doc's poll.
   function resetForNextDoc() {
-    imageInspector.close(false);
+    fullscreenViewer.close(false);
     const token = ++state.openToken;
+    reservedArticleImages.clear();
     stopMarkdownAutoRefresh();
     if (state.search.isOpen && typeof closeSearchBar === 'function') {
       closeSearchBar();
@@ -7255,32 +7286,61 @@ function createMarkdownViewer({
     // were written against — the same reason a pending batch freezes
     // auto-refresh. Unsent work outranks an incidental click on a link, so say
     // so instead of dropping it.
-    if (hasBlockingMarkdownRefreshState() || state.queuedComments.length > 0 || restingReplyDrafts().length) {
+    if (hasPendingMarkdownWork() || state.queuedComments.length > 0 || restingReplyDrafts().length) {
       if (typeof showToast === 'function') showToast('Send or discard your changes to follow that link');
       return;
     }
     openDocPath(target.path);
   }
 
-  function handleImageDoubleClick(event) {
+  function handleArticleDoubleClick(event) {
+    if (!band.isOpen() || state.editing || isFollowModifier(event)) return;
     const image = event.target.closest?.('.md-viewer-body img');
-    if (!image || !band.isOpen() || state.editing || isFollowModifier(event)) return;
-    const target = image.closest('[data-md-anchor-id]');
-    if (!target) return;
-    event.preventDefault();
-    if (image !== state.activeImage && !state.activeCard && !state.threadReply) {
-      armBlockAt(target, null, { image, link: image.closest('a[href]') });
+    if (image) {
+      const target = image.closest('[data-md-anchor-id]');
+      if (!target) return;
+      event.preventDefault();
+      if (image !== state.activeImage && !state.activeCard && !state.threadReply) {
+        armBlockAt(target, null, { image, link: image.closest('a[href]') });
+      }
+      openImageInspector(fullscreenViewer, image, restoreSpreadOnClose());
+      return;
     }
+
+    const table = event.target.closest?.('.md-viewer-body thead')?.closest('table[data-md-anchor-id]');
+    if (!table || event.shiftKey) return;
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    if (table !== state.activeTarget || state.activeSelection || state.activeImage) {
+      armBlockAt(table, clickCaretOffset(table, event.clientX, event.clientY), {
+        link: event.target.closest('a[href]'),
+      });
+    }
+    openRenderedTable(table);
+  }
+
+  function openRenderedTable(table) {
+    if (!band.isOpen() || table?.tagName !== 'TABLE' || !table.isConnected) return;
+    openTableInspector(fullscreenViewer, table, {
+      onClose: restoreSpreadOnClose(),
+      onLinkClick: (event, link) => {
+        if (event.detail === 0 || isFollowModifier(event)) followLink(link);
+      },
+    });
+  }
+
+  function restoreSpreadOnClose() {
     const top = state.primaryPane.scrollTop;
     const gridTop = state.spreadGridTop;
     const token = state.openToken;
-    imageInspector.open(image, () => {
+    return () => {
       if (!band.isOpen() || token !== state.openToken) return;
       state.spreadGridTop = gridTop;
       updateBottomSpacer();
       state.primaryPane.scrollTop = top;
       realignPagesPreservingTop();
-    });
+      scheduleArticleImageSettle();
+    };
   }
 
   function handleArticleClick(event) {
@@ -7450,7 +7510,7 @@ function createMarkdownViewer({
       ? selection.pane
       : (isInSecondaryPane(target) ? 'right' : 'left');
     showHint(target, { selection, link });
-    syncCopyLabel();
+    syncBarActions();
     updateSelectionHighlights();
     try { state.shell.focus({ preventScroll: true }); } catch {}
   }
@@ -7651,7 +7711,7 @@ function createMarkdownViewer({
     state.activeTarget = comment.target;
     state.activeTargetPane = pane;
     state.activeSelection = isMarkdownSelectionKind(comment.targetKind) ? comment : null;
-    syncCopyLabel();
+    syncBarActions();
     return openCommentCard(comment.comment, {
       queueMode: true,
       queueIndex,

@@ -15,6 +15,11 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-md-copy-'));
 const wideImage = path.join(tmp, 'wide.svg');
 const smallImage = path.join(tmp, 'small.svg');
 const imageBlock = '![Wide diagram](wide.svg) ![Small diagram](small.svg)';
+const delayedImageUrl = 'https://example.test/delayed-layout.svg';
+const imageLayoutSource = [
+  '# Image layout', '', `![A delayed image](${delayedImageUrl})`, '',
+  ...Array.from({ length: 100 }, (_, i) => `Paragraph ${i + 1}. A line for testing the reading position.\n`),
+].join('\n');
 const source = [
   '# Message', '', 'Introduction outside the draft.', '', '## Draft', '',
   'See [Support & lab](https://example.test/support?lab=orion&scope=pm).', '',
@@ -54,13 +59,15 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.waitForFunction(() => !!window.MarkdownViewer);
-  await page.evaluate(async ({ source, docPath }) => {
+  await page.evaluate(async ({ source, docPath, imageLayoutSource }) => {
     const noop = () => {};
+    const sourceFor = (file) => file === '/image-layout.md' ? imageLayoutSource : source;
     window.viewer = MarkdownViewer.createMarkdownViewer({
-      readMarkdownFile: async () => ({
-        success: true, path: docPath, imageRoot: 'file://', content: source, mtimeMs: 1, size: source.length,
+      readMarkdownFile: async (file) => ({
+        success: true, path: file === '/image-layout.md' ? file : docPath,
+        imageRoot: 'file://', content: sourceFor(file), mtimeMs: 1, size: sourceFor(file).length,
       }),
-      statMarkdownFile: async () => ({ success: true, mtimeMs: 1, size: source.length }),
+      statMarkdownFile: async (file) => ({ success: true, mtimeMs: 1, size: sourceFor(file).length }),
       readMarkdownThreads: async () => ({ success: true, data: { threads: [] } }),
       preflightMarkdownRunbook: async () => ({ runbook: '/stub/user-intent.md' }),
       showToast: noop, openURL: noop, focusTerminal: noop, onClose: noop,
@@ -68,7 +75,7 @@ try {
       platform: 'linux',
     });
     await window.viewer.open({ filePath: '/copy-test.md' });
-  }, { source, docPath: path.join(tmp, 'copy-test.md') });
+  }, { source, docPath: path.join(tmp, 'copy-test.md'), imageLayoutSource });
   const copyButton = page.locator('.md-copy-body');
   await copyButton.hover();
   const messageTitle = await copyButton.getAttribute('title');
@@ -131,6 +138,8 @@ try {
 
   // Copying only the table must offer HTML even though no cell contains a link.
   await page.evaluate(() => window.viewer.open({ filePath: '/copy-test.md' }));
+  const expandTable = page.getByRole('button', { name: 'Expand table', exact: true });
+  assert.equal(await expandTable.count(), 0);
   await page.locator('.md-viewer-body table').first().click();
   // Wait out the preceding copy's success flash before waiting for this copy.
   await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '⧉ table');
@@ -140,6 +149,39 @@ try {
   assert.equal(tableOnly.text, tableExpected);
   assert.ok(tableOnly.html.includes('<table'));
   console.log('PASS a table without links copies as HTML with labeled plain-text rows');
+
+  const titleBar = page.locator('.vb-shell.vb-md .vb-title');
+  const titleBeforeExpand = await titleBar.textContent();
+  await expandTable.click();
+  await page.waitForFunction(() => document.fullscreenElement?.classList.contains('md-table-inspector'));
+  const expandedTable = page.getByRole('dialog', { name: 'Expanded table' });
+  assert.deepEqual(await expandedTable.locator('th').allTextContents(), ['Lab', 'Host', 'Status']);
+  assert.equal(await expandedTable.locator('tbody tr').count(), 2);
+  const tableFits = await expandedTable.getByRole('region', { name: 'Table contents' })
+    .evaluate((el) => el.scrollWidth <= el.clientWidth);
+  assert.equal(tableFits, true);
+  await page.keyboard.press('Escape');
+  await expandedTable.waitFor({ state: 'detached' });
+  assert.equal(await titleBar.textContent(), titleBeforeExpand);
+  assert.equal(await expandTable.evaluate((button) => button === document.activeElement), true);
+  console.log('PASS expanding a table fits the same columns and returns focus to the selected table');
+
+  const bodyWord = await page.locator('.md-viewer-body td').filter({ hasText: 'Unreachable' }).first().evaluate((cell) => {
+    const range = new Range();
+    range.selectNodeContents(cell);
+    const rect = range.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await page.mouse.dblclick(bodyWord.x, bodyWord.y);
+  assert.equal(await page.evaluate(() => window.getSelection().toString()), 'Unreachable');
+  assert.equal(await expandedTable.count(), 0);
+
+  await page.locator('.md-viewer-body thead th').filter({ hasText: 'Lab' }).first().dblclick();
+  await page.waitForFunction(() => document.fullscreenElement?.classList.contains('md-table-inspector'));
+  await expandedTable.getByRole('button', { name: 'Close' }).click();
+  await expandedTable.waitFor({ state: 'detached' });
+  assert.equal(await expandTable.isVisible(), true);
+  console.log('PASS double-clicking a table header expands it and body text keeps native selection');
 
   // A source copy replaces the rich clipboard, rather than leaving stale HTML.
   await page.evaluate(() => window.viewer.open({ filePath: '/copy-test.md' }));
@@ -218,8 +260,42 @@ try {
   await expanded.waitFor({ state: 'detached' });
   assert.equal(await page.locator('img.md-copy-image').getAttribute('alt'), 'Wide diagram');
   assert.equal(await page.locator('.vb-shell.vb-md').evaluate((el) => el === document.activeElement), true);
-  assert.deepEqual(errors, []);
   console.log('PASS double-click fits the exact image, zooms further, and Escape returns to its selection');
+
+  // Let the user turn the page before the image above it gets its dimensions.
+  let releaseImage;
+  const imageReady = new Promise((resolve) => { releaseImage = resolve; });
+  await page.route(delayedImageUrl, async (route) => {
+    await imageReady;
+    await route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="440"><rect width="400" height="440" fill="blue"/></svg>',
+    });
+  });
+  await page.evaluate(() => window.viewer.open({ filePath: '/image-layout.md' }));
+  await page.getByRole('heading', { name: 'Image layout' }).first().waitFor();
+  const pane = page.locator('.vb-md.open .primary .md-page-viewport');
+  const paneBox = await pane.boundingBox();
+  await page.mouse.move(paneBox.x + paneBox.width / 2, paneBox.y + paneBox.height / 2);
+  await page.mouse.wheel(0, 120);
+  await page.waitForFunction(() => document.querySelector('.vb-md.open .primary .md-page-viewport').scrollTop > 100);
+  const visibleParagraphs = () => page.locator('.vb-md.open .md-page-viewport').evaluateAll((panes) => panes.map((el) => {
+    const { top } = el.getBoundingClientRect();
+    const paragraph = [...el.querySelectorAll('p')].find((p) => p.getBoundingClientRect().bottom > top + 1);
+    return { text: paragraph.textContent, offset: paragraph.getBoundingClientRect().top - top };
+  }));
+  const beforeImage = await visibleParagraphs();
+  assert.ok(beforeImage.every(({ text }) => text.startsWith('Paragraph ')));
+  releaseImage();
+  await page.waitForFunction(() => {
+    const images = [...document.querySelectorAll('.vb-md.open .md-viewer-body img')];
+    return images.length === 2 && images.every((img) => img.naturalHeight && img.getBoundingClientRect().height > 200);
+  });
+  const afterImage = await visibleParagraphs();
+  assert.deepEqual(afterImage.map(({ text }) => text), beforeImage.map(({ text }) => text));
+  assert.ok(afterImage.every(({ offset }, i) => Math.abs(offset - beforeImage[i].offset) <= 2));
+  console.log('PASS a delayed image keeps the same text on both pages after a wheel turn');
+  assert.deepEqual(errors, []);
 } finally {
   if (app) await app.close();
   fs.rmSync(tmp, { recursive: true, force: true });

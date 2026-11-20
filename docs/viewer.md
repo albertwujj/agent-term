@@ -12,7 +12,7 @@ Typing also reaches past the session: type a name and nearby files are searched 
 
 ## Find your way around
 
-Markdown opens as a rendered document, with two pages side by side that turn rather than scroll. Embedded images support full-screen viewing with zoom and panning. A curated review has its own navigation for moving among the agent's explanation and the files it wants you to inspect.
+Markdown opens as a rendered document, with two pages side by side that turn rather than scroll. Embedded images and tables can open full-screen. Images support zoom and panning. Tables fit the available width, keep their headers visible, and scroll sideways when needed. A curated review has its own navigation for moving among the agent's explanation and the files it wants you to inspect.
 
 Both support the [shared commenting workflow](comment.md), alongside commenting on terminal output. See [planning](plan.md) for writing in rendered markdown and [the curated review](review.md) for reviewing the agent's changes.
 

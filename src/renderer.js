@@ -922,7 +922,7 @@ function toggleViewerFullSize() {
 
 // Single entry point for every chord source (main window and webview guest).
 function handleViewerShortcut(action) {
-  if (document.querySelector('.md-image-inspector')) return;
+  if (document.querySelector('.at-fullscreen-viewer')) return;
   if (action === 'selector') { toggleViewerSelector(); return; }
   if (action === 'toggle') { toggleViewerVisibility(); return; }
   if (action === 'size') { toggleViewerFullSize(); return; }
@@ -3056,6 +3056,7 @@ terminal.onSelectionChange(() => {
 // aimed at the terminal, so Esc still closes a viewer or a picker that has focus.
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
+  if (document.querySelector('.at-fullscreen-viewer')) return;
   // Esc in the search field means "close search", frozen or not — the input's
   // own handler does that, and closeSearchBar refocuses the terminal so the
   // next Esc reaches the freeze cancel below. Without this the frozen branch
