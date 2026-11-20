@@ -7041,17 +7041,28 @@ function createMarkdownViewer({
   // headings, ** around emphasis, backticks, list markers. Find the source
   // line it sits on and map that through the anchors; the rendered-text scan
   // above stays for text quoted from rendered prose.
-  function findAnchorElementBySourceText(matchText) {
+  function findAnchorElementBySourceText(matchText, { prefix = false } = {}) {
     const needle = String(matchText || '').trim();
     if (!needle || !state.doc || !state.sourceText) return null;
     const lines = state.sourceText.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
-      if (!lines[i].includes(needle)) continue;
+      const matches = prefix ? lines[i].trimStart().startsWith(needle) : lines[i].includes(needle);
+      if (!matches) continue;
       const anchor = findAnchorForLine(state.doc.anchors, i + 1);
       const el = anchor ? getAnchorElement(anchor) : null;
       if (el) return el;
     }
     return null;
+  }
+
+  function findAnchorElementByExcerpt(text) {
+    const literal = findAnchorElementBySourceText(text) || findAnchorElementByText(text);
+    if (literal) return literal;
+
+    // A terminal preview may append dots after clipping a source row, even
+    // mid-word. Prefer a literal match so punctuation in the file still wins.
+    const prefix = text.replace(/\s*(?:\.{3}|…)$/, '');
+    return prefix !== text ? findAnchorElementBySourceText(prefix, { prefix: true }) : null;
   }
 
   function landAt({ line, matchText, landingKind } = {}) {
@@ -7081,9 +7092,8 @@ function createMarkdownViewer({
           : 'nearest';
       }
     }
-    if (!target) {
-      const textTarget = findAnchorElementBySourceText(requestedText)
-        || findAnchorElementByText(requestedText);
+    if (!target && hasMatchText) {
+      const textTarget = findAnchorElementByExcerpt(requestedText);
       if (textTarget) { target = textTarget; resolution = 'text'; }
     }
     if (!target) {

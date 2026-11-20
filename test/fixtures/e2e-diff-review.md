@@ -8,3 +8,11 @@
 When the agent finishes, it prepares your review, with each trade-off it chose flagged as a decision you can confirm; [Comment inline](comment.md), on the code and on its reasoning.
 
 You can ask the agent to expand any part, with the parts that most need your judgment first.
+
+The unchanged opening explains the new settings for a long paragraph.
+
+| Setting | Example |
+| --- | --- |
+| **New setting** | The current value can be chosen per project. |
+
+One last context paragraph beneath the table.

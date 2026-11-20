@@ -4206,6 +4206,7 @@ function getSourceRowContentSpan(text) {
 
 const CURSOR_DIFF_HEADER_REGEX = /^(\S.*?)\s+\+\d+(?:\s+-\d+)?$/;
 const CURSOR_DIFF_HEADER_PREFIX_REGEX = /^Edited\s+/i;
+const CURSOR_DIFF_OMISSION = /^(?:\.{3}|…)(?:\s+truncated\b.*)?$/i;
 
 // Header that opens a Cursor diff box, e.g. "src/foo.md +3 -6" or
 // "Edited src/foo.md +5" (often with a truncated "..." path prefix). The change-count
@@ -4217,28 +4218,29 @@ function parseCursorDiffHeader(text) {
   if (!m) return null;
   const path = m[1].trim();
   const normalized = normalizeNavigablePath(path) || path;
-  return isLikelyFilePath(normalized) ? { path } : null;
+  return isMarkdownDocumentPath(normalized) || isLikelyFilePath(normalized) ? { path } : null;
 }
 
-// A changed line inside a bordered diff that has NO line-number gutter (e.g. Cursor):
-// the first column after the border is a +/- marker, content follows. Only prose is
-// claimed here — code is left to source_line, paths/headers are excluded — and the
-// caller still gates on a diff header above (findCursorDiffHeader) before decorating,
-// since a lone "│ - bullet" is otherwise indistinguishable from a list in any box.
-function parseCursorDiffBlockLine(text) {
+// The first column inside the gutter may carry a change marker.
+function parseCursorDiffRow(text) {
   const bordered = getCursorDiffContentSpan(text);
   if (!bordered) return null;
-  const inner = bordered.content;
-  const marker = inner[0];
-  if (marker !== '+' && marker !== '-') return null;
-  const afterMarker = inner.slice(1);
-  const content = afterMarker.trim();
-  if (!content || content.length > 200) return null;
-  if (isLikelyFilePath(content)) return null;
-  if (looksLikeCode(content)) return null;
-  const leading = afterMarker.length - afterMarker.trimStart().length;
-  const contentStart = bordered.start + 1 + leading;
+  const first = bordered.content[0];
+  const marker = first === '+' || first === '-' ? first : null;
+  const markerWidth = marker ? 1 : 0;
+  const body = bordered.content.slice(markerWidth);
+  const content = body.trim();
+  const contentStart = bordered.start + markerWidth + body.length - body.trimStart().length;
   return { marker, content, contentStart, contentEnd: contentStart + content.length };
+}
+
+// Outside a confirmed Markdown diff, leave code rows to source_line and only
+// consider changed prose. A diff header still has to confirm the surrounding box.
+function parseCursorDiffBlockLine(text) {
+  const row = parseCursorDiffRow(text);
+  if (!row?.marker || !row.content || row.content.length > 200) return null;
+  if (isLikelyFilePath(row.content) || looksLikeCode(row.content)) return null;
+  return row;
 }
 
 // Capture recent errors to a global array for debugging (capped at 100)
@@ -5181,6 +5183,44 @@ function findCursorDiffHeader(bufferRow) {
   return null;
 }
 
+// For a deletion, look for surviving text in the same hunk. A cut-off preview
+// or the edge of the gutter bounds the search.
+function cursorDiffNeighbor(bufferRow, direction) {
+  const buffer = terminal.buffer.active;
+  let row = bufferRow;
+  for (let i = 0; i < 100; i++) {
+    if (direction < 0 && row === 0) break;
+    row = direction > 0 ? getRowText(row).endIndex + 1 : bufferLogicalLineStart(buffer, row - 1);
+    if (row >= buffer.length) break;
+    const { text } = getRowText(row);
+    const parsed = parseCursorDiffRow(text);
+    if (!parsed || CURSOR_DIFF_OMISSION.test(parsed.content) || parseCursorDiffHeader(text)) break;
+    if (parsed.marker !== '-' && parsed.content) return parsed.content;
+  }
+  return null;
+}
+
+function markdownDiffRowMatch(row, text) {
+  const parsed = parseCursorDiffRow(text);
+  if (!parsed?.content || CURSOR_DIFF_OMISSION.test(parsed.content)
+    || parseDiffLineText(text) || parseCursorDiffHeader(text)) return null;
+  const filePath = findCursorDiffHeader(row);
+  if (!isMarkdownDocumentPath(filePath)) return null;
+  const pattern = patterns.find((candidate) => candidate.name === 'diff_block');
+  return {
+    text: parsed.content,
+    start: parsed.contentStart,
+    end: parsed.contentEnd,
+    bufferRow: row,
+    diffMarker: parsed.marker,
+    patternName: pattern.name,
+    action: pattern.action,
+    style: pattern.style,
+    trimToContent: pattern.trimToContent,
+    priority: 'high',
+  };
+}
+
 const LINE_REF_REGEX = /\b(?:[Ll]ines?\s+~?\d+(?:\s*-\s*~?\d+)?(?:,\s*~?\d+(?:\s*-\s*~?\d+)?)*|L~?\d+(?::\s*~?\d+|\s*-\s*~?\d+))/g;
 
 function parseLineRefStartLine(text) {
@@ -5314,7 +5354,17 @@ const patterns = [
         showToast('Could not determine file path');
         return;
       }
-      await navigateToFileLine(filePath, null, null, { ...options, matchText: match.text.trim() });
+      if (match.diffMarker === '-') {
+        const matchText = cursorDiffNeighbor(match.bufferRow, 1) || cursorDiffNeighbor(match.bufferRow, -1);
+        if (!matchText) {
+          showToast('Could not find a surviving line near this deletion');
+          return;
+        }
+        await navigateToFileLine(filePath, null, null, { ...options, matchText, landingKind: 'anchor' });
+        return;
+      }
+      const landingKind = match.diffMarker === '+' ? 'exact' : 'neutral';
+      await navigateToFileLine(filePath, null, null, { ...options, matchText: match.text.trim(), landingKind });
     },
   },
   {
@@ -6329,15 +6379,15 @@ function decorateRendererWrappedTargetRow(buffer, row) {
 }
 
 // The matches on one logical line, except those that overlap a `claimed` span
-// (offsets into `text`). A wrapped piece of a diff line is one match over its
-// row, as the numbered row is, but only the rows above can tell it is one.
+// (offsets into `text`). The rows above identify wrapped pieces of numbered
+// diffs and unnumbered Markdown diff rows, even when they contain file links.
 function logicalLineMatches(row, text, claimed = []) {
-  let wrapped = diffWrappedRowMatch(row, text);
-  if (wrapped && overlapsSpan(wrapped, claimed)) wrapped = null;
-  const spans = wrapped ? [...claimed, wrapped] : claimed;
+  let diff = diffWrappedRowMatch(row, text) || markdownDiffRowMatch(row, text);
+  if (diff && overlapsSpan(diff, claimed)) diff = null;
+  const spans = diff ? [...claimed, diff] : claimed;
   const matches = parseRow(text).filter((match) => !overlapsSpan(match, spans));
   for (const match of matches) match.bufferRow = row;
-  return wrapped ? [wrapped, ...matches] : matches;
+  return diff ? [diff, ...matches] : matches;
 }
 
 // Decorations for the matches on one logical line.

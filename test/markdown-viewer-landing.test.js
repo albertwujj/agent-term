@@ -40,6 +40,14 @@ const FIXTURE = [
   '',
   '- tight bullet one',
   '- tight bullet two',
+  '',
+  'A different paragraph quotes Cut-off source text in the middle.',
+  '',
+  'Cut-off source text continues with **Markdown syntax**.',
+  '',
+  'Literal dots can precede more text.',
+  '',
+  'Literal dots...',
 ].join('\n');
 
 const noop = () => {};
@@ -121,6 +129,16 @@ async function run() {
 
   const rawInline = await landing({ matchText: 'Delta paragraph with **bold emphasis** and a `code span` in it.' });
   check('raw-markdown inline-styled matchText lands on its paragraph', rawInline.landedText.includes('bold emphasis'), rawInline);
+
+  const clipped = await landing({ matchText: 'Cut-off source text ...' });
+  check('a clipped excerpt matches the start of the source row', clipped.landedText.startsWith('Cut-off source text continues'), clipped);
+  check('a clipped source match raises no toast', clipped.toasts.length === 0, clipped);
+
+  const unicodeClip = await landing({ matchText: 'Delta paragraph with **bold empha…' });
+  check('a Unicode ellipsis can truncate raw Markdown mid-word', unicodeClip.landedText.includes('bold emphasis'), unicodeClip);
+
+  const literalDots = await landing({ matchText: 'Literal dots...' });
+  check('literal trailing dots take precedence over a prefix match', literalDots.landedText === 'Literal dots...', literalDots);
 
   // Rendered-prose quotes still land through the rendered-text scan.
   const rendered = await landing({ matchText: 'Bravo paragraph, near a deletion.' });

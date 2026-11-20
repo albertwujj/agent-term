@@ -10,6 +10,8 @@
 // Code prints, the doc's rows wrapped at 60 columns.
 
 import { launchElectron } from './electron.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import * as url from 'node:url';
 
@@ -45,6 +47,26 @@ const DOC_ROWS = [
   ['t most need your judgment first.', 'judgment', EXPAND],
 ];
 
+const CURSOR_DIFF = [
+  '  Edited test/fixtures/e2e-diff-review.md +1 -2',
+  '',
+  '    ▎  The unchanged opening explains the new set ...',
+  '    ▎  | Setting | Example |',
+  '    ▎  | --- | --- |',
+  '    ▎- | Old setting | This was removed from the file. |',
+  '    ▎+ | **New setting** | The current val ...',
+  '    ▎  One last context paragraph beneath the table.',
+  '    ▎- A removed line at the end of the hunk.',
+  '    ▎  … truncated (2 more lines) · ctrl+r to review',
+];
+const CURSOR_ROWS = [
+  ['unchanged opening', 'opening', 'explains the new settings'],
+  ['| Setting | Example |', 'Example', 'New setting'],
+  ['Old setting', 'removed', 'current value can be chosen', 'anchor'],
+  ['**New setting**', 'current', 'current value can be chosen', 'exact'],
+  ['removed line at the end', 'hunk', 'last context paragraph', 'anchor'],
+];
+
 // The same rows over code go to the IDE, so each names the file and the line.
 const CODE_ROWS = [
   ['41    const message', 'summaryHeading', 41],
@@ -55,11 +77,12 @@ const CODE_ROWS = [
 ];
 
 async function main() {
+  const userData = mkdtempSync(path.join(tmpdir(), 'at-diff-rows-'));
   const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     // wordTarget measures text under `.xterm-rows`, which only the DOM renderer
     // fills; without the GPU, WebGL fails to load and the renderer falls back.
-    args: ['--no-sandbox', '--disable-gpu', APP_DIR],
+    args: ['--no-sandbox', '--disable-gpu', `--user-data-dir=${userData}`, APP_DIR],
     timeout: 45_000,
   });
   const page = await app.firstWindow();
@@ -119,13 +142,8 @@ async function main() {
   }, [needle, word]);
   const MOD_KEY = process.platform === 'darwin' ? 'Meta' : 'Control';
 
-  try {
-    await runCmd('clear');
-    await runCmd('cat test/fixtures/e2e-diff-rows.txt');
-    await sleep(1500);
-
-    console.log('every row of a doc diff opens the doc on its line');
-    for (const [needle, word, block] of DOC_ROWS) {
+  async function checkDocRows(rows) {
+    for (const [needle, word, block, kind] of rows) {
       await clearActions();
       const target = await wordTarget(needle, word);
       if (!target) { check(`row "${needle}" is on screen`, false); continue; }
@@ -134,10 +152,15 @@ async function main() {
         .then(() => page.evaluate(() => ({
           title: document.querySelector('.vb-shell.vb-md .vb-title')?.textContent || '',
           text: document.querySelector('.vb-shell.vb-md .md-landing-target')?.textContent || '',
+          kind: [...(document.querySelector('.vb-shell.vb-md .md-landing-pulse')?.classList || [])]
+            .find((name) => name.startsWith('md-landing-pulse--'))?.slice('md-landing-pulse--'.length),
+          miss: document.body.textContent.includes('Text not found in markdown:'),
         })))
         .catch(() => null);
       check(`"${needle}" opens the diff's doc`, !!landed && landed.title.endsWith('e2e-diff-review.md'), landed?.title);
       check(`and lands on its line`, !!landed && landed.text.includes(block), landed?.text?.slice(0, 80));
+      if (kind) check(`and highlights it as ${kind}`, landed?.kind === kind, landed?.kind);
+      check('without a text-miss warning', !!landed && !landed.miss);
       check('without a trip to the IDE', (await actions()).length === 0, await actions());
       if (await page.locator('.vb-shell.vb-md.open').count()) {
         await page.locator('.vb-shell.vb-md .vb-close').click();
@@ -145,6 +168,15 @@ async function main() {
       }
       await sleep(400);
     }
+  }
+
+  try {
+    await runCmd('clear');
+    await runCmd('cat test/fixtures/e2e-diff-rows.txt');
+    await sleep(1500);
+
+    console.log('every row of a numbered doc diff opens the doc on its line');
+    await checkDocRows(DOC_ROWS);
 
     console.log('every row of a code diff hands its file and line to the IDE');
     for (const [needle, word, line] of CODE_ROWS) {
@@ -161,8 +193,14 @@ async function main() {
         request?.filePath === 'test/fixtures/e2e-diff-code.js' && request?.line === line, sent);
       await sleep(300);
     }
+
+    console.log('unnumbered Markdown diff rows land through their source excerpts');
+    await runCmd('clear');
+    await runCmd(`printf '%s\\n' ${CURSOR_DIFF.map((row) => `'${row}'`).join(' ')}`);
+    await checkDocRows(CURSOR_ROWS);
   } finally {
     await app.close();
+    rmSync(userData, { recursive: true, force: true });
   }
 
   console.log(`\n--- Results: ${passed} passed, ${failures.length} failed ---`);
