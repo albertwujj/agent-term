@@ -1,10 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
-  <!-- The phone app's icon (agent-stream-hub's icon.svg), a prompt chevron and
-       cursor block, shrunk to the centered 80% safe area that iOS keeps
-       visible inside its rounded mask and set on white. The phone app's own
-       icon is full bleed, so its corners get clipped into a rounded tile. -->
+  <!-- The phone app's home screen icon (agent-stream-hub's icon-180.png): its
+       prompt-chevron tile fills the upper-left 60% of a white square. -->
   <rect width="180" height="180" fill="#ffffff"/>
-  <g transform="translate(18 18) scale(0.8)">
+  <g transform="scale(0.6)">
     <rect width="180" height="180" fill="#0c0c0c"/>
     <path d="M54 62 L88 90 L54 118" fill="none" stroke="#61d6d6" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
     <rect x="100" y="106" width="38" height="12" rx="2" fill="#a3d977"/>
