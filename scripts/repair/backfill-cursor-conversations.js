@@ -12,7 +12,7 @@ const { parseArgs } = require('node:util');
 const sessionsLog = require('../src/sessions-log');
 const { resumeLaunch } = require('../src/cli-conversation');
 
-const USAGE = 'Usage: node scripts/backfill-cursor-conversations.js --user-data <dir> [--cursor-config <dir>] [--apply]';
+const USAGE = 'Usage: node scripts/repair/backfill-cursor-conversations.js --user-data <dir> [--cursor-config <dir>] [--apply]';
 const hashDirectory = (dir) => createHash('md5').update(dir).digest('hex');
 const normalize = (text) => text.normalize('NFC').replace(/\s+/g, ' ').trim();
 
