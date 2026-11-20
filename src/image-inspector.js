@@ -37,7 +37,6 @@ function createImageInspector() {
       <div class="md-image-toolbar">
         <span class="md-image-status" role="status"></span>
         <button type="button" data-fit>Fit</button>
-        <button type="button" data-actual>Actual size</button>
         <button type="button" data-out aria-label="Zoom out">−</button>
         <output aria-label="Zoom level"></output>
         <button type="button" data-in aria-label="Zoom in">+</button>
@@ -110,7 +109,6 @@ function createImageInspector() {
     }
 
     panel.querySelector('[data-fit]').addEventListener('click', fit);
-    panel.querySelector('[data-actual]').addEventListener('click', () => zoom(1));
     panel.querySelector('[data-in]').addEventListener('click', () => zoom(zoomScale() * 1.25));
     panel.querySelector('[data-out]').addEventListener('click', () => zoom(zoomScale() / 1.25));
     closeButton.addEventListener('click', () => close());
