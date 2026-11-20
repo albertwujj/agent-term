@@ -7,15 +7,12 @@
 // its dialog.
 //
 // Where Cursor's id comes from. Cursor keeps each chat in
-// <config dir>/chats/<md5 of the workspace path>/<chat id>/store.db, an
-// SQLite file the running agent holds open for as long as that chat is the
-// one on screen. An in-CLI /resume moves the handle to the chat it opened,
-// so the file held open names the chat the session is running right now.
-// Cursor's other surfaces were weighed and left: the per-process debug log
-// in the temp dir names the chat too, but it is an internal log in a format
-// nobody promises; the "To resume this session" line comes only on exit,
-// and a window that closes never shows it. A chat with no message yet has
-// no store.db, and there is nothing to resume then either.
+// <config dir>/chats/<md5 of the workspace path>/<chat id>/store.db. Linux
+// and WSL read the foreground agent's per-process log when it switches chats
+// (cursor-chat-probe.py). Cursor 2026.11.17 blocked same-user descriptor
+// inspection there. The open store still works on macOS and for earlier
+// Linux versions that have no usable log. A chat with no messages is not
+// yet resumable.
 //
 // Where Cursor must resume from. `agent --resume <id>` looks the chat up
 // only under the md5 of its working directory, and an id it cannot find
@@ -60,9 +57,9 @@
 // found again once its new name reaches the title; renames after the last
 // title are not followed (the user does not rename threads).
 //
-// When main asks: Cursor and Claude a few seconds after each prompt the
-// capture logs in their sessions, when that prompt has reached a
-// conversation (main.js scheduleConversationProbe); Codex when a title with
+// When main asks: Cursor's live log after PTY output and at quit; the open
+// store and Claude a few seconds after each prompt the capture logs
+// (main.js scheduleConversationProbe); Codex when a title with
 // its thread's name is logged (main.js scheduleCodexLookup), and at a pick
 // of a session recorded before that, which has a name and no id. The answer
 // is logged as a `conversation` event when it changes (sessions-log.js), and

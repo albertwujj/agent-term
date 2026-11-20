@@ -487,9 +487,12 @@ let identityComplete = false;
 let sessionCwd = null;
 // The CLI's own id for the conversation this session runs, and the directory
 // to resume it from, as last logged: { id, dir }, or null. A resume inherits
-// it; the probe after each prompt logs a change (src/cli-conversation.js).
+// it; the live probes log changes (src/cli-conversation.js).
 let sessionConversation = null;
 let conversationProbeTimer = null;
+let cursorChatTimer = null;
+let cursorChatInFlight = null;
+let cursorChatReports = 0;
 // Boot vocabulary: dedupe keys of every OSC title seen before the first
 // prompt. A session title worth logging is, by definition, something the
 // CLI could not have said before it saw a prompt — so anything in this set
@@ -3099,6 +3102,7 @@ function createPty(cols, rows) {
     // scoring. Only the activity indicator gains optional title evidence;
     // the job-watch clock still uses classified screen changes below.
     lastPtyOutputTime = Date.now();
+    scheduleCursorChatProbe();
     watchTitle(data); // remains live while the renderer is frozen for comments
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('pty-output', data);
@@ -5009,6 +5013,48 @@ async function getPrimaryCwd() {
   return ptyStartingCwd();
 }
 
+// Linux and WSL: Cursor's per-process log changes when the interactive CLI
+// switches chats. Schedule off PTY output as well as prompts so accepting
+// /resume captures the selection before the next prompt. Bursts share a probe.
+function canProbeCursorChat() {
+  return detectedCli === 'agent' && activeFileWritten && ptyProcess
+    && (process.platform === 'linux' || process.platform === 'win32');
+}
+
+function scheduleCursorChatProbe() {
+  if (!canProbeCursorChat() || quitting || cursorChatTimer) return;
+  cursorChatTimer = setTimeout(() => {
+    cursorChatTimer = null;
+    if (cursorChatInFlight) scheduleCursorChatProbe();
+    else refreshCursorChat();
+  }, 500);
+  cursorChatTimer.unref();
+}
+
+function refreshCursorChat() {
+  if (!canProbeCursorChat()) return Promise.resolve(null);
+  if (cursorChatInFlight) return cursorChatInFlight;
+  const pty = ptyProcess;
+  const id = sessionIndex;
+  cursorChatInFlight = (async () => {
+    const pid = process.platform === 'win32'
+      ? `$(cat -- ${shellEscape(wslPidFile)})` : String(pty.pid);
+    const script = fs.readFileSync(path.join(__dirname, 'cursor-chat-probe.py'), 'utf8');
+    const r = await posixSh(`python3 -c ${shellEscape(script)} "${pid}"`, { timeout: 2000 });
+    if (r.code !== 0 || ptyProcess !== pty || sessionIndex !== id || !canProbeCursorChat()) return null;
+    const line = r.stdout.split('\n').find((row) => row.startsWith('cursor-chat\t'));
+    if (!line) return null;
+    const found = JSON.parse(line.slice('cursor-chat\t'.length));
+    cursorChatReports++;
+    recordConversation(found);
+    return found;
+  })().catch((err) => {
+    log('[conversation] Cursor log probe failed: ' + (err && err.message));
+    return null;
+  }).finally(() => { cursorChatInFlight = null; });
+  return cursorChatInFlight;
+}
+
 // The conversation a Cursor Agent or Claude Code session runs, read a few
 // seconds after each prompt the capture logs, by when the CLI has opened the
 // conversation that prompt went to (src/cli-conversation.js). One not found
@@ -5025,7 +5071,13 @@ function scheduleConversationProbe() {
     conversationProbeTimer = setTimeout(async () => {
       conversationProbeTimer = null;
       let found;
-      try { found = await probeConversation(); } catch (err) {
+      try {
+        if (canProbeCursorChat() && await refreshCursorChat() !== null) return;
+        const reports = cursorChatReports;
+        found = await probeConversation();
+        // A live Cursor log report can arrive while the legacy probe runs.
+        if (cursorChatReports !== reports) return;
+      } catch (err) {
         log('[conversation] probe failed: ' + (err && err.message));
         return;
       }
@@ -5104,10 +5156,10 @@ async function lookupCodexThread(dir, name, { live = false } = {}) {
 function recordConversation(found) {
   const next = found && found.id ? { id: found.id, dir: found.dir } : null;
   if (sameConversation(next, sessionConversation)) return;
-  sessionConversation = next;
   const event = { e: 'conversation', id: sessionIndex, conversation: next ? next.id : null };
   if (next) event.dir = next.dir;
   sessionsLog.appendEvent(app.getPath('userData'), event);
+  sessionConversation = next;
   log('[conversation] session ' + sessionIndex + ' runs ' + (next ? next.id : 'a conversation it cannot resume by id'));
 }
 
@@ -6674,6 +6726,7 @@ app.whenReady().then(async () => {
 // timer is only there so one that ignores it cannot hang the app.
 const PTY_QUIT_DRAIN_MS = 1000;
 let ptyQuitDrain = null;
+let cursorQuitProbePending = false;
 
 function finishQuitAfterPty() {
   if (ptyQuitDrain) { clearTimeout(ptyQuitDrain); ptyQuitDrain = null; }
@@ -6685,14 +6738,25 @@ app.on('before-quit', (event) => {
   quitting = true;
   if (!ptyProcess || ptyQuitDrain) return; // nothing live, or already draining
   event.preventDefault();
+  if (cursorQuitProbePending) return;
   const p = ptyProcess;
-  ptyQuitDrain = setTimeout(finishQuitAfterPty, PTY_QUIT_DRAIN_MS);
-  try { p.onExit(finishQuitAfterPty); } catch {}
-  try { p.kill(); }
-  catch (err) {
-    log('[main] PTY kill during quit failed: ' + (err && err.message));
-    finishQuitAfterPty();
-  }
+  const drain = () => {
+    if (ptyProcess !== p) return;
+    ptyQuitDrain = setTimeout(finishQuitAfterPty, PTY_QUIT_DRAIN_MS);
+    try { p.onExit(finishQuitAfterPty); } catch {}
+    try { p.kill(); }
+    catch (err) {
+      log('[main] PTY kill during quit failed: ' + (err && err.message));
+      finishQuitAfterPty();
+    }
+  };
+  if (canProbeCursorChat()) {
+    cursorQuitProbePending = true;
+    clearTimeout(cursorChatTimer);
+    cursorChatTimer = null;
+    const pending = cursorChatInFlight || Promise.resolve();
+    pending.then(refreshCursorChat).finally(drain);
+  } else drain();
 });
 
 app.on('will-quit', () => {

@@ -2,8 +2,8 @@
 // conversation id from the picker, with no /resume and no resume band
 // (src/cli-conversation.js). Launches the REAL app against an isolated
 // userData dir, with fakes that leave the trace each real CLI leaves:
-//   agent   keeps its chat store open, under
-//           <tmp>/chats/<md5 of its cwd>/<chat id>/store.db
+//   agent   writes a per-process log on Linux and keeps its chat store open
+//           on macOS. On Linux it also simulates an in-CLI chat switch.
 //   claude  writes its session record, <CLAUDE_CONFIG_DIR>/sessions/<pid>.json
 //   codex   writes its thread, with the name it generates, to its store,
 //           <CODEX_HOME>/state_5.sqlite, and shows "<name> | <project>" as
@@ -21,6 +21,7 @@
 //   4. a Codex session recorded before its thread could be found (a name in
 //      its titles, no conversation): the pick finds the thread by name,
 //      resumes by id, and the band shown at the pick goes
+//   5. a Cursor session without a current debug log uses the resume dialog
 //
 // The fakes are executables on a PATH the test puts first, not shell
 // functions: a resumed session launches through `env AGENT_SESSION_ID=…`, and
@@ -69,6 +70,9 @@ db.executemany("insert or replace into threads values (?, ?, ?, ?)", json.loads(
 db.commit()`, CODEX_HOME, JSON.stringify(rows)]);
 }
 const CODEX_NAME = 'Add uploader retries';
+const CURSOR_SWITCH = 'e8b1d2aa-77a4-4bf9-83ea-3074f8013400';
+const CURSOR_OTHER = '557a59f0-a2d7-454d-b96e-bd984e2481f2';
+const cursorUsesLog = process.platform === 'linux';
 
 // Each fake records its arguments, shows the title the real CLI shows, leaves
 // that CLI's trace for the id it resumes (else its own), and reads lines until
@@ -81,12 +85,40 @@ const CLIS = [
     script: (id) => `id='${id}'
 [ "$1" = --resume ] && id="$2"
 h=$(printf %s "$PWD" | { md5sum 2>/dev/null || md5; } | cut -c1-32)
-d='${T}'/chats/$h/$id
-mkdir -p "$d"
-printf '{"schemaVersion":1,"cwd":"%s"}\\n' "$PWD" > "$d/meta.json"
-: >> "$d/store.db"
-exec 3<"$d/store.db"
-printf '\\033]0;Cursor Agent\\007'`,
+open_chat() {
+  d='${T}'/chats/$h/$1
+  mkdir -p "$d"
+  printf '{"schemaVersion":1,"cwd":"%s","hasConversation":true}\\n' "$PWD" > "$d/meta.json"
+  : >> "$d/store.db"
+}
+open_chat "$id"
+${cursorUsesLog ? `logdir='${T}'/cursor-agent-logs-$(id -u)
+mkdir -p "$logdir"
+now() { date -u '+%Y-%m-%dT%H:%M:%S.%3NZ'; }
+log="$logdir/session-live-$$-1.log"
+stale="$logdir/session-stale-$$-1.log"
+printf '%s\\n' "--- Cursor Agent Debug Session ---" > "$stale"
+printf '{"event":"debug-session-start","pid":%s,"startTime":"2000-01-01T00:00:00.000Z"}\\n' "$$" >> "$stale"
+printf '[2030-01-01T00:00:00.000Z] conversationClassification.init {"conversationId":"%s","workspacePath":"%s"}\\n' '${CURSOR_OTHER}' "$PWD" >> "$stale"
+log_chat() {
+  printf '[%s] conversationClassification.init {"conversationId":"%s","workspacePath":"%s"}\\n' "$(now)" "$1" "$PWD" >> "$log"
+}
+if [ -z "$AGENT_TERM_TEST_CURSOR_NO_LOG" ]; then
+  printf '%s\\n' "--- Cursor Agent Debug Session ---" > "$log"
+  printf '{"event":"debug-session-start","pid":%s,"startTime":"%s"}\\n' "$$" "$(now)" >> "$log"
+  log_chat "$id"
+fi
+printf '\\033]0;Cursor Agent\\007'
+while IFS= read -r line; do
+  case "$line" in
+    /resume)
+      open_chat '${CURSOR_SWITCH}'
+      log_chat '${CURSOR_SWITCH}'
+      printf 'Selected saved Cursor chat.\\n'
+      ;;
+  esac
+done` : `exec 3<"$d/store.db"
+printf '\\033]0;Cursor Agent\\007'`}`,
   },
   {
     cli: 'claude',
@@ -125,7 +157,8 @@ async function launch() {
   const app = await launchElectron({
     executablePath: ELECTRON_BIN,
     args: ['--no-sandbox', `--user-data-dir=${UD}`, APP_DIR],
-    env: { ...process.env, CLAUDE_CONFIG_DIR: CLAUDE_CONFIG, CODEX_HOME },
+    env: { ...process.env, CLAUDE_CONFIG_DIR: CLAUDE_CONFIG, CODEX_HOME,
+      ...(cursorUsesLog ? { TMPDIR: T, CURSOR_CONFIG_DIR: T } : {}) },
     timeout: 45_000,
   });
   const mainLog = await followMainLog(app);
@@ -193,7 +226,29 @@ try {
       JSON.stringify(logged));
     const session = sessionsLog.listSessions(UD).find(s => s.id === id);
     check(`${c.cli}: the fold carries it`, session && session.conversation && session.conversation.id === c.id, JSON.stringify(session));
-    await a.app.close();
+    let resumeId = c.id;
+    if (c.cli === 'agent' && cursorUsesLog) {
+      const other = await launch(); cleanup.push(other);
+      await useFakes(other.page);
+      await typeLine(other.page, `agent --resume ${CURSOR_OTHER}`);
+      await typeLine(other.page, 'another Cursor chat in the same workspace');
+      const otherEvent = await waitFor(() => sessionsLog.readLog(UD)
+        .find(e => e.e === 'conversation' && e.id !== id && e.conversation === CURSOR_OTHER), 10_000);
+      check('agent: a second window in the same directory captures its own chat', otherEvent);
+      const promptsBefore = sessionsLog.readLog(UD).filter(e => e.e === 'prompt' && e.id === id).length;
+      await typeLine(a.page, '/resume');
+      await a.app.close();
+      resumeId = CURSOR_SWITCH;
+      check('agent: closing after an in-CLI switch saves the new chat ID',
+        conversationEvents(id).at(-1)?.conversation === resumeId);
+      check('agent: capturing the switch required no additional prompt',
+        sessionsLog.readLog(UD).filter(e => e.e === 'prompt' && e.id === id).length === promptsBefore);
+      check('agent: the other window keeps its own chat',
+        otherEvent && conversationEvents(otherEvent.id).at(-1)?.conversation === CURSOR_OTHER);
+      await other.app.close();
+    } else {
+      await a.app.close();
+    }
     cleanup.length = 0;
 
     console.log(`2 — ${c.cli}: picked in a new window, it resumes by id, with no band`);
@@ -202,8 +257,8 @@ try {
     await useFakes(b.page);
     await pick(b, id);
     const args = await waitFor(() => readArgs(c), 10_000);
-    check(`${c.cli}: the CLI starts with its resume arguments and the id`, args === c.resumeArgs(c.id), JSON.stringify(args));
-    check(`${c.cli}: main says it resumed by id`, new RegExp(`resumed by id after picker-pick id=${id} cli=${c.cli} conversation=${c.id}`).test(b.log));
+    check(`${c.cli}: the CLI starts with its resume arguments and the id`, args === c.resumeArgs(resumeId), JSON.stringify(args));
+    check(`${c.cli}: main says it resumed by id`, new RegExp(`resumed by id after picker-pick id=${id} cli=${c.cli} conversation=${resumeId}`).test(b.log));
     check(`${c.cli}: no intercept is armed`, !/armed intercept after picker-pick/.test(b.log));
     await sleep(1000);
     check(`${c.cli}: no resume band shows`, !(await b.page.evaluate(() => !!document.querySelector('.at-resume-hint'))));
@@ -255,6 +310,28 @@ try {
   check('no intercept is armed', !/armed intercept after picker-pick/.test(d.log));
   const bandGone = await waitFor(() => d.page.evaluate(() => !document.querySelector('.at-resume-hint')), 3000);
   check('the band shown at the pick goes', !!bandGone);
+  await d.app.close();
+  cleanup.length = 0;
+
+  if (cursorUsesLog) {
+    console.log('5 — Cursor without a current debug log resumes through the dialog');
+    const noLog = await launch(); cleanup.push(noLog);
+    await useFakes(noLog.page);
+    await typeLine(noLog.page, 'export AGENT_TERM_TEST_CURSOR_NO_LOG=1');
+    await typeLine(noLog.page, 'agent');
+    const prompt = 'test the fallback with Cursor logging disabled';
+    await typeLine(noLog.page, prompt);
+    const event = await waitFor(() => sessionsLog.readLog(UD).find(e => e.e === 'prompt' && e.prompt === prompt), 5000);
+    if (!event) throw new Error('the no-log session never started');
+    await noLog.app.close();
+    cleanup.length = 0;
+    check('agent: a stale log with the right PID cannot supply a current chat', conversationEvents(event.id).length === 0);
+    const dialog = await launch(); cleanup.push(dialog);
+    await useFakes(dialog.page);
+    await pick(dialog, event.id);
+    check('agent: the picker starts Cursor with the resume intercept armed',
+      await waitFor(() => dialog.log.includes(`armed intercept after picker-pick id=${event.id} cli=agent`), 5000));
+  }
 } catch (err) {
   failures.push(String(err && err.message));
   console.log('  ✗ ' + (err && err.stack));
