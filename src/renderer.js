@@ -922,6 +922,7 @@ function toggleViewerFullSize() {
 
 // Single entry point for every chord source (main window and webview guest).
 function handleViewerShortcut(action) {
+  if (document.querySelector('.md-image-inspector')) return;
   if (action === 'selector') { toggleViewerSelector(); return; }
   if (action === 'toggle') { toggleViewerVisibility(); return; }
   if (action === 'size') { toggleViewerFullSize(); return; }

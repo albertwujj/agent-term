@@ -151,7 +151,7 @@ try {
   assert.equal(raw.html, '');
   console.log('PASS markdown source copy replaces both clipboard flavors');
 
-  const clickImage = async (alt) => {
+  const imagePoint = async (alt) => {
     // Both panes render the block. Click the image where the pane exposes it.
     const point = await page.waitForFunction((alt) => {
       for (const image of document.querySelectorAll('.md-viewer-body img')) {
@@ -162,7 +162,10 @@ try {
         if (document.elementFromPoint(x, y) === image) return { x, y };
       }
     }, alt);
-    const { x, y } = await point.jsonValue();
+    return point.jsonValue();
+  };
+  const clickImage = async (alt) => {
+    const { x, y } = await imagePoint(alt);
     await page.mouse.click(x, y);
     assert.equal(await copyButton.textContent(), '⧉ image');
     assert.equal(await page.locator('img.md-copy-image').getAttribute('alt'), alt);
@@ -183,8 +186,31 @@ try {
   await copyButton.click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
   await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓ md');
   assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), imageBlock);
-  assert.deepEqual(errors, []);
   console.log('PASS modifier-copy writes the containing block source');
+
+  const expanded = page.getByRole('dialog', { name: 'Expanded image' });
+  const { x, y } = await imagePoint('Wide diagram');
+  await page.mouse.dblclick(x, y);
+  await page.waitForFunction(() => document.fullscreenElement?.classList.contains('md-image-inspector'));
+  assert.equal(await expanded.locator('img').getAttribute('alt'), 'Wide diagram');
+  const stage = expanded.locator('.md-image-stage');
+  const { frame, image } = await stage.evaluate((el) => ({
+    frame: el.getBoundingClientRect().toJSON(),
+    image: el.querySelector('img').getBoundingClientRect().toJSON(),
+  }));
+  assert.ok(image.left >= frame.left - 1 && image.right <= frame.right + 1);
+  assert.ok(image.top >= frame.top - 1 && image.bottom <= frame.bottom + 1);
+  assert.ok(Math.min(frame.width - image.width, frame.height - image.height) < 1);
+  const level = expanded.getByLabel('Zoom level');
+  const fit = parseInt(await level.textContent(), 10);
+  await stage.dblclick();
+  assert.ok(parseInt(await level.textContent(), 10) > fit);
+  await page.keyboard.press('Escape');
+  await expanded.waitFor({ state: 'detached' });
+  assert.equal(await page.locator('img.md-copy-image').getAttribute('alt'), 'Wide diagram');
+  assert.equal(await page.locator('.vb-shell.vb-md').evaluate((el) => el === document.activeElement), true);
+  assert.deepEqual(errors, []);
+  console.log('PASS double-click fits the exact image, zooms further, and Escape returns to its selection');
 } finally {
   if (app) await app.close();
   fs.rmSync(tmp, { recursive: true, force: true });

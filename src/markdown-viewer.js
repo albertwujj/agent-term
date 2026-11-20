@@ -15,6 +15,7 @@ const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { findSentenceRange } = require('./sentence-selection');
 const { copyImageToClipboard } = require('./image-clipboard');
+const { createImageInspector } = require('./image-inspector');
 const { createViewerBand } = require('./viewer-band');
 const { createUnseenTracker, elementIsShown } = require('./viewer-updates');
 const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isMac, isPasteCommentShortcut } = require('./comment-ui');
@@ -1286,6 +1287,8 @@ function createMarkdownViewer({
     imageRefreshPending: false,
   };
 
+  const imageInspector = createImageInspector();
+
   // Chrome (shell, bar, hide/roll-up, sizing, hue, Esc) is the shared band; this
   // viewer only fills the content slot (the spread) + a bar widget (the comment
   // footer). escToHide:false → md drives Esc itself (cancel a card first).
@@ -1310,6 +1313,7 @@ function createMarkdownViewer({
     // Rolling up takes the doc off screen, so an md-scoped search has nothing to
     // show — close it (clearing its highlights) so Ctrl-F targets the terminal.
     onHide: () => {
+      imageInspector.close(false);
       // Rolling up abandons the transient target/selection (and clears the bar
       // hint with it). Leaves live edits and open composers untouched.
       clearActiveTarget();
@@ -1318,7 +1322,12 @@ function createMarkdownViewer({
       if (typeof closeSearchBar === 'function') closeSearchBar();
       else closeSearch();
     },
-    onClose: () => { resetCopyModifier(); teardownMarkdown(); if (typeof onClose === 'function') onClose(); },
+    onClose: () => {
+      imageInspector.close(false);
+      resetCopyModifier();
+      teardownMarkdown();
+      if (typeof onClose === 'function') onClose();
+    },
   });
 
   const unseen = createUnseenTracker((on) => band.setUnseen(on));
@@ -1442,6 +1451,7 @@ function createMarkdownViewer({
 
     band.content.appendChild(scroll);
     spreadLayout.addEventListener('click', handleArticleClick);
+    spreadLayout.addEventListener('dblclick', handleImageDoubleClick);
     spreadLayout.addEventListener('mouseup', handleSelectionMouseup);
     spreadLayout.addEventListener('mousedown', handleVdragDown);
     spreadLayout.addEventListener('mouseover', handleChangeBarHover);
@@ -2157,7 +2167,7 @@ function createMarkdownViewer({
     // An open composer or reply holds them too, since a render rebuilds the
     // article its card sits in. Queued comments alone do not: a render carries
     // their marks through (planRefreshThroughQueue).
-    return !!state.activeCard || !!state.threadReply
+    return imageInspector.isOpen() || !!state.activeCard || !!state.threadReply
       || !!state.editing || state.blockOverlays.size > 0;
   }
 
@@ -7183,6 +7193,7 @@ function createMarkdownViewer({
   // Drop everything the viewer holds for the doc it shows; the new token
   // retires that doc's poll.
   function resetForNextDoc() {
+    imageInspector.close(false);
     const token = ++state.openToken;
     stopMarkdownAutoRefresh();
     if (state.search.isOpen && typeof closeSearchBar === 'function') {
@@ -7239,6 +7250,27 @@ function createMarkdownViewer({
       return;
     }
     openDocPath(target.path);
+  }
+
+  function handleImageDoubleClick(event) {
+    const image = event.target.closest?.('.md-viewer-body img');
+    if (!image || !band.isOpen() || state.editing || isFollowModifier(event)) return;
+    const target = image.closest('[data-md-anchor-id]');
+    if (!target) return;
+    event.preventDefault();
+    if (image !== state.activeImage && !state.activeCard && !state.threadReply) {
+      armBlockAt(target, null, { image, link: image.closest('a[href]') });
+    }
+    const top = state.primaryPane.scrollTop;
+    const gridTop = state.spreadGridTop;
+    const token = state.openToken;
+    imageInspector.open(image, () => {
+      if (!band.isOpen() || token !== state.openToken) return;
+      state.spreadGridTop = gridTop;
+      updateBottomSpacer();
+      state.primaryPane.scrollTop = top;
+      realignPagesPreservingTop();
+    });
   }
 
   function handleArticleClick(event) {
@@ -7424,7 +7456,8 @@ function createMarkdownViewer({
   function showHint(target, { selection = null, link = null } = {}) {
     hideHint();
     if (!state.barHint) return;
-    state.barHint.textContent = 'letters and digits comment · other keys edit' + (link ? FOLLOW_HINT : '');
+    state.barHint.textContent = 'letters and digits comment · other keys edit'
+      + (state.activeImage ? ' · double-click to expand' : '') + (link ? FOLLOW_HINT : '');
     state.barHint.classList.add('on');
     state.hint = state.barHint;
   }
