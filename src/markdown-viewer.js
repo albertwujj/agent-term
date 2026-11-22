@@ -1402,7 +1402,7 @@ function createMarkdownViewer({
       const modClick = (isMac() ? '⌘' : 'Ctrl') + '-click';
       const copyBtn = band.makeCopyBtn(
         'text',
-        `Copy message text (no headings, no comments; keeps links and tables), for Teams or email: the whole document, or click a heading first for just its section, a paragraph for just that paragraph. ${modClick}: the markdown source instead, for Reddit or GitHub`,
+        `Copy without comments: formatted text for Word, Outlook or Teams, and message text (no headings) when pasted as plain text. The whole document, or click a heading first for just its section, a paragraph for just that paragraph. ${modClick}: the markdown source instead, for Reddit or GitHub`,
         (e) => copyDocBody(isFollowModifier(e)),
       );
       copyBtn.button.classList.add('md-copy-body');
@@ -4915,138 +4915,206 @@ function createMarkdownViewer({
     return el;
   }
 
-  // Message text from a slice of the FROZEN SOURCE, for pasting a drafted
-  // message into Teams or email — so comments and un-sent edits, which live in
-  // the sidecar store, never the source, are excluded for free. Headings and
-  // rules are dropped; each paragraph collapses to a single line (soft wraps
-  // gone); top-level list items get a blank line between them, with nested
-  // items on their own lines (not repeated inside the parent's line). Ordered
-  // items keep their literal numbers in both clipboard flavors. Code blocks keep
-  // their line breaks; blocks are separated by a blank line. The HTML flavor
-  // carries links, tables and block/line breaks, so a rich editor keeps their
-  // structure without importing the viewer's typography. Plain text spells
-  // out link destinations and gives each table row a block of labeled cells.
-  function buildMessageCopy(src) {
-    if (!String(src || '').trim()) return { text: '', html: '' };
+  // The plain-text flavor of a copy: message text from a slice of the FROZEN
+  // SOURCE, for a chat box or a plain paste — so comments and un-sent edits,
+  // which live in the sidecar store, never the source, are excluded for free.
+  // Headings and rules are dropped; each paragraph collapses to a single line
+  // (soft wraps gone); top-level list items get a blank line between them,
+  // with nested items on their own lines (not repeated inside the parent's
+  // line). Ordered items keep their literal numbers. Code blocks keep their
+  // line breaks; blocks are separated by a blank line. Link destinations are
+  // spelled out and each table row is a block of labeled cells.
+  function buildMessageText(src) {
+    if (!String(src || '').trim()) return '';
     const host = document.createElement('div');
     host.innerHTML = renderMarkdownDocument(
       String(src), markdownImageOptions({ path: state.resolvedPath || state.filePath }),
     ).html;
     const oneLine = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-    let needsRichText = false;
-    const inlineCopy = (el) => {
-      const flat = document.createElement('span');
-      const append = (node) => {
-        if (node.nodeType === 3) {
-          flat.appendChild(document.createTextNode(node.nodeValue));
-        } else if (node.nodeType === 1) {
-          if (node.tagName === 'A' && node.hasAttribute('href')) {
-            const link = document.createElement('a');
-            const href = node.getAttribute('href');
-            link.setAttribute('href', href);
-            link.textContent = oneLine(node.textContent) || href;
-            flat.appendChild(link);
-            needsRichText = true;
-          } else if (node.tagName === 'BR') {
-            flat.appendChild(document.createTextNode(' '));
-          } else {
-            for (const child of node.childNodes) append(child);
-          }
-        }
-      };
-      append(el);
-      const html = oneLine(flat.innerHTML);
-      for (const link of flat.querySelectorAll('a')) {
+    const inlineText = (el) => {
+      const flat = el.cloneNode(true);
+      for (const br of flat.querySelectorAll('br')) br.replaceWith(document.createTextNode(' '));
+      for (const link of flat.querySelectorAll('a[href]')) {
         const href = link.getAttribute('href');
-        const label = link.textContent;
+        const label = oneLine(link.textContent) || href;
         // Autolinks and email addresses already display their destination.
         const bareHref = href.replace(/^(?:https?:\/\/|mailto:|tel:)/i, '');
         link.replaceWith(document.createTextNode(
           label === href || label === bareHref ? label : `${label} (${href})`,
         ));
       }
-      return { text: oneLine(flat.textContent), html };
+      return oneLine(flat.textContent);
     };
-    const ownCopy = (li) => {
+    const ownText = (li) => {
       const clone = li.cloneNode(true);
       for (const nested of clone.querySelectorAll('ul, ol')) nested.remove();
-      const part = inlineCopy(clone);
+      const text = inlineText(clone);
       const list = li.parentElement;
-      if (list && list.tagName === 'OL') {
-        const index = Array.from(list.children).indexOf(li);
-        const number = Number(list.getAttribute('start') || 1) + index;
-        part.text = `${number}. ${part.text}`;
-        part.html = `${number}. ${part.html}`;
-      }
-      return part;
+      if (!text || !list || list.tagName !== 'OL') return text;
+      const index = Array.from(list.children).indexOf(li);
+      return `${Number(list.getAttribute('start') || 1) + index}. ${text}`;
     };
-    const tableCopy = (el) => {
-      needsRichText = true; // A table needs HTML even when none of its cells link.
-      const table = document.createElement('table');
-      table.setAttribute('border', '1');
-      table.setAttribute('cellpadding', '6');
-      table.style.borderCollapse = 'collapse';
+    const tableText = (el) => {
       let headers = [];
       const records = [];
       for (const section of el.children) {
-        const copiedSection = document.createElement(section.tagName);
         for (const row of section.rows) {
-          const copiedRow = document.createElement('tr');
-          const cells = Array.from(row.cells).map((cell) => {
-            const content = inlineCopy(cell);
-            const copiedCell = document.createElement(cell.tagName);
-            copiedCell.setAttribute('style', 'border:1px solid #888;padding:6px');
-            copiedCell.innerHTML = content.html;
-            copiedRow.appendChild(copiedCell);
-            return content.text;
-          });
-          copiedSection.appendChild(copiedRow);
-          if (section.tagName === 'THEAD') {
-            headers = cells;
-          } else {
-            records.push(cells.map((text, i) => `${headers[i] || `Column ${i + 1}`}: ${text}`).join('\n'));
-          }
+          const cells = Array.from(row.cells).map(inlineText);
+          if (section.tagName === 'THEAD') headers = cells;
+          else records.push(cells.map((text, i) => `${headers[i] || `Column ${i + 1}`}: ${text}`).join('\n'));
         }
-        table.appendChild(copiedSection);
       }
-      return {
-        text: records.length ? records.join('\n\n') : headers.join(' | '),
-        html: table.outerHTML,
-        table: true,
-      };
+      return records.length ? records.join('\n\n') : headers.join(' | ');
     };
     const parts = [];
     for (const el of Array.from(host.children)) {
       const tag = (el.tagName || '').toUpperCase();
       if (/^H[1-6]$/.test(tag) || tag === 'HR') continue;
-      let part;
-      if (tag === 'PRE') {
-        const text = String(el.textContent || '').replace(/\s+$/, ''); // code: keep line breaks
-        const escaped = document.createElement('span');
-        escaped.textContent = text;
-        part = { text, html: escaped.innerHTML, pre: true };
-      } else if (tag === 'UL' || tag === 'OL') {
+      if (tag === 'UL' || tag === 'OL') {
         for (const li of el.children) {
-          const items = [li, ...li.querySelectorAll('li')].map(ownCopy).filter((item) => item.text);
-          if (items.length) parts.push({
-            text: items.map((item) => item.text).join('\n'),
-            html: items.map((item) => item.html).join('<br>'),
-          });
+          const items = [li, ...li.querySelectorAll('li')].map(ownText).filter(Boolean);
+          if (items.length) parts.push(items.join('\n'));
         }
         continue;
-      } else if (tag === 'TABLE') {
-        part = tableCopy(el);
-      } else {
-        part = inlineCopy(el);
       }
-      if (part.text) parts.push(part);
+      const text = tag === 'PRE'
+        ? String(el.textContent || '').replace(/\s+$/, '') // code: keep line breaks
+        : tag === 'TABLE' ? tableText(el) : inlineText(el);
+      if (text) parts.push(text);
     }
-    return {
-      text: parts.map((part) => part.text).join('\n\n'),
-      html: needsRichText ? parts.map((part) => part.table ? part.html : part.pre
-        ? `<div style="white-space: pre-wrap">${part.html}</div>`
-        : `<p>${part.html}</p>`).join('\n') : '',
+    return parts.join('\n\n');
+  }
+
+  // The rich flavor of a copy: the document's own structure — headings,
+  // emphasis, real lists, code, tables, links — in bare semantic tags, for
+  // Word, Outlook or any rich editor. Destinations sanitize a paste down to
+  // tags and a few inline styles, so nothing here leans on the viewer's
+  // stylesheet: every attribute goes, and the little styling that has no tag
+  // (a code font, table borders, alignment) is written inline. Images stay
+  // out (a local file path means nothing to the destination), and a link that
+  // only resolves inside the viewer keeps its text. Mutates `root`.
+  const RICH_COPY_TAGS = new Set([
+    'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'BR', 'HR', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'PRE', 'CODE',
+    'STRONG', 'B', 'EM', 'I', 'U', 'S', 'DEL', 'SUB', 'SUP', 'A', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD',
+  ]);
+  const RICH_COPY_DROPPED = 'img, script, style, button, textarea, select, del.md-pending-del, del.md-sent-del, '
+    + '.md-comment-card, .md-queued-comment-card, .md-pending-strip, .md-thread-card, .md-thread-waiting-line';
+  const RICH_COPY_CODE_FONT = "font-family:Consolas,'Courier New',monospace";
+  function richCopyHtml(root) {
+    for (const box of root.querySelectorAll('input[type="checkbox"]')) {
+      box.replaceWith(document.createTextNode(box.checked ? '☑ ' : '☐ '));
+    }
+    for (const el of root.querySelectorAll(`${RICH_COPY_DROPPED}, input`)) el.remove();
+    for (const el of Array.from(root.querySelectorAll('*'))) {
+      const tag = el.tagName;
+      const href = tag === 'A' ? el.getAttribute('href') || '' : '';
+      const inCodeBlock = tag === 'CODE' && el.parentElement && el.parentElement.tagName === 'PRE';
+      if (!RICH_COPY_TAGS.has(tag) || inCodeBlock || (tag === 'A' && !/^(?:https?:|mailto:|tel:)/i.test(href))) {
+        el.replaceWith(...el.childNodes);
+        continue;
+      }
+      const styles = [];
+      const align = el.style && el.style.textAlign;
+      if (align) styles.push(`text-align:${align}`);
+      else if (el.classList.contains('md-center')) styles.push('text-align:center');
+      const start = tag === 'OL' ? el.getAttribute('start') : null;
+      const spans = ['colspan', 'rowspan'].map((name) => [name, el.getAttribute(name)]);
+      for (const attr of Array.from(el.attributes)) el.removeAttribute(attr.name);
+      if (tag === 'A') el.setAttribute('href', href);
+      if (start) el.setAttribute('start', start);
+      if (tag === 'CODE') styles.push(RICH_COPY_CODE_FONT);
+      if (tag === 'PRE') styles.push(RICH_COPY_CODE_FONT, 'white-space:pre-wrap');
+      if (tag === 'TABLE') {
+        el.setAttribute('border', '1');
+        el.setAttribute('cellpadding', '6');
+        styles.push('border-collapse:collapse');
+      }
+      if (tag === 'TH' || tag === 'TD') {
+        for (const [name, value] of spans) if (value) el.setAttribute(name, value);
+        styles.push('border:1px solid #888', 'padding:6px');
+      }
+      if (styles.length) el.setAttribute('style', styles.join(';'));
+    }
+    // A block that held only an image is now empty.
+    for (const el of root.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote')) {
+      if (!el.textContent.trim() && !el.querySelector('br, hr, table')) el.remove();
+    }
+    return root.innerHTML.trim();
+  }
+
+  function buildRichCopy(src) {
+    if (!String(src || '').trim()) return '';
+    const host = document.createElement('div');
+    host.innerHTML = renderMarkdownDocument(String(src), null).html;
+    return richCopyHtml(host);
+  }
+
+  // The rich flavor of a text selection, cut from the rendered article (a
+  // selection is offsets into rendered text; the source has no such slice).
+  // The cut keeps what the selection sat inside: the bold a phrase was in,
+  // and, when it spans items or cells, the list (with its numbering) or the
+  // table that holds them. It does not keep the block a phrase came out of,
+  // so three words from a heading or a list item paste as three words. Empty
+  // when the cut's text is not the selection's, which leaves the copy plain
+  // rather than pasting something else.
+  const RICH_COPY_INLINE_CONTEXT = new Set(['STRONG', 'B', 'EM', 'I', 'U', 'S', 'DEL', 'SUB', 'SUP', 'A', 'CODE', 'PRE']);
+  const RICH_COPY_CONTAINER_CONTEXT = new Set(['UL', 'OL', 'TABLE', 'THEAD', 'TBODY', 'TR']);
+  function buildRichSelectionCopy(record) {
+    const article = state.article;
+    const startEl = getArticleAnchorById(article, record.anchorId);
+    const endEl = getArticleAnchorById(article, record.endAnchorId || record.anchorId);
+    const start = getTextPositionWithin(startEl, record.selectionStart);
+    const end = getTextPositionWithin(endEl, record.selectionEnd);
+    if (!start || !end) return '';
+    // The cut may begin partway down an ordered list; its numbers stay the list's.
+    const startNumber = (list) => {
+      const first = Array.from(list.children).findIndex((li) => li.contains(start.node));
+      return first > 0 ? String(Number(list.getAttribute('start') || 1) + first) : null;
     };
+    let content;
+    let context;
+    try {
+      const range = document.createRange();
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+      content = range.cloneContents();
+      context = range.commonAncestorContainer;
+    } catch {
+      return '';
+    }
+    // Everything before the start is cut away, so what leads down to it is
+    // the first child at each level of the cut.
+    const leading = [];
+    for (let node = start.node; node && node !== context; node = node.parentNode) leading.unshift(node);
+    let cut = content;
+    for (const live of leading) {
+      cut = cut.firstChild;
+      if (!cut) break;
+      const number = live.tagName === 'OL' && cut.tagName === 'OL' ? startNumber(live) : null;
+      if (number) cut.setAttribute('start', number);
+    }
+    if (context.nodeType !== 1) context = context.parentElement;
+    // A container wraps the cut only while the cut is whole items or cells
+    // of it, which ends at the first block (an item, a cell) on the way up.
+    let spansItems = true;
+    for (let el = context; el && el !== article; el = el.parentElement) {
+      if (RICH_COPY_CONTAINER_CONTEXT.has(el.tagName)) {
+        if (!spansItems) continue;
+      } else if (!RICH_COPY_INLINE_CONTEXT.has(el.tagName)) {
+        spansItems = false;
+        continue;
+      }
+      const wrapper = el.cloneNode(false);
+      const number = el.tagName === 'OL' ? startNumber(el) : null;
+      if (number) wrapper.setAttribute('start', number);
+      wrapper.appendChild(content);
+      content = wrapper;
+    }
+    const host = document.createElement('div');
+    host.appendChild(content);
+    const html = richCopyHtml(host);
+    const bare = (s) => String(s || '').replace(/\s+/g, '');
+    return bare(host.textContent) === bare(record.selectedText) ? html : '';
   }
 
   // What copy takes: the armed thing, or the whole document when nothing is
@@ -5131,19 +5199,22 @@ function createMarkdownViewer({
     const scope = copyScope();
     // A source slice keeps the blank lines the file puts around a section
     // (after its heading, before the next); pasted, they read as padding.
-    const content = source || scope.raw ? { text: String(scope.src || '') } : buildMessageCopy(scope.src);
-    const text = content.text.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
+    const plain = source || scope.raw ? String(scope.src || '') : buildMessageText(scope.src);
+    const text = plain.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '');
     if (!text.trim()) return '∅';
+    // The markdown source is text by definition; every other copy also
+    // carries the rich flavor, whatever the scope holds.
+    const html = source ? '' : scope.raw ? buildRichSelectionCopy(state.activeSelection) : buildRichCopy(scope.src);
     focusCopyTarget();
     const confirmation = source ? '✓ md' : '✓';
-    if (content.html && navigator.clipboard.write && window.ClipboardItem) {
+    if (html && navigator.clipboard.write && window.ClipboardItem) {
       try {
         await navigator.clipboard.write([new window.ClipboardItem({
           'text/plain': new Blob([text], { type: 'text/plain' }),
-          'text/html': new Blob([content.html], { type: 'text/html' }),
+          'text/html': new Blob([html], { type: 'text/html' }),
         })]);
         return confirmation;
-      } catch {} // A host without rich clipboard support still keeps the URLs.
+      } catch {} // A host without rich clipboard support still gets the text.
     }
     await navigator.clipboard.writeText(text);
     return confirmation;

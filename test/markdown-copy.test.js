@@ -1,11 +1,14 @@
 // Guards the md viewer's ⧉ copy against the REAL src/markdown-viewer.js in
-// jsdom: copy takes what's armed. Nothing armed → the whole body as plain
-// text (headings out, paragraphs one-lined, top-level list items separated,
-// nested items each their own line); a clicked heading → its section's body, up to
-// the next heading of its level; a clicked paragraph → that paragraph; the
-// modifier variant → the markdown source of the same scope; ⌘C on an armed
-// block → the same copy from the keyboard. The bar button's label names the
-// scope before the click and returns to "text" when the target clears.
+// jsdom: copy takes what's armed, in two flavors. Plain: nothing armed → the
+// whole body as message text (headings out, paragraphs one-lined, top-level
+// list items separated, nested items each their own line); a clicked heading →
+// its section's body, up to the next heading of its level; a clicked paragraph
+// → that paragraph. Rich: the same scope with its structure (headings,
+// emphasis, lists, code, tables, links), and a selection cut from the rendered
+// article. The modifier variant → the markdown source of the same scope, text
+// only; ⌘C on an armed block → the same copy from the keyboard. The bar
+// button's label names the scope before the click and returns to "text" when
+// the target clears.
 
 const { JSDOM } = require('jsdom');
 
@@ -281,14 +284,20 @@ async function run() {
         ['www.example.com', 'http://www.example.com'],
         ['exports', 'https://example.test/export'],
       ]), links);
-    check('rich copy has separate paragraphs for the two numbered options',
-      Array.from(html.querySelectorAll('p')).some((p) => p.textContent.startsWith('1. Orion:'))
-      && Array.from(html.querySelectorAll('p')).some((p) => p.textContent === '2. Phoenix: add NR exports.'), copiedHtml);
-    check('rich copy excludes headings, outside notes, and typography',
-      !html.querySelector('h1, h2, strong, em, code, draft, [data-md-anchor-id]')
+    const options = html.querySelectorAll('ol > li');
+    check('rich copy keeps the numbered options as a real list with its nested item',
+      options.length === 2 && options[0].querySelector('ul > li').textContent === 'Keep exports.'
+      && options[1].textContent === 'Phoenix: add NR exports.', copiedHtml);
+    check('rich copy keeps emphasis and inline code, the code in a font the destination has',
+      html.querySelector('ol strong').textContent === 'restore'
+      && /font-family:[^;"]*monospace/.test(html.querySelector('ol code').getAttribute('style')), copiedHtml);
+    check('rich section copy excludes the outside notes and every viewer attribute',
+      !html.querySelector('h1, h2, draft, [class], [id], [data-md-anchor-id], [data-source-start-line]')
       && !html.textContent.includes('outside the draft'), copiedHtml);
     check('rich code keeps whitespace and literal markup',
-      html.querySelector('[style]').textContent === '  [literal](https://example.test/code)\nsecond line', copiedHtml);
+      html.querySelector('pre').textContent.replace(/\n$/, '') === '  [literal](https://example.test/code)\nsecond line'
+      && /white-space:pre-wrap/.test(html.querySelector('pre').getAttribute('style'))
+      && !html.querySelector('pre a, pre code'), copiedHtml);
   }
   {
     const text = await pressCopy({ metaKey: true });
@@ -326,7 +335,100 @@ async function run() {
     const text = await pressCopy();
     check('ordered lists preserve start numbers and nested numbering with blank lines between top-level items',
       text === '7. First\n3. Nested first\n4. Nested second\n\n8. Second', text);
-    check('messages without links keep using the plain clipboard', richWrites === before && copiedHtml === null);
+    const html = document.createElement('div');
+    html.innerHTML = copiedHtml || '';
+    const lists = Array.from(html.querySelectorAll('ol')).map((ol) => [ol.getAttribute('start'), ol.children.length]);
+    check('a message without links or tables is rich too, its lists numbered from their own starts',
+      richWrites === before + 1 && JSON.stringify(lists) === JSON.stringify([['7', 2], ['3', 2]]), copiedHtml);
+  }
+  {
+    // A selection is cut from the rendered article: it keeps the list it sat
+    // in, numbered from the item it starts on.
+    const items = Array.from(primary().querySelectorAll('ol ol > li'));
+    const range = document.createRange();
+    range.setStart(items[1].firstChild, 0);
+    range.setEnd(items[1].firstChild, 'Nested'.length);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    items[1].dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    await sleep(20);
+    await pressCopy();
+    check('a phrase selected inside a list item pastes as the phrase', copied === 'Nested' && copiedHtml === 'Nested', copiedHtml);
+    const second = document.createTreeWalker(primary().querySelectorAll('ol')[0].children[1], 4);
+    let last = second.nextNode();
+    while (last && !last.nodeValue.trim()) last = second.nextNode();
+    range.setStart(items[1].firstChild, 0);
+    range.setEnd(last, 'Second'.length);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    items[1].dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    await sleep(20);
+    const text = await pressCopy();
+    check('a selection copies as its text', copyLabel() === 'Copy selection' && text.replace(/\s+/g, ' ') === 'Nested second Second', [copyLabel(), text]);
+    const html = document.createElement('div');
+    html.innerHTML = copiedHtml || '';
+    const lists = Array.from(html.querySelectorAll('ol')).map((ol) => [ol.getAttribute('start'), ol.textContent.replace(/\s+/g, ' ').trim()]);
+    check('a selection across list items pastes as lists numbered from where it starts',
+      JSON.stringify(lists) === JSON.stringify([['7', 'Nested second Second'], ['4', 'Nested second']])
+      && html.querySelectorAll('li').length === 3
+      && html.querySelector('ol > li > ol > li').textContent === 'Nested second', copiedHtml);
+    window.getSelection().removeAllRanges();
+    key({ key: 'Escape' });
+    await sleep(10);
+  }
+
+  currentSource = [
+    '# Report', '', 'Lead with **bold**, *italic*, `code` and a [site](https://example.test/a).', '',
+    '## Steps', '', '- [See below](#steps)', '- ![chart](chart.png)', '', '![chart](chart.png)', '',
+    '> Quoted line.', '', '---', '', 'Closing words.',
+  ].join('\n');
+  viewer.close();
+  await viewer.open({ filePath: '/fake/report.md' });
+  await sleep(30);
+  {
+    const text = await pressCopy();
+    check('whole-document plain copy still drops headings and rules',
+      text === ['Lead with bold, italic, code and a site (https://example.test/a).', 'See below (#steps)', 'Quoted line.', 'Closing words.'].join('\n\n'), text);
+    const html = document.createElement('div');
+    html.innerHTML = copiedHtml || '';
+    check('whole-document rich copy keeps headings, emphasis, quotes and rules',
+      html.querySelector('h1').textContent === 'Report' && html.querySelector('h2').textContent === 'Steps'
+      && html.querySelector('p strong').textContent === 'bold' && html.querySelector('p em').textContent === 'italic'
+      && html.querySelector('blockquote').textContent.trim() === 'Quoted line.' && !!html.querySelector('hr'), copiedHtml);
+    check('rich copy leaves out images, the blocks they emptied, and links that only work in the viewer',
+      !html.querySelector('img') && html.querySelectorAll('a').length === 1
+      && html.querySelectorAll('li').length === 1 && html.querySelector('li').textContent === 'See below'
+      && Array.from(html.querySelectorAll('p')).every((p) => p.textContent.trim()), copiedHtml);
+  }
+  {
+    const strong = primary().querySelector('p strong');
+    const range = document.createRange();
+    range.setStart(strong.firstChild, 0);
+    range.setEnd(strong.firstChild, 4);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    strong.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    await sleep(20);
+    const text = await pressCopy();
+    check('a selection inside bold text pastes bold', text === 'bold' && copiedHtml === '<strong>bold</strong>', [text, copiedHtml]);
+    const lead = primary().querySelector('p');
+    const wide = document.createRange();
+    wide.setStart(lead.firstChild, 'Lead '.length);
+    wide.setEnd(primary().querySelector('h2').firstChild, 'Step'.length);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(wide);
+    lead.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    await sleep(20);
+    await pressCopy();
+    const html = document.createElement('div');
+    html.innerHTML = copiedHtml || '';
+    check('a selection across blocks keeps each block and its formatting',
+      html.querySelector('p').textContent === 'with bold, italic, code and a site.'
+      && html.querySelector('p a').getAttribute('href') === 'https://example.test/a'
+      && html.querySelector('h2').textContent === 'Step' && !html.querySelector('[class], [data-md-anchor-id]'), copiedHtml);
+    window.getSelection().removeAllRanges();
+    key({ key: 'Escape' });
+    await sleep(10);
   }
 
   const tableSource = [
@@ -358,13 +460,15 @@ async function run() {
     check('plain table copy repeats headers as labels and separates records with a blank line', text === tableText, text);
     const html = document.createElement('div');
     html.innerHTML = copiedHtml;
-    const rows = Array.from(html.querySelectorAll('tr')).map((row) => Array.from(row.cells).map((cell) => cell.textContent));
+    const rows = Array.from(html.querySelectorAll('tr'))
+      .map((row) => Array.from(row.cells).map((cell) => cell.textContent.replace(/\s+/g, ' ')));
     check('rich table copy preserves headers, cells, and row boundaries', JSON.stringify(rows) === JSON.stringify([
       ['Lab', 'Host', 'Status'], ['Orion', 'host-a', 'Unreachable & <check>'], ['Phoenix', 'host-b', 'Needs NR exports'],
     ]), rows);
-    check('rich table copy keeps clickable cell links and escapes literal markup',
+    check('rich table copy keeps clickable cell links, cell formatting and line breaks, and escapes literal markup',
       html.querySelector('td a').getAttribute('href') === 'https://example.test/status?a=1&b=2'
-      && !html.querySelector('check, strong, code, [data-md-anchor-id]'), copiedHtml);
+      && html.querySelector('td strong').textContent === 'Orion' && !!html.querySelector('td br')
+      && !html.querySelector('check, [class], [data-md-anchor-id]'), copiedHtml);
   }
   {
     check('table source copy stays verbatim', await pressCopy({ metaKey: true }) === tableSource && copiedHtml === null, copied);

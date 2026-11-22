@@ -1,6 +1,7 @@
-// Real Chromium clipboard round trip: a named link stays clickable in a rich
-// editor, while a textarea receives its URL and the list's numbers/blank lines.
-// Tables stay tables in the rich editor and become labeled rows in the textarea.
+// Real Chromium clipboard round trip: a rich editor receives the doc's
+// structure (headings, emphasis, real lists, tables, clickable links), while a
+// textarea receives message text: URLs written out, the list's numbers and
+// blank lines, and tables as labeled rows. A selection keeps its formatting.
 // A clicked image copies its pixels, even when it shares a block with another.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -23,7 +24,7 @@ const imageLayoutSource = [
 const source = [
   '# Message', '', 'Introduction outside the draft.', '', '## Draft', '',
   'See [Support & lab](https://example.test/support?lab=orion&scope=pm).', '',
-  '1. Orion: restore the host.', '2. Phoenix: add NR exports.', '',
+  '1. Orion: **restore** the host.', '2. Phoenix: add NR exports.', '',
   '| Lab | Host | Status |', '| --- | --- | --- |',
   '| Orion | host-a | Unreachable |', '| Phoenix | host-b | NR exports missing |', '',
   '## Notes', '', 'Private notes outside the draft.', '', imageBlock,
@@ -108,6 +109,8 @@ try {
   const clipboard = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), html: clipboard.readHTML() }));
   assert.equal(clipboard.text, expected);
   assert.ok(clipboard.html.includes('https://example.test/support?lab=orion&amp;scope=pm'));
+  assert.ok(clipboard.html.includes('<strong>restore</strong>'), clipboard.html);
+  assert.ok(!/<h[1-6]|class=|data-md-/.test(clipboard.html), clipboard.html);
 
   // Close the viewer and paste into ordinary browser fields using native paste.
   await page.evaluate(() => {
@@ -125,16 +128,20 @@ try {
   const rich = await page.locator('#rich').evaluate((el) => ({
     text: el.innerText,
     paragraphs: Array.from(el.querySelectorAll('p')).map((p) => p.textContent),
+    items: Array.from(el.querySelectorAll('ol > li')).map((li) => li.textContent),
+    boldWeight: Array.from(el.querySelectorAll('ol > li *')).filter((node) => node.textContent === 'restore')
+      .map((node) => Number(getComputedStyle(node).fontWeight)).some((weight) => weight >= 600),
     links: Array.from(el.querySelectorAll('a')).map((a) => [a.textContent, a.getAttribute('href')]),
     rows: Array.from(el.querySelectorAll('tr')).map((row) => Array.from(row.cells).map((cell) => cell.textContent)),
   }));
   assert.deepEqual(rich.links, [['Support & lab', 'https://example.test/support?lab=orion&scope=pm']]);
-  assert.ok(rich.text.startsWith('See Support & lab.\n\n1. Orion: restore the host.\n\n2. Phoenix: add NR exports.'));
-  assert.deepEqual(rich.paragraphs, ['See Support & lab.', '1. Orion: restore the host.', '2. Phoenix: add NR exports.']);
+  assert.deepEqual(rich.paragraphs, ['See Support & lab.']);
+  assert.deepEqual(rich.items, ['Orion: restore the host.', 'Phoenix: add NR exports.']);
+  assert.equal(rich.boldWeight, true);
   assert.deepEqual(rich.rows, [
     ['Lab', 'Host', 'Status'], ['Orion', 'host-a', 'Unreachable'], ['Phoenix', 'host-b', 'NR exports missing'],
   ]);
-  console.log('PASS rich paste retains clickable titles, numbered options, and a real table');
+  console.log('PASS rich paste retains clickable titles, a real numbered list with its bold, and a real table');
 
   // Copying only the table must offer HTML even though no cell contains a link.
   await page.evaluate(() => window.viewer.open({ filePath: '/copy-test.md' }));
@@ -192,6 +199,41 @@ try {
   assert.equal(raw.text, source.split('## Draft\n\n')[1].split('\n\n## Notes')[0]);
   assert.equal(raw.html, '');
   console.log('PASS markdown source copy replaces both clipboard flavors');
+
+  // The whole document, with nothing armed: headings arrive only in the rich flavor.
+  await page.evaluate(() => window.viewer.open({ filePath: '/copy-test.md' }));
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '⧉ text');
+  await copyButton.click();
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓');
+  const whole = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), html: clipboard.readHTML() }));
+  assert.ok(whole.text.startsWith('Introduction outside the draft.\n\nSee Support & lab'), whole.text);
+  assert.ok(/<h1[^>]*>Message<\/h1>/.test(whole.html) && /<h2[^>]*>Draft<\/h2>/.test(whole.html), whole.html);
+  assert.ok(/<ol[^>]*>\s*<li/.test(whole.html) && !whole.html.includes('<img'), whole.html);
+  console.log('PASS whole-document copy is rich with headings and lists, and plain without headings');
+
+  const boldWord = await page.waitForFunction(() => {
+    for (const strong of document.querySelectorAll('.md-viewer-body strong')) {
+      const rect = strong.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      if (document.elementFromPoint(x, y) === strong) return { x, y };
+    }
+  });
+  const boldAt = await boldWord.jsonValue();
+  await page.mouse.dblclick(boldAt.x, boldAt.y);
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '⧉ selection');
+  await copyButton.click();
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓');
+  const picked = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), html: clipboard.readHTML() }));
+  assert.equal(picked.text, 'restore');
+  assert.ok(picked.html.includes('<strong>restore</strong>'), picked.html);
+  console.log('PASS a selection copies with the formatting it sat in');
+  // Leave no selection behind: the next click must arm what it lands on.
+  await page.evaluate(() => {
+    window.getSelection().removeAllRanges();
+    return window.viewer.open({ filePath: '/copy-test.md' });
+  });
+  await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '⧉ text');
 
   const imagePoint = async (alt) => {
     // Both panes render the block. Click the image where the pane exposes it.
