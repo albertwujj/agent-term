@@ -536,6 +536,23 @@ const resumeSessionAtStart = (() => {
   const id = Number(raw);
   return raw && Number.isInteger(id) && id >= 0 ? id : null;
 })();
+// A window opened in another's place (moveToNewWindow) says when it is up by
+// creating this file, which the other window waits for before it closes.
+const readyFileAtStart = (() => {
+  const file = process.env.AGENT_TERM_READY_FILE || null;
+  delete process.env.AGENT_TERM_READY_FILE;
+  return file;
+})();
+function announceWindowReady() {
+  if (!readyFileAtStart) return;
+  try {
+    if (path.dirname(readyFileAtStart) !== app.getPath('userData')
+        || !path.basename(readyFileAtStart).startsWith('window-ready-')) return;
+    fs.writeFileSync(readyFileAtStart, String(process.pid));
+  } catch (err) {
+    log('[new-instance] could not say this window is up: ' + (err && err.message));
+  }
+}
 // Launch flow: a picker start-new with Shift+Enter types the command into
 // the shell and leaves it there, unsubmitted (see picker-start-new). This
 // holds the CLI's name (null for a shell command) while that line awaits
@@ -1772,6 +1789,7 @@ function onShellCommandTyped(cmd) {
   setViewerAutoOpenArmed(!cli);
   if (!cli) return;
   detectedCli = cli;
+  clearTerminalForNextSession();
   watchCliStart();
   titleActivity.reset();
   syncChromeState();
@@ -2463,7 +2481,9 @@ function successorStartCwd() {
 // The child follows successorStartCwd(): an established agent session carries
 // its recorded cwd; a pre-session launcher/shell carries the original launch
 // directory even if someone manually cd'd in that shell.
-function launchNewInstance({ announce: announceToWindow = true, resumeSession = null } = {}) {
+function launchNewInstance({
+  announce: announceToWindow = true, resumeSession = null, cwd: cwdOverride = null, readyFile = null, onFail = null,
+} = {}) {
   const announce = (channel, message) => {
     if (!announceToWindow) return;
     try { if (mainWindow) mainWindow.webContents.send(channel, message); } catch {}
@@ -2471,6 +2491,7 @@ function launchNewInstance({ announce: announceToWindow = true, resumeSession = 
   const fail = (message) => {
     log('[new-instance] ' + message);
     announce('new-instance-launch-failed', message);
+    if (onFail) onFail(message);
   };
   let target = { mode: 'electron', execPath: null };
   if (app.isPackaged && process.platform === 'win32') {
@@ -2483,16 +2504,17 @@ function launchNewInstance({ announce: announceToWindow = true, resumeSession = 
       return;
     }
   }
-  const cwd = successorStartCwd();
+  const cwd = cwdOverride || successorStartCwd();
   announce('new-instance-launching', cwd);
   let child = null;
   try {
     child = spawnNewInstance(process.argv, target.execPath || successorExecPath, {
       cwd: target.execPath ? path.dirname(target.execPath) : undefined,
-      env: (cwd || resumeSession !== null) ? {
+      env: (cwd || resumeSession !== null || readyFile) ? {
         ...process.env,
         ...(cwd ? { AGENT_TERM_START_CWD: cwd } : {}),
         ...(resumeSession !== null ? { AGENT_TERM_RESUME_SESSION: String(resumeSession) } : {}),
+        ...(readyFile ? { AGENT_TERM_READY_FILE: readyFile } : {}),
       } : undefined,
       consoleLog: newConsoleLogPath(),
     });
@@ -2883,6 +2905,7 @@ function createWindow() {
   mainWindow.on('session-end', () => { quitting = true; });
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    announceWindowReady();
     if (resumeSessionAtStart !== null) takeOverSession(resumeSessionAtStart);
     else showSessionsPicker();
     tidyStaleWindows();
@@ -3047,7 +3070,12 @@ function createWindow() {
 
 let wslPidFile = null;
 
+// Where a shell that replaces this window's first one starts: the directory
+// the first was in when its session ended (swapShell).
+let swappedShellCwd = null;
+
 function ptyStartingCwd() {
+  if (swappedShellCwd && process.platform !== 'win32') return swappedShellCwd;
   // A source launch explicitly carries npm's invocation directory. On Windows
   // this option belongs to the Win32 wsl.exe process while wslShellArgs passes
   // the POSIX workspace through --cd; native PTYs use the workspace directly.
@@ -3180,6 +3208,11 @@ function createPty(cols, rows) {
     // A shell ended to stop a spinning wsl.exe is replaced, not mourned.
     if (spinHeal && spinHeal.pty === spawned) {
       restartHealedShell();
+      return;
+    }
+    // A shell ended with its session gives way to a fresh one.
+    if (shellSwap && shellSwap.pty === spawned && !quitting) {
+      startSwappedShell();
       return;
     }
     ptyProcess = null;
@@ -4017,6 +4050,7 @@ async function resumeHere(id, { onCurrentCode = false, restarted = false } = {})
     const cwd = direct ? direct.cwd : picked.cwd;
     const command = cwd ? `cd ${shellEscape(cwd)} && ${launch}` : launch;
     clearPendingLaunchLine();
+    clearTerminalForNextSession();
     try { ptyProcess.write(command + '\r'); } catch {}
     watchCliStart({ announce: !!direct });
     if (direct) {
@@ -5403,7 +5437,7 @@ function scheduleCliProbe(delayMs, { again = false } = {}) {
 
 // Returns whether the CLI is running, as far as this reading tells.
 async function probeCli() {
-  if (cliProbing || !detectedCli || !ptyProcess || spinHeal || quitting) return cliSeenRunning;
+  if (cliProbing || !detectedCli || !ptyProcess || spinHeal || shellSwap || quitting) return cliSeenRunning;
   cliProbing = true;
   const shellPty = ptyProcess;
   const cli = detectedCli;
@@ -5454,8 +5488,10 @@ function onCliExited() {
 }
 
 // Everything a session put on this window goes back to what a new window has,
-// and the picker opens. The shell stays: its directory, its scrollback, and
-// whatever the CLI printed on its way out.
+// and the picker opens: over a fresh shell in the same directory (swapShell),
+// or in a new window when the code changed since this one started
+// (moveToNewWindow). What the CLI printed on its way out stays on screen until
+// the next session starts.
 async function endSessionInPlace() {
   log('[cli] ' + detectedCli + ' exited; session ' + sessionIndex + ' ends and the picker opens');
   writeClosedSessionEvent(); // releases the record; nothing to write for a CLI that never got a prompt
@@ -5488,12 +5524,9 @@ async function endSessionInPlace() {
   // registers a run of its own.
   if (streamClient) streamClient.endRun();
   streamState = newStreamState();
-  // The shell carries the ended session's token, which that session keeps for
-  // its resumes: the next one started here gets its own, exported in every
-  // shell the pty may run. The leading space keeps it out of shell history.
+  // The ended session keeps its token for its resumes; the next one started
+  // here gets its own, in the environment of the fresh shell below.
   agentSessionId = crypto.randomBytes(4).toString('hex');
-  try { ptyProcess.write(` export AGENT_SESSION_ID=${agentSessionId}\r`); } catch {}
-  startJobWatch();
   updateProgressBar();
   syncChromeState();
   sendHint('session-ended');
@@ -5510,8 +5543,110 @@ async function endSessionInPlace() {
   applyPickerIcon();
   let cwd = null;
   try { cwd = await getPrimaryCwd(); } catch {}
-  if (iconLocked || detectedCli || !mainWindow || mainWindow.isDestroyed()) return; // a CLI started meanwhile
+  const live = () => !quitting && mainWindow && !mainWindow.isDestroyed();
+  if (!live()) return;
+  // The next session runs the checkout's current code, as every window opened
+  // or brought back does: when it changed since this window started, the
+  // picker opens in a new window instead, and this one closes once that is up.
+  let changedAt = 0;
+  try { changedAt = await latestCheckoutChange(); } catch (err) {
+    log('[cli] source check failed, keeping this window: ' + (err && err.message));
+  }
+  if (PROCESS_STARTED_AT < changedAt && live()) {
+    log('[cli] the code changed since this window started; the picker opens in a new window');
+    if (await moveToNewWindow(cwd)) {
+      // A CLI typed here during the wait keeps this window.
+      if (live() && !iconLocked && !detectedCli) app.quit();
+      return;
+    }
+    log('[cli] no new window; the picker opens here, on the older code');
+  }
+  if (!live() || iconLocked || detectedCli) return; // a CLI started meanwhile
+  await swapShell(cwd);
+  if (!live() || iconLocked || detectedCli) return;
+  nextSessionClearsTerminal = true;
   showSessionsPicker(cwd);
+}
+
+// Open a window in this one's place, on the picker and in `cwd`. Resolves true
+// once it is up, false when its launch failed or it never said so.
+const NEW_WINDOW_READY_MS = 90_000;
+function moveToNewWindow(cwd) {
+  return new Promise((resolve) => {
+    const readyFile = path.join(app.getPath('userData'), `window-ready-${process.pid}-${Date.now()}`);
+    let poll = null;
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(poll);
+      try { fs.unlinkSync(readyFile); } catch {}
+      resolve(ok);
+    };
+    sendHint('notice', "AgentTerm's code changed. The next session starts in a new window, on the new code.");
+    const deadline = Date.now() + NEW_WINDOW_READY_MS;
+    poll = setInterval(() => {
+      if (fs.existsSync(readyFile)) finish(true);
+      else if (Date.now() > deadline) finish(false);
+    }, 200);
+    launchNewInstance({ cwd, readyFile, onFail: () => finish(false) });
+  });
+}
+
+// A fresh shell for the window's next session, in the directory the old one
+// was in: nothing the ended session's shell had set carries over, and the new
+// shell is born with the new session token. The screen stays as the CLI left
+// it until the next session starts (clearTerminalForNextSession). Resolves
+// once the new shell is spawned; a shell that will not go keeps the window,
+// with the token exported into it instead.
+const SHELL_SWAP_WAIT_MS = 5000;
+let shellSwap = null;
+let nextSessionClearsTerminal = false;
+
+function swapShell(cwd) {
+  return new Promise((resolve) => {
+    const shellPty = ptyProcess;
+    if (!shellPty) { resolve(); return; }
+    if (cwd) {
+      // wsl.exe is told where to start through this variable (wslShellArgs),
+      // which is also what the picker reads as the shell's start directory.
+      if (process.platform === 'win32') process.env.AGENT_TERM_START_CWD = cwd;
+      else if (fs.existsSync(cwd)) swappedShellCwd = cwd;
+    }
+    const giveUp = setTimeout(() => {
+      if (!shellSwap || shellSwap.pty !== shellPty) return;
+      shellSwap = null;
+      log('[cli] the old shell did not exit; keeping it');
+      try { shellPty.write(` export AGENT_SESSION_ID=${agentSessionId}\r`); } catch {}
+      startJobWatch();
+      resolve();
+    }, SHELL_SWAP_WAIT_MS);
+    shellSwap = { pty: shellPty, cols: shellPty.cols, rows: shellPty.rows, done: () => { clearTimeout(giveUp); resolve(); } };
+    // The new shell's prompt starts on a line of its own; a new ConPTY clears
+    // the screen at its first paint, so what is on it moves up into the
+    // scrollback first.
+    sendHint('pty-output', process.platform === 'win32' ? '\r\n'.repeat(shellPty.rows || 24) : '\r\n');
+    try { shellPty.kill(); } catch (err) {
+      log('[cli] could not end the old shell: ' + (err && err.message));
+    }
+  });
+}
+
+function startSwappedShell() {
+  const { cols, rows, done } = shellSwap;
+  shellSwap = null;
+  ptyProcess = null;
+  createPty(cols, rows);
+  log('[cli] fresh shell for the next session (token ' + agentSessionId + ')');
+  done();
+}
+
+// The first CLI launched after a session ended here starts on a clear screen:
+// the ended session's output, scrollback included, is not the next one's.
+function clearTerminalForNextSession() {
+  if (!nextSessionClearsTerminal) return;
+  nextSessionClearsTerminal = false;
+  sendHint('terminal-clear');
 }
 
 // Last non-empty stdout line: the probes run in a login shell, so profile /

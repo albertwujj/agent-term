@@ -118,7 +118,10 @@ try {
   check('the old window still holds the session', sessionsLog.isSessionActive(sessionsLog.readActiveFile(UD, 6)));
 
   console.log('2 — the new window takes the session over');
-  const b = await launch({ env: { AGENT_TERM_RESUME_SESSION: '6' } }); cleanup.push(b);
+  const READY = path.join(UD, 'window-ready-e2e');
+  const b = await launch({ env: { AGENT_TERM_RESUME_SESSION: '6', AGENT_TERM_READY_FILE: READY } }); cleanup.push(b);
+  check('a window asked to say when it is up does', !!(await waitFor(() => fs.existsSync(READY), 5000)));
+  check('and does not pass the request on', await b.app.evaluate(() => process.env.AGENT_TERM_READY_FILE === undefined));
   const bPid = await b.app.evaluate(() => process.pid);
   const aCode = await Promise.race([a.exited, sleep(10_000).then(() => 'timeout')]);
   check('the old window closes', aCode !== 'timeout', String(aCode));

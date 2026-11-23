@@ -221,6 +221,11 @@ window.pty.onSessionEnded(() => {
   resumeHint.destroy({ cancelIntercept: false });
   altScreenNoticed = false;
 });
+// The next session starts here: the ended one's output, scrollback included,
+// goes. The line the cursor is on stays, which is the shell's prompt.
+window.pty.onTerminalClear(() => {
+  try { terminal.clearSelection(); terminal.clear(); } catch {}
+});
 window.pty.onResumeHintInterceptOff(() => {
   resumeHint.recordInterceptOff();
 });

@@ -162,6 +162,8 @@ contextBridge.exposeInMainWorld('pty', {
   onResumeUp: (callback) => ipcRenderer.on('resume-up', () => callback()),
   // The CLI exited and the session with it; the window starts over on the picker.
   onSessionEnded: (callback) => ipcRenderer.on('session-ended', () => callback()),
+  // The next session starts in this window: the ended one's output goes.
+  onTerminalClear: (callback) => ipcRenderer.on('terminal-clear', () => callback()),
   // The older-code notice's button: a window on the current code opens and
   // takes this session over. Resolves { ok, reason }.
   restartOnCurrentCode: () => ipcRenderer.invoke('restart-on-current-code'),
