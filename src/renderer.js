@@ -179,9 +179,8 @@ window.pty.onResumeHintSubmit(() => {
 // back: it was hidden, and its window started before the code changed or was
 // closed by the live-session cap. The resume band shows as for a picked row
 // (again, when the row pick already showed it), with a note under it saying
-// why. A session that resumes by id shows the resuming band while its CLI
-// loads, with the note under it; once the CLI has painted the note stands
-// alone under the chrome bar. A restart the user asked for needs no note.
+// why. A session that resumes by id has no band, so the note stands alone
+// under the chrome bar. A restart the user asked for needs no note.
 const NOTICE_TOP = 'calc(env(titlebar-area-height, 42px) + 1px)';
 const RESUME_REASONS = {
   'older-code': "AgentTerm's code changed. This session is re-established on the new code",
@@ -194,7 +193,7 @@ window.pty.onResumeWithReason((picked) => {
   if (!picked || !(picked.reason in RESUME_REASONS)) return;
   const why = RESUME_REASONS[picked.reason];
   if (resumeLaunch(picked)) {
-    resumeHint.showResuming({ cli: picked.cli, note: why && `${why}, so it resumed through the CLI.` });
+    if (why) showNotice(`${why}, so it resumed through the CLI.`, { top: NOTICE_TOP });
     return;
   }
   resumeHint.show({
@@ -202,19 +201,21 @@ window.pty.onResumeWithReason((picked) => {
     note: why && `${why}, so it needs to resume through the CLI.`,
   });
 });
-// A resume by id: nothing to do but wait for the CLI, so the band says that
-// much until main sees the CLI paint. It replaces the band a row pick showed
-// for a Codex session whose thread main found by name only at the pick.
-window.pty.onResumeDirect((payload) => resumeHint.showResuming(payload || {}));
+// Main resumes the pick by id: its launch line is being typed, and no band
+// has anything to add. That takes down the one that covered the wait for the
+// session's old window, and the one a row pick showed for a Codex session
+// whose thread main found by name only at the pick.
+window.pty.onResumeDirect(() => resumeHint.destroy({ cancelIntercept: false }));
+// A session another window holds was picked, or this window was opened to
+// take one over: until that window is back in front, or has closed and the
+// launch line is typed here, this window would look like an idle shell.
 window.pty.onResumePending(() => {
   launcherBand.destroy();
   closeActivePicker();
-  resumeHint.showResuming({ pending: true });
+  resumeHint.showResuming();
 });
-window.pty.onResumeUp(() => {
-  const note = resumeHint.recordResumeUp();
-  if (note) showNotice(note, { top: NOTICE_TOP });
-});
+// Nothing is coming after all (the other window did not answer).
+window.pty.onResumeUp(() => resumeHint.recordResumeUp());
 // The CLI exited, and the session with it: what the session put on this
 // window goes, before main opens the picker for the next one.
 window.pty.onSessionEnded(() => {

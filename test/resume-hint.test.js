@@ -177,45 +177,27 @@ test('a note hangs under the band, its ✕ removes only the note, and it goes wi
   delete global.document;
 });
 
-test('a resume by id says it is resuming, through submits, until the CLI is up', () => {
+test('a session being brought back says so, through submits, until the wait is over', () => {
   installDom();
   let cancelled = 0;
   window.pty.cancelResumeIntercept = () => { cancelled++; };
-  showResuming({ cli: 'claude' });
+  showResuming();
   const root = document.querySelector('.at-resume-hint.resuming');
   assert.ok(root, 'the band mounts');
   const text = root.querySelector('.at-resume-hint-text').textContent;
-  assert.ok(text.includes('Resuming this session') && text.includes('claude is loading the conversation'), text);
+  assert.ok(text.includes('Resuming this session') && text.includes('bringing it back'), text);
   assert.ok(!text.includes('/resume'), 'it asks for nothing');
   recordSubmit(); recordSubmit(); recordSubmit();
   assert.strictEqual(document.querySelector('.at-resume-hint'), root, 'submits are not its moments');
   recordLaunchOff();
   assert.strictEqual(document.querySelector('.at-resume-hint'), root, 'nor is a launch line');
-  assert.strictEqual(recordResumeUp(), '', 'no note to hand back');
-  assert.strictEqual(document.querySelector('.at-resume-hint'), null, 'it goes once the CLI is up');
+  recordResumeUp();
+  assert.strictEqual(document.querySelector('.at-resume-hint'), null, 'it goes once the wait is over');
   assert.strictEqual(cancelled, 0, 'and never touches the intercept');
-  delete global.window;
-  delete global.document;
-});
 
-test('the resuming band hands its note back when the CLI is up', () => {
-  installDom();
-  showResuming({ cli: 'codex', note: 'It resumed through the CLI.' });
-  // Main's plain word that the resume is by id arrives after the reason.
-  showResuming({ cli: 'codex' });
-  assert.strictEqual(document.querySelectorAll('.at-resume-hint').length, 1);
-  assert.strictEqual(document.querySelector('.at-resume-hint-note .at-notice-text').textContent, 'It resumed through the CLI.');
-  assert.strictEqual(recordResumeUp(), 'It resumed through the CLI.');
-
-  showResuming({ cli: 'codex', note: 'Dismissed before the CLI was up.' });
-  document.querySelector('.at-resume-hint-note .at-notice-close').dispatchEvent(new window.Event('click'));
-  assert.strictEqual(recordResumeUp(), '', 'a note the user dismissed does not come back');
-
-  showResuming({ pending: true });
-  assert.ok(document.querySelector('.at-resume-hint-text').textContent.includes('waiting for its old window to close'));
   show({ prompt: 'Fix auth retry handling', title: 'Auth retry work' });
-  assert.strictEqual(recordResumeUp(), '', 'a band that asks for /resume is not taken down by it');
-  assert.ok(document.querySelector('.at-resume-hint'));
+  recordResumeUp();
+  assert.ok(document.querySelector('.at-resume-hint'), 'a band that asks for /resume is not taken down by it');
   destroy({ cancelIntercept: false });
   delete global.window;
   delete global.document;

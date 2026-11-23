@@ -155,10 +155,10 @@ contextBridge.exposeInMainWorld('pty', {
   // never sends this event.
   onResumeHintSubmit: (callback) => ipcRenderer.on('resume-hint-submit', () => callback()),
   onResumeWithReason: (callback) => ipcRenderer.on('resume-with-reason', (_event, picked) => callback(picked)),
-  onResumeDirect: (callback) => ipcRenderer.on('resume-direct', (_event, payload) => callback(payload)),
+  onResumeDirect: (callback) => ipcRenderer.on('resume-direct', () => callback()),
   // A session is about to resume here, once the window that holds it closes.
   onResumePending: (callback) => ipcRenderer.on('resume-pending', () => callback()),
-  // The CLI of a resume by id has painted (or will not): the wait is over.
+  // Nothing will resume here after all: the wait is over.
   onResumeUp: (callback) => ipcRenderer.on('resume-up', () => callback()),
   // The CLI exited and the session with it; the window starts over on the picker.
   onSessionEnded: (callback) => ipcRenderer.on('session-ended', () => callback()),

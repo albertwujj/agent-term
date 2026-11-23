@@ -3185,7 +3185,6 @@ function createPty(cols, rows) {
     lastPtyOutputTime = Date.now();
     scheduleCursorChatProbe();
     watchTitle(data); // remains live while the renderer is frozen for comments
-    if (resumePaintArmed) announceResumeUp();
     // A shell back at its prompt turns bracketed paste on again.
     if (cliSeenRunning && typeof data === 'string' && data.includes('\x1b[?2004h')) scheduleCliProbe(300);
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
@@ -3855,6 +3854,7 @@ function bringForwardFromPicker(id) {
   log('[resume] session ' + id + ' is live in another window; bringing it forward');
   try { windowCap.sendControl(userDataDir, id, 'show'); } catch (err) {
     log('[resume] bring-forward failed: ' + (err && err.message));
+    sendHint('resume-up');
     return;
   }
   if (sessionIndex !== null || iconLocked) return;
@@ -3868,6 +3868,7 @@ function bringForwardFromPicker(id) {
     } else if (Date.now() > deadline || !sessionsLog.isSessionActive(rec)) {
       clearInterval(poll);
       log('[resume] session ' + id + ' did not come back; keeping this window');
+      sendHint('resume-up');
     }
   }, HANDOFF_POLL_MS);
 }
@@ -3882,6 +3883,7 @@ function retireThenResumeHere(id) {
   log('[resume] session ' + id + ' runs older code; asking it to close so it resumes here');
   try { windowCap.sendControl(userDataDir, id, 'retire'); } catch (err) {
     log('[resume] retire request failed: ' + (err && err.message));
+    sendHint('resume-up');
     return;
   }
   const deadline = Date.now() + RETIRE_CONFIRM_MS;
@@ -3897,6 +3899,7 @@ function retireThenResumeHere(id) {
     } else if (Date.now() > deadline) {
       clearInterval(poll);
       log('[resume] session ' + id + ' did not answer; keeping this window');
+      sendHint('resume-up');
     }
   }, HANDOFF_POLL_MS);
 }
@@ -3972,6 +3975,13 @@ async function pickSession(id) {
     resumeHere(id);
     return;
   }
+  // The session is some window's, and this one has just lost its picker:
+  // until that window is back in front, or has closed and the session's CLI
+  // is launched here, this window shows a bare shell prompt and nothing else.
+  // The source check below and the old window's close each take seconds, so
+  // the band says a resume is under way from the pick until the launch line
+  // is typed, which says the rest.
+  sendHint('resume-pending');
   let changedAt = 0;
   if (rec.hiddenAt) {
     try { changedAt = await latestCheckoutChange(); } catch (err) {
@@ -3991,8 +4001,8 @@ async function pickSession(id) {
 //
 // A session whose conversation is recorded (src/cli-conversation.js) opens it
 // by id, from the directory the CLI keeps it under, with no dialog to go
-// through and so no intercept: the band only says the CLI is loading, until
-// it paints (watchCliStart). Every other resume relaunches the
+// through and so no intercept and no band: its launch line on screen says
+// what is happening. Every other resume relaunches the
 // CLI and arms the intercept.
 //
 // A Codex session recorded before its thread could be found by name has a
@@ -4020,7 +4030,7 @@ async function resumeHere(id, { onCurrentCode = false, restarted = false } = {})
     }
   }
   const direct = resumeLaunch(picked);
-  if (direct) sendHint('resume-direct', { cli: picked.cli });
+  if (direct) sendHint('resume-direct');
   const reason = restarted ? 'restarted'
     : onCurrentCode ? 'older-code' : (picked.closedBy === 'cap' ? 'closed-while-hidden' : null);
   if (reason) {
@@ -4054,7 +4064,7 @@ async function resumeHere(id, { onCurrentCode = false, restarted = false } = {})
     clearPendingLaunchLine();
     clearTerminalForNextSession();
     try { ptyProcess.write(command + '\r'); } catch {}
-    watchCliStart({ announce: !!direct });
+    watchCliStart();
     if (direct) {
       pendingResumeIntercept = false;
       log('[resume] resumed by id after picker-pick id=' + id + ' cli=' + picked.cli +
@@ -5382,35 +5392,19 @@ async function shellHasStoppedJob() {
 // (commandRunsCli): after a launch that failed, the next thing the shell runs
 // there is not the CLI, and its end is not the session's.
 //
-//   launch     watchCliStart polls until the CLI holds the terminal. A resume
-//              by id has no dialog and nothing on screen until the CLI paints,
-//              so the renderer shows a band meanwhile; the first output after
-//              the CLI is seen running takes it down ('resume-up'), and so
-//              does a CLI that stays silent past RESUME_PAINT_WAIT_MS.
+//   launch     watchCliStart polls until the CLI holds the terminal.
 //   exit       two readings at the prompt, and no stopped job, end the session
 //              in place (endSessionInPlace).
 const CLI_START_POLL_MS = 400;
 const CLI_START_WATCH_MS = 20_000;
 const CLI_EXIT_CONFIRM_MS = 250;
-const RESUME_PAINT_WAIT_MS = 6000;
 let cliSeenRunning = false;
 let cliStartPoll = null;
 let cliProbeTimer = null;
 let cliProbing = false;
-let resumeAnnounced = false;  // the renderer shows the "resuming" band
-let resumePaintArmed = false; // the CLI is running; its next output is its paint
 
-function announceResumeUp() {
-  resumePaintArmed = false;
-  if (!resumeAnnounced) return;
-  resumeAnnounced = false;
-  sendHint('resume-up');
-}
-
-function watchCliStart({ announce = false } = {}) {
+function watchCliStart() {
   cliSeenRunning = false;
-  resumePaintArmed = false;
-  resumeAnnounced = announce;
   clearInterval(cliStartPoll);
   const deadline = Date.now() + CLI_START_WATCH_MS;
   cliStartPoll = setInterval(() => {
@@ -5420,8 +5414,6 @@ function watchCliStart({ announce = false } = {}) {
     }
     clearInterval(cliStartPoll);
     cliStartPoll = null;
-    // Never seen running (the launch failed, or ended at once): nothing is coming.
-    if (!cliSeenRunning) announceResumeUp();
   }, CLI_START_POLL_MS);
   if (typeof cliStartPoll.unref === 'function') cliStartPoll.unref();
 }
@@ -5450,11 +5442,6 @@ async function probeCli() {
     if (!atPrompt) {
       if (!cliSeenRunning) {
         cliSeenRunning = commandRunsCli(await foregroundCommand(), cli) && same();
-        if (resumeAnnounced && !resumePaintArmed) {
-          resumePaintArmed = true;
-          const wait = setTimeout(() => { if (resumePaintArmed) announceResumeUp(); }, RESUME_PAINT_WAIT_MS);
-          if (typeof wait.unref === 'function') wait.unref();
-        }
       }
       return true;
     }
@@ -5481,7 +5468,6 @@ async function probeCli() {
 // closed. A launch that never became a session (`claude --version`) changes
 // nothing.
 function onCliExited() {
-  announceResumeUp();
   if (!iconLocked || windowHidden || headlessExitStarted || !mainWindow || mainWindow.isDestroyed()) {
     log('[cli] ' + detectedCli + ' exited; session ' + sessionIndex + ' stays as it is');
     return;

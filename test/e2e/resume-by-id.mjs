@@ -1,6 +1,6 @@
 // End-to-end test: a Cursor Agent, Claude Code or Codex session resumes by its
-// conversation id from the picker, with no /resume: the band only says the
-// CLI is loading, and goes once it has (src/cli-conversation.js). Launches the REAL app against an isolated
+// conversation id from the picker, with no /resume and no resume band
+// (src/cli-conversation.js). Launches the REAL app against an isolated
 // userData dir, with fakes that leave the trace each real CLI leaves:
 //   agent   writes a per-process log on Linux and keeps its chat store open
 //           on macOS. On Linux it also simulates an in-CLI chat switch.
@@ -13,16 +13,14 @@
 //   1. a prompt in a fresh session: the conversation is found and logged,
 //      with the directory it resumes from
 //   2. the session picked in a new window: the CLI starts with its resume
-//      arguments and the id, from that directory; the band says it is
-//      resuming and goes with the CLI's next output; a later prompt on the
-//      same conversation logs nothing new
+//      arguments and the id, from that directory, and no band shows; a later
+//      prompt on the same conversation logs nothing new
 // Then once:
 //   3. a resume the user did not ask for (older code, the live cap) on a
-//      session that resumes by id: the reason hangs under the resuming band,
-//      and stands alone once the CLI is up
+//      session that resumes by id: the reason stands alone, with no band
 //   4. a Codex session recorded before its thread could be found (a name in
 //      its titles, no conversation): the pick finds the thread by name,
-//      resumes by id, and the band shown at the pick becomes the resuming one
+//      resumes by id, and the band shown at the pick goes
 //   5. a Cursor session without a current debug log uses the resume dialog
 //
 // The fakes are executables on a PATH the test puts first, not shell
@@ -253,7 +251,7 @@ try {
     }
     cleanup.length = 0;
 
-    console.log(`2 — ${c.cli}: picked in a new window, it resumes by id`);
+    console.log(`2 — ${c.cli}: picked in a new window, it resumes by id, with no band`);
     fs.rmSync(c.args, { force: true });
     const b = await launch(); cleanup.push(b);
     await useFakes(b.page);
@@ -262,43 +260,26 @@ try {
     check(`${c.cli}: the CLI starts with its resume arguments and the id`, args === c.resumeArgs(resumeId), JSON.stringify(args));
     check(`${c.cli}: main says it resumed by id`, new RegExp(`resumed by id after picker-pick id=${id} cli=${c.cli} conversation=${resumeId}`).test(b.log));
     check(`${c.cli}: no intercept is armed`, !/armed intercept after picker-pick/.test(b.log));
-    const band = await waitFor(() => b.page.evaluate(() => {
-      const el = document.querySelector('.at-resume-hint.resuming');
-      return el ? el.textContent.replace(/\s+/g, ' ').trim() : null;
-    }), 3000);
-    check(`${c.cli}: the band says it is resuming`, band && band.includes('Resuming this session') && band.includes(`${c.cli} is loading`), JSON.stringify(band));
-    check(`${c.cli}: and asks for no /resume`, band && !band.includes('/resume'), JSON.stringify(band));
+    await sleep(1000);
+    check(`${c.cli}: no resume band shows`, !(await b.page.evaluate(() => !!document.querySelector('.at-resume-hint'))));
     const count = conversationEvents(id).length;
-    // The fake prints nothing after its title; the echo of this line is the
-    // CLI's next output.
-    await sleep(1500);
     await typeLine(b.page, 'and cover the timeout case too');
-    check(`${c.cli}: the band goes once the CLI is up`,
-      !!(await waitFor(() => b.page.evaluate(() => !document.querySelector('.at-resume-hint')), 8000)));
     await sleep(5000);
     check(`${c.cli}: the follow-up prompt is logged to the same session`,
       sessionsLog.readLog(UD).some(e => e.e === 'prompt' && e.id === id && e.prompt === 'and cover the timeout case too'));
     check(`${c.cli}: the same conversation logs nothing new`, conversationEvents(id).length === count, JSON.stringify(conversationEvents(id)));
 
     if (c === CLIS[CLIS.length - 1]) {
-      console.log('3 — a resume the user did not ask for: the reason outlives the resuming band');
+      console.log('3 — a resume the user did not ask for: the reason stands alone');
       await b.app.evaluate(({ BrowserWindow }, payload) => {
         BrowserWindow.getAllWindows()[0].webContents.send('resume-with-reason', payload);
       }, { cli: c.cli, prompt: 'x', title: null, conversation: { id: c.id, dir: '/w' }, reason: 'older-code' });
-      const under = await waitFor(() => b.page.evaluate(() => {
-        const el = document.querySelector('.at-resume-hint.resuming .at-resume-hint-note');
-        return el ? el.textContent : null;
-      }), 5000);
-      check('the reason hangs under the resuming band', under && under.includes('so it resumed through the CLI.'), JSON.stringify(under));
-      await b.app.evaluate(({ BrowserWindow }) => {
-        BrowserWindow.getAllWindows()[0].webContents.send('resume-up');
-      });
       const notice = await waitFor(() => b.page.evaluate(() => {
         const el = document.querySelector('.at-notice-standalone');
         return el ? el.textContent : null;
       }), 5000);
-      check('and stands alone once the CLI is up', notice && notice.includes('so it resumed through the CLI.'), JSON.stringify(notice));
-      check('with the band gone', !(await b.page.evaluate(() => !!document.querySelector('.at-resume-hint'))));
+      check('the reason shows as a notice', notice && notice.includes('so it resumed through the CLI.'), JSON.stringify(notice));
+      check('still no resume band', !(await b.page.evaluate(() => !!document.querySelector('.at-resume-hint'))));
     }
     await b.app.close();
     cleanup.length = 0;
@@ -327,11 +308,8 @@ try {
   check('and records it, so the next pick needs no lookup',
     conversationEvents(legacy).some(e => e.conversation === LEGACY_ID && e.dir === dir), JSON.stringify(conversationEvents(legacy)));
   check('no intercept is armed', !/armed intercept after picker-pick/.test(d.log));
-  const bandNow = await waitFor(() => d.page.evaluate(() => {
-    const el = document.querySelector('.at-resume-hint.resuming');
-    return el ? el.textContent : null;
-  }), 3000);
-  check('the band shown at the pick becomes the resuming one', bandNow && !bandNow.includes('/resume'), JSON.stringify(bandNow));
+  const bandGone = await waitFor(() => d.page.evaluate(() => !document.querySelector('.at-resume-hint')), 3000);
+  check('the band shown at the pick goes', !!bandGone);
   await d.app.close();
   cleanup.length = 0;
 

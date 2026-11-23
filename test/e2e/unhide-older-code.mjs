@@ -100,6 +100,15 @@ try {
   const p = await launch(); cleanup.push(p);
   await sleep(6000);                     // past the 5s of output that reads as working
   const pPid = await p.app.evaluate(() => process.pid);
+  // Every band this window shows, in order, from before the pick.
+  await p.page.evaluate(() => {
+    window.__bands = [];
+    new MutationObserver(() => {
+      const el = document.querySelector('.at-resume-hint-text');
+      const text = el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+      if (text && window.__bands.at(-1) !== text) window.__bands.push(text);
+    }).observe(document.body, { childList: true, subtree: true });
+  });
   await p.app.evaluate(({ ipcMain }) => { ipcMain.emit('picker-bring-forward', {}, 6); });
   const aCode = await Promise.race([a.exited, sleep(10_000).then(() => 'timeout')]);
   check('the older window closes', aCode !== 'timeout', String(aCode));
@@ -109,6 +118,9 @@ try {
   check('through its CLI, on the current code', !!(await waitFor(() => /armed intercept after picker-pick id=6/.test(p.log), 5000)));
   const told = await waitFor(() => p.page.evaluate(() => document.body.innerText.includes('This session is re-established on the new code, so it needs to resume through the CLI')), 5000);
   check('the picker window says why it resumes through the CLI', !!told);
+  const bands = await p.page.evaluate(() => window.__bands);
+  check('the picker window says a resume is under way before the CLI is launched',
+    bands.length >= 2 && /Resuming this session\s*·\s*bringing it back/.test(bands[0]) && /\/resume/.test(bands.at(-1)), JSON.stringify(bands));
   check('the older window left a closed event', sessionsLog.readLog(UD).some(e => e.id === 6 && e.e === 'closed'));
   check('and exited on its own', aPid && !(() => { try { process.kill(aPid, 0); return true; } catch { return false; } })());
 

@@ -6,7 +6,7 @@
 //
 // Three picks mount it. A resume (show) walks the states below; a session
 // that resumes by its conversation id (cli-conversation.js) has no dialog to
-// walk, and gets the resuming band further down. A start-new
+// walk, and no band once its launch line is typed. A start-new
 // taken with Shift+Enter (showLaunch) has one moment: main has typed the
 // CLI's launch line into the shell and left it at the prompt, so the band
 // reads
@@ -16,14 +16,15 @@
 // and goes when main says the line ran, was cleared, or was replaced by a
 // later pick (recordLaunchOff), or on the first submit it sees.
 //
-// A resume by id (showResuming) has nothing to ask for, and a wait to
-// explain: main has typed the CLI's launch and the terminal shows only that
-// line until the CLI paints the conversation, seconds later. The band reads
+// A session picked while another window still holds it (showResuming) has a
+// wait before anything is typed: that window comes back to the front, or
+// closes so the session can resume here, and meanwhile this one shows a bare
+// shell prompt. The band reads
 //
-//   resuming       "Resuming this session · claude is loading the conversation"
+//   resuming       "Resuming this session · bringing it back"
 //
-// and goes when main says the CLI painted (recordResumeUp), which hands back
-// the band's note, if it had one, for the caller to keep on screen.
+// from the pick until main says the wait is over (recordResumeUp): the
+// CLI's launch line has been typed, or nothing is coming.
 //
 //   pre-Enter      "Wait for the input line · [Enter] sends /resume"
 //                  Main's pty-input handler is armed (pendingResumeIntercept)
@@ -98,7 +99,6 @@ let mountedRoot = null;
 let stylesInjected = false;
 let enterCount = 0;
 let mode = 'resume';   // 'resume' | 'launch' | 'resuming': which pick mounted the band
-let resumingNote = '';
 
 const HINT_CSS = `
 .at-resume-hint {
@@ -421,49 +421,33 @@ function showLaunch({ cli } = {}) {
   mountedRoot = el;
 }
 
-// The resuming band's inner HTML. `pending`: the session's old window is
-// still closing, and the CLI has not been launched yet.
-function renderResumingMarkup({ cli, pending = false } = {}) {
-  const name = String(cli || '').trim() || 'the CLI';
+// The resuming band's inner HTML.
+function renderResumingMarkup() {
   const sep = '<span class="sep">·</span>';
-  const tail = pending ? 'waiting for its old window to close' : `${escapeHtml(name)} is loading the conversation`;
   return `
-    <span class="at-resume-hint-text"><span class="at-resume-hint-pre"><span class="at-resume-hint-busy"></span>Resuming this session${sep}${tail}</span></span>
+    <span class="at-resume-hint-text"><span class="at-resume-hint-pre"><span class="at-resume-hint-busy"></span>Resuming this session${sep}bringing it back</span></span>
     <button class="at-resume-hint-close" aria-label="Dismiss" title="Dismiss">✕</button>
   `;
 }
 
-// Mount the resuming band. payload: { cli, pending, note }. The ✕ removes
-// the band only: the resume goes on.
-function showResuming({ cli, pending = false, note = '' } = {}) {
-  // A band that already carries a note keeps it when main's plain "resuming"
-  // arrives after the reason did.
-  const keptNote = note || (mountedRoot && mode === 'resuming' ? resumingNote : '');
+// Mount the resuming band. The ✕ removes the band only: the resume goes on.
+function showResuming() {
   destroy({ cancelIntercept: false });
   injectStyles();
   enterCount = 0;
   mode = 'resuming';
-  resumingNote = keptNote;
   const el = document.createElement('div');
   el.className = 'at-resume-hint resuming';
-  el.innerHTML = renderResumingMarkup({ cli, pending });
+  el.innerHTML = renderResumingMarkup();
   document.body.appendChild(el);
   el.querySelector('.at-resume-hint-close').addEventListener('click', () => destroy({ cancelIntercept: false }));
-  if (keptNote) {
-    const noteEl = noticeElement(keptNote);
-    noteEl.classList.add('at-resume-hint-note');
-    el.appendChild(noteEl);
-  }
   mountedRoot = el;
 }
 
-// Main's word that the resumed CLI has painted. Returns the note the band
-// carried while it was still up, '' otherwise.
+// Main's word that the wait is over. A band that asks for /resume is another
+// pick's, and stays.
 function recordResumeUp() {
-  if (!mountedRoot || mode !== 'resuming') return '';
-  const note = mountedRoot.querySelector('.at-resume-hint-note') ? resumingNote : '';
-  destroy({ cancelIntercept: false });
-  return note;
+  if (mountedRoot && mode === 'resuming') destroy({ cancelIntercept: false });
 }
 
 // Main's word that the typed line is no longer awaiting Enter. A resume
