@@ -50,7 +50,7 @@ contextBridge.exposeInMainWorld('pty', {
   onViewerShortcut: (callback) => ipcRenderer.on('viewer-shortcut', (_event, action) => callback(action)),
   // Cmd/Ctrl+Shift+N: the fresh instance is a separate process that takes
   // seconds to show a window, so main announces the launch and any failure.
-  onNewInstanceLaunching: (callback) => ipcRenderer.on('new-instance-launching', (_event, cwd) => callback(cwd)),
+  onNewInstanceLaunching: (callback) => ipcRenderer.on('new-instance-launching', (_event, cwd, why) => callback(cwd, why)),
   onNewInstanceLaunchFailed: (callback) => ipcRenderer.on('new-instance-launch-failed', (_event, message) => callback(message)),
   // Another app is coming forward for a link or file (label), or that failed (null).
   onOsHandoff: (callback) => ipcRenderer.on('os-handoff', (_event, label) => callback(label)),

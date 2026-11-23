@@ -974,8 +974,9 @@ if (typeof window.pty.onViewerShortcut === 'function') {
 // first prompt); the new window's picker then shows the same directory on its
 // start-new row.
 if (typeof window.pty.onNewInstanceLaunching === 'function') {
-  window.pty.onNewInstanceLaunching((cwd) => {
-    showHandoffPill(cwd ? `Starting new AgentTerm in ${cwd}…` : 'Starting new AgentTerm…', 20000);
+  window.pty.onNewInstanceLaunching((cwd, why) => {
+    const starting = cwd ? `Starting new AgentTerm in ${cwd}…` : 'Starting new AgentTerm…';
+    showHandoffPill(why ? `${why} ${starting}` : starting, 20000);
   });
 }
 // An OS handoff gets the same pill; a failed one is taken down (null) before

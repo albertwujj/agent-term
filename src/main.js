@@ -2483,10 +2483,11 @@ function successorStartCwd() {
 // directory even if someone manually cd'd in that shell.
 function launchNewInstance({
   announce: announceToWindow = true, resumeSession = null, cwd: cwdOverride = null, readyFile = null, onFail = null,
+  why = null,
 } = {}) {
-  const announce = (channel, message) => {
+  const announce = (channel, ...message) => {
     if (!announceToWindow) return;
-    try { if (mainWindow) mainWindow.webContents.send(channel, message); } catch {}
+    try { if (mainWindow) mainWindow.webContents.send(channel, ...message); } catch {}
   };
   const fail = (message) => {
     log('[new-instance] ' + message);
@@ -2505,7 +2506,8 @@ function launchNewInstance({
     }
   }
   const cwd = cwdOverride || successorStartCwd();
-  announce('new-instance-launching', cwd);
+  // `why` leads the launch pill when the user did not ask for this window.
+  announce('new-instance-launching', cwd, why);
   let child = null;
   try {
     child = spawnNewInstance(process.argv, target.execPath || successorExecPath, {
@@ -5583,13 +5585,12 @@ function moveToNewWindow(cwd) {
       try { fs.unlinkSync(readyFile); } catch {}
       resolve(ok);
     };
-    sendHint('notice', "AgentTerm's code changed. The next session starts in a new window, on the new code.");
     const deadline = Date.now() + NEW_WINDOW_READY_MS;
     poll = setInterval(() => {
       if (fs.existsSync(readyFile)) finish(true);
       else if (Date.now() > deadline) finish(false);
     }, 200);
-    launchNewInstance({ cwd, readyFile, onFail: () => finish(false) });
+    launchNewInstance({ cwd, readyFile, onFail: () => finish(false), why: "AgentTerm's code changed." });
   });
 }
 

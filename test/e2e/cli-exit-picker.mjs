@@ -239,6 +239,8 @@ try {
   const asked = await waitFor(async () => { const l = await launches(); return l.length === 2 ? l[1] : null; }, 10_000);
   check('the next exit launches a window', !!asked, JSON.stringify(await launches()));
   check('in the session\'s directory', asked && asked.cwd === WORK, JSON.stringify(asked));
+  check('and says why, for as long as it says a window is starting',
+    !!(await waitFor(() => page.evaluate(() => document.body.innerText.includes("AgentTerm's code changed. Starting new AgentTerm in")), 3000)));
   await sleep(1500);
   check('no picker opens here meanwhile', !(await pickerOpen(page)));
   check('this window waits for the new one', (await Promise.race([exited, sleep(300).then(() => 'up')])) === 'up');
