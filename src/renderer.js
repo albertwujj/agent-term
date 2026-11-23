@@ -179,34 +179,51 @@ window.pty.onResumeHintSubmit(() => {
 // back: it was hidden, and its window started before the code changed or was
 // closed by the live-session cap. The resume band shows as for a picked row
 // (again, when the row pick already showed it), with a note under it saying
-// why. A session that resumes by id has no band, so the note stands alone
-// under the chrome bar.
+// why. A session that resumes by id shows the resuming band while its CLI
+// loads, with the note under it; once the CLI has painted the note stands
+// alone under the chrome bar. A restart the user asked for needs no note.
+const NOTICE_TOP = 'calc(env(titlebar-area-height, 42px) + 1px)';
 const RESUME_REASONS = {
   'older-code': "AgentTerm's code changed. This session is re-established on the new code",
   'closed-while-hidden': 'AgentTerm closed this session while it was hidden, to keep at most 8 running',
+  restarted: '',
 };
 window.pty.onResumeWithReason((picked) => {
   launcherBand.destroy();
   closeActivePicker();
-  if (!picked || !RESUME_REASONS[picked.reason]) return;
+  if (!picked || !(picked.reason in RESUME_REASONS)) return;
   const why = RESUME_REASONS[picked.reason];
   if (resumeLaunch(picked)) {
-    showNotice(`${why}, so it resumed through the CLI.`, { top: 'calc(env(titlebar-area-height, 42px) + 1px)' });
+    resumeHint.showResuming({ cli: picked.cli, note: why && `${why}, so it resumed through the CLI.` });
     return;
   }
   resumeHint.show({
-    cli: picked.cli, prompt: picked.prompt, title: picked.title, note: `${why}, so it needs to resume through the CLI.`,
+    cli: picked.cli, prompt: picked.prompt, title: picked.title,
+    note: why && `${why}, so it needs to resume through the CLI.`,
   });
+});
+// A resume by id: nothing to do but wait for the CLI, so the band says that
+// much until main sees the CLI paint. It replaces the band a row pick showed
+// for a Codex session whose thread main found by name only at the pick.
+window.pty.onResumeDirect((payload) => resumeHint.showResuming(payload || {}));
+window.pty.onResumePending(() => {
+  launcherBand.destroy();
+  closeActivePicker();
+  resumeHint.showResuming({ pending: true });
+});
+window.pty.onResumeUp(() => {
+  const note = resumeHint.recordResumeUp();
+  if (note) showNotice(note, { top: NOTICE_TOP });
+});
+// The CLI exited, and the session with it: what the session put on this
+// window goes, before main opens the picker for the next one.
+window.pty.onSessionEnded(() => {
+  resumeHint.destroy({ cancelIntercept: false });
+  altScreenNoticed = false;
 });
 window.pty.onResumeHintInterceptOff(() => {
   resumeHint.recordInterceptOff();
 });
-// Main resumed the pick by id after all: a Codex session recorded before its
-// thread could be found, whose thread main found by name at the pick. The band
-// shown at the pick promised a /resume that will not come.
-if (typeof window.pty.onResumeDirect === 'function') {
-  window.pty.onResumeDirect(() => resumeHint.destroy({ cancelIntercept: false }));
-}
 window.pty.onWslNotice((text) => showToast(text, { variant: 'error' }));
 // A picker launch typed into the shell: the band asks for the Enter that
 // runs it, and goes when main says the line ran, was cleared, or replaced.
@@ -966,6 +983,7 @@ if (typeof window.pty.onOsHandoff === 'function') {
 }
 if (typeof window.pty.onNewInstanceLaunchFailed === 'function') {
   window.pty.onNewInstanceLaunchFailed((message) => {
+    releaseRestartButton();
     dismissHandoffPill();
     showToast('New AgentTerm failed to start: ' + (message || 'unknown error'), { variant: 'error' });
   });
@@ -975,16 +993,43 @@ if (typeof window.pty.onNotice === 'function') {
 }
 // This window came back from hiding on code older than the checkout. A notice
 // strip under the chrome bar, until dismissed: it can arrive while the user is
-// looking elsewhere.
-if (typeof window.pty.onOlderCodeNotice === 'function') {
-  window.pty.onOlderCodeNotice(() => {
-    const keys = window.pty.platform === 'darwin' ? '⌘⇧N' : 'Ctrl+Shift+N';
-    showNotice("AgentTerm's code changed since this window started. "
-      + `To re-establish it on the new code, close it and press ${keys} twice. `
-      + 'If its agent is busy, it comes back unchanged. Try again once the agent is idle.',
-    { top: 'calc(env(titlebar-area-height, 42px) + 1px)' });
-  });
+// looking elsewhere. Its button restarts the session on the new code: a new
+// window opens and resumes it, and this one closes once that window is up, so
+// the button waits meanwhile and comes back if the restart does not happen.
+const RESTART_LABEL = 'Restart on the new code';
+let restartButton = null;
+function releaseRestartButton() {
+  if (!restartButton) return;
+  restartButton.disabled = false;
+  restartButton.textContent = RESTART_LABEL;
+  restartButton = null;
 }
+window.pty.onOlderCodeNotice(() => {
+  showNotice("AgentTerm's code changed since this window started. "
+    + 'Restarting closes this window and resumes its session in a new one.',
+  {
+    top: NOTICE_TOP,
+    action: {
+      label: RESTART_LABEL,
+      onClick: async (button) => {
+        if (button.disabled) return;
+        button.disabled = true;
+        button.textContent = 'Restarting…';
+        restartButton = button;
+        let result = null;
+        try { result = await window.pty.restartOnCurrentCode(); } catch {}
+        if (result && result.ok) return;
+        releaseRestartButton();
+        showToast((result && result.reason) || 'Could not restart this window.', { variant: 'warn' });
+      },
+    },
+  });
+});
+window.pty.onRestartCancelled((message) => {
+  releaseRestartButton();
+  dismissHandoffPill();
+  if (message) showToast(message, { variant: 'warn' });
+});
 
 // Auto-refresh: main re-rendered the open review (its package or the source
 // under it changed) → reload the viewer so the update shows, with comments

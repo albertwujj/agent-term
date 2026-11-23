@@ -109,7 +109,7 @@ const { rebuildRuntimeBundles } = require('./runtime-build');
 const { StreamClient } = require('./stream/client');
 const { StreamState } = require('./stream/stream-state');
 const { cleanAiTitle, aiTitleDedupeKey, isConversationTitle, aiCliLaunchCommand, codexThreadName } = require('./ai-title');
-const { detectCli } = require('./cli-detect');
+const { detectCli, commandRunsCli } = require('./cli-detect');
 const { conversationProbe, resumeLaunch, sameConversation, codexThreadScript, readCodexThread } = require('./cli-conversation');
 const { aiCliRendererEnv } = require('./cli-renderer-env');
 const { inheritableEnv } = require('./inheritable-env');
@@ -527,6 +527,15 @@ let activeFileWritten = false;
 // thing). The visual resume hint already tells them what to filter for —
 // this just saves them the /resume keystrokes when they're ready.
 let pendingResumeIntercept = false;
+// A window opened to take a session over from the one that launched it (the
+// older-code notice's restart): the id arrives in the environment, read once
+// so no window this one opens inherits it.
+const resumeSessionAtStart = (() => {
+  const raw = process.env.AGENT_TERM_RESUME_SESSION;
+  delete process.env.AGENT_TERM_RESUME_SESSION;
+  const id = Number(raw);
+  return raw && Number.isInteger(id) && id >= 0 ? id : null;
+})();
 // Launch flow: a picker start-new with Shift+Enter types the command into
 // the shell and leaves it there, unsubmitted (see picker-start-new). This
 // holds the CLI's name (null for a shell command) while that line awaits
@@ -1763,6 +1772,7 @@ function onShellCommandTyped(cmd) {
   setViewerAutoOpenArmed(!cli);
   if (!cli) return;
   detectedCli = cli;
+  watchCliStart();
   titleActivity.reset();
   syncChromeState();
   try {
@@ -2210,6 +2220,32 @@ function retireForCurrentCode() {
   app.quit();
 }
 
+// The older-code notice's restart, in one click: a window on the current code
+// opens, and once it is up it asks this one for the session ('handover'). Until
+// then this window stays as it is, so a launch that fails costs nothing. An
+// agent that is working keeps its window, as it does when picked back.
+function agentBusy() {
+  return computeIsWorking() || titleActivity.working === true;
+}
+
+function restartOnCurrentCode() {
+  if (sessionIndex === null || !activeFileWritten) return { ok: false, reason: 'This window has no session to resume.' };
+  if (agentBusy()) return { ok: false, reason: 'The agent is working. Restart once it is idle.' };
+  log('[restart] session ' + sessionIndex + ' restarts on the current code');
+  launchNewInstance({ resumeSession: sessionIndex });
+  return { ok: true };
+}
+
+function handOverSession() {
+  if (agentBusy()) {
+    log('[restart] session ' + sessionIndex + ' keeps its window: its agent started working');
+    sendHint('restart-cancelled', 'The agent started working, so this window stays. Restart once it is idle.');
+    return;
+  }
+  log('[restart] session ' + sessionIndex + ' closes; its new window resumes it');
+  app.quit();
+}
+
 // The agent finished a turn. In view, the window gets a full interval from now.
 // Hidden, it stays as it is, timer included: the user started none of its
 // turns, and output cannot tell a result waiting for them from the CLI's own
@@ -2340,6 +2376,7 @@ function startCapControlWatcher() {
       hide: hideIfStale,
       show: bringForward,
       retire: retireForCurrentCode,
+      handover: handOverSession,
     },
   );
 }
@@ -2426,7 +2463,7 @@ function successorStartCwd() {
 // The child follows successorStartCwd(): an established agent session carries
 // its recorded cwd; a pre-session launcher/shell carries the original launch
 // directory even if someone manually cd'd in that shell.
-function launchNewInstance({ announce: announceToWindow = true } = {}) {
+function launchNewInstance({ announce: announceToWindow = true, resumeSession = null } = {}) {
   const announce = (channel, message) => {
     if (!announceToWindow) return;
     try { if (mainWindow) mainWindow.webContents.send(channel, message); } catch {}
@@ -2452,7 +2489,11 @@ function launchNewInstance({ announce: announceToWindow = true } = {}) {
   try {
     child = spawnNewInstance(process.argv, target.execPath || successorExecPath, {
       cwd: target.execPath ? path.dirname(target.execPath) : undefined,
-      env: cwd ? { ...process.env, AGENT_TERM_START_CWD: cwd } : undefined,
+      env: (cwd || resumeSession !== null) ? {
+        ...process.env,
+        ...(cwd ? { AGENT_TERM_START_CWD: cwd } : {}),
+        ...(resumeSession !== null ? { AGENT_TERM_RESUME_SESSION: String(resumeSession) } : {}),
+      } : undefined,
       consoleLog: newConsoleLogPath(),
     });
   } catch (err) {
@@ -2478,6 +2519,42 @@ function launchNewInstance({ announce: announceToWindow = true } = {}) {
   child.once('exit', (code, signal) => {
     if (code === 0) { settle(null); return; }
     settle('exited during startup (' + (code === null ? 'signal ' + signal : 'code ' + code) + ')');
+  });
+}
+
+// The app tile a window carries while it has no session.
+async function applyPickerIcon() {
+  try {
+    if (process.platform === 'darwin') {
+      const result = await makeDockIconImage({});
+      if (result && !iconLocked) setDockIcon(result.img);
+    } else if (process.platform === 'win32') {
+      const result = await makePickerIconImage();
+      if (result && !iconLocked) setWindowIcon(result.img);
+    }
+  } catch {}
+}
+
+// One per session: a window whose CLI exited starts over with fresh ones
+// (endSessionInPlace).
+function newPromptCapture() {
+  return createPromptCapture({
+    onPrompt: onPromptCaptured,
+    onShellCommand: onShellCommandTyped,
+    onResumeCommand: () => setViewerAutoOpenArmed(false),
+    classifyPaste: (content) => {
+      if (!pendingClipboardImagePaths.delete(content)) return null;
+      return { kind: 'image', path: content };
+    },
+  });
+}
+
+function newStreamState() {
+  return new StreamState({
+    client: streamClient,
+    getCli: () => detectedCli || null,
+    getIsWorking: () => computeIsWorking(),
+    getHue: () => (typeof lockedHue === 'number' ? lockedHue : null),
   });
 }
 
@@ -2624,15 +2701,7 @@ function createWindow() {
     },
   });
 
-  promptCapture = createPromptCapture({
-    onPrompt: onPromptCaptured,
-    onShellCommand: onShellCommandTyped,
-    onResumeCommand: () => setViewerAutoOpenArmed(false),
-    classifyPaste: (content) => {
-      if (!pendingClipboardImagePaths.delete(content)) return null;
-      return { kind: 'image', path: content };
-    },
-  });
+  promptCapture = newPromptCapture();
 
   // Streaming pipeline: client handles HTTP to the hub asynchronously;
   // stream-state owns the per-session run lifecycle (runId, registration
@@ -2731,12 +2800,7 @@ function createWindow() {
   });
   if (streamClient.disabled && streamClient.lastError) log('[stream] ' + streamClient.lastError);
 
-  streamState = new StreamState({
-    client: streamClient,
-    getCli: () => detectedCli || null,
-    getIsWorking: () => computeIsWorking(),
-    getHue: () => (typeof lockedHue === 'number' ? lockedHue : null),
-  });
+  streamState = newStreamState();
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.maximize();
@@ -2766,21 +2830,7 @@ function createWindow() {
     // list: the process's Dock tile on darwin (see makeDockIconImage), the
     // taskbar icon on Windows (see makePickerIconImage). The CLI's mark and
     // then the session hue replace it as the session takes shape.
-    if (process.platform === 'darwin') {
-      (async () => {
-        try {
-          const result = await makeDockIconImage({});
-          if (result) setDockIcon(result.img);
-        } catch {}
-      })();
-    } else if (process.platform === 'win32') {
-      (async () => {
-        try {
-          const result = await makePickerIconImage();
-          if (result) setWindowIcon(result.img);
-        } catch {}
-      })();
-    }
+    applyPickerIcon();
   });
 
   // index.html IS the app: the shell never navigates and never opens a window of
@@ -2833,7 +2883,8 @@ function createWindow() {
   mainWindow.on('session-end', () => { quitting = true; });
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    showSessionsPicker();
+    if (resumeSessionAtStart !== null) takeOverSession(resumeSessionAtStart);
+    else showSessionsPicker();
     tidyStaleWindows();
   });
 
@@ -3104,6 +3155,9 @@ function createPty(cols, rows) {
     lastPtyOutputTime = Date.now();
     scheduleCursorChatProbe();
     watchTitle(data); // remains live while the renderer is frozen for comments
+    if (resumePaintArmed) announceResumeUp();
+    // A shell back at its prompt turns bracketed paste on again.
+    if (cliSeenRunning && typeof data === 'string' && data.includes('\x1b[?2004h')) scheduleCliProbe(300);
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('pty-output', data);
     }
@@ -3253,6 +3307,9 @@ function restartHealedShell() {
   ptyProcess = null;
   createPty(cols, rows);
   const shellPty = ptyProcess;
+  // The CLI is about to start again in the new shell: its prompt until then
+  // is not the CLI's exit.
+  watchCliStart();
   log('[wsl-spin] new shell, resuming: ' + command);
   // A new ConPTY's first paint clears the screen (ESC[2J), and a line written
   // before it goes with it; on a loaded machine that paint can come well after
@@ -3415,6 +3472,11 @@ ipcMain.on('pty-input', (event, data, promptSnapshot) => {
   }
   if (ptyProcess) {
     ptyProcess.write(data);
+  }
+  // The keys a CLI is left with: Ctrl+C, Ctrl+D, and the Enter after /exit.
+  if (detectedCli && !isAutoTerminalProtocol) {
+    if (data === '\x03' || data === '\x04') scheduleCliProbe(600, { again: true });
+    else if (isPlainEnter(data)) scheduleCliProbe(600);
   }
   const now = Date.now();
   // Window-cap activity tracking: only REAL keystrokes count. Auto-
@@ -3804,6 +3866,47 @@ function retireThenResumeHere(id) {
   }, HANDOFF_POLL_MS);
 }
 
+// This window was opened to carry a session on (restartOnCurrentCode): ask the
+// window that holds it to close, then resume it here. The old window answers by
+// closing, or keeps the session because its agent started working, and then
+// this window has nothing to show and closes. A session nobody holds any more
+// resumes at once; one that is not on record leaves the picker.
+const HANDOVER_CONFIRM_MS = 8000;
+function takeOverSession(id) {
+  const userDataDir = app.getPath('userData');
+  if (!sessionsLog.listSessions(userDataDir).some(s => s.id === id && s.cli)) {
+    log('[restart] session ' + id + ' is not on record; showing the picker');
+    showSessionsPicker();
+    return;
+  }
+  if (!sessionsLog.isSessionActive(sessionsLog.readActiveFile(userDataDir, id))) {
+    resumeHere(id, { restarted: true });
+    return;
+  }
+  log('[restart] asking the window of session ' + id + ' to hand it over');
+  sendHint('resume-pending');
+  try { windowCap.sendControl(userDataDir, id, 'handover'); } catch (err) {
+    log('[restart] handover request failed: ' + (err && err.message));
+  }
+  const deadline = Date.now() + HANDOVER_CONFIRM_MS;
+  const poll = setInterval(() => {
+    const rec = sessionsLog.readActiveFile(userDataDir, id);
+    if (!sessionsLog.isSessionActive(rec)) {
+      clearInterval(poll);
+      resumeHere(id, { restarted: true });
+    } else if (Date.now() > deadline) {
+      clearInterval(poll);
+      log('[restart] session ' + id + ' kept its window; closing this one');
+      app.quit();
+    }
+  }, HANDOFF_POLL_MS);
+}
+
+ipcMain.handle('restart-on-current-code', (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return { ok: false, reason: '' };
+  return restartOnCurrentCode();
+});
+
 // The second Cmd/Ctrl+Shift+N: the picker becomes the hidden session used most
 // recently. It comes back in front and the picker's window closes, as if that
 // session had been chosen from the list.
@@ -3848,18 +3951,20 @@ async function pickSession(id) {
 // user expected a window back instead, the renderer is told why, and shows
 // the resume band with a banner: `onCurrentCode` marks a hidden window that
 // just closed for older code, and a session the live cap closed while it was
-// hidden reads `closedBy: 'cap'` in the log.
+// hidden reads `closedBy: 'cap'` in the log. `restarted` is the user's own
+// restart on the current code, which shows the band and no banner.
 //
 // A session whose conversation is recorded (src/cli-conversation.js) opens it
 // by id, from the directory the CLI keeps it under, with no dialog to go
-// through and so no intercept and no band. Every other resume relaunches the
+// through and so no intercept: the band only says the CLI is loading, until
+// it paints (watchCliStart). Every other resume relaunches the
 // CLI and arms the intercept.
 //
 // A Codex session recorded before its thread could be found by name has a
 // name in its titles and no conversation; its thread is looked up here, by
 // the name it last showed. The renderer showed the resume band at the pick
 // (its payload had no conversation), and drops it when the thread is found.
-async function resumeHere(id, { onCurrentCode = false } = {}) {
+async function resumeHere(id, { onCurrentCode = false, restarted = false } = {}) {
   const userDataDir = app.getPath('userData');
   const sessions = sessionsLog.listSessions(userDataDir);
   const picked = sessions.find(s => s.id === id);
@@ -3880,8 +3985,9 @@ async function resumeHere(id, { onCurrentCode = false } = {}) {
     }
   }
   const direct = resumeLaunch(picked);
-  if (direct) sendHint('resume-direct');
-  const reason = onCurrentCode ? 'older-code' : (picked.closedBy === 'cap' ? 'closed-while-hidden' : null);
+  if (direct) sendHint('resume-direct', { cli: picked.cli });
+  const reason = restarted ? 'restarted'
+    : onCurrentCode ? 'older-code' : (picked.closedBy === 'cap' ? 'closed-while-hidden' : null);
   if (reason) {
     sendHint('resume-with-reason', {
       cli: picked.cli, prompt: picked.prompt, title: picked.title, conversation: picked.conversation, reason,
@@ -3912,6 +4018,7 @@ async function resumeHere(id, { onCurrentCode = false } = {}) {
     const command = cwd ? `cd ${shellEscape(cwd)} && ${launch}` : launch;
     clearPendingLaunchLine();
     try { ptyProcess.write(command + '\r'); } catch {}
+    watchCliStart({ announce: !!direct });
     if (direct) {
       pendingResumeIntercept = false;
       log('[resume] resumed by id after picker-pick id=' + id + ' cli=' + picked.cli +
@@ -5155,7 +5262,7 @@ async function lookupCodexThread(dir, name, { live = false } = {}) {
 
 function recordConversation(found) {
   const next = found && found.id ? { id: found.id, dir: found.dir } : null;
-  if (sameConversation(next, sessionConversation)) return;
+  if (sessionIndex === null || sameConversation(next, sessionConversation)) return;
   const event = { e: 'conversation', id: sessionIndex, conversation: next ? next.id : null };
   if (next) event.dir = next.dir;
   sessionsLog.appendEvent(app.getPath('userData'), event);
@@ -5187,6 +5294,224 @@ async function shellAtPrompt() {
   const [pgid, tpgid] = lastLine(r.stdout).split(/\s+/).map(Number);
   if (!(pgid > 0) || !(tpgid > 0)) return null;
   return pgid === tpgid;
+}
+
+// The command line of the process holding the terminal: the leader of its
+// foreground process group. '' when the shell holds it, or it cannot be read.
+async function foregroundCommand() {
+  let r;
+  if (process.platform === 'win32') {
+    if (!wslPidFile) return '';
+    r = await posixSh(
+      `pid=$(cat -- ${shellEscape(wslPidFile)}) && read -r stat < "/proc/$pid/stat" && ` +
+      'set -- ${stat##*) } && [ "$3" != "$6" ] && tr "\\0" " " < "/proc/$6/cmdline"; true',
+      { timeout: 3000 },
+    );
+    return r.code === 0 ? lastLine(r.stdout) : '';
+  }
+  if (!ptyProcess || !ptyProcess.pid) return '';
+  r = await runProc('/bin/ps', ['-o', 'pgid=,tpgid=', '-p', String(ptyProcess.pid)], { timeout: 3000 });
+  if (r.code !== 0) return '';
+  const [pgid, tpgid] = lastLine(r.stdout).split(/\s+/).map(Number);
+  if (!(tpgid > 0) || pgid === tpgid) return '';
+  r = await runProc('/bin/ps', ['-o', 'args=', '-p', String(tpgid)], { timeout: 3000 });
+  return r.code === 0 ? lastLine(r.stdout) : '';
+}
+
+// Whether the shell holds a stopped job: a CLI suspended with Ctrl+Z leaves the
+// shell at its prompt and is still this window's. null when it cannot be read.
+async function shellHasStoppedJob() {
+  let r;
+  let stats;
+  if (process.platform === 'win32') {
+    if (!wslPidFile) return null;
+    r = await posixSh(`pid=$(cat -- ${shellEscape(wslPidFile)}) && ps -o stat= --ppid "$pid"; true`, { timeout: 3000 });
+    if (r.code !== 0) return null;
+    stats = r.stdout.split('\n').map((l) => l.trim());
+  } else {
+    if (!ptyProcess || !ptyProcess.pid) return null;
+    r = await runProc('/bin/ps', ['-A', '-o', 'ppid=,stat='], { timeout: 3000 });
+    if (r.code !== 0) return null;
+    stats = r.stdout.split('\n').map((l) => l.trim().split(/\s+/))
+      .filter(([ppid]) => Number(ppid) === ptyProcess.pid).map(([, stat]) => stat || '');
+  }
+  return stats.some((stat) => /^T/.test(stat));
+}
+
+// Whether the CLI launched here is running, read from the shell (shellAtPrompt)
+// when something suggests a change: the launch, the keys that end a CLI, a
+// shell prompt in the output. A CLI seen running and then gone has exited, by
+// any route: its keys, its own command, a crash. Seen running means the
+// process holding the terminal is that CLI by its command line
+// (commandRunsCli): after a launch that failed, the next thing the shell runs
+// there is not the CLI, and its end is not the session's.
+//
+//   launch     watchCliStart polls until the CLI holds the terminal. A resume
+//              by id has no dialog and nothing on screen until the CLI paints,
+//              so the renderer shows a band meanwhile; the first output after
+//              the CLI is seen running takes it down ('resume-up'), and so
+//              does a CLI that stays silent past RESUME_PAINT_WAIT_MS.
+//   exit       two readings at the prompt, and no stopped job, end the session
+//              in place (endSessionInPlace).
+const CLI_START_POLL_MS = 400;
+const CLI_START_WATCH_MS = 20_000;
+const CLI_EXIT_CONFIRM_MS = 250;
+const RESUME_PAINT_WAIT_MS = 6000;
+let cliSeenRunning = false;
+let cliStartPoll = null;
+let cliProbeTimer = null;
+let cliProbing = false;
+let resumeAnnounced = false;  // the renderer shows the "resuming" band
+let resumePaintArmed = false; // the CLI is running; its next output is its paint
+
+function announceResumeUp() {
+  resumePaintArmed = false;
+  if (!resumeAnnounced) return;
+  resumeAnnounced = false;
+  sendHint('resume-up');
+}
+
+function watchCliStart({ announce = false } = {}) {
+  cliSeenRunning = false;
+  resumePaintArmed = false;
+  resumeAnnounced = announce;
+  clearInterval(cliStartPoll);
+  const deadline = Date.now() + CLI_START_WATCH_MS;
+  cliStartPoll = setInterval(() => {
+    if (!cliSeenRunning && detectedCli && ptyProcess && Date.now() < deadline) {
+      probeCli();
+      return;
+    }
+    clearInterval(cliStartPoll);
+    cliStartPoll = null;
+    // Never seen running (the launch failed, or ended at once): nothing is coming.
+    if (!cliSeenRunning) announceResumeUp();
+  }, CLI_START_POLL_MS);
+  if (typeof cliStartPoll.unref === 'function') cliStartPoll.unref();
+}
+
+function scheduleCliProbe(delayMs, { again = false } = {}) {
+  clearTimeout(cliProbeTimer);
+  cliProbeTimer = setTimeout(async () => {
+    cliProbeTimer = null;
+    const running = await probeCli();
+    // A CLI can take a moment to leave after its key.
+    if (again && running && !cliProbeTimer) scheduleCliProbe(1500);
+  }, delayMs);
+  if (typeof cliProbeTimer.unref === 'function') cliProbeTimer.unref();
+}
+
+// Returns whether the CLI is running, as far as this reading tells.
+async function probeCli() {
+  if (cliProbing || !detectedCli || !ptyProcess || spinHeal || quitting) return cliSeenRunning;
+  cliProbing = true;
+  const shellPty = ptyProcess;
+  const cli = detectedCli;
+  const same = () => ptyProcess === shellPty && detectedCli === cli && !spinHeal && !quitting;
+  try {
+    const atPrompt = await shellAtPrompt();
+    if (!same() || atPrompt === null) return cliSeenRunning;
+    if (!atPrompt) {
+      if (!cliSeenRunning) {
+        cliSeenRunning = commandRunsCli(await foregroundCommand(), cli) && same();
+        if (resumeAnnounced && !resumePaintArmed) {
+          resumePaintArmed = true;
+          const wait = setTimeout(() => { if (resumePaintArmed) announceResumeUp(); }, RESUME_PAINT_WAIT_MS);
+          if (typeof wait.unref === 'function') wait.unref();
+        }
+      }
+      return true;
+    }
+    if (!cliSeenRunning) return false;
+    await new Promise((resolve) => setTimeout(resolve, CLI_EXIT_CONFIRM_MS));
+    if (!same() || (await shellAtPrompt()) !== true) return cliSeenRunning;
+    if ((await shellHasStoppedJob()) !== false || !same()) return cliSeenRunning;
+    cliSeenRunning = false;
+    onCliExited();
+    return false;
+  } catch (err) {
+    log('[cli] probe failed: ' + (err && err.message));
+    return cliSeenRunning;
+  } finally {
+    cliProbing = false;
+  }
+}
+
+// The CLI is gone and the shell is back. A window whose CLI had started (its
+// title arrived, or it was a resume) was that session's: the session ends as
+// it does when such a window is closed, and the window starts over on the
+// picker, where the next session begins or this one resumes. A hidden window
+// has no one to pick, and keeps its session until it is brought back and
+// closed. A launch that never became a session (`claude --version`) changes
+// nothing.
+function onCliExited() {
+  announceResumeUp();
+  if (!iconLocked || windowHidden || headlessExitStarted || !mainWindow || mainWindow.isDestroyed()) {
+    log('[cli] ' + detectedCli + ' exited; session ' + sessionIndex + ' stays as it is');
+    return;
+  }
+  endSessionInPlace().catch((err) => log('[cli] ending the session failed: ' + (err && err.message)));
+}
+
+// Everything a session put on this window goes back to what a new window has,
+// and the picker opens. The shell stays: its directory, its scrollback, and
+// whatever the CLI printed on its way out.
+async function endSessionInPlace() {
+  log('[cli] ' + detectedCli + ' exited; session ' + sessionIndex + ' ends and the picker opens');
+  writeClosedSessionEvent(); // releases the record; nothing to write for a CLI that never got a prompt
+  stopCapMachinery();
+  sessionIndex = null;
+  iconLocked = false;
+  lockedTitle = null;
+  lockedHue = null;
+  sessionStartTime = null;
+  firstPrompt = null;
+  identityPrompts = [];
+  identityComplete = false;
+  sessionCwd = null;
+  sessionConversation = null;
+  detectedCli = null;
+  closedBy = null;
+  pendingResumeIntercept = false;
+  cursorChatReports = 0;
+  bootTitleKeys.clear();
+  lastTitleEventKey = null;
+  clearTimeout(conversationProbeTimer); conversationProbeTimer = null;
+  clearTimeout(cursorChatTimer); cursorChatTimer = null;
+  clearTimeout(codexLookupTimer); codexLookupTimer = null;
+  clearInterval(cliStartPoll); cliStartPoll = null;
+  if (tooltipInterval) { clearInterval(tooltipInterval); tooltipInterval = null; }
+  titleActivity.reset();
+  setViewerAutoOpenArmed(false);
+  promptCapture = newPromptCapture();
+  // The phone's tile for the ended session stops here; the next session
+  // registers a run of its own.
+  if (streamClient) streamClient.endRun();
+  streamState = newStreamState();
+  // The shell carries the ended session's token, which that session keeps for
+  // its resumes: the next one started here gets its own, exported in every
+  // shell the pty may run. The leading space keeps it out of shell history.
+  agentSessionId = crypto.randomBytes(4).toString('hex');
+  try { ptyProcess.write(` export AGENT_SESSION_ID=${agentSessionId}\r`); } catch {}
+  startJobWatch();
+  updateProgressBar();
+  syncChromeState();
+  sendHint('session-ended');
+  try { mainWindow.setThumbnailToolTip(''); } catch {}
+  // The taskbar preview stops showing the ended session's activity card; the
+  // next session's first render turns the card on again.
+  if (dwmIconicEnabled && cachedHwnd) {
+    const off = runDwmNativeCall('disableIconicMode', '', () => dwm.disableIconicMode(cachedHwnd));
+    log('[thumbnail] disableIconicMode ok=' + off);
+    dwmIconicEnabled = false;
+    everPushed = false;
+    lastPushedPayloadHash = null;
+  }
+  applyPickerIcon();
+  let cwd = null;
+  try { cwd = await getPrimaryCwd(); } catch {}
+  if (iconLocked || detectedCli || !mainWindow || mainWindow.isDestroyed()) return; // a CLI started meanwhile
+  showSessionsPicker(cwd);
 }
 
 // Last non-empty stdout line: the probes run in a login shell, so profile /

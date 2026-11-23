@@ -200,6 +200,19 @@ class StreamClient {
     });
   }
 
+  // The session behind the run ended while its window lives on: no more
+  // heartbeats or snapshots for it, and none of its viewer inputs drained
+  // into a shell that no longer holds its CLI. The run stays in the hub like
+  // any ended one; the next registerRun starts another.
+  endRun() {
+    if (this.heartbeatTimer) {
+      clearTimeout(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.runId = null;
+    if (!this.stopped && !this.disabled) this._setState('idle');
+  }
+
   // Stop heartbeating + halt the worker. We deliberately do NOT send
   // DELETE — runs persist in the hub and the viewer until the user (or
   // the 24h memory bound) clears them. Freshness is conveyed by the

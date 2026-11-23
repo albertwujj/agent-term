@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { detectCli, parseLaunch } = require('../src/cli-detect');
+const { detectCli, parseLaunch, commandRunsCli } = require('../src/cli-detect');
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -48,6 +48,25 @@ test('an ambiguous prefix or a shell command is not a launch', () => {
   for (const text of ['c', 'co --model x', 'make test', 'cd ~/repo', 'echo claude', '', '   ']) {
     assert.strictEqual(parseLaunch(text), null, JSON.stringify(text));
   }
+});
+
+test('the process holding the terminal is the CLI when its command line names it', () => {
+  for (const [line, cli] of [
+    ['claude', 'claude'],
+    ['claude --resume 9f8e7d6c', 'claude'],
+    ['node /usr/lib/node_modules/@openai/codex/bin/codex.js --no-alt-screen', 'codex'],
+    ['/home/u/.local/share/cursor-agent/versions/1/node index.js', 'agent'],
+    ['/bin/sh /tmp/fakes/bin/claude', 'claude'],
+    ['gh copilot', 'copilot'],
+  ]) assert.strictEqual(commandRunsCli(line, cli), true, line);
+  for (const [line, cli] of [
+    ['sleep 600', 'claude'],
+    ['vim notes.md', 'codex'],
+    ['claude', 'codex'],
+    ['', 'claude'],
+    [null, 'claude'],
+    ['claude', null],
+  ]) assert.strictEqual(commandRunsCli(line, cli), false, JSON.stringify(line));
 });
 
 console.log(`\n${testsPassed} passed, ${testsFailed} failed`);

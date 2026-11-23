@@ -55,4 +55,18 @@ function parseLaunch(text) {
   return null;
 }
 
-module.exports = { CLI_PATTERNS, KNOWN_CLIS, detectCli, parseLaunch };
+// Whether a running process's command line is the CLI a launch named: the
+// name appears in it, as the program or the script a runtime was handed
+// ("node /usr/lib/node_modules/@openai/codex/bin/codex.js"). Cursor's `agent`
+// runs from its cursor-agent install. Loose on purpose, and only ever asked of
+// the one process holding the terminal after that launch: it tells the CLI
+// from whatever else the shell ran there (`sleep`, an editor), not from the
+// world.
+const CLI_PROCESS_NAMES = { agent: ['agent', 'cursor'] };
+function commandRunsCli(commandLine, cli) {
+  const line = String(commandLine || '').toLowerCase();
+  if (!line.trim() || !cli) return false;
+  return (CLI_PROCESS_NAMES[cli] || [String(cli).toLowerCase()]).some((name) => line.includes(name));
+}
+
+module.exports = { CLI_PATTERNS, KNOWN_CLIS, detectCli, parseLaunch, commandRunsCli };

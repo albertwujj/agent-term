@@ -3,14 +3,16 @@
 // the right of the same line. Amber, where the band's blue is guidance: it
 // explains what happened rather than asking for a step. Two uses:
 //
-//   noticeElement(message)   a note row the resume band hangs under itself
+//   noticeElement(message, { action })
+//                            a note row the resume band hangs under itself
 //                            (resume-hint.js), so it arrives and leaves with
 //                            the band
 //   showNotice(message, { top })
 //                            a standalone strip across the window, for a
 //                            notice with no band to belong to
 //
-// The ✕ removes the notice alone.
+// The ✕ removes the notice alone. An `action` ({ label, onClick }) is the one
+// step the notice offers, as a button before the ✕; onClick gets the button.
 
 const NOTICE_CSS = `
 .at-notice {
@@ -43,6 +45,23 @@ const NOTICE_CSS = `
   flex: 1 1 auto;
   min-width: 0;
 }
+.at-notice-action {
+  flex: 0 0 auto;
+  padding: 3px 12px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--at-notice-accent) 55%, #0c0c0c);
+  background: color-mix(in srgb, var(--at-notice-accent) 22%, #0c0c0c);
+  color: #f1e9d6;
+  font: inherit;
+  cursor: pointer;
+}
+.at-notice-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--at-notice-accent) 34%, #0c0c0c);
+}
+.at-notice-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .at-notice-close {
   flex: 0 0 auto;
   background: none;
@@ -71,7 +90,7 @@ function injectNoticeStyles() {
   document.head.appendChild(style);
 }
 
-function noticeElement(message) {
+function noticeElement(message, { action = null } = {}) {
   injectNoticeStyles();
   const el = document.createElement('div');
   el.className = 'at-notice';
@@ -84,12 +103,20 @@ function noticeElement(message) {
   close.title = 'Dismiss';
   close.textContent = '✕';
   close.addEventListener('click', () => el.remove());
-  el.append(text, close);
+  el.append(text);
+  if (action) {
+    const button = document.createElement('button');
+    button.className = 'at-notice-action';
+    button.textContent = action.label;
+    button.addEventListener('click', () => action.onClick(button));
+    el.append(button);
+  }
+  el.append(close);
   return el;
 }
 
-function showNotice(message, { top = '0px' } = {}) {
-  const el = noticeElement(message);
+function showNotice(message, { top = '0px', action = null } = {}) {
+  const el = noticeElement(message, { action });
   el.classList.add('at-notice-standalone');
   el.style.top = top;
   document.body.appendChild(el);

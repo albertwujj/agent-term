@@ -4,9 +4,9 @@
 // few words around one object (the Enter keycap before the shortcut fires,
 // the title chip after), with segments split by a middle dot.
 //
-// Two picks mount it. A resume (show) walks the states below; a session
-// that resumes by its conversation id has no dialog to walk, and no band
-// (cli-conversation.js). A start-new
+// Three picks mount it. A resume (show) walks the states below; a session
+// that resumes by its conversation id (cli-conversation.js) has no dialog to
+// walk, and gets the resuming band further down. A start-new
 // taken with Shift+Enter (showLaunch) has one moment: main has typed the
 // CLI's launch line into the shell and left it at the prompt, so the band
 // reads
@@ -15,6 +15,15 @@
 //
 // and goes when main says the line ran, was cleared, or was replaced by a
 // later pick (recordLaunchOff), or on the first submit it sees.
+//
+// A resume by id (showResuming) has nothing to ask for, and a wait to
+// explain: main has typed the CLI's launch and the terminal shows only that
+// line until the CLI paints the conversation, seconds later. The band reads
+//
+//   resuming       "Resuming this session · claude is loading the conversation"
+//
+// and goes when main says the CLI painted (recordResumeUp), which hands back
+// the band's note, if it had one, for the caller to keep on screen.
 //
 //   pre-Enter      "Wait for the input line · [Enter] sends /resume"
 //                  Main's pty-input handler is armed (pendingResumeIntercept)
@@ -88,7 +97,8 @@ const AUTO_DISMISS_ENTERS = 3;
 let mountedRoot = null;
 let stylesInjected = false;
 let enterCount = 0;
-let mode = 'resume';   // 'resume' | 'launch': which pick mounted the band
+let mode = 'resume';   // 'resume' | 'launch' | 'resuming': which pick mounted the band
+let resumingNote = '';
 
 const HINT_CSS = `
 .at-resume-hint {
@@ -166,6 +176,19 @@ const HINT_CSS = `
 @keyframes at-resume-hint-key {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--at-resume-accent) 0%, transparent); }
   45%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--at-resume-accent) 55%, transparent); }
+}
+.at-resume-hint-busy {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-radius: 50%;
+  background: var(--at-resume-accent);
+  animation: at-resume-hint-busy 1.2s ease-in-out infinite;
+}
+@keyframes at-resume-hint-busy {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 1; }
 }
 .at-resume-hint-label {
   color: #c8c8c8;
@@ -253,7 +276,7 @@ const HINT_CSS = `
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {
-  .at-resume-hint, .at-resume-hint-pre kbd { animation: none; }
+  .at-resume-hint, .at-resume-hint-pre kbd, .at-resume-hint-busy { animation: none; }
   .at-resume-hint.collapsed,
   .at-resume-hint.collapsed .at-resume-hint-text,
   .at-resume-hint.collapsed .at-resume-hint-close { animation: none; transition: none; }
@@ -296,7 +319,7 @@ function destroy({ cancelIntercept = true } = {}) {
 // intercept, and remote/stream submissions. Count its semantic submit event
 // instead of xterm key events so every path that advances the AI CLI is seen.
 function recordSubmit() {
-  if (!mountedRoot) return;
+  if (!mountedRoot || mode === 'resuming') return;
   if (mode === 'launch') {
     destroy({ cancelIntercept: false });
     return;
@@ -398,6 +421,51 @@ function showLaunch({ cli } = {}) {
   mountedRoot = el;
 }
 
+// The resuming band's inner HTML. `pending`: the session's old window is
+// still closing, and the CLI has not been launched yet.
+function renderResumingMarkup({ cli, pending = false } = {}) {
+  const name = String(cli || '').trim() || 'the CLI';
+  const sep = '<span class="sep">·</span>';
+  const tail = pending ? 'waiting for its old window to close' : `${escapeHtml(name)} is loading the conversation`;
+  return `
+    <span class="at-resume-hint-text"><span class="at-resume-hint-pre"><span class="at-resume-hint-busy"></span>Resuming this session${sep}${tail}</span></span>
+    <button class="at-resume-hint-close" aria-label="Dismiss" title="Dismiss">✕</button>
+  `;
+}
+
+// Mount the resuming band. payload: { cli, pending, note }. The ✕ removes
+// the band only: the resume goes on.
+function showResuming({ cli, pending = false, note = '' } = {}) {
+  // A band that already carries a note keeps it when main's plain "resuming"
+  // arrives after the reason did.
+  const keptNote = note || (mountedRoot && mode === 'resuming' ? resumingNote : '');
+  destroy({ cancelIntercept: false });
+  injectStyles();
+  enterCount = 0;
+  mode = 'resuming';
+  resumingNote = keptNote;
+  const el = document.createElement('div');
+  el.className = 'at-resume-hint resuming';
+  el.innerHTML = renderResumingMarkup({ cli, pending });
+  document.body.appendChild(el);
+  el.querySelector('.at-resume-hint-close').addEventListener('click', () => destroy({ cancelIntercept: false }));
+  if (keptNote) {
+    const noteEl = noticeElement(keptNote);
+    noteEl.classList.add('at-resume-hint-note');
+    el.appendChild(noteEl);
+  }
+  mountedRoot = el;
+}
+
+// Main's word that the resumed CLI has painted. Returns the note the band
+// carried while it was still up, '' otherwise.
+function recordResumeUp() {
+  if (!mountedRoot || mode !== 'resuming') return '';
+  const note = mountedRoot.querySelector('.at-resume-hint-note') ? resumingNote : '';
+  destroy({ cancelIntercept: false });
+  return note;
+}
+
 // Main's word that the typed line is no longer awaiting Enter. A resume
 // band mounted since (a later pick) is not touched.
 function recordLaunchOff() {
@@ -410,7 +478,10 @@ module.exports = {
   AUTO_DISMISS_ENTERS,
   renderHintMarkup,
   renderLaunchMarkup,
+  renderResumingMarkup,
   recordSubmit,
+  recordResumeUp,
+  showResuming,
   recordInterceptOff,
   recordLaunchOff,
   show,

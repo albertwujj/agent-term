@@ -155,7 +155,17 @@ contextBridge.exposeInMainWorld('pty', {
   // never sends this event.
   onResumeHintSubmit: (callback) => ipcRenderer.on('resume-hint-submit', () => callback()),
   onResumeWithReason: (callback) => ipcRenderer.on('resume-with-reason', (_event, picked) => callback(picked)),
-  onResumeDirect: (callback) => ipcRenderer.on('resume-direct', () => callback()),
+  onResumeDirect: (callback) => ipcRenderer.on('resume-direct', (_event, payload) => callback(payload)),
+  // A session is about to resume here, once the window that holds it closes.
+  onResumePending: (callback) => ipcRenderer.on('resume-pending', () => callback()),
+  // The CLI of a resume by id has painted (or will not): the wait is over.
+  onResumeUp: (callback) => ipcRenderer.on('resume-up', () => callback()),
+  // The CLI exited and the session with it; the window starts over on the picker.
+  onSessionEnded: (callback) => ipcRenderer.on('session-ended', () => callback()),
+  // The older-code notice's button: a window on the current code opens and
+  // takes this session over. Resolves { ok, reason }.
+  restartOnCurrentCode: () => ipcRenderer.invoke('restart-on-current-code'),
+  onRestartCancelled: (callback) => ipcRenderer.on('restart-cancelled', (_event, message) => callback(message)),
   // Main cancelled the resume intercept on non-Enter input (a startup
   // dialog answered, or the user typing their own command). The next Enter
   // is plain; the hint switches to its manual /resume wording.

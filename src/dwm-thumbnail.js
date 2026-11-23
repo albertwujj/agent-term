@@ -235,6 +235,19 @@ function enableIconicMode(hwnd) {
   return { ok: has && force, has, force, disallowPeek, darkMode };
 }
 
+// Back to DWM's own capture of the window: the session whose activity card
+// the bitmaps drew has ended, and the window has no card until the next one.
+function disableIconicMode(hwnd) {
+  if (!IS_WIN) return false;
+  const b = getBindings();
+  const h = hwndValue(hwnd);
+  if (!b || h === null) return false;
+  const force = setBoolAttribute(b, h, DWMWA_FORCE_ICONIC_REPRESENTATION, false);
+  const has = setBoolAttribute(b, h, DWMWA_HAS_ICONIC_BITMAP, false);
+  setBoolAttribute(b, h, DWMWA_DISALLOW_PEEK, false);
+  return force && has;
+}
+
 // Push a small (typically 280x158-ish) bitmap as the iconic thumbnail.
 // Returns true on success.
 function pushThumbnailBitmap(hwnd, bgraBuf, width, height) {
@@ -326,6 +339,7 @@ function invalidate(hwnd) {
 module.exports = {
   isSupported: IS_WIN,
   enableIconicMode,
+  disableIconicMode,
   pushThumbnailBitmap,
   pushLivePreviewBitmap,
   buildHBitmap,
