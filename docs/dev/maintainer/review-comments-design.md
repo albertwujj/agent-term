@@ -221,9 +221,9 @@ The commit blocks follow the md viewer's "Click, caret and highlight" rules
 (`md-editing-design.md`), sharing the gap test and gap words from
 `edit-marks.js`: a click on a word arms the block with a faint wash and a
 steady slate caret; a click on the space between two words opens the editor
-with a slot, and a word typed there gets its own space; a click on a
-reopenable edit's marks reopens it at the click; the editor has no wash and an
-amber caret. Revert on the strip discards a reopened edit's thread (Esc still
+with a block caret on the space, and a word typed there gets its own space; a
+click on a reopenable edit's marks reopens it at the click; the editor has no
+wash and an amber caret. Revert on the strip discards a reopened edit's thread (Esc still
 backs out of the session). The quote composer carries To edit when its quote
 lies in one commit block (a quote from a letter on an armed block goes back
 in at the caret), and the edit strip carries To comment, which hands its

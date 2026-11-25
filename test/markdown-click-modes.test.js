@@ -4,10 +4,11 @@
 //  - the wash marks what a letter comments on: a clicked block, never a
 //    selection's block, never an open editor
 //  - what's under the pointer picks the state: a word arms the block for a
-//    comment; a gap between two words opens the editor with a slot; your own
+//    comment; a gap between two words opens the editor with a block caret on
+//    the space, inserting nothing; your own
 //    mark reopens the edit at the click
 //  - a word typed into a gap gets its own space; closing punctuation joins
-//    the word before; Enter at a fresh slot breaks the line
+//    the word before; Enter at a fresh gap caret breaks the line
 //  - To comment / To edit move typed words between an edit and a comment, and
 //    undo each other; To comment shows only while nothing would be dropped
 //  - the strip's Revert drops a reopened edit whole
@@ -189,21 +190,24 @@ async function run() {
     await reset();
   }
 
-  // --- a gap opens the editor with the slot; no wash; editing hint ---
+  // --- a gap opens the editor with the block caret; no wash; editing hint ---
   {
     const el = aim('The poller', ' once');
     await clickAimed(el);
     const ed = editing();
     check('a click on the space between two words opens the editor', ed === el);
     check('the open editor carries no wash', !el.classList.contains('md-comment-target-active'));
-    const slot = el.querySelector('.md-gap-slot');
-    check('the slot sits after the gap\'s space', !!slot && /file $/.test(slot.previousSibling.textContent)
-      && slot.nextSibling.textContent.startsWith('once'), el.innerHTML);
-    check('the native caret hides while the slot shows', el.classList.contains('md-gap-armed'));
+    const sel = dom.window.getSelection();
+    const r = sel.getRangeAt(0);
+    check('the gap caret waits just before the space, inserting nothing',
+      r.collapsed && r.startContainer.data.slice(r.startOffset).startsWith(' once')
+      && el.textContent === 'The poller reads the file once a second and redraws.' && el.children.length === 0,
+      el.innerHTML);
+    check('the caret is drawn as a block over the space', el.classList.contains('md-gap-caret'));
     check('the bar says typing edits', hint() === 'typing edits · Esc reverts', hint());
     type(ed, 'only');
     check('a word typed at the gap gets its own space', ed.textContent === 'The poller reads the file only once a second and redraws.', ed.textContent);
-    check('the first key closes the slot', !el.querySelector('.md-gap-slot') && !el.classList.contains('md-gap-armed'));
+    check('the first key returns the bar caret', !el.classList.contains('md-gap-caret'));
     type(ed, ' ');
     ed.dispatchEvent(new dom.window.Event('blur'));
     await sleep(10);
@@ -242,27 +246,27 @@ async function run() {
     check('Esc backs the edit out', !editing() && !block('The poller').querySelector('ins'));
   }
 
-  // --- ⌫ at the slot erases into the word before; Delete strikes the space ---
+  // --- ⌫ at the gap erases into the word before; Delete strikes the space ---
   {
     let el = aim('The poller', ' once');
     await clickAimed(el);
     erase(editing(), true);
-    check('backspace at the slot strikes the end of the word before', /fil\[e\] once/.test(marks(editing())), marks(editing()));
+    check('backspace at the gap strikes the end of the word before', /fil\[e\] once/.test(marks(editing())), marks(editing()));
     await reset();
     el = aim('The poller', ' once');
     await clickAimed(el);
     erase(editing(), false);
-    check('delete at the slot strikes the space, joining the words', /file\[ \]once/.test(marks(editing())), marks(editing()));
+    check('delete at the gap strikes the space, joining the words', /file\[ \]once/.test(marks(editing())), marks(editing()));
     await reset();
   }
 
-  // --- Enter at a fresh slot breaks the line; it does not send ---
+  // --- Enter at a fresh gap caret breaks the line; it does not send ---
   {
     const el = aim('The poller', ' once');
     await clickAimed(el);
     key(editing(), { key: 'Enter' });
     await sleep(10);
-    check('Enter at the slot breaks the line, editor still open',
+    check('Enter at the gap breaks the line, editor still open',
       !!editing() && !!editing().querySelector('ins.md-pending-break') && sentBatches.length === 0);
     await reset();
   }

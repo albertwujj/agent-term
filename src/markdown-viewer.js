@@ -945,7 +945,6 @@ function ensureStyles() {
       border-left: 1px solid #64748b;
       pointer-events: none;
     }
-    @keyframes md-edit-caret-blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
     /* Direct editing on the rendered block: the document itself is the
        editing surface. No wash (nothing is being commented on); the amber
        caret and the strip below say this is an edit. */
@@ -955,24 +954,10 @@ function ensureStyles() {
       cursor: text;
       caret-color: #b45309;
     }
-    /* A click between two words opens a slot: an empty box one letter wide
-       with a space on each side, the shape of the result before the word is
-       typed. It blinks as the caret (the native one hides meanwhile); the
-       first key or caret move closes it. */
-    .md-viewer-body .md-rendered-editing.md-gap-armed { caret-color: transparent; }
-    .md-viewer-body .md-gap-slot {
-      display: inline-block;
-      width: 0.5em;
-      height: 1em;
-      vertical-align: -0.18em;
-      box-sizing: border-box;
-      margin-right: 0.25em;
-      border: 1px solid rgba(217, 119, 6, 0.8);
-      border-radius: 2px;
-      background: rgba(217, 119, 6, 0.10);
-      animation: md-edit-caret-blink 1.06s steps(1, end) infinite;
-      pointer-events: none;
-    }
+    /* A click between two words puts a block caret on the space, the
+       terminal's cursor on the cell where the next character goes. Nothing is
+       inserted and nothing moves; the first key or caret move returns the bar. */
+    .md-viewer-body .md-rendered-editing.md-gap-caret { caret-shape: block; }
     /* Over a gap the pointer turns amber: a click there inserts. */
     .md-spread-layout.md-gap-hover .md-viewer-body,
     .md-spread-layout.md-gap-hover .md-viewer-body * {
@@ -4136,7 +4121,7 @@ function createMarkdownViewer({
     // The edited block's other copy: the edit goes on there.
     if (anchorId === session.anchorId) {
       handoverEditingSession(pressed, gap != null ? gap : (offset != null ? offset : getSearchableTextLength(pressed)));
-      if (gap != null) showGapSlot(session, gap);
+      if (gap != null) showGapCaret(session, gap);
       updateEditingStripSeat();
       return false;
     }
@@ -5368,7 +5353,7 @@ function createMarkdownViewer({
       : (session.redoStack = session.redoStack || []);
     to.push({ html: session.el.innerHTML, caret: caret == null ? 0 : caret });
     const snap = from.pop();
-    removeGapSlot(session);
+    clearGapCaret(session);
     session.el.innerHTML = snap.html;
     try { session.el.focus({ preventScroll: true }); } catch {}
     setCaretWithin(session.el, snap.caret);
@@ -5388,7 +5373,7 @@ function createMarkdownViewer({
   function wireEditingSurface(el) {
     const onPaste = (event) => {
       event.preventDefault();
-      const atGap = removeGapSlot();
+      const atGap = clearGapCaret();
       const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
       const s = window.getSelection && window.getSelection();
       if (s && s.rangeCount && !s.getRangeAt(0).collapsed) strikeInBlock(el, s.getRangeAt(0), 'after');
@@ -5397,8 +5382,8 @@ function createMarkdownViewer({
     };
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
-      // Any input closes a gap's slot; text typed there makes its own word.
-      const atGap = removeGapSlot();
+      // Any input ends the gap caret; text typed there makes its own word.
+      const atGap = clearGapCaret();
       if (t.indexOf('delete') === 0) {
         event.preventDefault();
         const s = window.getSelection();
@@ -5429,14 +5414,14 @@ function createMarkdownViewer({
       }
     };
     const onMousedown = (event) => event.stopPropagation();
-    // Inside the live block too, a single click on a gap opens the slot there.
+    // Inside the live block too, a single click on a gap puts the gap caret there.
     const onClick = (event) => {
       if (event.detail > 1 || !state.editing || state.editing.el !== el) return;
       const sel = window.getSelection && window.getSelection();
       if (sel && sel.rangeCount && !sel.getRangeAt(0).collapsed) return;
       if (event.target.closest && event.target.closest('del.md-pending-del, ins.md-pending-ins')) return;
       const gap = gapOffsetAt(el, event.clientX, event.clientY);
-      if (gap != null) showGapSlot(state.editing, gap);
+      if (gap != null) showGapCaret(state.editing, gap);
     };
     el.addEventListener('paste', onPaste);
     el.addEventListener('beforeinput', onBeforeInput);
@@ -5528,7 +5513,7 @@ function createMarkdownViewer({
       fresh: !existing,
       entrySelection: null,
       openCaret: null,
-      gapSlot: null,
+      gapCaret: null,
     };
     state.editing = session;
     // The block's resting note row steps aside: the strip below carries the
@@ -5540,7 +5525,7 @@ function createMarkdownViewer({
     wireEditingMirror(session, target, getCounterpartAnchorElement(target));
     let followRaf = 0;
     session.caretFollow = () => {
-      syncGapSlotToCaret();
+      syncGapCaretToSelection();
       if (followRaf) return;
       followRaf = requestAnimationFrame(() => { followRaf = 0; followEditingCaret(); });
     };
@@ -5816,7 +5801,7 @@ function createMarkdownViewer({
     const session = state.editing;
     if (!session) return;
     state.editing = null;
-    removeGapSlot(session);
+    clearGapCaret(session);
     hideHint();
     releaseEditingFollowers(session);
     removeEditingStrip(session);
@@ -5855,7 +5840,7 @@ function createMarkdownViewer({
     if (!state.editing) return;
     const session = state.editing;
     state.editing = null;
-    removeGapSlot(session);
+    clearGapCaret(session);
     hideHint();
     releaseEditingFollowers(session);
     removeEditingStrip(session);
@@ -7595,8 +7580,8 @@ function createMarkdownViewer({
     return gap ? getTextOffsetWithin(target, gap.node, gap.index, ON_SCREEN) : null;
   }
 
-  // A click that edits goes straight to the editor: at a gap the slot opens;
-  // on the user's own mark the caret lands where they clicked. False when the
+  // A click that edits goes straight to the editor: at a gap the block caret
+  // sits on the space; on the user's own mark the caret lands where clicked. False when the
   // block refuses the editor, so the caller arms it for a comment instead.
   function openEditorAt(target, caret, { gap = false, focusNote = false } = {}) {
     if (state.editing || !target || blockEditBlockedReason(target)) return false;
@@ -7605,7 +7590,7 @@ function createMarkdownViewer({
     openBlockEditor(target, null);
     const session = state.editing;
     if (!session) return false;
-    if (gap && caret != null) showGapSlot(session, caret);
+    if (gap && caret != null) showGapCaret(session, caret);
     if (focusNote && session.composer) {
       try { session.composer.focus(); } catch {}
     }
@@ -7620,53 +7605,38 @@ function createMarkdownViewer({
     return /\s/.test(text[offset] || '') && /\S/.test(text[offset - 1] || '') && /\S/.test(text[offset + 1] || '');
   }
 
-  // The slot: an empty box after the gap's space, a space-wide margin after
-  // it, so the line takes the room the first letter will; the native caret
-  // waits just before the space, hidden while the slot blinks in its place.
-  function showGapSlot(session, offset) {
-    removeGapSlot(session);
+  // The gap caret: the native caret just before the space, drawn as a block
+  // (caret-shape), so it covers exactly the space it will type into.
+  function showGapCaret(session, offset) {
+    clearGapCaret(session);
     const el = session && session.el;
     const at = el && getTextPositionWithin(el, offset, ON_SCREEN);
     if (!at || !at.node || at.node.nodeType !== 3 || !/\s/.test(at.node.data[at.offset] || '')) return;
-    const slot = document.createElement('span');
-    slot.className = 'md-gap-slot';
-    slot.setAttribute('contenteditable', 'false');
-    slot.setAttribute('aria-hidden', 'true');
-    try {
-      const r = document.createRange();
-      r.setStart(at.node, at.offset + 1);
-      r.collapse(true);
-      r.insertNode(slot);
-    } catch { return; }
     setCaretWithin(el, offset, ON_SCREEN);
-    el.classList.add('md-gap-armed');
-    session.gapSlot = { slot, offset };
+    el.classList.add('md-gap-caret');
+    session.gapCaret = { offset };
   }
 
-  // Closes the slot; true when one was open (the key that closed it acts at
-  // the gap). Clears every copy: the mirror carries the slot to the block's
-  // twin, and a handover can strand it there.
-  function removeGapSlot(session = state.editing) {
-    const open = !!(session && session.gapSlot);
-    if (session) session.gapSlot = null;
-    for (const slot of document.querySelectorAll('.md-viewer-body .md-gap-slot')) {
-      try { slot.remove(); } catch {}
-    }
-    for (const el of document.querySelectorAll('.md-viewer-body .md-gap-armed')) el.classList.remove('md-gap-armed');
+  // Ends the gap caret; true when there was one (the key that ended it acts
+  // at the gap). Clears both copies: a handover can leave the class behind.
+  function clearGapCaret(session = state.editing) {
+    const open = !!(session && session.gapCaret);
+    if (session) session.gapCaret = null;
+    for (const el of document.querySelectorAll('.md-viewer-body .md-gap-caret')) el.classList.remove('md-gap-caret');
     return open;
   }
 
-  // The slot lives exactly as long as the caret stays at its gap: a click or
-  // an arrow elsewhere closes it.
-  function syncGapSlotToCaret() {
+  // The gap caret lives exactly as long as the caret stays at its gap: a click
+  // or an arrow elsewhere ends it.
+  function syncGapCaretToSelection() {
     const session = state.editing;
-    if (!session || !session.gapSlot) return;
+    if (!session || !session.gapCaret) return;
     const sel = window.getSelection && window.getSelection();
     const r = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
     const here = r && r.collapsed && session.el.contains(r.startContainer)
       ? getTextOffsetWithin(session.el, r.startContainer, r.startOffset, ON_SCREEN)
       : null;
-    if (here !== session.gapSlot.offset) removeGapSlot(session);
+    if (here !== session.gapCaret.offset) clearGapCaret(session);
   }
 
   // Over a gap the pointer turns amber, so a click's meaning shows before it.
@@ -8128,9 +8098,9 @@ function createMarkdownViewer({
           || !!(surface.contains && surface.contains(event.target));
         if (inSurface && event.key === 'Enter') {
           event.preventDefault();
-          // At a gap's open slot Enter breaks the line there, as a first key
+          // At a fresh gap caret Enter breaks the line there, as a first key
           // on an armed block does; once anything is typed it sends.
-          const atGap = removeGapSlot();
+          const atGap = clearGapCaret();
           if (!event.shiftKey && !atGap) {
             commitBlockEditor();
             sendEditBatch();

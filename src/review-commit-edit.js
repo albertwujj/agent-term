@@ -11,7 +11,7 @@
 // a steady caret); letters and digits keep the comment path
 // (io.openBlockComment); every other unmodified key opens the block editor at
 // the caret with the keystroke applied. A click on the space between two words
-// opens the editor there with a slot, and one on a reopenable edit's own marks
+// puts a block caret on that space, and one on a reopenable edit's own marks
 // reopens it at the click (the md viewer's click rules, md-editing-design.md
 // "Click, caret and highlight"). A selection inside one commit block routes
 // edit keys the same way (⌫ strikes the selection; punctuation or Space types
@@ -195,7 +195,7 @@ function createCommitEditController(io) {
     if (onMark || gapAt != null) {
       openSession(block, null, gapAt != null ? gapAt : at, null);
       if (session) {
-        if (gapAt != null) showGapSlot(gapAt);
+        if (gapAt != null) showGapCaret(gapAt);
         return;
       }
     }
@@ -297,7 +297,7 @@ function createCommitEditController(io) {
     }
     to.push({ html: session.block.innerHTML, caret });
     const snap = from.pop();
-    removeGapSlot();
+    clearGapCaret();
     session.block.innerHTML = snap.html;
     try { session.block.focus({ preventScroll: true }); } catch {}
     setCaret(session.block, snap.caret);
@@ -342,7 +342,7 @@ function createCommitEditController(io) {
       // and offsets), and the caret it opened at.
       entrySelection: null,
       openCaret: null,
-      gapSlot: null,
+      gapCaret: null,
     };
     if (revisit) {
       // The session owns the block now; the decoration pass must not restore
@@ -391,7 +391,7 @@ function createCommitEditController(io) {
     sess.openCaret = caret;
     if (typed) {
       setCaret(block, caret);
-      // At a gap the words make their own word, as typing into the slot would.
+      // At a gap the words make their own word, as typing there would.
       if (caretAtGap(block, caret)) engine.insertAtGap(entryText.trim());
       else engine.insertMarkedInBlock(entryText);
       return;
@@ -429,7 +429,7 @@ function createCommitEditController(io) {
   function wireSurface(el) {
     const onPaste = (event) => {
       event.preventDefault();
-      const atGap = removeGapSlot();
+      const atGap = clearGapCaret();
       const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
       const s = window.getSelection && window.getSelection();
       if (s && s.rangeCount && !s.getRangeAt(0).collapsed) engine.strikeInBlock(el, s.getRangeAt(0), 'after');
@@ -438,8 +438,8 @@ function createCommitEditController(io) {
     };
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
-      // Any input closes a gap's slot; text typed there makes its own word.
-      const atGap = removeGapSlot();
+      // Any input ends the gap caret; text typed there makes its own word.
+      const atGap = clearGapCaret();
       if (t.indexOf('delete') === 0) {
         event.preventDefault();
         const s = window.getSelection();
@@ -469,22 +469,22 @@ function createCommitEditController(io) {
         event.preventDefault();
       }
     };
-    // Inside the live block too, a single click on a gap opens the slot there.
+    // Inside the live block too, a single click on a gap puts the gap caret there.
     const onClick = (event) => {
       if (event.detail > 1 || !session || session.block !== el) return;
       const s = window.getSelection && window.getSelection();
       if (s && s.rangeCount && !s.getRangeAt(0).collapsed) return;
       if (event.target.closest && event.target.closest('del.md-pending-del, ins.md-pending-ins')) return;
       const gap = gapCharAtPoint(el, event.clientX, event.clientY);
-      if (gap) showGapSlot(textOffsetIn(el, gap.node, gap.index));
+      if (gap) showGapCaret(textOffsetIn(el, gap.node, gap.index));
     };
-    // The slot lives exactly as long as the caret stays at its gap.
+    // The gap caret lives exactly as long as the caret stays at its gap.
     const onSelectionChange = () => {
-      if (!session || !session.gapSlot) return;
+      if (!session || !session.gapCaret) return;
       const s = window.getSelection && window.getSelection();
       const r = s && s.rangeCount ? s.getRangeAt(0) : null;
       const here = r && r.collapsed && el.contains(r.startContainer) ? textOffsetIn(el, r.startContainer, r.startOffset) : null;
-      if (here !== session.gapSlot.offset) removeGapSlot();
+      if (here !== session.gapCaret.offset) clearGapCaret();
     };
     el.addEventListener('paste', onPaste);
     el.addEventListener('beforeinput', onBeforeInput);
@@ -561,9 +561,9 @@ function createCommitEditController(io) {
     if (event.key === 'Enter' && !event.isComposing) {
       event.preventDefault();
       event.stopPropagation();
-      // At a gap's open slot Enter breaks the line there, as a first key on
+      // At a fresh gap caret Enter breaks the line there, as a first key on
       // an armed block does; once anything is typed it sends.
-      const atGap = removeGapSlot();
+      const atGap = clearGapCaret();
       if (event.shiftKey || atGap) engine.insertLineBreakInBlock();
       else commit(true);
       return;
@@ -595,7 +595,7 @@ function createCommitEditController(io) {
 
   function teardown(restoreHtml) {
     if (!session) return;
-    removeGapSlot();
+    clearGapCaret();
     const sess = session;
     session = null;
     if (sess.unwire) sess.unwire();
@@ -626,36 +626,26 @@ function createCommitEditController(io) {
     if (io.discardThread) io.discardThread(sess.revisit.threadId);
   }
 
-  // ——— the gap slot: an empty box after the gap's space, with the hidden
-  // native caret waiting just before the space (md viewer's showGapSlot) ———
-  function showGapSlot(offset) {
-    removeGapSlot();
+  // ——— the gap caret: the native caret just before the space, drawn as a
+  // block (caret-shape) over exactly the space it will type into (md viewer's
+  // showGapCaret) ———
+  function showGapCaret(offset) {
+    clearGapCaret();
     if (!session) return;
     const block = session.block;
     const at = charAt(block, offset);
     if (!at || !/\s/.test(at.node.data[at.offset] || '')) return;
-    const slot = document.createElement('span');
-    slot.className = 'md-gap-slot';
-    slot.setAttribute('contenteditable', 'false');
-    slot.setAttribute('aria-hidden', 'true');
-    try {
-      const r = document.createRange();
-      r.setStart(at.node, at.offset + 1);
-      r.collapse(true);
-      r.insertNode(slot);
-    } catch { return; }
     setCaret(block, offset);
-    block.classList.add('md-gap-armed');
-    session.gapSlot = { offset };
+    block.classList.add('md-gap-caret');
+    session.gapCaret = { offset };
   }
 
-  // Closes the slot; true when one was open (the key that closed it acts at
-  // the gap).
-  function removeGapSlot() {
-    const open = !!(session && session.gapSlot);
-    if (session) session.gapSlot = null;
-    for (const slot of document.querySelectorAll('#commit .md-gap-slot')) slot.remove();
-    for (const el of document.querySelectorAll('#commit .md-gap-armed')) el.classList.remove('md-gap-armed');
+  // Ends the gap caret; true when there was one (the key that ended it acts
+  // at the gap).
+  function clearGapCaret() {
+    const open = !!(session && session.gapCaret);
+    if (session) session.gapCaret = null;
+    for (const el of document.querySelectorAll('#commit .md-gap-caret')) el.classList.remove('md-gap-caret');
     return open;
   }
 
@@ -766,7 +756,7 @@ function createCommitEditController(io) {
   function commit(alsoSend, { toPrompt = false } = {}) {
     if (!session) return;
     const sess = session;
-    removeGapSlot();
+    clearGapCaret();
     settleGapInsertions(sess.block);
     const hasMarks = !!sess.block.querySelector('del.md-pending-del, ins.md-pending-ins');
     const serialized = hasMarks ? serializeMarkedBlock(sess.block) : '';

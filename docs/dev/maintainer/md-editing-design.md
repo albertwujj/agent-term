@@ -881,14 +881,17 @@ and renames "Edit instead".
   coordinates are whole pixels, and a word misread as a gap would open the
   editor and shift the line under a double-click. Over a gap the pointer is
   an amber I-beam. A sealed block's gap arms it for a comment.
-- **A gap opens a slot.** An empty amber box one letter wide after the space,
-  with a space-wide margin, blinks in place of the hidden native caret, which
-  waits just before the space. The line moves on the click by the room the
-  first letter takes. The first input or any caret move closes it. Text typed
-  there enters with a space before it (`foo baz bar`); closing punctuation
-  joins the word before (`foo, bar`); ⌫ erases into the word before, Delete
-  strikes the space. Enter at an open slot breaks the line rather than
-  sending. Commit drops a typed trailing space against the gap's own.
+- **A gap gets a block caret.** The native caret waits just before the space,
+  drawn as an amber block (`caret-shape: block`) that covers exactly the space:
+  the terminal's cursor on the cell where the next character goes. Nothing is
+  inserted and nothing moves. The first input or any caret move returns the
+  bar. Text typed there enters with a space before it (`foo baz bar`);
+  closing punctuation joins the word before (`foo, bar`); ⌫ erases into the
+  word before, Delete strikes the space. Enter at a fresh gap caret breaks
+  the line rather than sending. Commit drops a typed trailing space against
+  the gap's own. A first build opened a slot instead (an empty box one letter
+  wide with a space each side); it moved the rest of the line on the click,
+  and the first key shows the same shape anyway.
 - **Clicking your own marks reopens the edit** with its strip, which replaces
   the separate expanded strip (`expandedHunkKey`, `buildStripHolder` and its
   scroll-into-view `ensureVisibleInPane` are gone; the live strip pins itself

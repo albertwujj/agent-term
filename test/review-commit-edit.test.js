@@ -11,7 +11,8 @@
 //    marks amber and sent marks slate, and restore when the thread goes
 //  - a decorated block refuses re-arming (discard first / awaiting agent)
 //  - the md viewer's click rules: a word arms with the wash, a gap opens the
-//    editor with a slot and a word typed there gets its own space, a mark
+//    editor with a block caret on the space and a word typed there gets its
+//    own space, a mark
 //    reopens its edit, To comment / To edit move the words both ways
 
 const { JSDOM } = require('jsdom');
@@ -355,13 +356,14 @@ async function run() {
 
     aim(p1, ' utilizes');
     clickAt(p1);
-    const slot = p1.querySelector('.md-gap-slot');
-    check('a click on the space between two words opens the editor with the slot',
-      ctl.isEditing() && !!slot && /polling $/.test(slot.previousSibling.textContent) && p1.classList.contains('md-gap-armed'));
+    const gapAt = window.getSelection().getRangeAt(0);
+    check('a click on the space between two words opens the editor with the block caret on it',
+      ctl.isEditing() && p1.classList.contains('md-gap-caret') && p1.textContent === P1
+      && gapAt.startContainer.data.slice(gapAt.startOffset).startsWith(' utilizes'));
     check('a fresh gap edit offers To comment', !!stripBtn('To comment') && !stripBtn('To comment').hidden);
     for (const ch of 'quietly') typeChar(p1, ch);
     check('a word typed at the gap gets its own space', p1.textContent === 'The polling quietly utilizes a timer to refill tokens.', p1.textContent);
-    check('the first key closes the slot', !p1.querySelector('.md-gap-slot') && !p1.classList.contains('md-gap-armed'));
+    check('the first key returns the bar caret', !p1.classList.contains('md-gap-caret'));
     const commentsBefore = blockComments.length;
     stripBtn('To comment').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     const handed = blockComments[commentsBefore];
@@ -378,7 +380,7 @@ async function run() {
     aim(p2, ' paragraph');
     clickAt(p2);
     key(p2, { key: 'Enter' });
-    check('Enter at the slot breaks the line rather than sending',
+    check('Enter at the gap breaks the line rather than sending',
       ctl.isEditing() && !!p2.querySelector('ins.md-pending-break') && addCalls.length === 2);
     key(p2, { key: 'Escape' });
 

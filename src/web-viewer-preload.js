@@ -1496,13 +1496,9 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       // Zero-width so it never perturbs the text or anchors.
       // Net zero width (the md caret's margins), so arming never moves the text.
       '.rv-edit-caret{display:inline-block;width:0;margin:0 -.5px;border-left:1px solid #64748b;height:1em;vertical-align:text-bottom}',
-      '@keyframes rv-caret-blink{0%,100%{opacity:1}50%{opacity:0}}',
-      // A click between two words opens a slot: an empty box one letter wide
-      // with a space each side, blinking in place of the hidden native caret.
-      '#commit .md-rendered-editing.md-gap-armed{caret-color:transparent}',
-      '#commit .md-gap-slot{display:inline-block;width:.5em;height:1em;vertical-align:-.18em;box-sizing:border-box;',
-      'margin-right:.25em;border:1px solid rgba(217,119,6,.8);border-radius:2px;background:rgba(217,119,6,.10);',
-      'animation:rv-caret-blink 1.06s step-end infinite;pointer-events:none}',
+      // A click between two words puts a block caret on the space: nothing is
+      // inserted and nothing moves; the first key or caret move returns the bar.
+      '#commit .md-rendered-editing.md-gap-caret{caret-shape:block}',
       // Over a gap the pointer turns amber: a click there inserts.
       'body.rv-gap-hover #commit,body.rv-gap-hover #commit *{cursor:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'24\' viewBox=\'0 0 16 24\'%3E%3Cpath d=\'M5 3h6M8 3v18M5 21h6\' stroke=\'white\' stroke-width=\'4\' stroke-linecap=\'round\'/%3E%3Cpath d=\'M5 3h6M8 3v18M5 21h6\' stroke=\'%23b45309\' stroke-width=\'2\' stroke-linecap=\'round\'/%3E%3C/svg%3E") 8 12,text}',
       // The edit's one control: note + Revert + Send under the block. Spans the
