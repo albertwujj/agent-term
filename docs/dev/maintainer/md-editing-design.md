@@ -857,6 +857,56 @@ that holds it. What the page does with the agent's writes while you work, the
 trade-offs taken, and the road to updates while typing are in
 [md-live-updates-design.md](md-live-updates-design.md).
 
+## Click, caret and highlight (2026-11-25)
+
+Each state now has one look, so the screen says what the next key does
+(discussion record: `.git/discussion/md-click-modes.md`). Supersedes the hover
+wash, the blinking armed caret, and the mark-click strip of "Pending actions",
+and renames "Edit instead".
+
+- **The wash marks what a letter comments on.** No hover wash: reading paints
+  nothing, so the click is what changes the page. A clicked block wears the
+  wash alone (the edge bar went; left bars mean change and landing, and the
+  armed one used to paint over a green change bar). A selection target shows
+  only its yellow. The open editor carries no wash.
+- **The caret says what typing does.** Armed, a steady slate hairline: it
+  marks where ⌫, punctuation and arrows act, and holds still because a letter
+  goes to the card. Editing, the native caret in amber (`caret-color`), the
+  colour typed text takes. The bar says `typing edits · Esc reverts`.
+- **What's under the pointer picks the state.** A word arms the block for a
+  comment. A gap (one space between two non-space characters, in prose,
+  outside the user's marks) opens the editor there; so does a click on the
+  user's own strike or insertion, at the click point. The gap test takes a
+  click only when its whole pixel column lies inside the space: mouse
+  coordinates are whole pixels, and a word misread as a gap would open the
+  editor and shift the line under a double-click. Over a gap the pointer is
+  an amber I-beam. A sealed block's gap arms it for a comment.
+- **A gap opens a slot.** An empty amber box one letter wide after the space,
+  with a space-wide margin, blinks in place of the hidden native caret, which
+  waits just before the space. The line moves on the click by the room the
+  first letter takes. The first input or any caret move closes it. Text typed
+  there enters with a space before it (`foo baz bar`); closing punctuation
+  joins the word before (`foo, bar`); ⌫ erases into the word before, Delete
+  strikes the space. Enter at an open slot breaks the line rather than
+  sending. Commit drops a typed trailing space against the gap's own.
+- **Clicking your own marks reopens the edit** with its strip, which replaces
+  the separate expanded strip (`expandedHunkKey`, `buildStripHolder` and its
+  scroll-into-view `ensureVisibleInPane` are gone; the live strip pins itself
+  to the page edge instead). The resting note row opens the same editor with the note focused,
+  and steps aside while it is open. The strip's Revert now drops the block's
+  whole edit, a reopened earlier one included; Esc still backs out of the
+  session only.
+- **To edit / To comment.** "Edit instead" is now "To edit", named for where
+  the words go like To prompt beside it. The edit strip carries the mirror,
+  "To comment" (both on ⌘E): it takes the typed text out of the page into a
+  comment on the block, or on the selection the editor struck at entry. It
+  shows only while the edit is one a comment could have made (one insertion,
+  over at most the opening selection, on a block with no earlier edit, empty
+  note), so the two always undo each other. To edit at a gap enters the text
+  as its own word for the same reason. A `Comment | Edit` switch was mocked
+  and dropped: it made the user read both labels to learn what the page
+  already shows.
+
 ## Open questions
 
 - Default wording of the instruction template (tune against real agent behavior).

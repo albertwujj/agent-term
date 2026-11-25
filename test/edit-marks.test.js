@@ -9,7 +9,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>');
 global.window = dom.window;
 global.document = dom.window.document;
 
-const { createMarkEngine } = require('../src/edit-marks');
+const { createMarkEngine, settleGapInsertions } = require('../src/edit-marks');
 
 let passed = 0;
 let failed = 0;
@@ -165,6 +165,43 @@ const marks = (el) => el.innerHTML
   check('taking back an insertion between strikes joins them', marks(el) === '[abcd] e' && caretOffset(el) === 2, marks(el));
   press(el, { backward: false });
   check('the caret stays between them, where the insertion was', marks(el) === '[ab]c[d] e', marks(el));
+}
+
+// A word typed at a gap (the caret just before the space between two words)
+// enters with a space of its own; closing punctuation joins the word before.
+{
+  const el = block('foo bar');
+  caretTo(el, 3);
+  const ins = engine.insertAtGap('baz');
+  check('a word typed at a gap gets its own space', el.textContent === 'foo baz bar' && ins && ins.hasAttribute('data-md-gap'), el.innerHTML);
+  engine.insertMarkedInBlock('z');
+  check('typing on extends the same word',
+    el.querySelectorAll('ins').length === 1 && el.querySelector('ins').textContent === ' bazz' && el.textContent === 'foo bazz bar', el.innerHTML);
+}
+{
+  const el = block('foo bar');
+  caretTo(el, 3);
+  engine.insertAtGap(',');
+  check('closing punctuation at a gap joins the word before', el.textContent === 'foo, bar' && !el.querySelector('[data-md-gap]'), el.innerHTML);
+}
+{
+  const el = block('foo bar');
+  caretTo(el, 3);
+  engine.insertAtGap('baz');
+  engine.insertMarkedInBlock(' ');
+  engine.insertMarkedInBlock(' ');
+  settleGapInsertions(el);
+  check('commit drops typed trailing spaces against the gap\'s own', el.textContent === 'foo baz bar', JSON.stringify(el.textContent));
+}
+{
+  const el = block('foo <ins class="md-pending-ins" data-md-gap=""> </ins>bar');
+  settleGapInsertions(el);
+  check('a gap insertion left with only its space goes', el.innerHTML === 'foo bar', el.innerHTML);
+}
+{
+  const el = block('foo <ins class="md-pending-ins">x </ins> bar');
+  settleGapInsertions(el);
+  check('insertions made elsewhere keep their typed spaces', el.textContent === 'foo x  bar', el.innerHTML);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

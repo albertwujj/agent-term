@@ -318,16 +318,20 @@ async function run() {
   await sleep(10);
   const wrappedNow = primary().querySelector('p.md-pending-block');
   const strip = primary().querySelector('.md-pending-strip:not(.sent)');
-  check('clicking the struck text expands the action strip',
-    !!(strip && wrappedNow && wrappedNow.nextElementSibling === strip));
+  check('clicking the struck text reopens the edit, its strip under the block',
+    !!(strip && wrappedNow && editing() === wrappedNow && wrappedNow.nextElementSibling === strip));
+  check('the reopened edit keeps its marks', !!(wrappedNow && wrappedNow.querySelector('del.md-pending-del')));
+  check('the resting note row steps aside while the strip is up',
+    !document.querySelector('.md-pending-note-mark'));
   const labels = strip ? Array.from(strip.querySelectorAll('button')).map((b) => b.textContent) : [];
   check('the revealed edit is the shared composer bubble (Revert + Send)',
     !!(strip && labels.includes('Revert') && labels.some((l) => l.startsWith('Send'))), labels);
   check('the note is the composer textarea, same widget as a comment',
     !!(strip && strip.querySelector('textarea') && /note/i.test(strip.querySelector('textarea').placeholder || '')));
-  clickBlock('Second paragraph'); // click-away folds
+  editing().dispatchEvent(new dom.window.Event('blur')); // a press elsewhere commits
   await sleep(10);
-  check('click-away folds the strip', !primary().querySelector('.md-pending-strip:not(.sent)'));
+  check('click-away closes the strip and the edit rests again',
+    !primary().querySelector('.md-pending-strip:not(.sent)') && !!primary().querySelector('.md-pending-note-mark'));
 
   await clickStripButton('Revert');
   await sleep(10);
@@ -903,7 +907,7 @@ async function run() {
     await sleep(5);
   }
 
-  // --- Edit instead: a comment card converts to an edit, its text typing over
+  // --- To edit: a comment card converts to an edit, its text typing over
   // the entry point (the select-then-type muscle-memory miss). The chord is
   // Cmd/Ctrl+E inside the composer; the modifier follows the platform the
   // shared composer sniffs (Node's own navigator here, not jsdom's).
@@ -927,7 +931,7 @@ async function run() {
     const chordMod = (typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(String(navigator.platform || '')))
       ? { metaKey: true } : { ctrlKey: true };
     const editInsteadBtn = () => Array.from(document.querySelectorAll('.md-comment-card button'))
-      .find((b) => b.textContent.startsWith('Edit instead'));
+      .find((b) => b.textContent.startsWith('To edit'));
     const switchKey = (ta) => ta.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
       bubbles: true, cancelable: true, key: 'e', ...chordMod,
     }));
@@ -938,7 +942,7 @@ async function run() {
     key({ key: 'c' });
     await sleep(10);
     let ta = composerEl();
-    check('a fresh comment card offers Edit instead with its chord',
+    check('a fresh comment card offers To edit with its chord',
       !!ta && !!editInsteadBtn() && /Ctrl\+E|⌘E/.test(editInsteadBtn().textContent), editInsteadBtn() && editInsteadBtn().textContent);
     ta.value = 'ca'; // the second keystroke landed in the card too
     // Chromium collapses the document selection into the focused textarea;
@@ -962,7 +966,7 @@ async function run() {
     key({ key: 'K' });
     await sleep(10);
     ta = composerEl();
-    check('block-comment card also offers Edit instead', !!ta && !!editInsteadBtn());
+    check('block-comment card also offers To edit', !!ta && !!editInsteadBtn());
     editInsteadBtn().dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await sleep(10);
     el = editing();
@@ -1006,7 +1010,7 @@ async function run() {
     const qMark = primary().querySelector('.md-queued-comment-mark');
     qMark.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await sleep(10);
-    check('a reopened queued comment offers no Edit instead', !!composerEl() && !editInsteadBtn());
+    check('a reopened queued comment offers no To edit', !!composerEl() && !editInsteadBtn());
     composerEl().value = ''; // emptying a reopened draft deletes it on click-away
     clickBlock('This line has');
     await sleep(10);

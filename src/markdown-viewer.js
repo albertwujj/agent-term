@@ -20,7 +20,7 @@ const { openImageInspector } = require('./image-inspector');
 const { openTableInspector } = require('./table-inspector');
 const { createViewerBand } = require('./viewer-band');
 const { createUnseenTracker, elementIsShown } = require('./viewer-updates');
-const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isMac, isPasteCommentShortcut } = require('./comment-ui');
+const { createComposer, toPromptAction, shiftModEnterLabel, modKeyLabel, isModKey, isMac, isPasteCommentShortcut } = require('./comment-ui');
 const { AGENT_THREADS_CLONE_PROMPT } = require('./loop-install');
 const { threadAwaitsAgent, threadHasBeenResolved } = require('./agent-journal');
 const {
@@ -29,6 +29,8 @@ const {
   isEditEntryKey,
   isMutatingEntryKey,
   createMarkEngine,
+  gapCharAtPoint,
+  settleGapInsertions,
   serializeMarkedBlock,
   overlayToEnvelope,
   wrapEditEnvelope,
@@ -385,12 +387,11 @@ function ensureStyles() {
     .md-viewer-body a:hover {
       text-decoration: underline;
     }
+    /* No hover wash: a wash says what a letter would comment on, so reading
+       paints nothing and the click is what changes the page. */
     .md-viewer-body .md-anchor {
       border-radius: 5px;
       transition: background-color 200ms ease, box-shadow 120ms ease;
-    }
-    .md-viewer-body .md-anchor:hover {
-      background-color: var(--md-block);
     }
     /* Settled change marker: the pulse decays into a thin gutter bar riding
        the block (the landing-target idiom), keeping the text itself quiet.
@@ -419,9 +420,10 @@ function ensureStyles() {
       background-color: var(--md-landing);
       box-shadow: inset 2px 0 #64748b;
     }
+    /* The block a letter comments on: the wash alone. Left bars belong to the
+       change and landing markers, which an armed block keeps showing. */
     .md-viewer-body .md-comment-target-active {
       background-color: var(--md-block);
-      box-shadow: inset 2px 0 #9ca3af;
     }
     .md-viewer-body img.md-copy-image {
       outline: 2px solid #64748b;
@@ -930,26 +932,51 @@ function ensureStyles() {
     /* Editing core: amber pending-edit bars (same gutter idiom as change bars,
        declared after them so pending wins on a block carrying both), and the
        batch pill. */
-    /* Blinking caret at the click position — shows where an edit will start
-       before the first key. A zero-width inline bar in the reading ink. */
+    /* The caret says what typing does. Armed for a comment, a steady slate
+       hairline: it marks where ⌫, punctuation and arrows would edit, and holds
+       still because a letter goes to the comment card. Editing, the caret
+       blinks in amber, the colour typed text takes. */
     .md-viewer-body .md-edit-caret {
       display: inline-block;
       width: 0;
       height: 1.05em;
       margin: 0 -0.5px;
       vertical-align: text-bottom;
-      border-left: 1.5px solid #1f2937;
-      animation: md-edit-caret-blink 1.06s steps(1, end) infinite;
+      border-left: 1px solid #64748b;
       pointer-events: none;
     }
     @keyframes md-edit-caret-blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
     /* Direct editing on the rendered block: the document itself is the
-       editing surface; the grey wash marks the live block. */
+       editing surface. No wash (nothing is being commented on); the amber
+       caret and the strip below say this is an edit. */
     .md-viewer-body .md-rendered-editing {
-      background-color: var(--md-block);
       border-radius: 5px;
       outline: none;
       cursor: text;
+      caret-color: #b45309;
+    }
+    /* A click between two words opens a slot: an empty box one letter wide
+       with a space on each side, the shape of the result before the word is
+       typed. It blinks as the caret (the native one hides meanwhile); the
+       first key or caret move closes it. */
+    .md-viewer-body .md-rendered-editing.md-gap-armed { caret-color: transparent; }
+    .md-viewer-body .md-gap-slot {
+      display: inline-block;
+      width: 0.5em;
+      height: 1em;
+      vertical-align: -0.18em;
+      box-sizing: border-box;
+      margin-right: 0.25em;
+      border: 1px solid rgba(217, 119, 6, 0.8);
+      border-radius: 2px;
+      background: rgba(217, 119, 6, 0.10);
+      animation: md-edit-caret-blink 1.06s steps(1, end) infinite;
+      pointer-events: none;
+    }
+    /* Over a gap the pointer turns amber: a click there inserts. */
+    .md-spread-layout.md-gap-hover .md-viewer-body,
+    .md-spread-layout.md-gap-hover .md-viewer-body * {
+      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='24' viewBox='0 0 16 24'%3E%3Cpath d='M5 3h6M8 3v18M5 21h6' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M5 3h6M8 3v18M5 21h6' stroke='%23b45309' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") 8 12, text;
     }
     /* Sent-edit / stale-thread fallback box — the source text in the reading
        font, boxed, persisting through the sent (slate) lifecycle. */
@@ -1148,8 +1175,9 @@ function ensureStyles() {
       color: #92610a;
       cursor: pointer;
     }
+    /* Your own marks are text you revise: a click puts the caret there. */
     .md-viewer-body del.md-pending-del,
-    .md-viewer-body ins.md-pending-ins { cursor: pointer; }
+    .md-viewer-body ins.md-pending-ins { cursor: text; }
     .md-comment-card-spacer {
       margin: 8px 0 12px;
       pointer-events: none;
@@ -1230,8 +1258,7 @@ function createMarkdownViewer({
     expandedThreads: new Set(), // thread ids opened from a resolved/waiting line into a full card
     remindingThreads: new Set(), // open-token + thread id; shared by both article copies
     editing: null, // open block-editor session
-    editCaret: null, // blinking caret span at the held click position
-    expandedHunkKey: null, // anchorId of the pending edit whose action strip is open
+    editCaret: null, // held caret span at the click position (armed block)
     // A user edit is a comment: strike-in-place marks (<del>/<ins>) over the
     // FROZEN rendered block. The document source is never mutated by an edit. The
     // marked overlay is the single source of truth for both the on-screen
@@ -1468,6 +1495,8 @@ function createMarkdownViewer({
     spreadLayout.addEventListener('dblclick', handleArticleDoubleClick);
     spreadLayout.addEventListener('mouseup', handleSelectionMouseup);
     spreadLayout.addEventListener('mousedown', handleVdragDown);
+    spreadLayout.addEventListener('mousemove', handleGapHover);
+    spreadLayout.addEventListener('mouseleave', () => spreadLayout.classList.remove('md-gap-hover'));
     spreadLayout.addEventListener('mouseover', handleChangeBarHover);
     primaryViewport.addEventListener('scroll', handlePrimaryPaneScroll);
     spreadLayout.addEventListener('wheel', handleSpreadWheel, { passive: false });
@@ -4098,22 +4127,22 @@ function createMarkdownViewer({
     const anchorId = getAnchorIdForTarget(pressed);
     const offset = point && point.anchorId === anchorId ? point.offset : null;
     const caret = clickCaretOffset(pressed, event.clientX, event.clientY);
+    const mark = event.target.closest('del.md-pending-del, ins.md-pending-ins');
+    const imageIndex = imageIndexInBlock(pressed, event.target.closest('img'));
+    // Gap or mark, read before the commit moves the text under the pointer.
+    const gap = !mark && imageIndex < 0 && event.detail <= 1
+      ? gapOffsetAt(pressed, event.clientX, event.clientY)
+      : null;
     // The edited block's other copy: the edit goes on there.
     if (anchorId === session.anchorId) {
-      handoverEditingSession(pressed, offset != null ? offset : getSearchableTextLength(pressed));
+      handoverEditingSession(pressed, gap != null ? gap : (offset != null ? offset : getSearchableTextLength(pressed)));
+      if (gap != null) showGapSlot(session, gap);
       updateEditingStripSeat();
       return false;
     }
-    const mark = event.target.closest('del.md-pending-del, ins.md-pending-ins');
-    const hunk = mark && mark.closest('[data-md-hunk-key]');
     const link = event.target.closest('a[href]');
-    const imageIndex = imageIndexInBlock(pressed, event.target.closest('img'));
     const article = isInSecondaryPane(pressed) ? state.secondaryArticle : state.article;
     commitBlockEditor();
-    if (hunk) {
-      toggleHunkStrip(hunk.dataset.mdHunkKey);
-      return false;
-    }
     if (link && isFollowModifier(event)) {
       followLink(link);
       return false;
@@ -4125,6 +4154,8 @@ function createMarkdownViewer({
       const twin = getCounterpartAnchorElement(target);
       if (twin && caretOffsetVisible(twin, offset)) target = twin;
     }
+    // A mark or a gap edits on; anything else arms the block for a comment.
+    if ((mark || gap != null) && openEditorAt(target, gap != null ? gap : caret, { gap: gap != null })) return false;
     const image = imageIndex >= 0 ? target.querySelectorAll('img')[imageIndex] : null;
     armBlockAt(target, caret, { link, image });
     return !!point;
@@ -4559,7 +4590,6 @@ function createMarkdownViewer({
     state.resolvedExpanded = new Set();
     state.editing = null;
     state.blockOverlays = new Map();
-    state.expandedHunkKey = null;
     state.pendingClickCaret = null;
   }
 
@@ -5302,7 +5332,7 @@ function createMarkdownViewer({
   // The mark mutators live in edit-marks.js (shared with the review viewer's
   // commit-message editor); this host binds them to its per-action undo.
   const {
-    strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertLineBreakInBlock,
+    strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock,
   } = createMarkEngine({ beforeMutate: () => pushEditingUndo() });
   // ——— Action-by-action edit history ———
   // Native undo is blocked on the editing surface (it can't see the marks), so
@@ -5314,7 +5344,7 @@ function createMarkdownViewer({
     const session = state.editing;
     if (!session || !session.el || session.undoLatch) return;
     session.undoLatch = true;
-    queueMicrotask(() => { session.undoLatch = false; });
+    queueMicrotask(() => { session.undoLatch = false; syncToCommentButton(session); });
     const caret = getEditableCaretOffset(session.el);
     (session.undoStack = session.undoStack || []).push({
       html: session.el.innerHTML,
@@ -5338,9 +5368,11 @@ function createMarkdownViewer({
       : (session.redoStack = session.redoStack || []);
     to.push({ html: session.el.innerHTML, caret: caret == null ? 0 : caret });
     const snap = from.pop();
+    removeGapSlot(session);
     session.el.innerHTML = snap.html;
     try { session.el.focus({ preventScroll: true }); } catch {}
     setCaretWithin(session.el, snap.caret);
+    syncToCommentButton(session);
   }
 
   // strikeInBlock / escapeDelAtCaret / insertMarkedInBlock moved to
@@ -5356,13 +5388,17 @@ function createMarkdownViewer({
   function wireEditingSurface(el) {
     const onPaste = (event) => {
       event.preventDefault();
+      const atGap = removeGapSlot();
       const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
       const s = window.getSelection && window.getSelection();
       if (s && s.rangeCount && !s.getRangeAt(0).collapsed) strikeInBlock(el, s.getRangeAt(0), 'after');
-      insertMarkedInBlock(text.replace(/\s+/g, ' '));
+      const flat = text.replace(/\s+/g, ' ');
+      if (atGap) insertAtGap(flat.trim()); else insertMarkedInBlock(flat);
     };
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
+      // Any input closes a gap's slot; text typed there makes its own word.
+      const atGap = removeGapSlot();
       if (t.indexOf('delete') === 0) {
         event.preventDefault();
         const s = window.getSelection();
@@ -5381,7 +5417,7 @@ function createMarkdownViewer({
         event.preventDefault();
         const s = window.getSelection();
         if (s && s.rangeCount && !s.getRangeAt(0).collapsed) strikeInBlock(el, s.getRangeAt(0), 'after');
-        insertMarkedInBlock(event.data || '');
+        if (atGap) insertAtGap(event.data || ''); else insertMarkedInBlock(event.data || '');
         return;
       }
       // no new blocks, no formatting, no native undo (it can't see our marks)
@@ -5393,10 +5429,20 @@ function createMarkdownViewer({
       }
     };
     const onMousedown = (event) => event.stopPropagation();
+    // Inside the live block too, a single click on a gap opens the slot there.
+    const onClick = (event) => {
+      if (event.detail > 1 || !state.editing || state.editing.el !== el) return;
+      const sel = window.getSelection && window.getSelection();
+      if (sel && sel.rangeCount && !sel.getRangeAt(0).collapsed) return;
+      if (event.target.closest && event.target.closest('del.md-pending-del, ins.md-pending-ins')) return;
+      const gap = gapOffsetAt(el, event.clientX, event.clientY);
+      if (gap != null) showGapSlot(state.editing, gap);
+    };
     el.addEventListener('paste', onPaste);
     el.addEventListener('beforeinput', onBeforeInput);
     el.addEventListener('blur', commitEditorOnBlur);
     el.addEventListener('mousedown', onMousedown);
+    el.addEventListener('click', onClick);
     el.contentEditable = 'true';
     el.spellcheck = true;
     el.classList.add('md-rendered-editing');
@@ -5405,6 +5451,7 @@ function createMarkdownViewer({
       el.removeEventListener('beforeinput', onBeforeInput);
       el.removeEventListener('blur', commitEditorOnBlur);
       el.removeEventListener('mousedown', onMousedown);
+      el.removeEventListener('click', onClick);
       try { el.contentEditable = 'false'; } catch {}
       el.classList.remove('md-rendered-editing');
     };
@@ -5466,7 +5513,7 @@ function createMarkdownViewer({
       .join('');
     const anchorId = target.getAttribute('data-md-anchor-id') || '';
     const existing = state.blockOverlays.get(anchorId);
-    state.editing = {
+    const session = {
       mode: 'rendered',
       el: target,
       textarea: null,
@@ -5476,18 +5523,36 @@ function createMarkdownViewer({
       origRendered,
       anchorId,
       note: existing ? (existing.note || '') : '',
+      // What To comment needs: a block with no earlier edit converts back, and
+      // a selection struck at entry converts back to a comment on it.
+      fresh: !existing,
+      entrySelection: null,
+      openCaret: null,
+      gapSlot: null,
     };
-    state.editing.unwire = wireEditingSurface(target);
-    attachEditingStrip(state.editing, target);
+    state.editing = session;
+    // The block's resting note row steps aside: the strip below carries the
+    // note while the editor is open (both copies, so the pages stay aligned).
+    for (const row of document.querySelectorAll(`.md-pending-note-mark[data-md-hunk-key="${escapeSelectorValue(anchorId)}"]`)) row.remove();
+    session.unwire = wireEditingSurface(target);
+    attachEditingStrip(session, target);
     try { target.focus({ preventScroll: true }); } catch {}
-    wireEditingMirror(state.editing, target, getCounterpartAnchorElement(target));
+    wireEditingMirror(session, target, getCounterpartAnchorElement(target));
     let followRaf = 0;
-    state.editing.caretFollow = () => {
+    session.caretFollow = () => {
+      syncGapSlotToCaret();
       if (followRaf) return;
       followRaf = requestAnimationFrame(() => { followRaf = 0; followEditingCaret(); });
     };
-    document.addEventListener('selectionchange', state.editing.caretFollow);
+    document.addEventListener('selectionchange', session.caretFollow);
+    showEditingHint();
+    enterRenderedEditor(session, target, entryEvent, clickCaret, entrySelection, entryText);
+    syncToCommentButton(session);
+  }
 
+  // The entry: the key (or a comment card's text) that opened the editor acts
+  // at the click caret or over the armed selection, as it would inside.
+  function enterRenderedEditor(session, target, entryEvent, clickCaret, entrySelection, entryText) {
     const k = entryEvent ? entryEvent.key : '';
     // A comment card switching to an edit hands over its typed text (entryText):
     // it enters as those keystrokes would have. Empty text is the bare switch —
@@ -5501,6 +5566,7 @@ function createMarkdownViewer({
     if (mutating || typed) {
       const entryRange = resolveEntrySelectionRange(target, entrySelection);
       if (entryRange) {
+        session.entrySelection = { text: entryRange.toString(), record: entrySelection };
         if (!mutating) {
           const s = window.getSelection && window.getSelection();
           if (s) { s.removeAllRanges(); s.addRange(entryRange); }
@@ -5521,10 +5587,14 @@ function createMarkdownViewer({
     // just past a strike reaches the strike, as it would inside the editor.
     const screenLength = getSearchableTextNodes(target, ON_SCREEN).text.length;
     const caret = Math.max(0, Math.min(clickCaret != null ? clickCaret : screenLength, screenLength));
+    session.openCaret = caret;
     setCaretWithin(target, caret, ON_SCREEN);
     if (!mutating) return;
     if (typed) {
-      insertMarkedInBlock(entryText);
+      // A comment's text moved in at a gap makes its own word, as typing into
+      // the gap would: To comment and To edit undo each other there too.
+      if (caretAtGap(target, caret)) insertAtGap(entryText.trim());
+      else insertMarkedInBlock(entryText);
       return;
     }
     if (k === 'Backspace' || k === 'Delete') {
@@ -5576,15 +5646,29 @@ function createMarkdownViewer({
       onInput: () => {
         autoGrowTextarea(composer.textarea);
         session.note = composer.textarea.value;
+        syncToCommentButton(session);
         syncEditingStripSpacer(session);
         syncSecondaryPane();
       },
       actions: [
-        { label: 'Revert', onClick: () => revertBlockEditor() },
+        // Revert drops the block's whole edit, an earlier one reopened here
+        // included; Esc backs out of this session only.
+        { label: 'Revert', onClick: () => { const id = session.anchorId; revertBlockEditor(); undoOverlay(id); } },
         { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: shiftModEnterLabel(), primary: true, title: 'Enter', onClick: () => { commitBlockEditor(); sendEditBatch({ host: composer.root }); } },
         toPromptAction(() => { commitBlockEditor(); sendEditBatch({ toPrompt: true, host: composer.root }); }),
+        // The mirror of the comment card's To edit, present only while the
+        // edit is one a comment could have made (syncToCommentButton).
+        {
+          label: 'To comment',
+          key: 'e',
+          shortcut: modKeyLabel('e'),
+          title: 'Take what you typed out of the page into a comment',
+          onClick: () => convertEditToComment(),
+        },
       ],
     });
+    session.toCommentButton = Array.from(composer.root.querySelectorAll('.cu-btn'))
+      .find((b) => b.textContent.startsWith('To comment')) || null;
     // Buttons must not steal focus from the editor (that blur would commit
     // before the click) — mousedown-preventDefault, as the old pill did.
     composer.root.querySelectorAll('.cu-btn').forEach((b) => {
@@ -5612,31 +5696,83 @@ function createMarkdownViewer({
     return holder;
   }
 
-  // The spill fix, minimal: when an active edit control sits below the fold of
-  // the primary page, scroll it into view (content must stay visible; a resting
-  // mark can wait for the page flip). The secondary page is transform-positioned,
-  // so it's left alone here.
-  //
-  // Deliberately NOT extended to the blocked ("needs you") card, tempting as
-  // that is: this would run on every store refresh, so the page would jump
-  // whenever the agent replied anywhere. The amber border survives clipping — a
-  // half-cut card still reads as "needs you" and resolves on the next scroll —
-  // so the interrupt isn't lost, only its full text is briefly. A rare cosmetic
-  // clip beats constant scroll-jank. If you came here to "fix" a clipped card,
-  // that is the trade you'd be making.
-  function ensureVisibleInPane(el) {
-    // Only the primary page scrolls (the secondary is transform-positioned).
-    if (!el || !state.primaryPane || typeof el.getBoundingClientRect !== 'function') return;
-    if (!state.primaryPane.contains(el)) return;
-    const paneRect = state.primaryPane.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    if (!paneRect.height || !elRect.height) return;
-    const overflow = elRect.bottom - (paneRect.bottom - 8);
-    if (overflow > 0) {
-      state.primaryPane.scrollTop += overflow;
-      state.spreadGridTop = state.primaryPane.scrollTop; // reveal re-bases the grid
-      syncSecondaryPane();
+  // The bar names the mode the caret is in: an open editor takes letters.
+  function showEditingHint() {
+    hideHint();
+    if (!state.barHint) return;
+    state.barHint.textContent = 'typing edits · Esc reverts';
+    state.barHint.classList.add('on');
+    state.hint = state.barHint;
+  }
+
+  // The insertions of a session, outermost only (a line-break atom nests).
+  function sessionInsertions(el) {
+    return Array.from(el.querySelectorAll('ins.md-pending-ins'))
+      .filter((ins) => !(ins.parentElement && ins.parentElement.closest('ins.md-pending-ins')));
+  }
+
+  // An edit converts to a comment while it is one a comment could have made:
+  // text typed at one spot, or over the one selection the editor opened on,
+  // on a block that held no earlier edit, with no note. So To edit and To
+  // comment always undo each other; anything more would be dropped.
+  function editConvertsToComment(session) {
+    if (!session || !session.el || !session.fresh) return false;
+    if (session.note && session.note.trim()) return false;
+    const el = session.el;
+    const inss = sessionInsertions(el);
+    if (inss.length > 1) return false;
+    const dels = Array.from(el.querySelectorAll('del.md-pending-del'));
+    if (!dels.length) return true;
+    const entry = session.entrySelection;
+    if (!entry || !entry.record) return false;
+    try {
+      // The strikes are exactly the selection, in one run...
+      const span = document.createRange();
+      span.setStartBefore(dels[0]);
+      span.setEndAfter(dels[dels.length - 1]);
+      if (span.toString() !== entry.text) return false;
+      if (!inss.length) return true;
+      // ...and the typing follows it directly.
+      const FOLLOWING = (window.Node && window.Node.DOCUMENT_POSITION_FOLLOWING) || 4;
+      if (!(dels[dels.length - 1].compareDocumentPosition(inss[0]) & FOLLOWING)) return false;
+      const between = document.createRange();
+      between.setStartAfter(dels[dels.length - 1]);
+      between.setEndBefore(inss[0]);
+      return between.toString() === '';
+    } catch {
+      return false;
     }
+  }
+
+  function syncToCommentButton(session = state.editing) {
+    if (!session || !session.toCommentButton) return;
+    session.toCommentButton.hidden = !editConvertsToComment(session);
+  }
+
+  // To comment: what was typed leaves the page and opens as a comment, on the
+  // selection the editor struck or else on the block, with the armed caret
+  // back where the editor opened.
+  function convertEditToComment() {
+    const session = state.editing;
+    if (!editConvertsToComment(session)) return false;
+    const inss = sessionInsertions(session.el);
+    const text = inss.length ? inss[0].textContent.trim() : '';
+    const struck = !!session.el.querySelector('del.md-pending-del');
+    const record = struck ? session.entrySelection.record : null;
+    const pane = isInSecondaryPane(session.el) ? 'right' : 'left';
+    const { anchorId, openCaret } = session;
+    revertBlockEditor();
+    const article = pane === 'right' ? state.secondaryArticle : state.article;
+    const target = article && getArticleAnchorById(article, anchorId);
+    if (!target) return false;
+    if (record) {
+      const recordArticle = record.pane === 'right' ? state.secondaryArticle : state.article;
+      const recordTarget = (recordArticle && getArticleAnchorById(recordArticle, record.anchorId)) || target;
+      if (!activateSelectionFromRecord({ ...record, target: recordTarget })) return false;
+    } else {
+      armBlockAt(target, openCaret);
+    }
+    return openCommentCard(text);
   }
 
   // Why a block refuses the in-place editor, as its toast line; '' when it
@@ -5680,9 +5816,12 @@ function createMarkdownViewer({
     const session = state.editing;
     if (!session) return;
     state.editing = null;
+    removeGapSlot(session);
+    hideHint();
     releaseEditingFollowers(session);
     removeEditingStrip(session);
     try { session.el.contentEditable = 'false'; } catch {}
+    settleGapInsertions(session.el);
     const anchorId = session.anchorId;
     const note = session.note && session.note.trim() ? session.note.trim() : '';
     // Strike-in-place left exact del/ins marks on the block: keep them verbatim
@@ -5698,7 +5837,6 @@ function createMarkdownViewer({
     }
     if (anchorId && html) state.blockOverlays.set(anchorId, { html, note });
     else if (anchorId) state.blockOverlays.delete(anchorId);
-    if (state.expandedHunkKey && !state.blockOverlays.has(state.expandedHunkKey)) state.expandedHunkKey = null;
     reapplyEditDecorations();
     applyPendingMarkdownRefreshIfReady();
     // The edit is done; typing means the prompt again. Without this, focus
@@ -5717,6 +5855,8 @@ function createMarkdownViewer({
     if (!state.editing) return;
     const session = state.editing;
     state.editing = null;
+    removeGapSlot(session);
+    hideHint();
     releaseEditingFollowers(session);
     removeEditingStrip(session);
     try { session.el.contentEditable = 'false'; } catch {}
@@ -5732,7 +5872,6 @@ function createMarkdownViewer({
   function undoOverlay(anchorId) {
     if (!anchorId || !state.blockOverlays.has(anchorId)) return;
     state.blockOverlays.delete(anchorId);
-    if (state.expandedHunkKey === anchorId) state.expandedHunkKey = null;
     reapplyEditDecorations();
     applyPendingMarkdownRefreshIfReady();
   }
@@ -5912,56 +6051,11 @@ function createMarkdownViewer({
     return true;
   }
 
-  // The revealed edit affordance IS the shared composer bubble: the same widget
-  // a comment uses. A comment's body is its text; an edit's body is its in-place
-  // marks, so the textarea carries the optional note instead. Undo takes the edit
-  // back; Send commits the turn. One chrome, so revealing an edit reads like
-  // opening a comment. Keyed by the block's stable anchorId.
-  function buildStripHolder(anchorId, note) {
-    const holder = document.createElement('div');
-    holder.className = 'md-pending-strip';
-    holder.addEventListener('mousedown', (event) => event.stopPropagation());
-    holder.addEventListener('click', (event) => event.stopPropagation());
-    // This overlay is already in the batch; count everything Send will flush.
-    const batchCount = pendingBatchCount();
-    const composer = createComposer({
-      placeholder: 'Note for the agent about this edit...',
-      seed: note || '',
-      rows: 2,
-      onInput: () => {
-        autoGrowTextarea(composer.textarea);
-        const ov = state.blockOverlays.get(anchorId);
-        if (ov) ov.note = composer.textarea.value.trim();
-      },
-      actions: [
-        { label: 'Revert', onClick: () => undoOverlay(anchorId) },
-        { label: batchCount > 1 ? `Send all (${batchCount})` : 'Send', shortcut: shiftModEnterLabel(), primary: true, title: 'Enter', onClick: () => sendEditBatch({ host: composer.root }) },
-        toPromptAction(() => sendEditBatch({ toPrompt: true, host: composer.root })),
-      ],
-    });
-    holder.appendChild(composer.root);
-    if (state.pendingRefreshResult) {
-      const held = document.createElement('span');
-      held.className = 'md-sent-chip';
-      held.textContent = HELD_REFRESH_NOTE;
-      holder.appendChild(held);
-    }
-    return holder;
-  }
-
-  function toggleHunkStrip(anchorId) {
-    state.expandedHunkKey = state.expandedHunkKey === anchorId ? null : anchorId;
-    clearActiveTarget();
-    relayoutThroughQueuedComments();
-    if (state.expandedHunkKey && state.article) {
-      ensureVisibleInPane(state.article.querySelector('.md-pending-strip:not(.sent)'));
-    }
-  }
-
   // Every edit rests with a low-profile line, like a comment does. It carries the
   // note (the one thing the in-place marks don't already show); with no note it
   // shows a muted prompt, so a bare edit is still a discoverable handle to its
-  // control. Click reveals the strip.
+  // control. Click reopens the edit with the note in hand: the same editor and
+  // strip a click on the marks opens.
   function buildEditNoteRow(anchorId, note) {
     const noteText = String(note || '').split('\n')[0].replace(/\s+/g, ' ').trim();
     const row = document.createElement('div');
@@ -5978,7 +6072,11 @@ function createMarkdownViewer({
     row.addEventListener('mousedown', (event) => event.stopPropagation());
     row.addEventListener('click', (event) => {
       event.stopPropagation();
-      toggleHunkStrip(anchorId);
+      const article = row.closest('.md-viewer-body');
+      const block = article && getArticleAnchorById(article, anchorId);
+      if (!block || state.editing) return;
+      settleActiveCardForClick();
+      openEditorAt(block, null, { focusNote: true });
     });
     return row;
   }
@@ -5986,15 +6084,12 @@ function createMarkdownViewer({
   // Paint every pending overlay onto its block by the stable anchorId (the
   // source is frozen, so ids are stable across renders). Each overlay is the
   // exact struck/inserted markup; set it as the block's content, then rest a note
-  // row (or the open action strip) under it. A strike-in-place edit is
-  // single-block and always has an overlay, so there is no diff enumeration here.
+  // row under it. A strike-in-place edit is single-block and always has an
+  // overlay, so there is no diff enumeration here.
   function renderPendingDiffBlocks() {
     for (const article of [state.article, state.secondaryArticle]) {
       if (!article) continue;
-      for (const el of article.querySelectorAll('.md-pending-strip:not(.sent), .md-pending-note-mark')) el.remove();
-    }
-    if (state.expandedHunkKey && !state.blockOverlays.has(state.expandedHunkKey)) {
-      state.expandedHunkKey = null;
+      for (const el of article.querySelectorAll('.md-pending-note-mark')) el.remove();
     }
     if (!state.blockOverlays.size) return;
     for (const article of [state.article, state.secondaryArticle]) {
@@ -6005,12 +6100,7 @@ function createMarkdownViewer({
         el.innerHTML = ov.html;
         el.classList.add('md-pending-block');
         el.dataset.mdHunkKey = anchorId;
-        const note = ov.note || '';
-        if (state.expandedHunkKey === anchorId) {
-          el.insertAdjacentElement('afterend', buildStripHolder(anchorId, note));
-        } else {
-          el.insertAdjacentElement('afterend', buildEditNoteRow(anchorId, note));
-        }
+        el.insertAdjacentElement('afterend', buildEditNoteRow(anchorId, ov.note || ''));
       }
     }
   }
@@ -6219,7 +6309,6 @@ function createMarkdownViewer({
         state.expandedThreads.delete(threadId);
       }
       state.blockOverlays = new Map();
-      state.expandedHunkKey = null;
       closeActiveCard();
       clearQueuedMarkdownComments();
       clearActiveTarget();
@@ -6838,6 +6927,14 @@ function createMarkdownViewer({
   // Threads render in BOTH spread pages (identical DOM keeps the duplicated
   // articles' heights aligned, so no counterpart placeholders are needed).
   // Runs after every doc re-render (layoutSpread) and on store changes.
+  //
+  // A blocked ("needs you") card clipped at a page edge is deliberately NOT
+  // scrolled into view, tempting as that is: this runs on every store
+  // refresh, so the page would jump whenever the agent replied anywhere. The
+  // amber border survives clipping (a half-cut card still reads as "needs
+  // you" and resolves on the next flip), so the interrupt isn't lost, only
+  // its full text briefly. A rare cosmetic clip beats constant scroll-jank.
+  // If you came here to "fix" a clipped card, that is the trade you'd make.
   function renderThreadLayer(sync = true) {
     if (!state.article) return;
     for (const article of [state.article, state.secondaryArticle]) {
@@ -7329,7 +7426,6 @@ function createMarkdownViewer({
     state.resolvedExpanded = new Set();
     state.editing = null;
     state.blockOverlays = new Map();
-    state.expandedHunkKey = null;
     state.pendingClickCaret = null;
     state.imageVersions = new Map();
     state.imageRefreshPending = false;
@@ -7446,25 +7542,6 @@ function createMarkdownViewer({
       return;
     }
 
-    // Pending marks are the handle for the edit's actions: clicking struck or
-    // inserted text expands the strip; any other click folds it back.
-    const pendingMark = event.target && event.target.closest
-      ? event.target.closest('del.md-pending-del, ins.md-pending-ins')
-      : null;
-    if (pendingMark) {
-      const block = pendingMark.closest('[data-md-hunk-key]');
-      if (block) {
-        event.preventDefault();
-        toggleHunkStrip(block.dataset.mdHunkKey);
-        return;
-      }
-    }
-    if (state.expandedHunkKey) {
-      state.expandedHunkKey = null;
-      clearActiveTarget();
-      layoutSpread();
-      return; // the click-away folds; the next click acts
-    }
     const target = event.target && event.target.closest
       ? event.target.closest('[data-md-anchor-id]')
       : null;
@@ -7479,22 +7556,136 @@ function createMarkdownViewer({
     }
 
     event.preventDefault();
-    // Read the click position on the layout it was aimed at: folding an open
-    // composer below moves the text under the pointer, and the hit-test
-    // would then miss the block and hold its end instead.
+    // Read the click on the layout it was aimed at: folding an open composer
+    // below moves the text under the pointer, and the hit-tests would then
+    // miss (the caret would hold the block's end instead).
     const caret = clickCaretOffset(target, event.clientX, event.clientY);
-    if (state.activeCard) {
-      if (getActiveMarkdownCommentText()) {
-        queueActiveMarkdownCommentDraft();
-      } else {
-        // Click-away commits what's in the box: text queues, empty discards
-        // (emptying a reopened draft IS the delete — the mark has no ✕).
-        // Esc keeps restore semantics.
-        closeActiveCard({ restoreQueuedDraft: false });
-        clearActiveTarget();
-      }
-    }
+    // What's under the pointer picks the state. A word is a subject: the block
+    // arms for a comment. Your own strike or insertion is a suggestion you
+    // revise, and a gap between two words holds nothing to comment on: both
+    // open the editor there.
+    const ownMark = !image && event.target.closest('del.md-pending-del, ins.md-pending-ins');
+    const gap = !image && !ownMark && event.detail <= 1
+      ? gapOffsetAt(target, event.clientX, event.clientY)
+      : null;
+    settleActiveCardForClick();
+    if ((ownMark || gap != null) && openEditorAt(target, gap != null ? gap : caret, { gap: gap != null })) return;
     armBlockAt(target, caret, { link, image });
+  }
+
+  // A click elsewhere settles an open comment card: text queues, empty
+  // discards (emptying a reopened draft IS the delete — the mark has no ✕).
+  // Esc keeps restore semantics.
+  function settleActiveCardForClick() {
+    if (!state.activeCard) return;
+    if (getActiveMarkdownCommentText()) {
+      queueActiveMarkdownCommentDraft();
+    } else {
+      closeActiveCard({ restoreQueuedDraft: false });
+      clearActiveTarget();
+    }
+  }
+
+  // On-screen offset of the gap under (x, y) — the caret spot just before the
+  // space between two words — or null. A sealed block takes no edits, so a
+  // click there stays a block click.
+  function gapOffsetAt(target, x, y) {
+    if (!target || (target.closest && target.closest('.md-sealed'))) return null;
+    const gap = gapCharAtPoint(target, x, y);
+    return gap ? getTextOffsetWithin(target, gap.node, gap.index, ON_SCREEN) : null;
+  }
+
+  // A click that edits goes straight to the editor: at a gap the slot opens;
+  // on the user's own mark the caret lands where they clicked. False when the
+  // block refuses the editor, so the caller arms it for a comment instead.
+  function openEditorAt(target, caret, { gap = false, focusNote = false } = {}) {
+    if (state.editing || !target || blockEditBlockedReason(target)) return false;
+    state.pendingClickCaret = caret;
+    state.activeSelection = null; // the click supersedes any armed selection
+    openBlockEditor(target, null);
+    const session = state.editing;
+    if (!session) return false;
+    if (gap && caret != null) showGapSlot(session, caret);
+    if (focusNote && session.composer) {
+      try { session.composer.focus(); } catch {}
+    }
+    return true;
+  }
+
+  // Whether an on-screen offset sits at a gap: just before one space that
+  // stands between two non-space characters.
+  function caretAtGap(target, offset) {
+    if (offset == null || !target || (target.closest && target.closest('pre'))) return false;
+    const text = getSearchableTextNodes(target, ON_SCREEN).text;
+    return /\s/.test(text[offset] || '') && /\S/.test(text[offset - 1] || '') && /\S/.test(text[offset + 1] || '');
+  }
+
+  // The slot: an empty box after the gap's space, a space-wide margin after
+  // it, so the line takes the room the first letter will; the native caret
+  // waits just before the space, hidden while the slot blinks in its place.
+  function showGapSlot(session, offset) {
+    removeGapSlot(session);
+    const el = session && session.el;
+    const at = el && getTextPositionWithin(el, offset, ON_SCREEN);
+    if (!at || !at.node || at.node.nodeType !== 3 || !/\s/.test(at.node.data[at.offset] || '')) return;
+    const slot = document.createElement('span');
+    slot.className = 'md-gap-slot';
+    slot.setAttribute('contenteditable', 'false');
+    slot.setAttribute('aria-hidden', 'true');
+    try {
+      const r = document.createRange();
+      r.setStart(at.node, at.offset + 1);
+      r.collapse(true);
+      r.insertNode(slot);
+    } catch { return; }
+    setCaretWithin(el, offset, ON_SCREEN);
+    el.classList.add('md-gap-armed');
+    session.gapSlot = { slot, offset };
+  }
+
+  // Closes the slot; true when one was open (the key that closed it acts at
+  // the gap). Clears every copy: the mirror carries the slot to the block's
+  // twin, and a handover can strand it there.
+  function removeGapSlot(session = state.editing) {
+    const open = !!(session && session.gapSlot);
+    if (session) session.gapSlot = null;
+    for (const slot of document.querySelectorAll('.md-viewer-body .md-gap-slot')) {
+      try { slot.remove(); } catch {}
+    }
+    for (const el of document.querySelectorAll('.md-viewer-body .md-gap-armed')) el.classList.remove('md-gap-armed');
+    return open;
+  }
+
+  // The slot lives exactly as long as the caret stays at its gap: a click or
+  // an arrow elsewhere closes it.
+  function syncGapSlotToCaret() {
+    const session = state.editing;
+    if (!session || !session.gapSlot) return;
+    const sel = window.getSelection && window.getSelection();
+    const r = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+    const here = r && r.collapsed && session.el.contains(r.startContainer)
+      ? getTextOffsetWithin(session.el, r.startContainer, r.startOffset, ON_SCREEN)
+      : null;
+    if (here !== session.gapSlot.offset) removeGapSlot(session);
+  }
+
+  // Over a gap the pointer turns amber, so a click's meaning shows before it.
+  let gapHoverRaf = 0;
+  function handleGapHover(event) {
+    state.gapHoverPoint = { x: event.clientX, y: event.clientY, el: event.target };
+    if (gapHoverRaf) return;
+    gapHoverRaf = requestAnimationFrame(() => {
+      gapHoverRaf = 0;
+      const layout = state.spreadLayout;
+      const p = state.gapHoverPoint;
+      if (!layout) return;
+      let on = false;
+      if (p && p.el && p.el.closest && !state.vdrag && band.isOpen()) {
+        const target = p.el.closest('[data-md-anchor-id]');
+        on = !!target && layout.contains(target) && gapOffsetAt(target, p.x, p.y) != null;
+      }
+      layout.classList.toggle('md-gap-hover', on);
+    });
   }
 
   // Where a click puts the caret in a block, in on-screen text: a click just
@@ -7515,7 +7706,7 @@ function createMarkdownViewer({
   }
 
   // The first editing key uses the held click position. Text clicks show a
-  // blinking caret and image clicks show an outline. A hit-test miss uses the
+  // steady caret and image clicks show an outline. A hit-test miss uses the
   // end of the block as the edit position.
   function armBlockAt(target, offset, { link = null, image = null } = {}) {
     state.pendingClickCaret = offset != null ? offset : getSearchableTextNodes(target, ON_SCREEN).text.length;
@@ -7523,7 +7714,7 @@ function createMarkdownViewer({
     if (!image) showEditCaret(target, state.pendingClickCaret);
   }
 
-  // A blinking caret at the held click position — an empty span (no text, so
+  // The held caret at the click position — an empty span (no text, so
   // it never perturbs offsets or search), inserted between text nodes. It
   // lives only while the block is the active target (layoutSpread is guarded
   // on activeTarget, so no re-render wipes it); clears when the target does.
@@ -7568,7 +7759,9 @@ function createMarkdownViewer({
     if (!target) return;
     clearActiveTarget();
     clearLandingTarget();
-    target.classList.add('md-comment-target-active');
+    // The wash marks what a letter comments on: the block, unless a selection
+    // is the target, which wears its own yellow.
+    if (!selection) target.classList.add('md-comment-target-active');
     state.activeTarget = target;
     state.activeSelection = selection;
     state.activeImage = image;
@@ -7635,12 +7828,12 @@ function createMarkdownViewer({
       clearActiveTarget();
     };
     // The muscle-memory miss: select, type, and the letter opened a comment
-    // when the hand meant to type over the selection. One chord converts: the
+    // when the hand meant to type over the selection. To edit converts: the
     // card's text enters the block editor as the replacement, as if the first
-    // key had been an editing key. The target and its selection record stay
+    // key had been an editing key. The edit's strip carries the reverse. The target and its selection record stay
     // armed across the card's close; openBlockEditor consumes them as the
     // entry point. A block the editor refuses keeps the card (and its text).
-    const editInstead = () => {
+    const toEdit = () => {
       const blocked = blockEditBlockedReason(target);
       if (blocked) {
         if (typeof showToast === 'function') showToast(blocked);
@@ -7675,11 +7868,11 @@ function createMarkdownViewer({
         // Fresh cards only: a revisited queued comment is a comment, not a
         // mistyped replacement.
         ...(queueMode ? [] : [{
-          label: 'Edit instead',
+          label: 'To edit',
           key: 'e',
           shortcut: modKeyLabel('e'),
-          title: 'Switch to editing: what you typed replaces the selection, or types at the click point',
-          onClick: () => editInstead(),
+          title: 'Put what you typed into the page as an edit: it replaces the selection, or goes in at the click point',
+          onClick: () => toEdit(),
         }]),
       ],
     });
@@ -7778,10 +7971,11 @@ function createMarkdownViewer({
 
     clearActiveTarget();
     clearLandingTarget();
-    comment.target.classList.add('md-comment-target-active');
+    const onSelection = isMarkdownSelectionKind(comment.targetKind);
+    if (!onSelection) comment.target.classList.add('md-comment-target-active');
     state.activeTarget = comment.target;
     state.activeTargetPane = pane;
-    state.activeSelection = isMarkdownSelectionKind(comment.targetKind) ? comment : null;
+    state.activeSelection = onSelection ? comment : null;
     syncBarActions();
     return openCommentCard(comment.comment, {
       queueMode: true,
@@ -7932,13 +8126,20 @@ function createMarkdownViewer({
       } else {
         const inSurface = event.target === surface
           || !!(surface.contains && surface.contains(event.target));
-        if (inSurface && event.key === 'Enter' && !event.shiftKey) {
+        if (inSurface && event.key === 'Enter') {
           event.preventDefault();
-          commitBlockEditor();
-          sendEditBatch();
-        } else if (inSurface && event.key === 'Enter' && event.shiftKey) {
+          // At a gap's open slot Enter breaks the line there, as a first key
+          // on an armed block does; once anything is typed it sends.
+          const atGap = removeGapSlot();
+          if (!event.shiftKey && !atGap) {
+            commitBlockEditor();
+            sendEditBatch();
+          } else {
+            insertLineBreakInBlock();
+          }
+        } else if (inSurface && isModKey(event, 'e')) {
           event.preventDefault();
-          insertLineBreakInBlock();
+          convertEditToComment();
         } else if (inSurface && (event.metaKey || event.ctrlKey) && !event.altKey
           && /^[zy]$/i.test(String(event.key))) {
           // ⌘/Ctrl+Z steps the session history back one action; Shift (or

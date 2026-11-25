@@ -295,18 +295,36 @@ function createMarkEngine({ beforeMutate } = {}) {
       : null;
   }
 
+  // Returns the insertion the text went into (a new <ins>, or the one the
+  // caret was already inside), or null when nothing was inserted.
   function insertMarkedInBlock(text) {
-    if (!text) return;
-    const s = editSel(); if (!s || !s.rangeCount) return;
+    if (!text) return null;
+    const s = editSel(); if (!s || !s.rangeCount) return null;
     onMutate();
     const range = s.getRangeAt(0);
     range.deleteContents();
     escapeDelAtCaret(range);
     const host = markWrapping(range.startContainer, 'ins.md-pending-ins');
     const tn = document.createTextNode(text.replace(/\s/g, ' '));
+    let ins = host;
     if (host) { range.insertNode(tn); }
-    else { const el = document.createElement('ins'); el.className = 'md-pending-ins'; el.appendChild(tn); range.insertNode(el); }
+    else { ins = document.createElement('ins'); ins.className = 'md-pending-ins'; ins.appendChild(tn); range.insertNode(ins); }
     collapseCaret(tn, tn.length);
+    return ins;
+  }
+
+  // The first text typed at a gap (the caret just before the space between two
+  // words) makes a word of its own: it enters with a space before it, so
+  // `foo bar` + `baz` reads `foo baz bar`, and erasing the word takes that
+  // space with it. Closing punctuation attaches to the word before instead:
+  // `foo, bar`. The insertion is flagged so commit can tidy a typed trailing
+  // space against the gap's own (settleGapInsertions).
+  function insertAtGap(text) {
+    if (!text) return null;
+    if (/^\s/.test(text) || GAP_CLOSERS.test(text)) return insertMarkedInBlock(text);
+    const ins = insertMarkedInBlock(` ${text}`);
+    if (ins) ins.setAttribute('data-md-gap', '');
+    return ins;
   }
 
   function insertLineBreakInBlock() {
@@ -334,7 +352,86 @@ function createMarkEngine({ beforeMutate } = {}) {
     collapseCaret(el, 'after');
   }
 
-  return { strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertLineBreakInBlock };
+  return { strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock };
+}
+
+// Closing punctuation typed at a gap belongs to the word before it.
+const GAP_CLOSERS = /^[,.;:!?)\]]/;
+
+function textNodesOf(block) {
+  const SHOW_TEXT = (window.NodeFilter && window.NodeFilter.SHOW_TEXT) || 4;
+  const walker = document.createTreeWalker(block, SHOW_TEXT, null);
+  const nodes = []; let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+  return nodes;
+}
+
+// The on-screen character beside (node, index), walking across text nodes:
+// step -1 is the one before, +1 the one after. '' past the block's edge.
+function screenCharBeside(nodes, node, index, step) {
+  let i = nodes.indexOf(node);
+  let at = index + step;
+  while (i >= 0 && i < nodes.length) {
+    const data = nodes[i].data;
+    if (at >= 0 && at < data.length) return data[at];
+    i += step;
+    if (i < 0 || i >= nodes.length) break;
+    at = step < 0 ? nodes[i].data.length - 1 : 0;
+  }
+  return '';
+}
+
+// The gap under a click: one whitespace character between two non-space
+// characters on screen (struck text counts: it is still on the page), in
+// prose (never in a code block), outside the user's own marks (a click there
+// revises the mark instead), with the point inside the character's box (a
+// click on a letter, or past a line's end, is not a gap). Returns
+// { node, index } of the space, or null.
+function gapCharAtPoint(block, x, y) {
+  if (!block || typeof document.caretRangeFromPoint !== 'function') return null;
+  let hit = null;
+  try { hit = document.caretRangeFromPoint(x, y); } catch { return null; }
+  if (!hit || !block.contains(hit.startContainer) || hit.startContainer.nodeType !== 3) return null;
+  const node = hit.startContainer;
+  const parent = node.parentElement;
+  if (!parent || parent.closest('pre') || parent.closest('del.md-pending-del, ins.md-pending-ins, del.md-sent-del, ins.md-sent-ins')) return null;
+  const nodes = textNodesOf(block);
+  for (const index of [hit.startOffset, hit.startOffset - 1]) {
+    if (index < 0 || index >= node.data.length || !/\s/.test(node.data[index])) continue;
+    const before = screenCharBeside(nodes, node, index, -1);
+    const after = screenCharBeside(nodes, node, index, 1);
+    if (!before || !after || /\s/.test(before) || /\s/.test(after)) continue;
+    const box = document.createRange();
+    box.setStart(node, index);
+    box.setEnd(node, index + 1);
+    // A mouse event's x is a whole pixel (the click was somewhere in [x, x+1)),
+    // so the gap takes a click only when that whole pixel column is inside the
+    // space. Misreading a word as a gap would open the editor and shift the
+    // line under a double-click; the other way round, a gap click arms for a
+    // comment and a second click retries.
+    const inside = Array.from(box.getClientRects()).some((r) => r.width > 0
+      && x >= r.left && x + 1 <= r.right && y >= r.top && y <= r.bottom);
+    if (inside) return { node, index };
+  }
+  return null;
+}
+
+// Commit-time tidy for words typed into gaps: a gap insertion left holding only
+// whitespace goes, and one ending in a typed space keeps none of it where the
+// gap's own space follows (`foo baz  bar` reads `foo baz bar`).
+function settleGapInsertions(block) {
+  for (const ins of Array.from(block.querySelectorAll('ins.md-pending-ins[data-md-gap]'))) {
+    if (!ins.textContent.trim()) { ins.remove(); continue; }
+    if (!/\s$/.test(ins.textContent)) continue;
+    const tail = textNodesOf(ins).pop();
+    if (!/\s/.test(screenCharBeside(textNodesOf(block), tail, tail.data.length - 1, 1))) continue;
+    // Each keystroke is its own text node, so the typed spaces can span several.
+    while (/\s$/.test(ins.textContent)) {
+      const last = textNodesOf(ins).pop();
+      last.data = last.data.replace(/\s+$/, '');
+      if (!last.data.length) last.remove();
+    }
+  }
 }
 
 // Snapshot a block's marked content for the overlay: strip editing artifacts
@@ -437,6 +534,8 @@ module.exports = {
   isMutatingEntryKey,
   markWrapping,
   createMarkEngine,
+  gapCharAtPoint,
+  settleGapInsertions,
   serializeMarkedBlock,
   overlayToEnvelope,
   wrapEditEnvelope,
