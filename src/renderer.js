@@ -2748,11 +2748,13 @@ function openTerminalCommentEditor({
   armTerminalFreezeIdleTimer(); // a comment is now open — disarm the idle auto-thaw
   document.body.appendChild(bubble);
   positionTerminalCommentBubble(bubble, anchorX, anchorY);
-  setTimeout(() => {
-    if (terminalCommentOpenToken !== openToken) return;
-    document.addEventListener('pointerdown', onOutsidePointerDown, true);
-    document.addEventListener('keydown', onDocumentKeyDown, true);
-  }, 0);
+  // Listening starts now, not a tick later: a deferred start left a gap (a
+  // tick behind a busy main thread can be tens of ms) in which a click away
+  // went unseen and the bubble stayed up. The gesture that opened the bubble
+  // cannot close it: a listener added during an event's dispatch does not
+  // see that event.
+  document.addEventListener('pointerdown', onOutsidePointerDown, true);
+  document.addEventListener('keydown', onDocumentKeyDown, true);
 
   const submit = async ({ toPrompt = false } = {}) => {
     const comment = composer.textarea.value.trim();
