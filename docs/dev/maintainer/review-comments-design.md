@@ -169,7 +169,7 @@ with no write-back path at all: the user strikes/inserts in place, the marks
 ship as a thread, the agent amends the commit and the regen shows the result.
 
 - **Gestures are md's first-key dispatch, scoped to the commit blocks.** A
-  click arms the block and holds a blinking caret; letters keep the comment
+  click arms the block and holds a caret; letters keep the comment
   path (a whole-block quote comment, seeded); every other unmodified key opens
   the strike-in-place session with the keystroke applied. A selection inside
   one block routes edit keys the same way (⌫ strikes the selection; a
@@ -213,6 +213,25 @@ ship as a thread, the agent amends the commit and the regen shows the result.
   lives in `src/review-commit-edit.js`, electron-free and bundled into the
   preload, with IO injected by `web-viewer-preload.js` (comment-ui pattern —
   shared after the second real use proved the shape).
+
+
+## Commit message: the md viewer's click rules (2026-11-25)
+
+The commit blocks follow the md viewer's "Click, caret and highlight" rules
+(`md-editing-design.md`), sharing the gap test and gap words from
+`edit-marks.js`: a click on a word arms the block with a faint wash and a
+steady slate caret; a click on the space between two words opens the editor
+with a slot, and a word typed there gets its own space; a click on a
+reopenable edit's marks reopens it at the click; the editor has no wash and an
+amber caret. Revert on the strip discards a reopened edit's thread (Esc still
+backs out of the session). The quote composer carries To edit when its quote
+lies in one commit block (a quote from a letter on an armed block goes back
+in at the caret), and the edit strip carries To comment, which hands its
+words to the quote composer.
+
+The armed caret now takes no width: it used to push the text after it 1px,
+and the click that disarms it then hit-tested a layout 1px off the one it was
+aimed at. A click is read as text offsets before the disarm.
 
 ## Context blocks: `:::code` (2026-08-20)
 

@@ -906,6 +906,8 @@ and renames "Edit instead".
   as its own word for the same reason. A `Comment | Edit` switch was mocked
   and dropped: it made the user read both labels to learn what the page
   already shows.
+- The review's commit message follows the same rules
+  (`review-comments-design.md`, 2026-11-25).
 
 ## Open questions
 

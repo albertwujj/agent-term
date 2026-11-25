@@ -29,7 +29,7 @@
 // un-sent card carries that same Discard, because here click-away commits.
 
 const { ipcRenderer } = require('electron');
-const { normWS, nearestHeading, toast, createComposer, toPromptAction, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
+const { normWS, nearestHeading, toast, createComposer, toPromptAction, modKeyLabel, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
 const { createCommitEditController } = require('./review-commit-edit');
 const { createSymbolScan } = require('./review-symbol-scan');
 const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
@@ -379,10 +379,15 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       },
       onEditStart: function () { hideQuoteButton(); },
       // A letter on an armed commit block comments on it — the whole-block
-      // quote path, exactly what a double-click would have set up.
-      openBlockComment: function (block, seedKey) {
-        const range = document.createRange();
-        range.selectNodeContents(block);
+      // quote path, exactly what a double-click would have set up. To comment
+      // hands its words over the same way, with the range it struck when the
+      // edit was typed over a selection.
+      openBlockComment: function (block, seedKey, quoteRange) {
+        let range = quoteRange;
+        if (!range) {
+          range = document.createRange();
+          range.selectNodeContents(block);
+        }
         const sel = window.getSelection();
         sel.removeAllRanges();
         sel.addRange(range);
@@ -516,6 +521,11 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
                      wholeBlock: !!quoteSel.wholeBlock, heading: quoteSel.heading || '' };
     const panel = document.createElement('div');
     panel.className = 'rv-quote-compose'; // mount: the floating-panel positioning
+    // A quote inside one commit block can become an edit instead: To edit
+    // puts the words into the message, over the quoted text or at the caret
+    // (review-commit-edit.js editFromComment; the edit strip has the reverse).
+    const quoteRange = quoteSel.range;
+    const editable = !!(commitEdit && quoteRange && commitEdit.blockForRange(quoteRange));
     const c = createComposer({
       // No repeated quote — the selection is highlighted in place. Heading (the
       // agent's own words, not "(note N)") is the only label.
@@ -527,7 +537,18 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
         { label: sendLabel(1), primary: true, title: 'Enter', onClick: function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeQuoteComposer); } },
         toPromptAction(function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeQuoteComposer, { toPrompt: true }); }),
         { label: 'Discard', onClick: closeQuoteComposer },
-      ],
+      ].concat(editable ? [{
+        label: 'To edit',
+        key: 'e',
+        shortcut: modKeyLabel('e'),
+        title: 'Put what you typed into the message as an edit: it replaces the selection, or goes in at the click point',
+        onClick: function (ctx) {
+          const text = ctx.textarea.value;
+          activeComposer = null;
+          closeQuoteComposer();
+          commitEdit.editFromComment(quoteRange, text);
+        },
+      }] : []),
     });
     panel.appendChild(c.root);
     document.body.appendChild(panel);
@@ -538,7 +559,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     } };
     const r = quoteSel.rect;
     let top = r.bottom + 8, left = r.left;
-    const pw = 340, ph = panel.offsetHeight || 150;
+    const pw = panel.offsetWidth || 340, ph = panel.offsetHeight || 150;
     if (left + pw > window.innerWidth) left = window.innerWidth - pw - 10;
     if (top + ph > window.innerHeight) top = Math.max(8, r.top - ph - 8);
     panel.style.left = Math.max(8, left) + 'px';
@@ -1431,7 +1452,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       'background:#0969da;color:#fff;padding:5px 11px;font:12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;',
       'box-shadow:0 2px 10px rgba(0,0,0,.3);cursor:pointer}',
       '#rv-quote-btn:hover{background:#0860c8}',
-      '.rv-quote-compose{position:fixed;z-index:2147483002;width:340px;max-width:92vw;background:#fff;',
+      '.rv-quote-compose{position:fixed;z-index:2147483002;width:max-content;min-width:340px;max-width:92vw;background:#fff;',
       'border:1px solid #d1d9e0;border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.22);padding:9px;',
       'font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#1f2328}',
       '.rv-qtext{margin:2px 0 5px;padding:2px 8px;border-left:3px solid #d1d9e0;color:#59636e;',
@@ -1461,14 +1482,29 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       'text-underline-offset:2px;text-decoration-color:rgba(100,116,139,.7);white-space:pre-wrap}',
       '#commit ins.md-pending-break{white-space:pre-wrap}',
       '#commit ins.md-pending-break::before{content:"¶";color:rgba(217,119,6,.55)}',
-      // The editing surface: entry is loud (md's rule) — a soft amber wash says
-      // "this block is now an editor" without restyling the text itself.
-      '#commit .md-rendered-editing{outline:none;background:rgba(217,119,6,.07);border-radius:4px;cursor:text}',
-      // The held click caret: an empty span that blinks where the edit will
-      // begin. Zero-width so it never perturbs the text or anchors.
-      '.rv-edit-caret{display:inline-block;width:0;border-left:1.5px solid #b45309;height:1em;',
-      'vertical-align:text-bottom;animation:rv-caret-blink 1.06s step-end infinite}',
+      // The md viewer's click rules (md-editing-design.md, "Click, caret and
+      // highlight"): a faint wash marks the block a letter would comment on;
+      // the open editor has none, its caret blinking amber, the colour typed
+      // text takes.
+      '#commit .rv-edit-armed{background:rgba(31,35,40,.06);border-radius:4px}',
+      // The floating quote composer grows to its row (To edit makes four
+      // buttons) rather than wrapping a label onto two lines.
+      '.rv-quote-compose .cu-btn{white-space:nowrap}',
+      '#commit .md-rendered-editing{outline:none;border-radius:4px;cursor:text;caret-color:#b45309}',
+      // The armed caret: a steady slate hairline where ⌫, punctuation and
+      // arrows would edit; still, because a letter goes to the comment.
+      // Zero-width so it never perturbs the text or anchors.
+      // Net zero width (the md caret's margins), so arming never moves the text.
+      '.rv-edit-caret{display:inline-block;width:0;margin:0 -.5px;border-left:1px solid #64748b;height:1em;vertical-align:text-bottom}',
       '@keyframes rv-caret-blink{0%,100%{opacity:1}50%{opacity:0}}',
+      // A click between two words opens a slot: an empty box one letter wide
+      // with a space each side, blinking in place of the hidden native caret.
+      '#commit .md-rendered-editing.md-gap-armed{caret-color:transparent}',
+      '#commit .md-gap-slot{display:inline-block;width:.5em;height:1em;vertical-align:-.18em;box-sizing:border-box;',
+      'margin-right:.25em;border:1px solid rgba(217,119,6,.8);border-radius:2px;background:rgba(217,119,6,.10);',
+      'animation:rv-caret-blink 1.06s step-end infinite;pointer-events:none}',
+      // Over a gap the pointer turns amber: a click there inserts.
+      'body.rv-gap-hover #commit,body.rv-gap-hover #commit *{cursor:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'24\' viewBox=\'0 0 16 24\'%3E%3Cpath d=\'M5 3h6M8 3v18M5 21h6\' stroke=\'white\' stroke-width=\'4\' stroke-linecap=\'round\'/%3E%3Cpath d=\'M5 3h6M8 3v18M5 21h6\' stroke=\'%23b45309\' stroke-width=\'2\' stroke-linecap=\'round\'/%3E%3C/svg%3E") 8 12,text}',
       // The edit's one control: note + Revert + Send under the block. Spans the
       // commit body's columns (the section is two-column but the control is a
       // block-level thing, not column content).

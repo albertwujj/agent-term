@@ -1,6 +1,6 @@
 // Guards the review viewer's commit-message editing end to end, driving the
 // REAL src/review-commit-edit.js in jsdom through the actual gestures:
-//  - a click arms a commit block with the blinking caret; an edit key opens
+//  - a click arms a commit block with the held caret; an edit key opens
 //    the strike-in-place session with the keystroke applied; a letter routes
 //    to the block-comment path instead (first-key dispatch, md's grammar)
 //  - typing inserts marked; Enter commits + sends the [Edit] thread with a
@@ -10,6 +10,9 @@
 //  - stored unresolved edit threads re-strike their block in place, pending
 //    marks amber and sent marks slate, and restore when the thread goes
 //  - a decorated block refuses re-arming (discard first / awaiting agent)
+//  - the md viewer's click rules: a word arms with the wash, a gap opens the
+//    editor with a slot and a word typed there gets its own space, a mark
+//    reopens its edit, To comment / To edit move the words both ways
 
 const { JSDOM } = require('jsdom');
 
@@ -49,7 +52,7 @@ const io = {
   updateEditThread: (item) => { updateCalls.push(item); return Promise.resolve({ success: true }); },
   discardThread: (id) => { discardCalls.push(id); return Promise.resolve({ success: true }); },
   sendPending: (opts) => { sendPendingCalls.push(opts); },
-  openBlockComment: (block, seed) => { blockComments.push({ block, seed }); },
+  openBlockComment: (block, seed, range) => { blockComments.push({ block, seed, range }); },
   composerBlocked: () => false,
   sendLabel: () => 'Send',
   threadNeedsSend: () => needsSendFlag,
@@ -316,6 +319,106 @@ async function run() {
   check('a second undo restores the block and the pre-strike caret',
     !p2.querySelector('del.md-pending-del') && rawCaretOffset(p2) === at, rawCaretOffset(p2));
   key(p2, { key: 'Escape' });
+
+  // — the md viewer's click rules on the commit blocks. jsdom has no layout:
+  // `aim` names the text spot the hit-test returns, and every range box holds
+  // the click point —
+  {
+    const BOX = { width: 10, height: 10, left: 0, right: 10, top: 0, bottom: 10 };
+    dom.window.Range.prototype.getClientRects = () => [BOX];
+    let aimed = null;
+    document.caretRangeFromPoint = () => {
+      if (!aimed) return null;
+      const r = document.createRange();
+      r.setStart(aimed.node, aimed.offset);
+      r.collapse(true);
+      return r;
+    };
+    const aim = (el, needle, delta = 0) => {
+      const w = document.createTreeWalker(el, 4, null);
+      let n;
+      while ((n = w.nextNode())) {
+        const i = n.data.indexOf(needle);
+        if (i >= 0) { aimed = { node: n, offset: i + delta }; return; }
+      }
+      throw new Error(`no ${needle}`);
+    };
+    const clickAt = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }));
+    const stripBtn = (label) => strip() && Array.from(strip().querySelectorAll('button')).find((b) => b.textContent.startsWith(label));
+
+    aim(p1, 'polling', 2);
+    clickAt(p1);
+    check('a click on a word arms the block with the wash', !ctl.isEditing() && p1.classList.contains('rv-edit-armed') && !!caret());
+    key(p1, { key: 'Escape' });
+    click(document.body);
+    check('disarming takes the wash away', !p1.classList.contains('rv-edit-armed'));
+
+    aim(p1, ' utilizes');
+    clickAt(p1);
+    const slot = p1.querySelector('.md-gap-slot');
+    check('a click on the space between two words opens the editor with the slot',
+      ctl.isEditing() && !!slot && /polling $/.test(slot.previousSibling.textContent) && p1.classList.contains('md-gap-armed'));
+    check('a fresh gap edit offers To comment', !!stripBtn('To comment') && !stripBtn('To comment').hidden);
+    for (const ch of 'quietly') typeChar(p1, ch);
+    check('a word typed at the gap gets its own space', p1.textContent === 'The polling quietly utilizes a timer to refill tokens.', p1.textContent);
+    check('the first key closes the slot', !p1.querySelector('.md-gap-slot') && !p1.classList.contains('md-gap-armed'));
+    const commentsBefore = blockComments.length;
+    stripBtn('To comment').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    const handed = blockComments[commentsBefore];
+    check('To comment takes the words out of the message into a block comment',
+      !ctl.isEditing() && p1.innerHTML === P1 && !!handed && handed.block === p1 && handed.seed === 'quietly' && !handed.range, handed);
+    const whole = document.createRange();
+    whole.selectNodeContents(p1);
+    check('the commit block takes the quote back as an edit', ctl.blockForRange(whole) === p1);
+    ctl.editFromComment(whole, 'quietly');
+    check('To edit puts the words back at the gap as their own word',
+      ctl.isEditing() && p1.textContent === 'The polling quietly utilizes a timer to refill tokens.', p1.textContent);
+    key(p1, { key: 'Escape' });
+
+    aim(p2, ' paragraph');
+    clickAt(p2);
+    key(p2, { key: 'Enter' });
+    check('Enter at the slot breaks the line rather than sending',
+      ctl.isEditing() && !!p2.querySelector('ins.md-pending-break') && addCalls.length === 2);
+    key(p2, { key: 'Escape' });
+
+    // A quote over one word: To edit types over it, To comment returns it to that quote.
+    const at2 = P2.indexOf('rationale');
+    const q = document.createRange();
+    q.setStart(p2.firstChild, at2);
+    q.setEnd(p2.firstChild, at2 + 'rationale'.length);
+    ctl.editFromComment(q, 'reasoning');
+    check('To edit from a quote strikes it and types the words over it',
+      ctl.isEditing() && p2.querySelector('del.md-pending-del').textContent === 'rationale'
+      && p2.querySelector('ins.md-pending-ins').textContent === 'reasoning');
+    key(p2, { key: 'e', metaKey: true });
+    const back = blockComments[blockComments.length - 1];
+    check('To comment (⌘E) returns the words to a comment on the same quote',
+      !ctl.isEditing() && p2.innerHTML === P2 && back.seed === 'reasoning' && !!back.range && back.range.toString() === 'rationale',
+      back && back.range && back.range.toString());
+
+    // An edit with more than a comment holds offers no To comment.
+    aim(p2, 'Second', 3);
+    clickAt(p2);
+    key(p2, { key: 'Backspace' });
+    check('an edit that struck text offers no To comment', ctl.isEditing() && stripBtn('To comment').hidden);
+    key(p2, { key: 'Escape' });
+
+    // A reopenable edit: a click on its marks reopens it at the click; Revert discards it.
+    ctl.decorateEditThreads([{
+      id: 'e9', status: 'open', anchor_status: 'ok',
+      messages: [{ author: 'user', body: '[Edit]\nSecond paragraph of <ins>extra </ins>rationale here.\n[/Edit]', ts: 1, turn: 1 }],
+    }]);
+    const ins9 = p2.querySelector('ins.md-pending-ins');
+    aimed = { node: ins9.firstChild, offset: 2 };
+    ins9.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }));
+    check('a click on a reopenable edit\'s mark reopens it', ctl.isEditing() && !!p2.querySelector('ins.md-pending-ins'));
+    check('a reopened edit offers no To comment', stripBtn('To comment').hidden);
+    const discardsBefore = discardCalls.length;
+    stripBtn('Revert').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    check('Revert on a reopened edit discards it', !ctl.isEditing() && discardCalls[discardsBefore] === 'e9' && p2.innerHTML === P2);
+    ctl.decorateEditThreads([]);
+  }
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
