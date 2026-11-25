@@ -1,26 +1,21 @@
 function createFullscreenViewer() {
   let current = null;
 
+  // Removing the panel is what ends its full screen: Chromium leaves full
+  // screen when the full-screen element leaves the document, and the window
+  // follows, also when it is still animating in. exitFullscreen() is not used:
+  // on macOS an exit requested during the window's enter animation is dropped,
+  // the page is never told, and its promise never settles, so a close that
+  // waited on it left the viewer up and deaf to every later Esc.
   function close(restoreFocus = true) {
     if (!current) return;
-    const session = current;
-    if (!restoreFocus) session.restoreFocus = false;
-    if (session.closing) return;
-    session.closing = true;
-    const { panel, listeners, focus, onClose } = session;
+    const { panel, listeners, focus, onClose } = current;
+    current = null;
     listeners.abort();
-    const finish = () => {
-      current = null;
-      panel.remove();
-      if (session.restoreFocus) {
-        if (focus?.isConnected) focus.focus({ preventScroll: true });
-        onClose();
-      }
-    };
-    if (document.fullscreenElement === panel) {
-      document.exitFullscreen().then(finish, finish);
-    } else {
-      finish();
+    panel.remove();
+    if (restoreFocus) {
+      if (focus?.isConnected) focus.focus({ preventScroll: true });
+      onClose();
     }
   }
 
@@ -31,7 +26,7 @@ function createFullscreenViewer() {
     const focus = document.activeElement;
     const listeners = new window.AbortController();
     const { signal } = listeners;
-    current = { panel, listeners, focus, onClose, restoreFocus: true, closing: false };
+    current = { panel, listeners, focus, onClose };
     panel.classList.add('at-fullscreen-viewer', 'at-modal-overlay');
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-modal', 'true');
