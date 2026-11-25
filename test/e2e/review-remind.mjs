@@ -199,12 +199,16 @@ try {
   fs.writeFileSync(mdStore, JSON.stringify({ version: 1, turn: 1, threads: mdThreads }));
   fs.writeFileSync(mdJournal, JSON.stringify({ thread: 'md-blocked', body: 'Which choice?', status: 'open', ts: 20, turn: 1 }) + '\n');
   await write('\x03');
-  await sleep(500);
+  await sleep(1000);
+  // The exit hands the window a fresh shell for the next session, so the fake
+  // CLI's function is defined again there (else `agent` is the real one).
+  await write(`agent() { ${quote(process.execPath)} ${quote(fake)}; }\r`);
+  await sleep(300);
   await write(`echo ${doc}`);
   await write('\r');
   await sleep(500);
   await page.evaluate(() => window.pty.pickerStartNew('agent'));
-  await sleep(500);
+  await waitFor(() => page.evaluate(() => window.promptHoldsInput() === false), 'fake composer not empty after restart');
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('open-recent-viewer-url'));
   await page.waitForSelector('.vb-shell.vb-md.open .md-viewer-body h1');
   const mdRow = id => `.primary [data-md-keep-key="thread:${id}"]`;

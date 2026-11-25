@@ -104,14 +104,21 @@ try {
     { type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 },
     { type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 },
   ]);
-  // The platform copy chord, as the keyboard delivers it.
+  // The platform copy chord. Elsewhere the keyboard delivers it as keys; on
+  // macOS a real ⌘C reaches the page as the Copy editing command (AppKit's key
+  // equivalent), which a synthetic key event never triggers, so there the test
+  // runs that command, as the real chord does.
   const copy = () => app.evaluate(async ({ webContents, clipboard }, [find, mod]) => {
     const guest = eval(find);
     clipboard.writeText('');
     guest.focus();
-    guest.sendInputEvent({ type: 'keyDown', keyCode: 'C', modifiers: [mod] });
-    guest.sendInputEvent({ type: 'char', keyCode: 'c', modifiers: [mod] });
-    guest.sendInputEvent({ type: 'keyUp', keyCode: 'C', modifiers: [mod] });
+    if (mod === 'meta') {
+      guest.copy();
+    } else {
+      guest.sendInputEvent({ type: 'keyDown', keyCode: 'C', modifiers: [mod] });
+      guest.sendInputEvent({ type: 'char', keyCode: 'c', modifiers: [mod] });
+      guest.sendInputEvent({ type: 'keyUp', keyCode: 'C', modifiers: [mod] });
+    }
     await new Promise((resolve) => setTimeout(resolve, 300));
     return clipboard.readText();
   }, [guestOf, process.platform === 'darwin' ? 'meta' : 'control']);

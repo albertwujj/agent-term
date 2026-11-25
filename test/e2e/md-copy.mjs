@@ -195,9 +195,11 @@ try {
   await heading.first().click();
   await page.locator('.md-copy-body').click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
   await page.waitForFunction(() => document.querySelector('.md-copy-body').textContent === '✓ md');
-  const raw = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), html: clipboard.readHTML() }));
+  // The formats, not readHTML(): on macOS readHTML() hands back the plain
+  // text when the clipboard holds text alone.
+  const raw = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), formats: clipboard.availableFormats() }));
   assert.equal(raw.text, source.split('## Draft\n\n')[1].split('\n\n## Notes')[0]);
-  assert.equal(raw.html, '');
+  assert.ok(!raw.formats.includes('text/html'), raw.formats.join(', '));
   console.log('PASS markdown source copy replaces both clipboard flavors');
 
   // The whole document, with nothing armed: headings arrive only in the rich flavor.
