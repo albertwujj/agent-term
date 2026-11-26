@@ -1,7 +1,8 @@
-// Erasing struck text brings it back, through the real keyboard: the
-// browser's own target ranges, key repeat, and the first key after a click
-// (a click just past a strike holds the caret past it, struck text counts).
-// The rules themselves are unit-tested in test/edit-marks.test.js.
+// Word-level re-work through the real keyboard: ⌫ strikes a word, a struck
+// word comes back whole, your typed words leave whole, a held ⌫ goes at a
+// reading pace and stops where your own changes end, and the arrows move a
+// word at a time. The rules themselves are unit-tested in
+// test/markdown-click-modes.test.js and test/edit-marks.test.js.
 import assert from 'node:assert/strict';
 import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
@@ -77,7 +78,7 @@ try {
       const p = copies.find((c) => c.classList.contains('md-rendered-editing')) || copies[0];
       return p.innerHTML
         .replace(/<del class="md-pending-del">/g, '[').replace(/<\/del>/g, ']')
-        .replace(/<ins class="md-pending-ins">/g, '{').replace(/<\/ins>/g, '}')
+        .replace(/<ins class="md-pending-ins"[^>]*>/g, '{').replace(/<\/ins>/g, '}')
         .replace(/<[^>]+>/g, '');
     }, n);
   }
@@ -85,63 +86,74 @@ try {
     for (let i = 0; i < count; i++) await page.keyboard.press('Backspace');
     await page.waitForTimeout(100);
   }
-  // A held key: every keydown after the first carries repeat.
-  async function holdBackspace(count) {
-    for (let i = 0; i < count; i++) await page.keyboard.down('Backspace');
+  // A held key for `ms`: keydowns at the system's repeat interval, every one
+  // after the first carrying repeat.
+  async function holdBackspace(ms) {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      await page.keyboard.down('Backspace');
+      await page.waitForTimeout(33);
+    }
     await page.keyboard.up('Backspace');
     await page.waitForTimeout(100);
   }
   const text = 'Paragraph 2 has some words and enough following text to keep the document flowing across lines.';
-  const afterWords = text.indexOf(' and');
+  const gapAfterWords = text.indexOf(' and');
+  const commit = () => clickAt(9, 3); // a click on another paragraph's word ends the edit
 
-  await clickAt(2, afterWords);
-  await backspaces(5);
-  assert.match(await marks(2), /some \[words\] and/, 'five erases strike "words"');
+  await clickAt(2, gapAfterWords);
+  await backspaces(1);
+  assert.match(await marks(2), /some \[words\] and/, `one ⌫ strikes the word before: ${await marks(2)}`);
   assert.equal((await marks(2)).replace(/[\][]/g, ''), text, 'the strike keeps every char on screen');
-  await clickAt(5, 3); // commit
-  console.log('PASS erasing strikes in place');
-
-  await clickAt(2, afterWords); // just past the strike: the caret holds there
   await backspaces(1);
-  assert.match(await marks(2), /\]s and/, `the first erase past a strike brings its last char back: ${await marks(2)}`);
-  await holdBackspace(8);
-  assert.equal(await marks(2), text, 'held, the erase takes the whole strike back and stops at its start');
-  await backspaces(1);
-  assert.match(await marks(2), /some\[ \]words/, `the next press strikes on: ${await marks(2)}`);
-  console.log('PASS erasing a strike takes it back, stopping at its start while held');
+  assert.match(await marks(2), /has \[some words\] and/, `the next strikes on, one strike with the space between: ${await marks(2)}`);
+  await commit();
+  console.log('PASS ⌫ strikes a word at a time');
 
-  await clickAt(5, 3); // commit, then revisit and take the last strike back
-  await clickAt(2, text.indexOf('words') - 1, { side: 'right' }); // on the struck space: the edit reopens after it
+  await clickAt(2, gapAfterWords); // the gap just past the strike
   await backspaces(1);
-  await clickAt(5, 3);
-  assert.equal(await marks(2), text, 'every mark taken back');
-  const rest = await page.evaluate(() => [...document.querySelectorAll('.md-viewer-body p')]
-    .filter((p) => p.textContent.startsWith('Paragraph 2 '))
-    .map((p) => p.nextElementSibling && p.nextElementSibling.className));
-  assert.ok(rest.every((cls) => !/md-pending/.test(cls || '')), `a block with every mark taken back rests with no edit: ${rest}`);
-  console.log('PASS a revisit with every mark taken back commits to no edit');
-
-  await clickAt(5, 3);
-  const end = text.length;
-  await clickAt(4, text.indexOf(' the document'));
-  await backspaces(4); // strike "keep" (an older strike, mid-line)
-  await clickAt(5, 3);
-  await clickAt(4, end - 1, { side: 'right' }); // after the paragraph's last char
-  // Erase back through " the document flowing across lines.", hop "keep" (one
-  // strike, though erased char by char) in one press, then strike two more.
-  await holdBackspace(' the document flowing across lines.'.length + 1 + 2);
-  const through = await marks(4);
-  assert.match(through, /text t\[o keep the document flowing across lines\.\]$/, `a striking run hops the older strike and strikes on: ${through}`);
-  console.log('PASS a striking run hops an older strike instead of bringing it back');
-
-  await clickAt(5, 3);
-  await clickAt(6, end - 1, { side: 'right' });
-  await backspaces(6); // strike "lines." at the paragraph's end
-  await clickAt(5, 3);
-  await clickAt(6, end - 1, { side: 'right' }); // on the struck "." itself: the edit reopens after it
+  assert.match(await marks(2), /has \[some \]words and/, `⌫ on a struck word brings it back whole: ${await marks(2)}`);
   await backspaces(1);
-  assert.match(await marks(6), /\[lines\]\.$/, `a click past a trailing strike erases it back: ${await marks(6)}`);
-  console.log('PASS a click just past a trailing strike holds the caret there');
+  assert.equal(await marks(2), text, 'the next brings the word before back');
+  await backspaces(1);
+  assert.match(await marks(2), /2 \[has \]some/, `once the strikes are back, the next press strikes on: ${await marks(2)}`);
+  await commit();
+  console.log('PASS a struck word comes back whole');
+
+  await clickAt(3, text.indexOf(' and'));
+  await page.keyboard.type('very old');
+  assert.match(await marks(3), /words\{ very old\} and/, await marks(3));
+  await holdBackspace(900);
+  assert.equal(await marks(3), text.replace('Paragraph 2', 'Paragraph 3'), `held, ⌫ takes back your words and stops at the page's text: ${await marks(3)}`);
+  await commit();
+  console.log('PASS held ⌫ takes back your words and stops where they end');
+
+  await clickAt(4, text.length - 1, { side: 'right' }); // after the paragraph's last word
+  await holdBackspace(600);
+  const held = await marks(4);
+  const struckWords = (held.match(/\[([^\]]*)\]/) || ['', ''])[1].trim().split(/\s+/).filter(Boolean).length;
+  assert.ok(struckWords >= 2 && struckWords <= 6, `a held ⌫ strikes a few words a second, not a word per key repeat: ${struckWords} in 600 ms: ${held}`);
+  await commit();
+  console.log(`PASS held ⌫ goes at a reading pace (${struckWords} words in 600 ms)`);
+
+  await clickAt(5, text.indexOf(' and'));
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.type('x');
+  assert.match(await marks(5), /some\{ x\} words and/, `← moves to the end of the word before, where a word gets its own space: ${await marks(5)}`);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.type('y');
+  assert.match(await marks(5), /words and\{ y\} enough/, `→ moves a word at a time: ${await marks(5)}`);
+  await commit();
+  console.log('PASS arrows move a word at a time');
+
+  await clickAt(6, text.indexOf(' and'));
+  await backspaces(1); // strike "words"
+  await commit();
+  await clickAt(6, text.indexOf('words') + 2); // on the struck word: the edit reopens after it
+  await backspaces(1);
+  assert.equal(await marks(6), text.replace('Paragraph 2', 'Paragraph 6'), `a click on your strike, then ⌫, brings it back: ${await marks(6)}`);
+  console.log('PASS a click on your own strike reopens the edit after the word');
 
   assert.deepEqual(errors, [], 'no renderer errors');
 } finally {

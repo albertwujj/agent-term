@@ -9,7 +9,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>');
 global.window = dom.window;
 global.document = dom.window.document;
 
-const { snapStart, snapEnd, snapRangeToWords } = require('../src/word-snap');
+const { snapStart, snapEnd, snapRangeToWords, wordSpans } = require('../src/word-snap');
 
 let passed = 0;
 let failed = 0;
@@ -57,6 +57,15 @@ const blockOf = (node) => (node.nodeType === 1 ? node : node.parentElement).clos
   r.setEnd(a.firstChild, 6);
   check('a range of only a space snaps to nothing', snapRangeToWords(r, blockOf) === null);
 }
+
+// Editing's words: runs between spaces, punctuation riding with its word;
+// unspaced scripts split at Unicode word boundaries.
+const words = (t) => wordSpans(t).map((w) => t.slice(w.start, w.end));
+check('editing words are the runs between spaces', JSON.stringify(words('The timer, then (maybe) waits.')) === JSON.stringify(['The', 'timer,', 'then', '(maybe)', 'waits.']), words('The timer, then (maybe) waits.'));
+const zh = words('我们今天开会。');
+check('Chinese splits into words, the full stop riding with the last', zh.length >= 2 && zh.join('') === '我们今天开会。' && zh[zh.length - 1].endsWith('。'), zh);
+const jaLead = words('「計画」です');
+check('leading punctuation joins the word after it', jaLead[0].startsWith('「') && jaLead.join('') === '「計画」です', jaLead);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

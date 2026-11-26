@@ -14,7 +14,7 @@ const {
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { findSentenceRange } = require('./sentence-selection');
-const { snapStart, snapEnd } = require('./word-snap');
+const { snapStart, snapEnd, snapRangeToWords } = require('./word-snap');
 const { copyImageToClipboard } = require('./image-clipboard');
 const { createFullscreenViewer } = require('./fullscreen-viewer');
 const { openImageInspector } = require('./image-inspector');
@@ -3844,6 +3844,12 @@ function createMarkdownViewer({
       return;
     }
     setTimeout(() => {
+      // A selection inside the open edit is the edit's own: ⌫ or typing acts
+      // on it there (the surface snaps it to whole words).
+      const sel = window.getSelection && window.getSelection();
+      const surface = state.editing && state.editing.el;
+      if (surface && sel && sel.rangeCount && (surface.contains(sel.getRangeAt(0).startContainer)
+        || surface.contains(sel.getRangeAt(0).endContainer))) return;
       activateSelectionFromDom();
     }, 0);
   }
@@ -5339,7 +5345,25 @@ function createMarkdownViewer({
   // commit-message editor); this host binds them to its per-action undo.
   const {
     strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock,
+    eraseWord, moveByWord, settleCaretAfterWord, extendByWord,
   } = createMarkEngine({ beforeMutate: () => pushEditingUndo() });
+
+  // The caret rests between words (edit-marks.js, word-level editing). Right
+  // after a word, with a space or the block's end next, it is a gap caret,
+  // so a word typed there gets its own space.
+  function restCaretBetweenWords(session, offset) {
+    if (!session || !session.el || offset == null) return;
+    const text = getSearchableTextNodes(session.el, ON_SCREEN).text;
+    if (offset > 0 && /\S/.test(text[offset - 1]) && (offset >= text.length || /\s/.test(text[offset]))) {
+      showGapCaret(session, offset);
+    }
+  }
+
+  function caretOffsetIn(el) {
+    const sel = window.getSelection && window.getSelection();
+    if (!sel || !sel.rangeCount || !el.contains(sel.focusNode)) return null;
+    return getTextOffsetWithin(el, sel.focusNode, sel.focusOffset, ON_SCREEN);
+  }
   // ——— Action-by-action edit history ———
   // Native undo is blocked on the editing surface (it can't see the marks), so
   // the session keeps its own: the first mutator call in a user action
@@ -5409,6 +5433,12 @@ function createMarkdownViewer({
         event.preventDefault();
         const s = window.getSelection();
         const wasSelection = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
+        // ⌫/Delete take a word (Option/Ctrl+⌫ too); a selection, and the
+        // line deletes, keep the browser's span.
+        if (!wasSelection && /^delete(Content|Word)(Backward|Forward)$/.test(t)) {
+          if (eraseWord(el, { backward: t.endsWith('Backward') })) restCaretBetweenWords(state.editing, caretOffsetIn(el));
+          return;
+        }
         const ranges = event.getTargetRanges ? event.getTargetRanges() : [];
         const sr = ranges && ranges[0];
         if (sr) {
@@ -5435,15 +5465,28 @@ function createMarkdownViewer({
       }
     };
     const onMousedown = (event) => event.stopPropagation();
-    // Inside the live block too, a single click on a gap puts the gap caret there.
+    // Inside the live block too, a single click on a gap puts the gap caret
+    // there; a click on a word rests the caret after it.
     const onClick = (event) => {
       if (event.detail > 1 || !state.editing || state.editing.el !== el) return;
       const sel = window.getSelection && window.getSelection();
       if (sel && sel.rangeCount && !sel.getRangeAt(0).collapsed) return;
-      if (event.target.closest && event.target.closest('del.md-pending-del, ins.md-pending-ins')) return;
       const gap = gapOffsetAt(el, event.clientX, event.clientY);
-      if (gap != null) showGapCaret(state.editing, gap);
+      if (gap != null) { showGapCaret(state.editing, gap); return; }
+      clearGapCaret();
+      restCaretBetweenWords(state.editing, settleCaretAfterWord(el));
     };
+    // A selection made inside the open edit covers whole words too.
+    const onMouseup = () => setTimeout(() => {
+      const sel = window.getSelection && window.getSelection();
+      if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return;
+      const snapped = snapRangeToWords(range, () => el);
+      if (!snapped) return;
+      sel.removeAllRanges();
+      sel.addRange(snapped);
+    }, 0);
     // A double-click selects a word for a comment, as anywhere else. Its
     // first click, at a word's edge, opened this editor at the gap; while
     // nothing has been typed, the double-click ends the edit and arms the
@@ -5474,6 +5517,7 @@ function createMarkdownViewer({
     el.addEventListener('blur', commitEditorOnBlur);
     el.addEventListener('mousedown', onMousedown);
     el.addEventListener('click', onClick);
+    el.addEventListener('mouseup', onMouseup);
     el.addEventListener('dblclick', onDblClick);
     el.contentEditable = 'true';
     el.spellcheck = true;
@@ -5484,6 +5528,7 @@ function createMarkdownViewer({
       el.removeEventListener('blur', commitEditorOnBlur);
       el.removeEventListener('mousedown', onMousedown);
       el.removeEventListener('click', onClick);
+      el.removeEventListener('mouseup', onMouseup);
       el.removeEventListener('dblclick', onDblClick);
       try { el.contentEditable = 'false'; } catch {}
       el.classList.remove('md-rendered-editing');
@@ -5626,11 +5671,7 @@ function createMarkdownViewer({
       return;
     }
     if (k === 'Backspace' || k === 'Delete') {
-      const backward = k === 'Backspace';
-      const r = backward
-        ? createTextRangeWithin(target, caret - 1, caret, ON_SCREEN)
-        : createTextRangeWithin(target, caret, caret + 1, ON_SCREEN);
-      if (r && !r.collapsed) eraseInBlock(target, r, { backward, repeat: !!entryEvent.repeat });
+      eraseWord(target, { backward: k === 'Backspace', repeat: !!entryEvent.repeat });
     } else if (k === 'Enter') {
       insertLineBreakInBlock();
     } else {
@@ -7632,6 +7673,8 @@ function createMarkdownViewer({
     if (gap && caret != null) {
       session.gapOpened = true;
       showGapCaret(session, caret);
+    } else if (!focusNote) {
+      restCaretBetweenWords(session, settleCaretAfterWord(session.el)); // a click on your own word
     }
     if (focusNote && session.composer) {
       try { session.composer.focus(); } catch {}
@@ -8112,6 +8155,26 @@ function createMarkdownViewer({
           } else {
             insertLineBreakInBlock();
           }
+        } else if (inSurface && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+          && !event.metaKey && !event.ctrlKey) {
+          // The caret moves a word at a time (Shift: the selection grows by words).
+          event.preventDefault();
+          const backward = event.key === 'ArrowLeft';
+          if (event.shiftKey) extendByWord(surface, backward);
+          else {
+            clearGapCaret();
+            restCaretBetweenWords(state.editing, moveByWord(surface, backward));
+          }
+        } else if (inSurface && (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+          && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+          // The line move is the browser's; the caret then rests after the
+          // word it landed in.
+          const session = state.editing;
+          setTimeout(() => {
+            if (state.editing !== session || !surface.isConnected) return;
+            clearGapCaret(session);
+            restCaretBetweenWords(session, settleCaretAfterWord(surface));
+          }, 0);
         } else if (inSurface && isModKey(event, 'e')) {
           event.preventDefault();
           convertEditToComment();

@@ -14,10 +14,12 @@
 // words, or after the last one, opens the editor with a block caret there,
 // and one on a reopenable edit's own marks reopens it at the click. Over a
 // selection inside one commit block, ⌫ strikes the selection and punctuation
-// or Space types over it; letters are the page's quote comment. While editing: Esc reverts, Enter commits + sends, Shift+Enter
-// breaks the line, ⌘Z steps back, ⌘E or To comment hands the typed words to a
-// comment, and clicking away commits without sending (the review surface's
-// composer rule).
+// or Space types over it; letters are the page's quote comment. While
+// editing the unit is the word (edit-marks.js, word-level editing): ⌫/Delete
+// take one, arrows move one, the caret rests after a word. Esc reverts,
+// Enter commits + sends, Shift+Enter breaks the line, ⌘Z steps back, ⌘E or
+// To comment hands the typed words to a comment, and clicking away commits
+// without sending (the review surface's composer rule).
 //
 // Electron-free: the host supplies IO; esbuild bundles this into the preload.
 
@@ -35,6 +37,7 @@ const {
   wrapEditEnvelope,
   parseEditEnvelope,
 } = require('./edit-marks');
+const { snapRangeToWords } = require('./word-snap');
 
 const COMMIT_BLOCK_SEL = '#commit .commit-subject, #commit .commit-body p';
 const OVERLAY_SEL = '.rv-thread, .rv-quote-thread, .rv-filehdr-thread, .rv-row, '
@@ -177,6 +180,8 @@ function createCommitEditController(io) {
         if (gapAt != null) {
           session.gapOpened = true;
           showGapCaret(gapAt);
+        } else {
+          restBetweenWords(engine.settleCaretAfterWord(session.block)); // your own word
         }
         return;
       }
@@ -353,24 +358,9 @@ function createCommitEditController(io) {
       return;
     }
     if (!entryEvent || k.startsWith('Arrow')) { setCaret(block, caret); return; }
-    if (k === 'Backspace') {
-      if (caret > 0) {
-        const a = caretAt(block, caret - 1), b = caretAt(block, caret);
-        if (a && b) {
-          const r = document.createRange();
-          r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset);
-          setCaret(block, caret);
-          engine.eraseInBlock(block, r, { backward: true, repeat: !!entryEvent.repeat });
-        }
-      } else setCaret(block, 0);
-    } else if (k === 'Delete') {
-      const a = caretAt(block, caret), b = caretAt(block, caret + 1);
-      if (a && b && (a.node !== b.node || a.offset !== b.offset)) {
-        const r = document.createRange();
-        r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset);
-        setCaret(block, caret);
-        engine.eraseInBlock(block, r, { backward: false, repeat: !!entryEvent.repeat });
-      } else setCaret(block, caret);
+    if (k === 'Backspace' || k === 'Delete') {
+      setCaret(block, caret);
+      engine.eraseWord(block, { backward: k === 'Backspace', repeat: !!entryEvent.repeat });
     } else if (k === 'Enter') {
       setCaret(block, caret);
       engine.insertLineBreakInBlock();
@@ -400,6 +390,12 @@ function createCommitEditController(io) {
         event.preventDefault();
         const s = window.getSelection();
         const wasSelection = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
+        // ⌫/Delete take a word (Option/Ctrl+⌫ too); a selection, and the
+        // line deletes, keep the browser's span.
+        if (!wasSelection && /^delete(Content|Word)(Backward|Forward)$/.test(t)) {
+          if (engine.eraseWord(el, { backward: t.endsWith('Backward') })) restBetweenWords(caretOffsetIn(el));
+          return;
+        }
         const ranges = event.getTargetRanges ? event.getTargetRanges() : [];
         const sr = ranges && ranges[0];
         if (sr) {
@@ -425,15 +421,28 @@ function createCommitEditController(io) {
         event.preventDefault();
       }
     };
-    // Inside the live block too, a single click on a gap puts the gap caret there.
+    // Inside the live block too, a single click on a gap puts the gap caret
+    // there; a click on a word rests the caret after it.
     const onClick = (event) => {
       if (event.detail > 1 || !session || session.block !== el) return;
       const s = window.getSelection && window.getSelection();
       if (s && s.rangeCount && !s.getRangeAt(0).collapsed) return;
-      if (event.target.closest && event.target.closest('del.md-pending-del, ins.md-pending-ins')) return;
       const gap = gapCharAtPoint(el, event.clientX, event.clientY);
-      if (gap) showGapCaret(textOffsetIn(el, gap.node, gap.index));
+      if (gap) { showGapCaret(textOffsetIn(el, gap.node, gap.index)); return; }
+      clearGapCaret();
+      restBetweenWords(engine.settleCaretAfterWord(el));
     };
+    // A selection made inside the open edit covers whole words too.
+    const onMouseup = () => setTimeout(() => {
+      const s = window.getSelection && window.getSelection();
+      if (!s || !s.rangeCount || s.isCollapsed) return;
+      const range = s.getRangeAt(0);
+      if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return;
+      const snapped = snapRangeToWords(range, () => el);
+      if (!snapped) return;
+      s.removeAllRanges();
+      s.addRange(snapped);
+    }, 0);
     // The gap caret lives exactly as long as the caret stays at its gap.
     const onSelectionChange = () => {
       if (!session || !session.gapCaret) return;
@@ -445,6 +454,7 @@ function createCommitEditController(io) {
     el.addEventListener('paste', onPaste);
     el.addEventListener('beforeinput', onBeforeInput);
     el.addEventListener('click', onClick);
+    el.addEventListener('mouseup', onMouseup);
     document.addEventListener('selectionchange', onSelectionChange);
     el.setAttribute('contenteditable', 'true');
     el.spellcheck = true;
@@ -453,6 +463,7 @@ function createCommitEditController(io) {
       el.removeEventListener('paste', onPaste);
       el.removeEventListener('beforeinput', onBeforeInput);
       el.removeEventListener('click', onClick);
+      el.removeEventListener('mouseup', onMouseup);
       document.removeEventListener('selectionchange', onSelectionChange);
       el.removeAttribute('contenteditable');
       el.classList.remove('md-rendered-editing');
@@ -522,6 +533,30 @@ function createCommitEditController(io) {
       const atGap = clearGapCaret();
       if (event.shiftKey || atGap) engine.insertLineBreakInBlock();
       else commit(true);
+      return;
+    }
+    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !event.metaKey && !event.ctrlKey) {
+      // The caret moves a word at a time (Shift: the selection grows by words).
+      event.preventDefault();
+      event.stopPropagation();
+      const backward = event.key === 'ArrowLeft';
+      if (event.shiftKey) engine.extendByWord(session.block, backward);
+      else {
+        clearGapCaret();
+        restBetweenWords(engine.moveByWord(session.block, backward));
+      }
+      return;
+    }
+    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown')
+      && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      // The line move is the browser's; the caret then rests after the word
+      // it landed in.
+      const sess = session;
+      setTimeout(() => {
+        if (session !== sess) return;
+        clearGapCaret();
+        restBetweenWords(engine.settleCaretAfterWord(sess.block));
+      }, 0);
       return;
     }
     if (isModKey(event, 'e')) {
@@ -603,6 +638,23 @@ function createCommitEditController(io) {
     setCaret(block, offset);
     block.classList.add('md-gap-caret');
     session.gapCaret = { offset };
+  }
+
+  // The caret rests between words. Right after a word, with a space or the
+  // block's end next, it is a gap caret, so a word typed there gets its own
+  // space.
+  function restBetweenWords(offset) {
+    if (!session || offset == null) return;
+    const text = session.block.textContent;
+    if (offset > 0 && /\S/.test(text[offset - 1]) && (offset >= text.length || /\s/.test(text[offset]))) {
+      showGapCaret(offset);
+    }
+  }
+
+  function caretOffsetIn(el) {
+    const s = window.getSelection && window.getSelection();
+    if (!s || !s.rangeCount || !el.contains(s.focusNode)) return null;
+    return textOffsetIn(el, s.focusNode, s.focusOffset);
   }
 
   // Ends the gap caret; true when there was one (the key that ended it acts

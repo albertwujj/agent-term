@@ -117,14 +117,14 @@ function type(el, data) {
     }));
   }
 }
-// A beforeinput delete whose target range is the char beside the caret, as
-// Chromium hands it over.
+// A beforeinput delete whose target range is the char beside the caret (or
+// the selection), as Chromium hands it over.
 function erase(el, backward = true) {
   const s = dom.window.getSelection();
   const r = s.getRangeAt(0).cloneRange();
   const node = r.startContainer;
   const at = r.startOffset;
-  const target = backward
+  const target = !r.collapsed ? r : backward
     ? { startContainer: node, startOffset: at - 1, endContainer: node, endOffset: at }
     : { startContainer: node, startOffset: at, endContainer: node, endOffset: at + 1 };
   const ev = new dom.window.InputEvent('beforeinput', {
@@ -313,7 +313,7 @@ async function run() {
     const ed = editing();
     check('a click on your insertion reopens the edit there', ed === el && !!el.querySelector('ins.md-pending-ins'));
     type(ed, 'X');
-    check('typing extends the insertion at the click', /\{ onXly\}/.test(marks(ed)), marks(ed));
+    check('the caret rests after the word you clicked: typing adds a word', /\{ only\}\{ X\} once/.test(marks(ed)), marks(ed));
     check('a reopened edit offers no To comment', !!stripButton('To comment') && stripButton('To comment').hidden);
     stripButton('Revert').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await sleep(10);
@@ -333,17 +333,146 @@ async function run() {
     check('Esc backs the edit out', !editing() && !block('The poller').querySelector('ins'));
   }
 
-  // --- ⌫ at the gap erases into the word before; Delete strikes the space ---
+  // --- ⌫ and Delete take a word: ⌫ at the gap strikes the word before,
+  //     Delete the space and word after ---
   {
     let el = aim('The poller', ' once');
     await clickAimed(el);
     erase(editing(), true);
-    check('backspace at the gap strikes the end of the word before', /fil\[e\] once/.test(marks(editing())), marks(editing()));
+    check('backspace at the gap strikes the word before', /the \[file\] once/.test(marks(editing())), marks(editing()));
+    erase(editing(), true);
+    check('pressing on strikes the next word, one strike with the space between', /reads \[the file\] once/.test(marks(editing())), marks(editing()));
     await reset();
     el = aim('The poller', ' once');
     await clickAimed(el);
     erase(editing(), false);
-    check('delete at the gap strikes the space, joining the words', /file\[ \]once/.test(marks(editing())), marks(editing()));
+    check('delete at the gap strikes the next word with its space', /file\[ once\] a/.test(marks(editing())), marks(editing()));
+    await reset();
+  }
+
+  // --- word-level re-work: your typed word leaves whole, a struck word
+  //     comes back whole, your part of a word goes first ---
+  {
+    let el = aim('The poller', ' once');
+    await clickAimed(el);
+    type(editing(), 'only now');
+    erase(editing(), true);
+    check('⌫ takes back the last word you typed, the space you typed stays', /file\{ only \} once/.test(marks(editing())), marks(editing()));
+    erase(editing(), true);
+    check('the next ⌫ takes the first word and the gap\'s space with it',
+      !editing().querySelector('ins') && editing().textContent.includes('the file once'), marks(editing()));
+    check('the caret is a gap caret again, so a new word gets its own space', editing().classList.contains('md-gap-caret'));
+    type(editing(), 'twice');
+    check('a word typed there reads as its own word', /file\{ twice\} once/.test(marks(editing())), marks(editing()));
+    await reset();
+
+    el = aim('The poller', ' once');
+    await clickAimed(el);
+    type(editing(), ',');
+    erase(editing(), true);
+    check('your part of a word goes first: a typed comma leaves, the word stays',
+      !editing().querySelector('ins, del') && editing().textContent.includes('the file once'), marks(editing()));
+    await reset();
+
+    el = aim('The poller', ' once');
+    await clickAimed(el);
+    erase(editing(), true); // strikes "file"
+    erase(editing(), false); // Delete from just before the strike: the struck word comes back
+    check('Delete over a struck word brings it back whole', !editing().querySelector('del') && editing().textContent.includes('the file once'), marks(editing()));
+    await reset();
+  }
+
+  // --- held ⌫ takes a word at a reading pace, not at key-repeat speed ---
+  {
+    const el = aim('The poller', ' once');
+    await clickAimed(el);
+    const held = () => {
+      editing().dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Backspace', repeat: true }));
+      erase(editing(), true);
+    };
+    editing().dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Backspace' }));
+    erase(editing(), true);
+    held();
+    held();
+    check('repeats within the hold interval take nothing more', /the \[file\] once/.test(marks(editing())), marks(editing()));
+    await sleep(170);
+    held();
+    check('the next repeat after the interval takes the next word', /reads \[the file\] once/.test(marks(editing())), marks(editing()));
+    editing().dispatchEvent(new dom.window.KeyboardEvent('keyup', { bubbles: true, key: 'Backspace' }));
+    editing().dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Shift' }));
+    await reset();
+  }
+
+  // --- held ⌫ takes back your words and stops where they end ---
+  {
+    const el = aim('The poller', ' once');
+    await clickAimed(el);
+    type(editing(), 'very old');
+    const press = (repeat) => {
+      editing().dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Backspace', repeat }));
+      erase(editing(), true);
+    };
+    press(false);
+    await sleep(170);
+    press(true);
+    await sleep(170);
+    press(true);
+    check('held, ⌫ takes back your words and stops at the page\'s text',
+      !editing().querySelector('ins, del') && editing().textContent.includes('the file once'), marks(editing()));
+    await sleep(170);
+    press(false);
+    check('the next press strikes on', /the \[file\] once/.test(marks(editing())), marks(editing()));
+    editing().dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Shift' }));
+    await reset();
+  }
+
+  // --- arrows move a word at a time; the caret rests between words ---
+  {
+    const el = aim('The poller', ' once');
+    await clickAimed(el);
+    key(editing(), { key: 'ArrowLeft' });
+    check('← moves the caret to the end of the word before, a gap caret', editing().classList.contains('md-gap-caret'));
+    type(editing(), 'x');
+    check('a word typed there sits between the two words', /the\{ x\} file once/.test(marks(editing())), marks(editing()));
+    key(editing(), { key: 'ArrowRight' });
+    type(editing(), 'y');
+    check('→ moves a word at a time', /file\{ y\} once/.test(marks(editing())), marks(editing()));
+    await reset();
+  }
+
+  // --- a click on a word inside the open edit rests the caret after it ---
+  {
+    const el = aim('The poller', ' once');
+    await clickAimed(el);
+    aim('The poller', 'poller', 2);
+    // The browser puts the caret at the press; the click then settles it.
+    const at = document.createRange();
+    at.setStart(aimed.node, aimed.offset);
+    dom.window.getSelection().removeAllRanges();
+    dom.window.getSelection().addRange(at);
+    await clickAimed(editing());
+    type(editing(), 'z');
+    check('a mid-word click puts the caret after the word', /poller\{ z\} reads/.test(marks(editing())), marks(editing()));
+    await reset();
+  }
+
+  // --- a selection inside the open edit covers whole words ---
+  {
+    const el = aim('The poller', ' once');
+    await clickAimed(el);
+    const node = Array.from(editing().childNodes).find((n) => n.nodeType === 3 && n.data.includes('second'));
+    const r = document.createRange();
+    r.setStart(node, node.data.indexOf('econd'));
+    r.setEnd(node, node.data.indexOf('nd redraws') + 1);
+    dom.window.getSelection().removeAllRanges();
+    dom.window.getSelection().addRange(r);
+    editing().dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    await sleep(10);
+    check('a drag inside the edit snaps to whole words', String(dom.window.getSelection()) === 'second and', String(dom.window.getSelection()));
+    check('and stays the edit\'s own selection, not a comment target', !!editing() && hint().startsWith('typing edits'), hint());
+    erase(editing(), true);
+    check('⌫ strikes the snapped words', /\[second and\]/.test(marks(editing())), marks(editing()));
+    dom.window.getSelection().removeAllRanges();
     await reset();
   }
 

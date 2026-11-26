@@ -282,7 +282,7 @@ async function run() {
   click(document.body);
   aimEnd(p1);
   clickAt(p1); // after the last word: the edit reopens there
-  erase(p1); // strikes the final "."
+  erase(p1); // strikes the last word, "tokens."
   check('a click after the last word reopens the edit with the marks kept',
     ctl.isEditing() && p1.getAttribute('contenteditable') === 'true'
     && !!p1.querySelector('ins.md-pending-ins'));
@@ -293,7 +293,7 @@ async function run() {
     !ctl.isEditing() && addCalls.length === 2 && updateCalls.length === 1
     && updateCalls[0].threadId === 'e1' && updateCalls[0].alsoSend === false);
   check('the updated envelope keeps the old marks and adds the new strike',
-    /<del>utilizes <\/del>/.test(updateCalls[0].body) && /<del>\.<\/del>/.test(updateCalls[0].body),
+    /<del>utilizes <\/del>/.test(updateCalls[0].body) && /<del>tokens\.<\/del>/.test(updateCalls[0].body),
     updateCalls[0].body);
   check('the block returns clean until the store re-decorates', p1.innerHTML === P1, p1.innerHTML);
 
@@ -461,6 +461,24 @@ async function run() {
     p1.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, detail: 2 }));
     check('the second press of a double-click ends an untouched gap edit, for the page\'s paragraph select',
       !ctl.isEditing() && p1.innerHTML === P1);
+
+    // Word-level re-work: ⌫ takes a word, arrows move a word.
+    aim(p1, ' utilizes');
+    clickAt(p1);
+    erase(p1);
+    check('⌫ at the gap strikes the word before', /<del class="md-pending-del">polling<\/del> utilizes/.test(p1.innerHTML), p1.innerHTML);
+    key(p1, { key: 'Escape' });
+    aim(p1, ' utilizes');
+    clickAt(p1);
+    for (const ch of 'quietly') typeChar(p1, ch);
+    erase(p1);
+    check('⌫ takes back the word you typed with its space, leaving a gap caret',
+      p1.innerHTML === P1 && p1.classList.contains('md-gap-caret'), p1.innerHTML);
+    key(p1, { key: 'ArrowRight' });
+    for (const ch of 'now') typeChar(p1, ch);
+    check('→ moves the caret to the end of the next word, where a word gets its own space',
+      p1.textContent === 'The polling utilizes now a timer to refill tokens.', p1.textContent);
+    key(p1, { key: 'Escape' });
 
     aim(p2, ' paragraph');
     clickAt(p2);

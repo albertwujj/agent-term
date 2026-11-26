@@ -935,6 +935,28 @@ actions"), and the mark-click strip, and renames "Edit instead".
   live selection is replaced by the snapped one so ⌫ and the quote agree.
   Code blocks keep exact ends (copying part of a line of code is real); a
   prose selection's copy takes whole words like everything else.
+- **Editing works a word at a time** (`edit-marks.js` `eraseWord` /
+  `moveByWord` / `settleCaretAfterWord`; user, 2026-11-25: the agent reads
+  intent and handles typos, so the unit of re-work is the word). A word is
+  a run between spaces with its punctuation (`word-snap.js` `wordSpans`;
+  Chinese and Japanese split at Unicode word boundaries), split where your
+  typing meets the page's text. ⌫/Delete (and Option/Ctrl+⌫) act on the
+  word beside the caret: a word you typed leaves, an original word strikes,
+  a struck word comes back, and your typed part of a word goes first.
+  Backward, the spaces between the word and the caret go too, so striking
+  on through a sentence makes one strike; a typed word takes its gap's
+  opening space once nothing typed is left before it. The press-run rule
+  stands (striking runs hop older strikes, a held take-back stops at the
+  page's text), tracked by on-screen caret offset since the gap caret
+  re-seats the caret. A held key takes a word every 150 ms instead of one
+  per key repeat. ←/→ move to the end of the word before or after, Shift
+  grows a selection by words, ↑/↓ settle after the word they land in, and
+  a click inside the open edit rests after the clicked word; where a space
+  or the block's end follows, the caret is a gap caret, so a typed word
+  gets its own space. A selection made inside the open edit snaps to whole
+  words and stays the edit's own (the mouseup no longer arms it as a
+  comment selection). Selection ⌫ and the line deletes (⌘⌫) keep the
+  browser's span.
 - The review's commit message follows the same rules
   (`review-comments-design.md`, 2026-11-25).
 

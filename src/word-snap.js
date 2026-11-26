@@ -69,4 +69,37 @@ function snapRangeToWords(range, blockOf) {
   return snapped;
 }
 
-module.exports = { snapStart, snapEnd, snapRangeToWords };
+// The words of a text as editing counts them: runs between spaces, the
+// punctuation touching a word riding with it. A run in a script written
+// without spaces (Chinese, Japanese) splits at Unicode word boundaries
+// instead, its punctuation joining the word beside it. Returns
+// [{ start, end }] in order.
+const UNSPACED = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}]/u;
+function wordSpans(text) {
+  const spans = [];
+  for (const run of String(text || '').matchAll(/\S+/g)) {
+    const start = run.index;
+    if (!UNSPACED.test(run[0])) { spans.push({ start, end: start + run[0].length }); continue; }
+    segmenter ||= new Intl.Segmenter(undefined, { granularity: 'word' });
+    let open = null; // the span being built
+    let lead = null; // punctuation waiting for the word after it
+    for (const part of segmenter.segment(run[0])) {
+      const s = start + part.index;
+      const e = s + part.segment.length;
+      if (part.isWordLike) {
+        if (open) spans.push(open);
+        open = { start: lead != null ? lead : s, end: e };
+        lead = null;
+      } else if (open) {
+        open.end = e;
+      } else if (lead == null) {
+        lead = s;
+      }
+    }
+    if (open) spans.push(open);
+    else if (lead != null) spans.push({ start: lead, end: start + run[0].length });
+  }
+  return spans;
+}
+
+module.exports = { snapStart, snapEnd, snapRangeToWords, wordSpans };

@@ -48,6 +48,8 @@ function isMutatingEntryKey(event) {
   return [...k].length === 1;
 }
 
+const { wordSpans } = require('./word-snap');
+
 function markWrapping(node, sel) {
   const el = node && node.nodeType === 3 ? node.parentElement : node;
   return el && el.closest ? el.closest(sel) : null;
@@ -277,22 +279,161 @@ function createMarkEngine({ beforeMutate } = {}) {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Backspace' || event.key === 'Delete') keyRepeat = !!event.repeat;
   }, true);
-  function eraseInBlock(block, range, { backward = true, selection = false, repeat = keyRepeat } = {}) {
+  function eraseInBlock(block, range, { backward = true, selection = false, repeat = keyRepeat, mode: freshMode = null } = {}) {
     const caretMode = selection || !backward ? 'after' : 'before';
     const s = editSel();
-    const continuing = !selection && !!run && run.backward === backward
-      && !!s && s.isCollapsed && s.anchorNode === run.node && s.anchorOffset === run.offset;
+    // Where the last erase left the caret, counted on screen: a host may
+    // re-seat the caret at the same spot (the gap caret does).
+    const continuing = !selection && !!run && run.block === block && run.backward === backward
+      && !!s && s.isCollapsed && block.contains(s.anchorNode)
+      && screenOffset(block, s.anchorNode, s.anchorOffset) === run.at;
     let mode = continuing ? run.mode
-      : (coveredText(block, range).some((p) => !p.mark) ? 'strike' : 'takeBack');
+      : freshMode || (coveredText(block, range).some((p) => !p.mark) ? 'strike' : 'takeBack');
     if (mode === 'takeBack' && !takeBackInBlock(block, range, caretMode)) {
       if (repeat) return;
       mode = 'strike';
     }
     if (mode === 'strike') strikeInBlock(block, range, caretMode);
     const landed = editSel();
-    run = landed && landed.rangeCount
-      ? { backward, mode, node: landed.anchorNode, offset: landed.anchorOffset }
+    run = landed && landed.rangeCount && block.contains(landed.anchorNode)
+      ? { block, backward, mode, at: screenOffset(block, landed.anchorNode, landed.anchorOffset) }
       : null;
+  }
+
+  // ——— Word-level editing (docs/dev/maintainer/md-editing-design.md) ———
+  // An edit is an intent for the agent, and a typo costs it nothing, so the
+  // unit of re-work is the word: ⌫/Delete take one word, arrows move one
+  // word, and the caret rests only between words.
+
+  // The block's on-screen words (struck text included: it is on the page),
+  // split where your typing meets the page's text, so the part of a word
+  // you typed is a word of its own (`foo` + a typed `,`). Each carries
+  // whether you typed it and whether it is all struck.
+  function editWords(block) {
+    let text = '';
+    const typed = [];
+    const struck = [];
+    for (const n of textNodesOf(block)) {
+      const ins = !!markWrapping(n, 'ins.md-pending-ins');
+      const del = !ins && !!markWrapping(n, 'del.md-pending-del');
+      text += n.data;
+      for (let i = 0; i < n.data.length; i++) { typed.push(ins); struck.push(del); }
+    }
+    const words = [];
+    const push = (start, end) => words.push({
+      start, end, typed: typed[start], struck: struck.slice(start, end).every(Boolean),
+    });
+    for (const w of wordSpans(text)) {
+      let start = w.start;
+      for (let i = w.start + 1; i < w.end; i++) {
+        if (typed[i] !== typed[i - 1]) { push(start, i); start = i; }
+      }
+      push(start, w.end);
+    }
+    return { text, words };
+  }
+
+  function rangeAtScreen(block, from, to) {
+    const nodes = textNodesOf(block);
+    const point = (k, isEnd) => {
+      let left = k; let last = null;
+      for (const n of nodes) {
+        if (left < n.data.length || (isEnd && left === n.data.length)) return [n, left];
+        left -= n.data.length;
+        last = n;
+      }
+      return last ? [last, last.data.length] : [block, 0];
+    };
+    const r = document.createRange();
+    r.setStart(...point(from, false));
+    r.setEnd(...point(to, true));
+    return r;
+  }
+
+  function caretScreenOffset(block) {
+    const s = editSel();
+    if (!s || !s.rangeCount || !block.contains(s.focusNode)) return null;
+    return screenOffset(block, s.focusNode, s.focusOffset);
+  }
+
+  // ⌫ (backward) or Delete on the word beside the caret, or the word the
+  // caret is inside. A word you typed leaves, an original word strikes, a
+  // struck word comes back; a run of presses keeps the job its first found
+  // (eraseInBlock). Backward, the spaces between the word and the caret go
+  // with it, so striking on through a sentence makes one strike; a word you
+  // typed into a gap takes the gap's opening space along once nothing typed
+  // is left before it. Held, the key takes a word every HOLD_WORD_MS: key
+  // repeat at letter speed would strike a sentence before the key is up.
+  const HOLD_WORD_MS = 150;
+  let lastWordErase = 0;
+  function eraseWord(block, { backward = true, repeat = keyRepeat } = {}) {
+    const caret = caretScreenOffset(block);
+    if (caret == null) return false;
+    const now = Date.now();
+    if (repeat && now - lastWordErase < HOLD_WORD_MS) return false;
+    const { text, words } = editWords(block);
+    const word = backward
+      ? words.slice().reverse().find((w) => w.start < caret)
+      : words.find((w) => w.end > caret);
+    if (!word) return false;
+    lastWordErase = now;
+    let from = backward ? word.start : Math.min(caret, word.start);
+    const to = backward ? Math.max(caret, word.end) : word.end;
+    if (word.typed && from > 0 && /\s/.test(text[from - 1])) {
+      const [node, offset] = (() => { const r = rangeAtScreen(block, from - 1, from); return [r.startContainer, r.startOffset]; })();
+      const gapIns = markWrapping(node, 'ins.md-pending-ins[data-md-gap]');
+      if (gapIns) {
+        const before = document.createRange();
+        before.selectNodeContents(gapIns);
+        before.setEnd(node, offset + 1);
+        const lead = before.toString();
+        if (!lead.trim()) from -= lead.length;
+      }
+    }
+    const mode = word.typed || word.struck ? 'takeBack' : 'strike';
+    eraseInBlock(block, rangeAtScreen(block, from, to), { backward, repeat, mode });
+    return true;
+  }
+
+  // The caret's resting spots: after each word, and the block's start.
+  function wordEnds(block) {
+    return [0, ...editWords(block).words.map((w) => w.end)];
+  }
+
+  // ←/→: the caret moves to the end of the word before or after it.
+  // Returns the new offset, or null at the block's edge.
+  function moveByWord(block, backward) {
+    const caret = caretScreenOffset(block);
+    if (caret == null) return null;
+    const s = editSel();
+    const r = s.getRangeAt(0);
+    const from = s.isCollapsed ? caret
+      : screenOffset(block, backward ? r.startContainer : r.endContainer, backward ? r.startOffset : r.endOffset);
+    const ends = wordEnds(block);
+    const to = backward ? ends.filter((e) => e < from).pop() : ends.find((e) => e > from);
+    if (to == null) { if (!s.isCollapsed) caretAtScreenOffset(block, from); return s.isCollapsed ? null : from; }
+    caretAtScreenOffset(block, to);
+    return to;
+  }
+
+  // A caret that landed inside a word (a click, a line move) rests after
+  // it. Returns the offset it rests at.
+  function settleCaretAfterWord(block) {
+    const s = editSel();
+    if (!s || !s.rangeCount || !s.isCollapsed) return null;
+    const caret = caretScreenOffset(block);
+    if (caret == null) return null;
+    const word = editWords(block).words.find((w) => w.start < caret && caret < w.end);
+    if (!word) return caret;
+    caretAtScreenOffset(block, word.end);
+    return word.end;
+  }
+
+  // Shift+←/→: the selection's moving end goes a word at a time.
+  function extendByWord(block, backward) {
+    const s = editSel();
+    if (!s || !s.rangeCount || typeof s.modify !== 'function') return;
+    s.modify('extend', backward ? 'backward' : 'forward', 'word');
   }
 
   // Returns the insertion the text went into (a new <ins>, or the one the
@@ -352,7 +493,10 @@ function createMarkEngine({ beforeMutate } = {}) {
     collapseCaret(el, 'after');
   }
 
-  return { strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock };
+  return {
+    strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock,
+    eraseWord, moveByWord, settleCaretAfterWord, extendByWord,
+  };
 }
 
 // Closing punctuation typed at a gap belongs to the word before it.

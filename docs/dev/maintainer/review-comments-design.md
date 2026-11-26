@@ -232,7 +232,9 @@ quote composer.
 
 A selection in the review's prose or commit message snaps to whole words on
 mouseup (`word-snap.js`, the md viewer's rule), before the quote reads it;
-code and diffs keep exact ends.
+code and diffs keep exact ends. Editing the commit message works a word at
+a time, as in the md viewer (`md-editing-design.md`, "Editing works a word
+at a time"): the same engine calls, wired in `review-commit-edit.js`.
 
 A letter typed over a selection inside a commit block now reaches the page's
 quote comment, which quotes the selection. The controller's capture-phase
