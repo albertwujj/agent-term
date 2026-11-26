@@ -323,6 +323,8 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
   // selects nothing. The host window is unaffected. So the press point is
   // kept, and once the pointer has moved, a selection Chromium collapsed is
   // extended from it again; when Chromium extends it itself, nothing runs.
+  // Review pages only, by choice: plain pages in the band keep the bug, since
+  // selecting there is rare and only copies.
   function keepDragAnchor() {
     let drag = null;
     document.addEventListener('mousedown', function (e) {
