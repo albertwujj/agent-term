@@ -377,6 +377,14 @@ async function run() {
       ctl.isEditing() && p1.textContent === 'The polling quietly utilizes a timer to refill tokens.', p1.textContent);
     key(p1, { key: 'Escape' });
 
+    aim(p1, 'utilizes', 0); // the near half of the word after the space
+    clickAt(p1);
+    check('a click on the edge of the word after a space opens the editor at the gap',
+      ctl.isEditing() && p1.classList.contains('md-gap-caret'));
+    p1.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, detail: 2 }));
+    check('the second press of a double-click ends an untouched gap edit, for the page\'s paragraph select',
+      !ctl.isEditing() && p1.innerHTML === P1);
+
     aim(p2, ' paragraph');
     clickAt(p2);
     key(p2, { key: 'Enter' });

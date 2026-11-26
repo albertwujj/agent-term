@@ -383,35 +383,44 @@ function screenCharBeside(nodes, node, index, step) {
 
 // The gap under a click: one whitespace character between two non-space
 // characters on screen (struck text counts: it is still on the page), in
-// prose (never in a code block), outside the user's own marks (a click there
-// revises the mark instead), with the point inside the character's box (a
-// click on a letter, or past a line's end, is not a gap). Returns
-// { node, index } of the space, or null.
+// prose (never in a code block), outside the user's own marks. A click is at
+// the gap when the caret would land beside that space, the nearest letter
+// boundary as any editor places it: on the space itself, or on the near half
+// of the letter either side. A click past a line's end is never at a gap.
+// Returns { node, index } of the space, or null.
+const GAP_MARKS = 'del.md-pending-del, ins.md-pending-ins, del.md-sent-del, ins.md-sent-ins';
 function gapCharAtPoint(block, x, y) {
   if (!block || typeof document.caretRangeFromPoint !== 'function') return null;
   let hit = null;
   try { hit = document.caretRangeFromPoint(x, y); } catch { return null; }
   if (!hit || !block.contains(hit.startContainer) || hit.startContainer.nodeType !== 3) return null;
-  const node = hit.startContainer;
-  const parent = node.parentElement;
-  if (!parent || parent.closest('pre') || parent.closest('del.md-pending-del, ins.md-pending-ins, del.md-sent-del, ins.md-sent-ins')) return null;
-  const nodes = textNodesOf(block);
-  for (const index of [hit.startOffset, hit.startOffset - 1]) {
-    if (index < 0 || index >= node.data.length || !/\s/.test(node.data[index])) continue;
-    const before = screenCharBeside(nodes, node, index, -1);
-    const after = screenCharBeside(nodes, node, index, 1);
-    if (!before || !after || /\s/.test(before) || /\s/.test(after)) continue;
-    const box = document.createRange();
-    box.setStart(node, index);
-    box.setEnd(node, index + 1);
-    // A mouse event's x is a whole pixel (the click was somewhere in [x, x+1)),
-    // so the gap takes a click only when that whole pixel column is inside the
-    // space. Misreading a word as a gap would open the editor and shift the
-    // line under a double-click; the other way round, a gap click arms for a
-    // comment and a second click retries.
-    const inside = Array.from(box.getClientRects()).some((r) => r.width > 0
-      && x >= r.left && x + 1 <= r.right && y >= r.top && y <= r.bottom);
-    if (inside) return { node, index };
+  const nodes = textNodesOf(block).filter((n) => n.data.length);
+  const hitIndex = nodes.indexOf(hit.startContainer);
+  if (hitIndex < 0) return null;
+  const starts = [];
+  let total = 0;
+  for (const n of nodes) { starts.push(total); total += n.data.length; }
+  const text = nodes.map((n) => n.data).join('');
+  const at = (k) => {
+    for (let i = nodes.length - 1; i >= 0; i--) if (k >= starts[i]) return { node: nodes[i], offset: k - starts[i] };
+    return null;
+  };
+  const caret = starts[hitIndex] + hit.startOffset;
+  for (const g of [caret, caret - 1]) {
+    if (!/\s/.test(text[g] || '') || !/\S/.test(text[g - 1] || '') || !/\S/.test(text[g + 1] || '')) continue;
+    const space = at(g);
+    const parent = space.node.parentElement;
+    if (!parent || parent.closest('pre') || parent.closest(GAP_MARKS)) continue;
+    // The point must be on the letter, space, letter run itself: past a
+    // line's end the nearest boundary can sit beside a space too.
+    const from = at(g - 1);
+    const to = at(g + 1);
+    const run = document.createRange();
+    run.setStart(from.node, from.offset);
+    run.setEnd(to.node, to.offset + 1);
+    const onRun = Array.from(run.getClientRects()).some((r) => r.width > 0
+      && x >= r.left && x < r.right && y >= r.top && y <= r.bottom);
+    if (onRun) return { node: space.node, index: space.offset };
   }
   return null;
 }

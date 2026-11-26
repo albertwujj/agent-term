@@ -876,11 +876,18 @@ and renames "Edit instead".
 - **What's under the pointer picks the state.** A word arms the block for a
   comment. A gap (one space between two non-space characters, in prose,
   outside the user's marks) opens the editor there; so does a click on the
-  user's own strike or insertion, at the click point. The gap test takes a
-  click only when its whole pixel column lies inside the space: mouse
-  coordinates are whole pixels, and a word misread as a gap would open the
-  editor and shift the line under a double-click. Over a gap the pointer is
-  an amber I-beam. A sealed block's gap arms it for a comment.
+  user's own strike or insertion, at the click point. A click is at the gap
+  when the caret would land beside the space, the nearest letter boundary:
+  on the space, or on the near half of the letter either side (about 12px a
+  gap where the space alone is about 4px; a click past a line's end never
+  counts). The cost is the comment caret at a word's edge, and more clicks
+  meant as comments open the editor; nothing moves, so that costs an Esc or
+  To comment. A double-click in an untouched gap editor still selects the
+  word for a comment (the review's selects its paragraph). Over a gap the
+  pointer is an amber I-beam. A sealed block's gap arms it for a comment.
+  (A first cut took only clicks whose whole pixel column lay inside the
+  space, against a slot that shifted the line; once nothing moved, that
+  precision only made gaps hard to hit.)
 - **A gap gets a block caret.** The native caret waits just before the space,
   drawn as an amber block (`caret-shape: block`) that covers exactly the space:
   the terminal's cursor on the cell where the next character goes. Nothing is

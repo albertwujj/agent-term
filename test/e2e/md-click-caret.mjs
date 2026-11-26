@@ -46,7 +46,9 @@ try {
   await page.waitForSelector('.vb-shell.vb-md.open .md-viewer-body h1');
   await page.waitForTimeout(400);
 
-  // Press at the start of `word` in paragraph n, on whichever copy shows it.
+  // Press just inside `word` in paragraph n (on its second letter, so the caret
+  // lands between its first two letters: a word's edges belong to the gap
+  // beside them, where a click edits), on whichever copy shows it.
   async function clickWord(n, word) {
     const point = await page.evaluate(([n, word]) => {
       for (const p of document.querySelectorAll('.md-viewer-body p')) {
@@ -54,8 +56,8 @@ try {
         const text = p.firstChild;
         const at = text.data.indexOf(word);
         const range = document.createRange();
-        range.setStart(text, at);
-        range.setEnd(text, at + 1);
+        range.setStart(text, at + 1);
+        range.setEnd(text, at + 2);
         const rect = range.getBoundingClientRect();
         const x = rect.left + 1;
         const y = rect.top + rect.height / 2;
@@ -81,7 +83,7 @@ try {
       };
     });
     assert.equal(state.block, `Paragraph ${n}`, `${why}: the clicked block holds the caret ${JSON.stringify(state)}`);
-    assert.ok(state.after.startsWith(word), `${why}: the caret sits at the clicked word ${JSON.stringify(state)}`);
+    assert.ok(state.after.startsWith(word.slice(1)), `${why}: the caret sits in the clicked word ${JSON.stringify(state)}`);
     assert.equal(state.focusInBand, true, `${why}: keys go to the doc, not the prompt`);
     assert.equal(state.editing, false, `${why}: the edit committed`);
   }

@@ -217,6 +217,56 @@ async function run() {
     check('the edit rests with its marks and the bar quiets', !!rested.querySelector('ins.md-pending-ins') && hint() === '', hint());
   }
 
+  // --- the near half of the letter beside a space counts as the gap too ---
+  {
+    const after = aim('Fourth paragraph', 'for', 0); // caret lands just after the space
+    await clickAimed(after);
+    const r = dom.window.getSelection().getRangeAt(0);
+    check('a click on the edge of the word after a space opens the editor at the gap',
+      editing() === after && after.classList.contains('md-gap-caret')
+      && r.startContainer.data.slice(r.startOffset).startsWith(' for'));
+    await reset();
+    const before = aim('Fourth paragraph', 'paragraph', 9); // caret lands just before the space
+    await clickAimed(before);
+    check('so does a click on the edge of the word before it', editing() === before && before.classList.contains('md-gap-caret'));
+    await reset();
+    const own = block('The poller');
+    aim('The poller', 'file', 4); // the space after "file" is the user's own insertion
+    await clickAimed(own);
+    check('a space inside your own insertion is your mark, not a gap', !editing() || !own.classList.contains('md-gap-caret'));
+    await reset();
+  }
+
+  // --- a double-click still selects a word for a comment ---
+  {
+    const el = aim('Fourth paragraph', 'sealed', 0);
+    await clickAimed(el);
+    const ed = editing();
+    const node = Array.from(ed.childNodes).find((n) => n.nodeType === 3 && n.data.includes('sealed'));
+    const word = document.createRange();
+    word.setStart(node, node.data.indexOf('sealed'));
+    word.setEnd(node, node.data.indexOf('sealed') + 'sealed'.length);
+    dom.window.getSelection().removeAllRanges();
+    dom.window.getSelection().addRange(word);
+    ed.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+    await sleep(10);
+    check('a double-click in an untouched gap editor ends it and arms the word',
+      !editing() && hint().startsWith('letters and digits comment')
+      && !block('Fourth paragraph').classList.contains('md-comment-target-active'), hint());
+    key(document, { key: 'k' });
+    await sleep(10);
+    check('so a letter then comments on that word', !!card() && card().value === 'k');
+    card().value = '';
+    await reset();
+    const again = aim('Fourth paragraph', 'sealed', 0);
+    await clickAimed(again);
+    type(editing(), 'x');
+    editing().dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true, detail: 2 }));
+    await sleep(10);
+    check('once something is typed, a double-click stays in the edit', !!editing());
+    await reset();
+  }
+
   // --- your own mark reopens the edit at the click; Revert drops it whole ---
   {
     const el = block('The poller');

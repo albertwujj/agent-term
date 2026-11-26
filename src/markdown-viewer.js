@@ -5423,11 +5423,37 @@ function createMarkdownViewer({
       const gap = gapOffsetAt(el, event.clientX, event.clientY);
       if (gap != null) showGapCaret(state.editing, gap);
     };
+    // A double-click selects a word for a comment, as anywhere else. Its
+    // first click, at a word's edge, opened this editor at the gap; while
+    // nothing has been typed, the double-click ends the edit and arms the
+    // word the browser selected.
+    const onDblClick = () => {
+      const session = state.editing;
+      if (!session || session.el !== el || !session.gapOpened) return;
+      if ((session.undoStack && session.undoStack.length) || (session.note || '').trim()) return;
+      const sel = window.getSelection && window.getSelection();
+      if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+      const picked = sel.getRangeAt(0);
+      if (!el.contains(picked.startContainer) || !el.contains(picked.endContainer)) return;
+      const start = getTextOffsetWithin(el, picked.startContainer, picked.startOffset, ON_SCREEN);
+      const end = getTextOffsetWithin(el, picked.endContainer, picked.endOffset, ON_SCREEN);
+      const pane = isInSecondaryPane(el) ? 'right' : 'left';
+      const { anchorId } = session;
+      revertBlockEditor();
+      const article = pane === 'right' ? state.secondaryArticle : state.article;
+      const target = article && getArticleAnchorById(article, anchorId);
+      const word = target && createTextRangeWithin(target, start, end, ON_SCREEN);
+      if (!word) return;
+      sel.removeAllRanges();
+      sel.addRange(word);
+      activateSelectionFromDom();
+    };
     el.addEventListener('paste', onPaste);
     el.addEventListener('beforeinput', onBeforeInput);
     el.addEventListener('blur', commitEditorOnBlur);
     el.addEventListener('mousedown', onMousedown);
     el.addEventListener('click', onClick);
+    el.addEventListener('dblclick', onDblClick);
     el.contentEditable = 'true';
     el.spellcheck = true;
     el.classList.add('md-rendered-editing');
@@ -5437,6 +5463,7 @@ function createMarkdownViewer({
       el.removeEventListener('blur', commitEditorOnBlur);
       el.removeEventListener('mousedown', onMousedown);
       el.removeEventListener('click', onClick);
+      el.removeEventListener('dblclick', onDblClick);
       try { el.contentEditable = 'false'; } catch {}
       el.classList.remove('md-rendered-editing');
     };
@@ -7590,7 +7617,10 @@ function createMarkdownViewer({
     openBlockEditor(target, null);
     const session = state.editing;
     if (!session) return false;
-    if (gap && caret != null) showGapCaret(session, caret);
+    if (gap && caret != null) {
+      session.gapOpened = true;
+      showGapCaret(session, caret);
+    }
     if (focusNote && session.composer) {
       try { session.composer.focus(); } catch {}
     }

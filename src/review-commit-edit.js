@@ -195,7 +195,10 @@ function createCommitEditController(io) {
     if (onMark || gapAt != null) {
       openSession(block, null, gapAt != null ? gapAt : at, null);
       if (session) {
-        if (gapAt != null) showGapCaret(gapAt);
+        if (gapAt != null) {
+          session.gapOpened = true;
+          showGapCaret(gapAt);
+        }
         return;
       }
     }
@@ -588,6 +591,15 @@ function createCommitEditController(io) {
   function onDocMousedownCapture(event) {
     if (!session) return;
     const t = event.target;
+    // A double-click on a commit block selects its paragraph for a comment.
+    // Its first click, at a word's edge, may have opened this editor at the
+    // gap; while nothing has been typed, the second press ends the edit and
+    // the page's double-click takes over.
+    if (event.detail >= 2 && session.gapOpened && session.block.contains(t)
+      && !session.undoStack.length && !(session.note || '').trim()) {
+      revert();
+      return;
+    }
     if (session.block.contains(t)) return;
     if (session.composerWrap && session.composerWrap.contains(t)) return;
     commit(false);
