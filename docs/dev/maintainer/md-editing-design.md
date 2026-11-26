@@ -945,7 +945,10 @@ actions"), and the mark-click strip, and renames "Edit instead".
   a struck word comes back, and your typed part of a word goes first.
   Backward, the spaces between the word and the caret go too, so striking
   on through a sentence makes one strike; a typed word takes its gap's
-  opening space once nothing typed is left before it. The press-run rule
+  opening space once nothing typed is left before it. Since a space is
+  struck only with a word, a take-back also brings back a strike left
+  holding only spaces beside it (strike "the file", take back each word:
+  no struck space remains); a strike of only spaces elsewhere stays. The press-run rule
   stands (striking runs hop older strikes, a held take-back stops at the
   page's text), tracked by on-screen caret offset since the gap caret
   re-seats the caret. A held key takes a word every 150 ms instead of one

@@ -247,15 +247,16 @@ function createMarkEngine({ beforeMutate } = {}) {
     if (!parts.length) return false;
     onMutate();
     const after = caretMode === 'after';
-    let land = after
-      ? screenOffset(block, range.endContainer, range.endOffset)
-      : screenOffset(block, range.startContainer, range.startOffset);
+    const from = screenOffset(block, range.startContainer, range.startOffset);
+    let to = screenOffset(block, range.endContainer, range.endOffset);
+    let land = after ? to : from;
     for (const { node, s, e, mark } of parts) {
       let mid = node;
       if (s > 0) mid = mid.splitText(s);
       if (mid.data.length > (e - s)) mid.splitText(e - s);
       if (mark.nodeName === 'INS') {
         if (after) land -= mid.data.length; // removed text before the landing point
+        to -= mid.data.length;
         mid.remove();
         if (!mark.textContent.length) mark.remove();
       } else {
@@ -263,6 +264,20 @@ function createMarkEngine({ beforeMutate } = {}) {
       }
     }
     joinStrikes(block); // the strikes either side of a removed insertion meet
+    // A space is struck only along with a word, so a strike left holding
+    // only spaces beside a word taken back is that word's leftover: strike
+    // "the file", take back "file" then "the", and the space between them
+    // comes back too.
+    for (const del of Array.from(block.querySelectorAll('del.md-pending-del'))) {
+      if (del.textContent.trim()) continue;
+      const first = textNodesOf(del)[0];
+      if (!first) continue;
+      const start = screenOffset(block, first, 0);
+      const end = start + del.textContent.length;
+      if (end !== from && start !== to) continue;
+      while (del.firstChild) del.parentNode.insertBefore(del.firstChild, del);
+      del.remove();
+    }
     caretAtScreenOffset(block, land);
     return true;
   }

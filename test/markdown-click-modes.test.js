@@ -382,6 +382,38 @@ async function run() {
     await reset();
   }
 
+  // --- taking back both struck words brings back the space struck between them ---
+  {
+    const caretAfter = (needle) => {
+      const w = document.createTreeWalker(editing(), 4, null);
+      let n;
+      while ((n = w.nextNode())) {
+        const i = n.data.indexOf(needle);
+        if (i < 0) continue;
+        const r = document.createRange();
+        r.setStart(n, i + needle.length);
+        dom.window.getSelection().removeAllRanges();
+        dom.window.getSelection().addRange(r);
+        return;
+      }
+      throw new Error(`no ${needle}`);
+    };
+    for (const [first, second] of [['file', 'the'], ['the', 'file']]) {
+      const el = aim('The poller', ' once');
+      await clickAimed(el);
+      erase(editing(), true);
+      erase(editing(), true);
+      check('two ⌫ strike "the file" as one strike', /reads \[the file\] once/.test(marks(editing())), marks(editing()));
+      caretAfter(first);
+      erase(editing(), true);
+      caretAfter(second);
+      erase(editing(), true);
+      check(`taking back "${first}" then "${second}" leaves no struck space`,
+        !editing().querySelector('del') && editing().textContent.includes('reads the file once'), marks(editing()));
+      await reset();
+    }
+  }
+
   // --- held ⌫ takes a word at a reading pace, not at key-repeat speed ---
   {
     const el = aim('The poller', ' once');

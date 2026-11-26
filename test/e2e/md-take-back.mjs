@@ -155,6 +155,16 @@ try {
   assert.equal(await marks(6), text.replace('Paragraph 2', 'Paragraph 6'), `a click on your strike, then ⌫, brings it back: ${await marks(6)}`);
   console.log('PASS a click on your own strike reopens the edit after the word');
 
+  await clickAt(7, gapAfterWords);
+  await backspaces(2); // strike "some words", one strike with the space between
+  await commit();
+  await clickAt(7, text.indexOf('words') + 2); // take back "words"
+  await backspaces(1);
+  await clickAt(7, text.indexOf('some') + 2); // then "some"
+  await backspaces(1);
+  assert.equal(await marks(7), text.replace('Paragraph 2', 'Paragraph 7'), `taking back both words brings back the space between: ${await marks(7)}`);
+  console.log('PASS taking back two struck words one by one leaves no struck space');
+
   assert.deepEqual(errors, [], 'no renderer errors');
 } finally {
   await app.close();
