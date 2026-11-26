@@ -238,6 +238,14 @@ function createCommitEditController(io) {
   }
 
   // ——— the edit session ———
+  // The next mutation joins the current step instead of starting one.
+  function joinUndoStep() {
+    const sess = session;
+    if (!sess || sess.undoLatch) return;
+    sess.undoLatch = true;
+    queueMicrotask(() => { sess.undoLatch = false; syncToComment(); });
+  }
+
   function pushUndo() {
     if (!session || session.undoLatch) return;
     session.undoLatch = true;
@@ -266,6 +274,7 @@ function createCommitEditController(io) {
     to.push({ html: session.block.innerHTML, caret });
     const snap = from.pop();
     clearGapCaret();
+    session.typedTo = null;
     session.block.innerHTML = snap.html;
     try { session.block.focus({ preventScroll: true }); } catch {}
     setCaret(session.block, snap.caret);
@@ -338,6 +347,7 @@ function createCommitEditController(io) {
         if (entryText) {
           engine.strikeInBlock(block, entrySelection, 'after');
           engine.insertAtGap(entryText, block);
+          sess.typedTo = caretOffsetIn(block);
         } else {
           // The bare switch: the selection comes back live, ready to type over.
           const s = window.getSelection && window.getSelection();
@@ -354,6 +364,7 @@ function createCommitEditController(io) {
       // own word after it.
       engine.strikeInBlock(block, entrySelection, 'after');
       engine.insertAtGap(k, block);
+      sess.typedTo = caretOffsetIn(block); // the keys after it join its step
       return;
     }
     const max = block.textContent.length; // current content: marks included on a revisit
@@ -382,6 +393,7 @@ function createCommitEditController(io) {
   function wireSurface(el) {
     const onPaste = (event) => {
       event.preventDefault();
+      if (session) session.typedTo = null;
       onSelectionChange(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
       const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
@@ -393,6 +405,8 @@ function createCommitEditController(io) {
     };
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
+      const typing = t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromComposition';
+      if (!typing && session) session.typedTo = null; // any other input ends a typing run
       // Any input ends the gap caret; text typed there makes its own word.
       onSelectionChange(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
@@ -423,8 +437,12 @@ function createCommitEditController(io) {
         // at the bar (you are typing) it extends your word.
         const s = window.getSelection();
         const over = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
+        // A run of typing is one undo step, as in a text box: a key typed
+        // where the last one left the caret joins that step.
+        if (session && !atGap && !over && session.typedTo != null && session.typedTo === caretOffsetIn(el)) joinUndoStep();
         if (over) engine.strikeInBlock(el, s.getRangeAt(0), 'after');
         if (atGap || over) engine.insertAtGap(event.data || '', el); else engine.insertMarkedInBlock(event.data || '');
+        if (session) session.typedTo = caretOffsetIn(el);
         return;
       }
       // no new blocks, no formatting, no native undo (it can't see our marks)
@@ -580,11 +598,14 @@ function createCommitEditController(io) {
       toComment();
       return;
     }
-    const mod = io.platform === 'darwin' ? event.metaKey : event.ctrlKey;
-    if (mod && !event.altKey && (event.key === 'z' || event.key === 'Z')) {
+    // ⌘Z / ⇧⌘Z; elsewhere Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y.
+    const mac = io.platform === 'darwin';
+    const mod = mac ? event.metaKey : event.ctrlKey;
+    const k = String(event.key).toLowerCase();
+    if (mod && !event.altKey && (k === 'z' || (!mac && k === 'y'))) {
       event.preventDefault();
       event.stopPropagation();
-      undoStep(event.shiftKey);
+      undoStep(event.shiftKey || k === 'y');
     }
   }
 

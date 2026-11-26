@@ -510,7 +510,17 @@ function createMarkEngine({ beforeMutate } = {}) {
     const tn = document.createTextNode(text.replace(/\s/g, ' '));
     let ins = host;
     if (host) { range.insertNode(tn); }
-    else { ins = document.createElement('ins'); ins.className = 'md-pending-ins'; ins.appendChild(tn); range.insertNode(ins); }
+    else {
+      ins = document.createElement('ins'); ins.className = 'md-pending-ins'; ins.appendChild(tn); range.insertNode(ins);
+      // Text typed right against an insertion of yours is part of it: one
+      // insertion to the agent, as neighbouring strikes are one strike.
+      const isIns = (n) => !!n && n.nodeType === 1 && n.matches('ins.md-pending-ins') && !n.matches('.md-pending-break');
+      const beside = (n, dir) => { let m = n[dir]; while (m && m.nodeType === 3 && !m.data.length) m = m[dir]; return m; };
+      const prev = beside(ins, 'previousSibling');
+      const next = beside(ins, 'nextSibling');
+      if (isIns(prev)) { prev.appendChild(tn); ins.remove(); ins = prev; }
+      else if (isIns(next)) { next.insertBefore(tn, next.firstChild); ins.remove(); ins = next; }
+    }
     collapseCaret(tn, tn.length);
     return ins;
   }

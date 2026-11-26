@@ -36,11 +36,14 @@ function key(k, init = {}) {
   ta.dispatchEvent(ev);
   return ev;
 }
-function type(text) {
+function type(text, box = ta) {
   for (const ch of text) {
     const ev = new dom.window.InputEvent('beforeinput', { inputType: 'insertText', data: ch, bubbles: true, cancelable: true });
-    ta.dispatchEvent(ev);
-    if (!ev.defaultPrevented) ta.setRangeText(ch, ta.selectionStart, ta.selectionEnd, 'end');
+    box.dispatchEvent(ev);
+    if (!ev.defaultPrevented) {
+      box.setRangeText(ch, box.selectionStart, box.selectionEnd, 'end');
+      box.dispatchEvent(new dom.window.InputEvent('input', { inputType: 'insertText', data: ch, bubbles: true }));
+    }
   }
 }
 const caret = () => ta.selectionStart;
@@ -129,6 +132,43 @@ async function run() {
   check('at a line\'s end the caret is the bar', !resting());
   type('s');
   check('and typing just goes on', ta.value === 'first lines\nsecond', ta.value);
+
+  // undo and redo: the box's own history, all the way back to empty
+  {
+    const seeded = createComposer({ actions: [], seed: 'k' });
+    document.body.appendChild(seeded.root);
+    const box = seeded.textarea;
+    box.focus();
+    box.setSelectionRange(1, 1);
+    const press = (k, init = {}) => box.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }));
+    type('eep these', box);
+    press('Backspace');
+    type('those', box);
+    check('the box reads as typed', box.value === 'keep those', box.value);
+    // The platform's own keys: ⌘ on macOS (the module reads navigator.platform), Ctrl elsewhere.
+    const mac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform || '');
+    const mod = mac ? { metaKey: true } : { ctrlKey: true };
+    const undo = () => press('z', mod);
+    const redo = (i) => (!mac && i % 2 ? press('y', mod) : press('Z', { ...mod, shiftKey: true }));
+    const undos = [];
+    for (let i = 0; i < 5; i++) { undo(); undos.push(box.value); }
+    check('undo steps back a typing run, a word erase, the next run, then the opening letter, and stops at empty',
+      JSON.stringify(undos) === JSON.stringify(['keep ', 'keep these', 'k', '', '']), undos);
+    const redos = [];
+    for (let i = 0; i < 5; i++) { redo(i); redos.push(box.value); }
+    check(`redo (${mac ? '⇧⌘Z' : 'Ctrl+Shift+Z and Ctrl+Y'}) steps forward again, and stops at the last change`,
+      JSON.stringify(redos) === JSON.stringify(['k', 'keep these', 'keep ', 'keep those', 'keep those']), redos);
+    undo();
+    type('x', box);
+    redo(0);
+    check('a change after an undo drops what could be redone', box.value === 'keep x', box.value);
+    const menuUndo = new dom.window.InputEvent('beforeinput', { inputType: 'historyUndo', bubbles: true, cancelable: true });
+    box.dispatchEvent(menuUndo);
+    check('the context menu\'s Undo steps the same history', menuUndo.defaultPrevented && box.value === 'keep ', box.value);
+    box.value = 'written by the host';
+    undo();
+    check('text a host writes starts the history over: undo leaves it', box.value === 'written by the host', box.value);
+  }
 
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) process.exit(1);

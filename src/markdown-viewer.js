@@ -5379,6 +5379,13 @@ function createMarkdownViewer({
   // snapshots the block before the change. A strike+insert pair (typing over a
   // selection, paste) lands in the same event, so a microtask latch coalesces
   // it into one step. Escape/Revert still drop the whole session at once.
+  // The next mutation joins the current step instead of starting one.
+  function joinUndoStep(session) {
+    if (session.undoLatch) return;
+    session.undoLatch = true;
+    queueMicrotask(() => { session.undoLatch = false; syncToCommentButton(session); });
+  }
+
   function pushEditingUndo() {
     const session = state.editing;
     if (!session || !session.el || session.undoLatch) return;
@@ -5408,6 +5415,7 @@ function createMarkdownViewer({
     to.push({ html: session.el.innerHTML, caret: caret == null ? 0 : caret });
     const snap = from.pop();
     clearGapCaret(session);
+    session.typedTo = null;
     session.el.innerHTML = snap.html;
     try { session.el.focus({ preventScroll: true }); } catch {}
     setCaretWithin(session.el, snap.caret);
@@ -5428,6 +5436,7 @@ function createMarkdownViewer({
   function wireEditingSurface(el) {
     const onPaste = (event) => {
       event.preventDefault();
+      if (state.editing) state.editing.typedTo = null;
       syncGapCaretToSelection();
       const atGap = clearGapCaret();
       const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
@@ -5439,6 +5448,8 @@ function createMarkdownViewer({
     };
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
+      const typing = t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromComposition';
+      if (!typing && state.editing) state.editing.typedTo = null; // any other input ends a typing run
       // Any input ends the gap caret; text typed there makes its own word.
       syncGapCaretToSelection(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
@@ -5469,8 +5480,13 @@ function createMarkdownViewer({
         // at the bar (you are typing) it extends your word.
         const s = window.getSelection();
         const over = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
+        // A run of typing is one undo step, as in a text box: a key typed
+        // where the last one left the caret joins that step.
+        const session = state.editing;
+        if (session && !atGap && !over && session.typedTo != null && session.typedTo === caretOffsetIn(el)) joinUndoStep(session);
         if (over) strikeInBlock(el, s.getRangeAt(0), 'after');
         if (atGap || over) insertAtGap(event.data || '', el); else insertMarkedInBlock(event.data || '');
+        if (session) session.typedTo = caretOffsetIn(el);
         return;
       }
       // no new blocks, no formatting, no native undo (it can't see our marks)
@@ -5677,6 +5693,7 @@ function createMarkdownViewer({
         if (typed) insertAtGap(entryText, target);
         else if (k === 'Enter') insertLineBreakInBlock();
         else insertAtGap(k, target);
+        if (k !== 'Enter') session.typedTo = caretOffsetIn(target); // the keys after it join its step
         return;
       }
     }

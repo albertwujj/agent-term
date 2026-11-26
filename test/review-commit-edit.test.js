@@ -480,6 +480,18 @@ async function run() {
       p1.textContent === 'The polling utilizes now a timer to refill tokens.', p1.textContent);
     key(p1, { key: 'Escape' });
 
+    // Undo and redo: a run of typing is one step.
+    aim(p1, ' utilizes');
+    clickAt(p1);
+    for (const ch of 'quietly') { typeChar(p1, ch); await sleep(0); }
+    key(p1, { key: 'z', metaKey: true });
+    await sleep(0);
+    check('⌘Z takes back a run of typing in one step', p1.textContent === P1, p1.textContent);
+    key(p1, { key: 'Z', metaKey: true, shiftKey: true });
+    await sleep(0);
+    check('⇧⌘Z brings it back', p1.textContent === 'The polling quietly utilizes a timer to refill tokens.', p1.textContent);
+    key(p1, { key: 'Escape' });
+
     aim(p2, ' paragraph');
     clickAt(p2);
     key(p2, { key: 'Enter' });

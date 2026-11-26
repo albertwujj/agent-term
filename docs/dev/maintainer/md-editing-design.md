@@ -994,8 +994,24 @@ actions"), and the mark-click strip, and renames "Edit instead".
   edit's `insertAtGap`) under the block caret. The end of the comment and
   of each line is where you compose: the bar, typing just goes on (a block
   there would be the digit-wide one, and a textarea cannot draw its own).
-  ⌘/Ctrl chords and IME stay native; edits go through `execCommand`, so
-  native undo and the box's input listeners see them.
+  ⌘/Ctrl chords and IME stay native.
+- **Undo and redo stay within the current edit or comment** (2026-11-26).
+  ⌘Z / ⇧⌘Z (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y elsewhere) step through it, all
+  the way back to where it opened and forward to its last change, and stop
+  there. A run of typing is one step (a key typed where the last one left
+  the caret joins it, `typedTo`), as are a word erase, a paste, a strike
+  over a selection and the key that opened the edit with what follows it.
+  The edits keep their own snapshot stacks (`pushEditingUndo` /
+  `joinUndoStep`; the review's `pushUndo`). The comment box keeps its own
+  too (`word-typing.js`), with the text it opened with as the first step so
+  undo reaches empty: the page's native undo history is shared by every
+  field in the document, the terminal's hidden input included, so an undo
+  past the box's first change reached into the terminal's field (and with
+  no Edit menu macOS gave the box no redo). Its word edits write with
+  `setRangeText`, outside that native history; the context menu's
+  Undo/Redo arrive as `historyUndo`/`historyRedo` and step the same history.
+  Text typed right against your own insertion joins it, so the agent reads
+  one insertion.
 - The review's commit message follows the same rules
   (`review-comments-design.md`, 2026-11-25).
 

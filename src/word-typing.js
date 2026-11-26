@@ -14,8 +14,16 @@
 //   (newWordSpacing). The end of the comment, and of each line, is where you
 //   compose: there the caret is the bar and typing just goes on.
 //
-// ⌘/Ctrl chords and IME composition stay native. Edits go through
-// execCommand so native undo and the box's input listeners see them.
+// ⌘Z undoes and ⇧⌘Z (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y elsewhere) redoes
+// through the box's own history, as the edit's do: a run of typing is one
+// step, a word erase, paste or cut is one, and the text the box opens with
+// (the key that opened it, words handed over) is the first, so undo reaches
+// an empty box. The page's native undo history cannot serve: it is shared by
+// every field in the document, the terminal's hidden input included, so an
+// undo past this box's first change would reach into another field (and with
+// no Edit menu, main.js, macOS gives a text box no redo). The box's own
+// edits write with setRangeText, outside that native history. Other ⌘/Ctrl
+// chords and IME composition stay native.
 //
 // Electron-free: bundled into the review preload with comment-ui.js.
 
@@ -24,14 +32,12 @@ const { wordSpans, snapStart, snapEnd, newWordSpacing } = require('./word-snap')
 const HOLD_WORD_MS = 150;
 const SPACE = /[ \t ]/;
 
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform || '');
+
 function replaceRange(ta, from, to, text) {
-  ta.setSelectionRange(from, to);
-  const done = typeof document.execCommand === 'function'
-    && document.execCommand(text ? 'insertText' : 'delete', false, text || undefined);
-  if (!done) {
-    ta.setRangeText(text, from, to, 'end');
-    ta.dispatchEvent(new window.Event('input', { bubbles: true }));
-  }
+  ta.setRangeText(text, from, to, 'end');
+  const InputEventCtor = window.InputEvent || window.Event;
+  ta.dispatchEvent(new InputEventCtor('input', { bubbles: true, inputType: text ? 'insertText' : 'deleteContentBackward', data: text || null }));
 }
 
 // Inside a word: after it. At a word's start right after spaces that follow
@@ -63,6 +69,37 @@ function wireWordTyping(ta) {
   let rest = false; // the caret rests between words: typed text is a new word
   let lastErase = 0;
 
+  // ——— the box's own history ———
+  const undoStack = [];
+  const redoStack = [];
+  let typedTo = null; // where the last typed text left the caret: a typing run goes on there
+  let composing = false;
+  let known = ta.value; // the text as the history last saw it
+  const snap = () => ({ value: ta.value, start: ta.selectionStart, end: ta.selectionEnd });
+  if (ta.value) undoStack.push({ value: '', start: 0, end: 0 }); // the opening text is the first step
+  // A change is about to happen: the text before it is a step. Text a host
+  // wrote meanwhile starts the history over from there.
+  function record() {
+    if (ta.value !== known) undoStack.length = 0;
+    undoStack.push(snap());
+    redoStack.length = 0;
+    typedTo = null;
+  }
+  function step(redo) {
+    unrest();
+    if (ta.value !== known) { undoStack.length = 0; redoStack.length = 0; known = ta.value; return; }
+    const from = redo ? redoStack : undoStack;
+    if (!from.length) return;
+    (redo ? undoStack : redoStack).push(snap());
+    const to = from.pop();
+    ta.value = to.value;
+    ta.setSelectionRange(to.start, to.end);
+    known = ta.value;
+    typedTo = null;
+    const InputEventCtor = window.InputEvent || window.Event;
+    ta.dispatchEvent(new InputEventCtor('input', { bubbles: true, inputType: redo ? 'historyRedo' : 'historyUndo' }));
+  }
+
   function seat(at) {
     const value = ta.value;
     ta.setSelectionRange(at, at);
@@ -76,7 +113,17 @@ function wireWordTyping(ta) {
   }
 
   function onKeydown(e) {
-    if (e.isComposing || e.metaKey || e.ctrlKey || e.defaultPrevented) return;
+    if (e.isComposing || e.defaultPrevented) return;
+    if ((IS_MAC ? e.metaKey : e.ctrlKey) && !e.altKey) {
+      const k = String(e.key).toLowerCase();
+      const redo = (k === 'z' && e.shiftKey) || (!IS_MAC && k === 'y' && !e.shiftKey);
+      if (k === 'z' || redo) {
+        e.preventDefault();
+        step(redo);
+      }
+      return;
+    }
+    if (e.metaKey || e.ctrlKey) return;
     const value = ta.value;
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
@@ -87,7 +134,9 @@ function wireWordTyping(ta) {
       const span = eraseSpan(value, start, e.key === 'Backspace');
       if (!span) return;
       lastErase = Date.now();
+      record();
       replaceRange(ta, span.from, span.to, '');
+      known = ta.value;
       seat(restingOffset(ta.value, span.from));
       return;
     }
@@ -122,18 +171,37 @@ function wireWordTyping(ta) {
   }
 
   function onBeforeInput(e) {
-    if (!rest) return;
+    const t = e.inputType || '';
+    if (t === 'historyUndo' || t === 'historyRedo') { e.preventDefault(); step(t === 'historyRedo'); return; }
+    if (composing) return; // the composition is one step, recorded at its start
+    // A key typed where the last one left the caret joins that step.
+    const typing = t === 'insertText' && ta.selectionStart === ta.selectionEnd;
+    if (!(typing && typedTo === ta.selectionStart && ta.value === known)) record();
+    const wasRest = rest;
     unrest();
-    if (e.inputType !== 'insertText' || !e.data || ta.selectionStart !== ta.selectionEnd) return;
+    if (!wasRest || !typing || !e.data) return;
     const caret = ta.selectionStart;
     const spacing = newWordSpacing(e.data, caret, ta.value);
     if (!spacing || (!spacing.lead && !spacing.trail)) return;
     e.preventDefault();
     replaceRange(ta, caret, caret, `${spacing.lead}${e.data}${spacing.trail}`);
-    if (spacing.trail) {
-      const at = ta.selectionStart - spacing.trail.length; // the next keys extend the word
-      ta.setSelectionRange(at, at);
-    }
+    const at = ta.selectionStart - spacing.trail.length; // the next keys extend the word
+    ta.setSelectionRange(at, at);
+    known = ta.value;
+    typedTo = at;
+  }
+
+  function onInput(e) {
+    const t = e.inputType || '';
+    if (t === 'historyUndo' || t === 'historyRedo' || composing) return;
+    known = ta.value;
+    typedTo = t === 'insertText' && ta.selectionStart === ta.selectionEnd ? ta.selectionStart : null;
+  }
+  function onCompositionStart() { record(); composing = true; }
+  function onCompositionEnd() {
+    composing = false;
+    known = ta.value;
+    typedTo = ta.selectionStart;
   }
 
   function onMouseup() {
@@ -154,11 +222,17 @@ function wireWordTyping(ta) {
 
   ta.addEventListener('keydown', onKeydown);
   ta.addEventListener('beforeinput', onBeforeInput);
+  ta.addEventListener('input', onInput);
+  ta.addEventListener('compositionstart', onCompositionStart);
+  ta.addEventListener('compositionend', onCompositionEnd);
   ta.addEventListener('mouseup', onMouseup);
   ta.addEventListener('blur', unrest);
   return () => {
     ta.removeEventListener('keydown', onKeydown);
     ta.removeEventListener('beforeinput', onBeforeInput);
+    ta.removeEventListener('input', onInput);
+    ta.removeEventListener('compositionstart', onCompositionStart);
+    ta.removeEventListener('compositionend', onCompositionEnd);
     ta.removeEventListener('mouseup', onMouseup);
     ta.removeEventListener('blur', unrest);
   };
