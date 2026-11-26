@@ -116,7 +116,7 @@ try {
   await backspaces(1);
   assert.equal(await marks(2), text, 'the next brings the word before back');
   await backspaces(1);
-  assert.match(await marks(2), /2 \[has \]some/, `once the strikes are back, the next press strikes on: ${await marks(2)}`);
+  assert.match(await marks(2), /2 \[has\] some/, `once the strikes are back, the next press strikes on: ${await marks(2)}`);
   await commit();
   console.log('PASS a struck word comes back whole');
 
@@ -167,9 +167,9 @@ try {
 
   await commit();
   await clickAt(8, gapAfterWords);
-  await backspaces(1); // strike "words": the caret rests at its start
+  await backspaces(1); // strike "words": the caret rests on the space before it
   await page.keyboard.type('terms');
-  assert.match(await marks(8), /some \{terms \}\[words\] and/, `typing where a strike left the caret makes a new word: ${await marks(8)}`);
+  assert.match(await marks(8), /some\{ terms\} \[words\] and/, `typing where a strike left the caret makes a new word: ${await marks(8)}`);
   console.log('PASS typing at a resting caret makes a new word');
 
   assert.deepEqual(errors, [], 'no renderer errors');

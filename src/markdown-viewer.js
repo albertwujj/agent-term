@@ -5345,7 +5345,7 @@ function createMarkdownViewer({
   // commit-message editor); this host binds them to its per-action undo.
   const {
     strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock,
-    eraseWord, moveByWord, settleCaretAfterWord, extendByWord, isBetweenWords,
+    eraseWord, moveByWord, settleCaretAfterWord, extendByWord, isBetweenWords, restingOffset,
   } = createMarkEngine({ beforeMutate: () => pushEditingUndo() });
 
   // A caret at rest sits between words (edit-marks.js, word-level editing)
@@ -5353,7 +5353,7 @@ function createMarkdownViewer({
   // spaces. Only while you type is it the bar, extending your word.
   function restCaretBetweenWords(session, offset) {
     if (!session || !session.el || offset == null) return;
-    showGapCaret(session, offset);
+    showGapCaret(session, restingOffset(session.el, offset)); // on the space before a word
   }
 
   function caretOffsetIn(el) {

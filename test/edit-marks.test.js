@@ -103,8 +103,9 @@ const marks = (el) => el.innerHTML
 {
   const el = block('one <del class="md-pending-del">two</del> three');
   caretTo(el, 13);
-  for (let i = 0; i < 6; i++) press(el); // "three" and the space
-  check('neighbouring strikes join into one', marks(el) === 'one [two three]' && el.querySelectorAll('del').length === 1, marks(el));
+  for (let i = 0; i < 5; i++) press(el); // "three"
+  check('strikes with only a space between join into one, the space struck',
+    marks(el) === 'one [two three]' && el.querySelectorAll('del').length === 1, marks(el));
   press(el);
   check('a striking run hops an older strike in one press, never bringing it back', marks(el) === 'one [two three]' && caretOffset(el) === 4, marks(el));
   press(el);

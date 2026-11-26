@@ -411,8 +411,8 @@ async function run() {
     !p2.querySelector('ins.md-pending-ins') && rawCaretOffset(p2) === at + 'paragraph '.length,
     rawCaretOffset(p2));
   key(p2, { key: 'z', metaKey: true }); // undo the strike
-  check('a second undo restores the block and the pre-strike caret',
-    !p2.querySelector('del.md-pending-del') && rawCaretOffset(p2) === at, rawCaretOffset(p2));
+  check('a second undo restores the block, the caret resting on the space before the word it began at',
+    !p2.querySelector('del.md-pending-del') && rawCaretOffset(p2) === at - 1, rawCaretOffset(p2));
   key(p2, { key: 'Escape' });
 
   // — the md viewer's click rules on the commit blocks —

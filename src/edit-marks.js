@@ -69,17 +69,23 @@ function createMarkEngine({ beforeMutate } = {}) {
     r.collapse(true); s.removeAllRanges(); s.addRange(r);
   }
 
-  // Neighbouring strikes are one strike. Erasing char by char wraps each
-  // char on its own; joined, the run reads as one <del> to the agent and a
-  // later erase run hops it in one press. Text nodes keep their identity,
-  // so a caret anchored on struck text survives the join.
+  // Neighbouring strikes are one strike, and so are two with only spaces
+  // between them: with both words gone, the space between goes too. Joined,
+  // the run reads as one <del> to the agent and a later erase run hops it in
+  // one press. Text nodes keep their identity, so a caret anchored on struck
+  // text survives the join.
   function joinStrikes(block) {
+    const isDel = (n) => !!n && n.nodeType === 1 && n.matches('del.md-pending-del');
     for (const del of block.querySelectorAll('del.md-pending-del')) {
       if (!del.parentNode) continue; // already joined into the one before
       let next = del.nextSibling;
-      while (next && next.nodeType === 1 && next.matches('del.md-pending-del')) {
-        while (next.firstChild) del.appendChild(next.firstChild);
-        next.remove();
+      for (;;) {
+        if (isDel(next)) {
+          while (next.firstChild) del.appendChild(next.firstChild);
+          next.remove();
+        } else if (next && next.nodeType === 3 && /^[ \t\u00a0]+$/.test(next.data) && isDel(next.nextSibling)) {
+          del.appendChild(next);
+        } else break;
         next = del.nextSibling;
       }
     }
@@ -402,6 +408,10 @@ function createMarkEngine({ beforeMutate } = {}) {
     const to = backward ? Math.max(caret, word.end) : word.end;
     const mode = word.typed || word.struck ? 'takeBack' : 'strike';
     eraseInBlock(block, rangeAtScreen(block, from, to), { backward, repeat, mode });
+    // The caret rests on the space before the word it landed at; the run
+    // goes on from there.
+    const rest = restCaret(block);
+    if (run && rest != null) run.at = rest;
     return true;
   }
 
@@ -411,6 +421,39 @@ function createMarkEngine({ beforeMutate } = {}) {
     const { text, words } = editWords(block);
     if (offset == null || !text.trim()) return false;
     return !words.some((w) => w.start < offset && offset < w.end);
+  }
+
+  // A caret resting at a word's start, after spaces that follow a word,
+  // rests at that word's end instead: the block caret then sits on the
+  // space, where a new word goes, rather than on the next word's first
+  // letter. The text typed there comes out the same. A word at the block's
+  // start, after a line break, or right after an opening bracket keeps the
+  // caret at its start.
+  function restingOffset(block, offset) {
+    if (offset == null) return offset;
+    let text = '';
+    const struck = [];
+    for (const n of textNodesOf(block)) {
+      const del = !!markWrapping(n, 'del.md-pending-del');
+      text += n.data;
+      for (let i = 0; i < n.data.length; i++) struck.push(del);
+    }
+    const space = (k) => /[ \t\u00a0]/.test(text[k] || '') && !struck[k]; // a struck space is going away
+    if (!/\S/.test(text[offset] || '') || !space(offset - 1)) return offset;
+    let k = offset;
+    while (k > 0 && space(k - 1)) k--;
+    return k > 0 && /\S/.test(text[k - 1]) ? k : offset;
+  }
+
+  // Seat the current caret at its resting spot; returns that offset.
+  function restCaret(block) {
+    const s = editSel();
+    if (!s || !s.rangeCount || !s.isCollapsed) return null;
+    const caret = caretScreenOffset(block);
+    if (caret == null) return null;
+    const rest = restingOffset(block, caret);
+    if (rest !== caret) caretAtScreenOffset(block, rest);
+    return rest;
   }
 
   // The caret's resting spots: after each word, and the block's start.
@@ -538,7 +581,7 @@ function createMarkEngine({ beforeMutate } = {}) {
 
   return {
     strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock,
-    eraseWord, moveByWord, settleCaretAfterWord, extendByWord, isBetweenWords,
+    eraseWord, moveByWord, settleCaretAfterWord, extendByWord, isBetweenWords, restingOffset,
   };
 }
 

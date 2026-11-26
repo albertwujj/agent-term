@@ -657,7 +657,7 @@ function createCommitEditController(io) {
   // extending your word.
   function restBetweenWords(offset) {
     if (!session || offset == null) return;
-    showGapCaret(offset);
+    showGapCaret(engine.restingOffset(session.block, offset)); // on the space before a word
   }
 
   function caretOffsetIn(el) {

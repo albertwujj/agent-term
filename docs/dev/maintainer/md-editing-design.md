@@ -947,7 +947,9 @@ actions"), and the mark-click strip, and renames "Edit instead".
   on through a sentence makes one strike; a typed word takes its gap's
   opening space once nothing typed is left before it. Since a space is
   struck only with a word, a take-back also brings back a strike left
-  holding only spaces beside it (strike "the file", take back each word:
+  holding only spaces beside it, and two strikes with only spaces between
+  join into one, the spaces struck (both words gone, the space between
+  goes; strike "the file", take back each word:
   no struck space remains), and an insertion left holding only spaces goes
   (the space a typed word came with); such marks elsewhere stay. The press-run rule
   stands (striking runs hop older strikes, a held take-back stops at the
@@ -959,8 +961,12 @@ actions"), and the mark-click strip, and renames "Edit instead".
 - **One caret at rest: the block means a new word** (user, 2026-11-25: a
   caret left at a word's start glued typing onto the word, and two caret
   kinds asked the reader to know which adds spaces). Wherever the caret
-  rests between words (after a click, an arrow, ⌫, an undo, at a word's
-  start, at the block's start or end) it is the block (`isBetweenWords`),
+  rests between words (after a click, an arrow, ⌫, an undo, at the block's
+  start or end) it is the block (`isBetweenWords`). A caret that lands at a
+  word's start after a space rests on that space instead (`restingOffset`:
+  the block covers a space, never a letter it seems to replace; a struck
+  space, a line break, the block's start and an opening bracket keep it on
+  the letter), and the word erase records that spot so a run goes on;
   and the first text typed there is a new word (`insertAtGap`): a space
   before it after a word, a space after it before a word (a letter or
   digit, or an opening bracket or quote leading into one), the caret kept

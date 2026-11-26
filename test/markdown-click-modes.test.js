@@ -464,14 +464,18 @@ async function run() {
   {
     let el = aim('The poller', ' once');
     await clickAimed(el);
-    erase(editing(), true); // strikes "file": the caret rests at its start
+    erase(editing(), true); // strikes "file": the caret rests on the space before it
     check('after a strike the caret rests as the block', editing().classList.contains('md-gap-caret'));
+    const rest = dom.window.getSelection().getRangeAt(0);
+    check('on the space before the struck word, not on its first letter',
+      rest.startContainer.data.slice(0, rest.startOffset).endsWith('the') && rest.startContainer.data[rest.startOffset] === ' ',
+      rest.startContainer.data.slice(rest.startOffset));
     type(editing(), 'x');
-    check('typing at the start of a word makes a new word before it, a space after',
-      /the \{x \}\[file\] once/.test(marks(editing())), marks(editing()));
+    check('typing there makes a new word with its own space',
+      /the\{ x\} \[file\] once/.test(marks(editing())), marks(editing()));
     check('while you type, the caret is the bar', !editing().classList.contains('md-gap-caret'));
     type(editing(), 'y');
-    check('and the next key extends your word', /the \{xy \}\[file\] once/.test(marks(editing())), marks(editing()));
+    check('and the next key extends your word', /the\{ xy\} \[file\] once/.test(marks(editing())), marks(editing()));
     erase(editing(), true);
     check('⌫ takes your word back with the space it brought, and the block returns',
       /the \[file\] once/.test(marks(editing())) && !editing().querySelector('ins') && editing().classList.contains('md-gap-caret'), marks(editing()));
