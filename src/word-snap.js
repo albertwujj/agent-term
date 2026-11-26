@@ -102,4 +102,28 @@ function wordSpans(text) {
   return spans;
 }
 
-module.exports = { snapStart, snapEnd, snapRangeToWords, wordSpans };
+// The spaces text typed at a resting caret (between words) needs to stand as
+// a word of its own: one before it right after a word, one after it right
+// before a word. A word ends before the caret unless that is a space, the
+// start, or an opening bracket or quote; one starts after it on a letter or
+// digit, or an opening bracket or quote leading into one. Null when the text
+// goes in as typed: it starts with a space, or it is closing punctuation
+// right after a word (`foo,`). Shared by the edit (edit-marks.js) and the
+// comment box (word-typing.js).
+const OPENERS = /[(\[{“‘«]/;
+const QUOTES = /["']/;
+const CLOSERS = /^[,.;:!?)\]]/;
+function newWordSpacing(text, caret, value) {
+  if (!text || /^\s/.test(text)) return null;
+  const at = (k) => value[k] || '';
+  const before = at(caret - 1);
+  const afterWord = /\S/.test(before) && !OPENERS.test(before)
+    && !(QUOTES.test(before) && !/\S/.test(at(caret - 2)));
+  if (afterWord && CLOSERS.test(text)) return null;
+  const after = at(caret);
+  const wordNext = /[\p{L}\p{N}]/u.test(after)
+    || ((OPENERS.test(after) || QUOTES.test(after)) && /[\p{L}\p{N}]/u.test(at(caret + 1)));
+  return { lead: afterWord ? ' ' : '', trail: wordNext ? ' ' : '' };
+}
+
+module.exports = { snapStart, snapEnd, snapRangeToWords, wordSpans, newWordSpacing };

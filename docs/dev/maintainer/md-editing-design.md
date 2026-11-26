@@ -983,6 +983,19 @@ actions"), and the mark-click strip, and renames "Edit instead".
   words and stays the edit's own (the mouseup no longer arms it as a
   comment selection). Selection ⌫ and the line deletes (⌘⌫) keep the
   browser's span.
+- **The comment box types a word at a time too** (`src/word-typing.js`,
+  wired once in `comment-ui.js` `createComposer`, so the terminal, md and
+  review composers all have it; user, 2026-11-25). The edit's rules on a
+  plain textarea: ⌫/Delete take a word (a word gone from between two
+  others leaves one space; held, one per 150 ms; a selection deletes as
+  is), ←/→ move to word ends, Shift grows by words, ↑/↓, Home/End and
+  clicks settle after the word, a selection snaps to whole words, and text
+  typed at a resting caret is a new word (`newWordSpacing`, shared with the
+  edit's `insertAtGap`) under the block caret. The end of the comment and
+  of each line is where you compose: the bar, typing just goes on (a block
+  there would be the digit-wide one, and a textarea cannot draw its own).
+  ⌘/Ctrl chords and IME stay native; edits go through `execCommand`, so
+  native undo and the box's input listeners see them.
 - The review's commit message follows the same rules
   (`review-comments-design.md`, 2026-11-25).
 

@@ -5,6 +5,8 @@
 // comment" affordance, and the highlight-in-place anchor join here as each
 // surface is ported onto it.
 
+const { wireWordTyping } = require('./word-typing');
+
 function normWS(s) {
   return (s == null ? '' : String(s)).replace(/\s+/g, ' ').trim();
 }
@@ -63,6 +65,8 @@ function ensureComposerStyle() {
     '.cu-ta{width:100%;box-sizing:border-box;border:1px solid #d1d9e0;border-radius:6px;background:#fff;padding:6px 8px;',
     'font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#1f2328;resize:vertical}',
     '.cu-ta:focus{outline:none;border-color:#0969da;box-shadow:0 0 0 3px rgba(9,105,218,.18)}',
+    // A caret at rest between words: the next text is a new word (word-typing.js).
+    '.cu-ta.cu-word-rest{caret-shape:block}',
     // Spellcheck stays on (a typo can mislead the agent), but the text is a
     // proposal the agent reads and it fixes spelling on its own, so the
     // platform's red marker overstates the case: a faint wave in the text's
@@ -164,6 +168,7 @@ function createComposer({ quote = '', anchorLabel = '', placeholder = '', seed =
   const ta = root.querySelector('textarea');
   ta.placeholder = placeholder;
   if (seed) ta.value = seed;
+  wireWordTyping(ta); // a word at a time, as in the edit
   const ctx = { root: root, textarea: ta };
   const primary = actions.find(function (a) { return a.primary; });
   const modEnter = actions.find(function (a) { return a.modEnter; });

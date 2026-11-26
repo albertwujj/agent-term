@@ -48,7 +48,7 @@ function isMutatingEntryKey(event) {
   return [...k].length === 1;
 }
 
-const { wordSpans } = require('./word-snap');
+const { wordSpans, newWordSpacing } = require('./word-snap');
 
 function markWrapping(node, sel) {
   const el = node && node.nodeType === 3 ? node.parentElement : node;
@@ -526,24 +526,12 @@ function createMarkEngine({ beforeMutate } = {}) {
   // typed spaces against the added ones (settleGapInsertions).
   function insertAtGap(text, block) {
     if (!text) return null;
-    if (/^\s/.test(text)) return insertMarkedInBlock(text);
-    const caret = block ? caretScreenOffset(block) : null;
-    const all = caret == null ? '' : textNodesOf(block).map((n) => n.data).join('');
-    const at = (k) => (caret == null ? '' : (all[k] || ''));
-    // A word ends before the caret unless it is a space, the block's start,
-    // or an opening bracket or quote; one starts after it on a letter or
-    // digit, or an opening bracket or quote leading into one.
-    const OPENERS = /[(\[{“‘«]/;
-    const QUOTES = /["']/;
-    const before = caret == null ? 'x' : at(caret - 1);
-    const afterWord = /\S/.test(before) && !OPENERS.test(before)
-      && !(QUOTES.test(before) && !/\S/.test(at(caret - 2)));
-    const after = at(caret);
-    const wordNext = /[\p{L}\p{N}]/u.test(after)
-      || ((OPENERS.test(after) || QUOTES.test(after)) && /[\p{L}\p{N}]/u.test(at(caret + 1)));
-    if (afterWord && GAP_CLOSERS.test(text)) return insertMarkedInBlock(text);
-    const trail = wordNext ? ' ' : '';
-    const ins = insertMarkedInBlock(`${afterWord ? ' ' : ''}${text}${trail}`);
+    const caret = caretScreenOffset(block);
+    const spacing = caret == null ? null
+      : newWordSpacing(text, caret, textNodesOf(block).map((n) => n.data).join(''));
+    if (!spacing) return insertMarkedInBlock(text);
+    const trail = spacing.trail;
+    const ins = insertMarkedInBlock(`${spacing.lead}${text}${trail}`);
     if (!ins) return null;
     ins.setAttribute('data-md-gap', '');
     if (trail) {
@@ -585,8 +573,6 @@ function createMarkEngine({ beforeMutate } = {}) {
   };
 }
 
-// Closing punctuation typed at a gap belongs to the word before it.
-const GAP_CLOSERS = /^[,.;:!?)\]]/;
 
 function textNodesOf(block) {
   const SHOW_TEXT = (window.NodeFilter && window.NodeFilter.SHOW_TEXT) || 4;

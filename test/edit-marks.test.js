@@ -173,7 +173,7 @@ const marks = (el) => el.innerHTML
 {
   const el = block('foo bar');
   caretTo(el, 3);
-  const ins = engine.insertAtGap('baz');
+  const ins = engine.insertAtGap('baz', el);
   check('a word typed at a gap gets its own space', el.textContent === 'foo baz bar' && ins && ins.hasAttribute('data-md-gap'), el.innerHTML);
   engine.insertMarkedInBlock('z');
   check('typing on extends the same word',
@@ -182,13 +182,13 @@ const marks = (el) => el.innerHTML
 {
   const el = block('foo bar');
   caretTo(el, 3);
-  engine.insertAtGap(',');
+  engine.insertAtGap(',', el);
   check('closing punctuation at a gap joins the word before', el.textContent === 'foo, bar' && !el.querySelector('[data-md-gap]'), el.innerHTML);
 }
 {
   const el = block('foo bar');
   caretTo(el, 3);
-  engine.insertAtGap('baz');
+  engine.insertAtGap('baz', el);
   engine.insertMarkedInBlock(' ');
   engine.insertMarkedInBlock(' ');
   settleGapInsertions(el);
