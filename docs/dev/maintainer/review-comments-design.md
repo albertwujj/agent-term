@@ -230,6 +230,17 @@ composer carries To edit when its quote is a selection inside one commit
 block, and the edit strip carries To comment, which hands its words to the
 quote composer.
 
+A drag keeps its press point (`keepDragAnchor`, 2026-11-26): in the review's
+`<webview>`, Chromium could lose a drag's starting point when the press
+landed at a sub-pixel position other than a whole or half pixel (Windows
+display scaling makes those; Retina's half pixels did not), re-placing a
+collapsed caret under the pointer on every move so the drag selected
+nothing. The host window never had it, and blocking every page handler
+left it as it was. Once the pointer has moved, a selection Chromium
+collapsed is extended from the press point again; Chromium's own drag and
+autoscroll otherwise run untouched. `test/e2e/review-drag-select.mjs`
+drags from fractional positions through the host window.
+
 A selection in the review's prose or commit message snaps to whole words on
 mouseup (`word-snap.js`, the md viewer's rule), before the quote reads it;
 code and diffs keep exact ends. Editing the commit message works a word at

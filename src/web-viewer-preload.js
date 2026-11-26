@@ -111,6 +111,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     ensureQuoteUI();
     bindGutter();
     bindSelection();
+    keepDragAnchor();
     bindDoubleClick();
     bindCommitEditing();
     bindSymbolScan();
@@ -313,6 +314,37 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       sel.addRange(range);
       refreshQuoteButton();
     });
+  }
+
+  // In this <webview>, Chromium can lose a drag's starting point when the
+  // press lands at a sub-pixel position under half a pixel (Windows display
+  // scaling of 125% or 150% makes those; Retina's half pixels do not): each
+  // move then re-places a collapsed caret under the pointer, and the drag
+  // selects nothing. The host window is unaffected. So the press point is
+  // kept, and once the pointer has moved, a selection Chromium collapsed is
+  // extended from it again; when Chromium extends it itself, nothing runs.
+  function keepDragAnchor() {
+    let drag = null;
+    document.addEventListener('mousedown', function (e) {
+      drag = null;
+      if (e.button !== 0 || e.detail !== 1 || e.shiftKey || !e.target || !e.target.closest) return;
+      if (e.target.closest('textarea, input, button, select, a, [contenteditable="true"], .cu-composer')) return;
+      const at = document.caretRangeFromPoint && document.caretRangeFromPoint(e.clientX, e.clientY);
+      if (!at) return;
+      drag = { node: at.startContainer, offset: at.startOffset, x: e.clientX, y: e.clientY, moved: false };
+    }, true);
+    document.addEventListener('mousemove', function (e) {
+      if (!drag || drag.moved || !(e.buttons & 1)) return;
+      drag.moved = Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3;
+    }, true);
+    document.addEventListener('selectionchange', function () {
+      if (!drag || !drag.moved) return;
+      const sel = window.getSelection();
+      if (!sel.rangeCount || !sel.isCollapsed) return;
+      if (sel.focusNode === drag.node && sel.focusOffset === drag.offset) return;
+      try { sel.setBaseAndExtent(drag.node, drag.offset, sel.focusNode, sel.focusOffset); } catch (_) {}
+    });
+    document.addEventListener('mouseup', function () { drag = null; }, true);
   }
 
   // A selection made to comment on or edit covers whole words, without the
