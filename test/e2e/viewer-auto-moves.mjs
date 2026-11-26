@@ -189,8 +189,19 @@ try {
   await sleep(450); // a step swallows clicks off the bar for a beat
 
   // A Send at full: golden while the agent works, full once it is done.
-  const paragraph = page.locator('.primary .md-viewer-body p').filter({ hasText: 'first paragraph' });
-  await paragraph.click();
+  // A click on a word arms its block for a comment (one near a space would
+  // open an edit there).
+  const onWord = await page.evaluate(() => {
+    const p = [...document.querySelectorAll('.primary .md-viewer-body p')].find((el) => el.textContent.includes('first paragraph'));
+    const node = p.firstChild;
+    const at = node.data.indexOf('paragraph') + 4;
+    const r = document.createRange();
+    r.setStart(node, at);
+    r.setEnd(node, at + 1);
+    const b = r.getBoundingClientRect();
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+  });
+  await page.mouse.click(onWord.x, onWord.y);
   await page.keyboard.type('Tighten this.');
   await page.waitForSelector('.md-comment-card textarea');
   await page.keyboard.press('Enter');
