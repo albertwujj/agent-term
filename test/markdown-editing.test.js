@@ -984,7 +984,7 @@ async function run() {
     check('Cmd/Ctrl+E closes the card and opens the block editor', !composerEl() && !!el);
     check('the selection is struck and the card text inserted over it',
       !!el && el.querySelector('del.md-pending-del') && el.querySelector('del.md-pending-del').textContent === 'markup'
-        && el.querySelector('ins.md-pending-ins') && el.querySelector('ins.md-pending-ins').textContent === 'ca',
+        && el.querySelector('ins.md-pending-ins') && el.querySelector('ins.md-pending-ins').textContent === ' ca',
       el && el.innerHTML);
     key({ key: 'Escape' });
     await sleep(10);

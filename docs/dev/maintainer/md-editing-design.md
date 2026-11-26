@@ -948,15 +948,29 @@ actions"), and the mark-click strip, and renames "Edit instead".
   opening space once nothing typed is left before it. Since a space is
   struck only with a word, a take-back also brings back a strike left
   holding only spaces beside it (strike "the file", take back each word:
-  no struck space remains); a strike of only spaces elsewhere stays. The press-run rule
+  no struck space remains), and an insertion left holding only spaces goes
+  (the space a typed word came with); such marks elsewhere stay. The press-run rule
   stands (striking runs hop older strikes, a held take-back stops at the
   page's text), tracked by on-screen caret offset since the gap caret
   re-seats the caret. A held key takes a word every 150 ms instead of one
   per key repeat. ←/→ move to the end of the word before or after, Shift
   grows a selection by words, ↑/↓ settle after the word they land in, and
-  a click inside the open edit rests after the clicked word; where a space
-  or the block's end follows, the caret is a gap caret, so a typed word
-  gets its own space. A selection made inside the open edit snaps to whole
+  a click inside the open edit rests after the clicked word.
+- **One caret at rest: the block means a new word** (user, 2026-11-25: a
+  caret left at a word's start glued typing onto the word, and two caret
+  kinds asked the reader to know which adds spaces). Wherever the caret
+  rests between words (after a click, an arrow, ⌫, an undo, at a word's
+  start, at the block's start or end) it is the block (`isBetweenWords`),
+  and the first text typed there is a new word (`insertAtGap`): a space
+  before it after a word, a space after it before a word (a letter or
+  digit, or an opening bracket or quote leading into one), the caret kept
+  inside before any space added after. Typing over a selection, To edit
+  and paste over a selection do the same after the strike (`~~utilizes~~
+  uses`). The bar shows only while you type, and extends your word. Enter
+  breaks the line only at a gap nothing has been done at yet; elsewhere it
+  sends. Before any input the block flag is checked against the live
+  caret, so a caret moved without a selectionchange never pads. Commit
+  collapses spaces typed before an added one. A selection made inside the open edit snaps to whole
   words and stays the edit's own (the mouseup no longer arms it as a
   comment selection). Selection ⌫ and the line deletes (⌘⌫) keep the
   browser's span.

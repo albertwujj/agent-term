@@ -159,7 +159,7 @@ async function run() {
   // — typing inserts marked; Enter commits + sends —
   typeChar(subject, 'x');
   const ins1 = subject.querySelector('ins.md-pending-ins');
-  check('typing inserts a marked char', !!ins1 && ins1.textContent === 'x');
+  check('typing over a struck selection makes a new word after it', !!ins1 && ins1.textContent === ' x', ins1 && ins1.textContent);
   key(subject, { key: 'Enter' });
   await sleep(5);
   check('enter closes the session', !ctl.isEditing() && !strip());
@@ -167,7 +167,7 @@ async function run() {
   check('one edit thread was added, with send', addCalls.length === 1 && addCalls[0].alsoSend === true);
   const sent = addCalls[0] || {};
   check('the body is an [Edit] envelope with the marks',
-    /^\[Edit\]\n/.test(sent.body || '') && /<del>/.test(sent.body || '') && /<ins>x<\/ins>/.test(sent.body || ''), sent.body);
+    /^\[Edit\]\n/.test(sent.body || '') && /<del>/.test(sent.body || '') && /<ins> x<\/ins>/.test(sent.body || ''), sent.body);
   check('the anchor is a whole-block region on the commit message',
     sent.anchor && sent.anchor.path === '(commit message)' && sent.anchor.wholeBlock === true
     && sent.anchor.heading === 'Commit message' && sent.anchor.snippet === SUBJECT, sent.anchor);
@@ -495,7 +495,7 @@ async function run() {
     ctl.editFromComment(q, 'reasoning');
     check('To edit from a quote strikes it and types the words over it',
       ctl.isEditing() && p2.querySelector('del.md-pending-del').textContent === 'rationale'
-      && p2.querySelector('ins.md-pending-ins').textContent === 'reasoning');
+      && p2.querySelector('ins.md-pending-ins').textContent === ' reasoning');
     key(p2, { key: 'e', metaKey: true });
     const back = blockComments[blockComments.length - 1];
     check('To comment (⌘E) returns the words to a comment on the same quote',

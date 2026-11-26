@@ -458,6 +458,42 @@ async function run() {
     await reset();
   }
 
+  // --- every resting caret is the block: typing there makes a new word, a
+  //     space added on whichever side lacks one; the bar shows only while
+  //     you type ---
+  {
+    let el = aim('The poller', ' once');
+    await clickAimed(el);
+    erase(editing(), true); // strikes "file": the caret rests at its start
+    check('after a strike the caret rests as the block', editing().classList.contains('md-gap-caret'));
+    type(editing(), 'x');
+    check('typing at the start of a word makes a new word before it, a space after',
+      /the \{x \}\[file\] once/.test(marks(editing())), marks(editing()));
+    check('while you type, the caret is the bar', !editing().classList.contains('md-gap-caret'));
+    type(editing(), 'y');
+    check('and the next key extends your word', /the \{xy \}\[file\] once/.test(marks(editing())), marks(editing()));
+    erase(editing(), true);
+    check('⌫ takes your word back with the space it brought, and the block returns',
+      /the \[file\] once/.test(marks(editing())) && !editing().querySelector('ins') && editing().classList.contains('md-gap-caret'), marks(editing()));
+    await reset();
+
+    el = aim('The poller', ' once');
+    await clickAimed(el);
+    for (let i = 0; i < 6; i++) key(editing(), { key: 'ArrowLeft' });
+    type(editing(), 'So');
+    check('at the block\'s start a new word gets a space after it', /^\{So \}The poller/.test(marks(editing())), marks(editing()));
+    await reset();
+
+    el = aim('The poller', ' once');
+    await clickAimed(el);
+    erase(editing(), true);
+    const sentBefore = sentBatches.length;
+    key(editing(), { key: 'Enter' });
+    await sleep(30);
+    check('once something is done, Enter at the block caret sends', !editing() && sentBatches.length === sentBefore + 1);
+    await reset();
+  }
+
   // --- arrows move a word at a time; the caret rests between words ---
   {
     const el = aim('The poller', ' once');
@@ -566,7 +602,7 @@ async function run() {
     dom.window.getSelection().removeAllRanges();
     button(document.querySelector('.md-comment-card'), 'To edit').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await sleep(10);
-    check('To edit strikes the selection and types the words over it', /\[round trip\]\{loop\}/.test(marks(editing())), marks(editing()));
+    check('To edit strikes the selection and types the words after it, as their own word', /\[round trip\]\{ loop\}\./.test(marks(editing())), marks(editing()));
     check('typing over the opening selection still converts back', !stripButton('To comment').hidden);
     key(editing(), { key: 'e', metaKey: true });
     await sleep(10);

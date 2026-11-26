@@ -165,6 +165,13 @@ try {
   assert.equal(await marks(7), text.replace('Paragraph 2', 'Paragraph 7'), `taking back both words brings back the space between: ${await marks(7)}`);
   console.log('PASS taking back two struck words one by one leaves no struck space');
 
+  await commit();
+  await clickAt(8, gapAfterWords);
+  await backspaces(1); // strike "words": the caret rests at its start
+  await page.keyboard.type('terms');
+  assert.match(await marks(8), /some \{terms \}\[words\] and/, `typing where a strike left the caret makes a new word: ${await marks(8)}`);
+  console.log('PASS typing at a resting caret makes a new word');
+
   assert.deepEqual(errors, [], 'no renderer errors');
 } finally {
   await app.close();

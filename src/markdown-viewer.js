@@ -5345,18 +5345,15 @@ function createMarkdownViewer({
   // commit-message editor); this host binds them to its per-action undo.
   const {
     strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock,
-    eraseWord, moveByWord, settleCaretAfterWord, extendByWord,
+    eraseWord, moveByWord, settleCaretAfterWord, extendByWord, isBetweenWords,
   } = createMarkEngine({ beforeMutate: () => pushEditingUndo() });
 
-  // The caret rests between words (edit-marks.js, word-level editing). Right
-  // after a word, with a space or the block's end next, it is a gap caret,
-  // so a word typed there gets its own space.
+  // A caret at rest sits between words (edit-marks.js, word-level editing)
+  // and is the block caret: typing there makes a new word with its own
+  // spaces. Only while you type is it the bar, extending your word.
   function restCaretBetweenWords(session, offset) {
     if (!session || !session.el || offset == null) return;
-    const text = getSearchableTextNodes(session.el, ON_SCREEN).text;
-    if (offset > 0 && /\S/.test(text[offset - 1]) && (offset >= text.length || /\s/.test(text[offset]))) {
-      showGapCaret(session, offset);
-    }
+    showGapCaret(session, offset);
   }
 
   function caretOffsetIn(el) {
@@ -5402,6 +5399,7 @@ function createMarkdownViewer({
     session.el.innerHTML = snap.html;
     try { session.el.focus({ preventScroll: true }); } catch {}
     setCaretWithin(session.el, snap.caret);
+    restCaretBetweenWords(session, caretOffsetIn(session.el));
     syncToCommentButton(session);
   }
 
@@ -5418,16 +5416,19 @@ function createMarkdownViewer({
   function wireEditingSurface(el) {
     const onPaste = (event) => {
       event.preventDefault();
+      syncGapCaretToSelection();
       const atGap = clearGapCaret();
       const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
       const s = window.getSelection && window.getSelection();
-      if (s && s.rangeCount && !s.getRangeAt(0).collapsed) strikeInBlock(el, s.getRangeAt(0), 'after');
+      const over = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
+      if (over) strikeInBlock(el, s.getRangeAt(0), 'after');
       const flat = text.replace(/\s+/g, ' ');
-      if (atGap) insertAtGap(flat.trim()); else insertMarkedInBlock(flat);
+      if (atGap || over) insertAtGap(flat.trim(), el); else insertMarkedInBlock(flat);
     };
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
       // Any input ends the gap caret; text typed there makes its own word.
+      syncGapCaretToSelection(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
       if (t.indexOf('delete') === 0) {
         event.preventDefault();
@@ -5446,14 +5447,18 @@ function createMarkdownViewer({
           r.setStart(sr.startContainer, sr.startOffset);
           r.setEnd(sr.endContainer, sr.endOffset);
           eraseInBlock(el, r, { backward: t.indexOf('Forward') === -1, selection: wasSelection });
+          restCaretBetweenWords(state.editing, caretOffsetIn(el));
         }
         return;
       }
       if (t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromComposition') {
         event.preventDefault();
+        // At the block caret, or over a selection, the text is a new word;
+        // at the bar (you are typing) it extends your word.
         const s = window.getSelection();
-        if (s && s.rangeCount && !s.getRangeAt(0).collapsed) strikeInBlock(el, s.getRangeAt(0), 'after');
-        if (atGap) insertAtGap(event.data || ''); else insertMarkedInBlock(event.data || '');
+        const over = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
+        if (over) strikeInBlock(el, s.getRangeAt(0), 'after');
+        if (atGap || over) insertAtGap(event.data || '', el); else insertMarkedInBlock(event.data || '');
         return;
       }
       // no new blocks, no formatting, no native undo (it can't see our marks)
@@ -5651,12 +5656,15 @@ function createMarkdownViewer({
         }
         if (!typed && (k === 'Backspace' || k === 'Delete')) {
           eraseInBlock(target, entryRange, { backward: k === 'Backspace', selection: true, repeat: !!entryEvent.repeat });
+          restCaretBetweenWords(session, caretOffsetIn(target));
           return;
         }
+        // Typed over, the selection strikes and your words come in as their
+        // own word after it.
         strikeInBlock(target, entryRange, 'after');
-        if (typed) insertMarkedInBlock(entryText);
+        if (typed) insertAtGap(entryText, target);
         else if (k === 'Enter') insertLineBreakInBlock();
-        else insertMarkedInBlock(k);
+        else insertAtGap(k, target);
         return;
       }
     }
@@ -5667,15 +5675,16 @@ function createMarkdownViewer({
     setCaretWithin(target, caret, ON_SCREEN);
     if (!mutating) return;
     if (typed) {
-      insertMarkedInBlock(entryText);
+      insertAtGap(entryText, target);
       return;
     }
     if (k === 'Backspace' || k === 'Delete') {
       eraseWord(target, { backward: k === 'Backspace', repeat: !!entryEvent.repeat });
+      restCaretBetweenWords(session, caretOffsetIn(target));
     } else if (k === 'Enter') {
       insertLineBreakInBlock();
     } else {
-      insertMarkedInBlock(k);
+      insertAtGap(k, target);
     }
   }
 
@@ -7688,9 +7697,7 @@ function createMarkdownViewer({
   function showGapCaret(session, offset) {
     clearGapCaret(session);
     const el = session && session.el;
-    if (!el) return;
-    const text = getSearchableTextNodes(el, ON_SCREEN).text;
-    if (!/\s/.test(text[offset] || '') && /\S/.test(text.slice(offset))) return;
+    if (!el || !isBetweenWords(el, offset)) return;
     setCaretWithin(el, offset, ON_SCREEN);
     el.classList.add('md-gap-caret');
     session.gapCaret = { offset };
@@ -8147,8 +8154,10 @@ function createMarkdownViewer({
         if (inSurface && event.key === 'Enter') {
           event.preventDefault();
           // At a fresh gap caret Enter breaks the line there, as a first key
-          // on an armed block does; once anything is typed it sends.
-          const atGap = clearGapCaret();
+          // on an armed block does; once anything is done it sends.
+          const session = state.editing;
+          const fresh = !(session.undoStack && session.undoStack.length);
+          const atGap = clearGapCaret() && fresh;
           if (!event.shiftKey && !atGap) {
             commitBlockEditor();
             sendEditBatch();

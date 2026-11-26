@@ -267,6 +267,7 @@ function createCommitEditController(io) {
     session.block.innerHTML = snap.html;
     try { session.block.focus({ preventScroll: true }); } catch {}
     setCaret(session.block, snap.caret);
+    restBetweenWords(caretOffsetIn(session.block));
     syncToComment();
   }
 
@@ -334,7 +335,7 @@ function createCommitEditController(io) {
       if (typed) {
         if (entryText) {
           engine.strikeInBlock(block, entrySelection, 'after');
-          engine.insertMarkedInBlock(entryText);
+          engine.insertAtGap(entryText, block);
         } else {
           // The bare switch: the selection comes back live, ready to type over.
           const s = window.getSelection && window.getSelection();
@@ -344,29 +345,33 @@ function createCommitEditController(io) {
       }
       if (k === 'Backspace' || k === 'Delete') {
         engine.eraseInBlock(block, entrySelection, { backward: k === 'Backspace', selection: true, repeat: !!entryEvent.repeat });
+        restBetweenWords(caretOffsetIn(block));
         return;
       }
+      // Typed over, the selection strikes and your words come in as their
+      // own word after it.
       engine.strikeInBlock(block, entrySelection, 'after');
-      engine.insertMarkedInBlock(k);
+      engine.insertAtGap(k, block);
       return;
     }
     const max = block.textContent.length; // current content: marks included on a revisit
     const caret = Math.max(0, Math.min(caretOffset != null ? caretOffset : max, max));
     if (typed) {
       setCaret(block, caret);
-      engine.insertMarkedInBlock(entryText);
+      engine.insertAtGap(entryText, block);
       return;
     }
     if (!entryEvent || k.startsWith('Arrow')) { setCaret(block, caret); return; }
     if (k === 'Backspace' || k === 'Delete') {
       setCaret(block, caret);
       engine.eraseWord(block, { backward: k === 'Backspace', repeat: !!entryEvent.repeat });
+      restBetweenWords(caretOffsetIn(block));
     } else if (k === 'Enter') {
       setCaret(block, caret);
       engine.insertLineBreakInBlock();
     } else {
       setCaret(block, caret);
-      engine.insertMarkedInBlock(k);
+      engine.insertAtGap(k, block);
     }
   }
 
@@ -375,16 +380,19 @@ function createCommitEditController(io) {
   function wireSurface(el) {
     const onPaste = (event) => {
       event.preventDefault();
+      onSelectionChange(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
       const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
       const s = window.getSelection && window.getSelection();
-      if (s && s.rangeCount && !s.getRangeAt(0).collapsed) engine.strikeInBlock(el, s.getRangeAt(0), 'after');
+      const over = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
+      if (over) engine.strikeInBlock(el, s.getRangeAt(0), 'after');
       const flat = text.replace(/\s+/g, ' ');
-      if (atGap) engine.insertAtGap(flat.trim()); else engine.insertMarkedInBlock(flat);
+      if (atGap || over) engine.insertAtGap(flat.trim(), el); else engine.insertMarkedInBlock(flat);
     };
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
       // Any input ends the gap caret; text typed there makes its own word.
+      onSelectionChange(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
       if (t.indexOf('delete') === 0) {
         event.preventDefault();
@@ -403,14 +411,18 @@ function createCommitEditController(io) {
           r.setStart(sr.startContainer, sr.startOffset);
           r.setEnd(sr.endContainer, sr.endOffset);
           engine.eraseInBlock(el, r, { backward: t.indexOf('Forward') === -1, selection: wasSelection });
+          restBetweenWords(caretOffsetIn(el));
         }
         return;
       }
       if (t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromComposition') {
         event.preventDefault();
+        // At the block caret, or over a selection, the text is a new word;
+        // at the bar (you are typing) it extends your word.
         const s = window.getSelection();
-        if (s && s.rangeCount && !s.getRangeAt(0).collapsed) engine.strikeInBlock(el, s.getRangeAt(0), 'after');
-        if (atGap) engine.insertAtGap(event.data || ''); else engine.insertMarkedInBlock(event.data || '');
+        const over = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
+        if (over) engine.strikeInBlock(el, s.getRangeAt(0), 'after');
+        if (atGap || over) engine.insertAtGap(event.data || '', el); else engine.insertMarkedInBlock(event.data || '');
         return;
       }
       // no new blocks, no formatting, no native undo (it can't see our marks)
@@ -529,8 +541,9 @@ function createCommitEditController(io) {
       event.preventDefault();
       event.stopPropagation();
       // At a fresh gap caret Enter breaks the line there, as a first key on
-      // an armed block does; once anything is typed it sends.
-      const atGap = clearGapCaret();
+      // an armed block does; once anything is done it sends.
+      const fresh = !(session.undoStack && session.undoStack.length);
+      const atGap = clearGapCaret() && fresh;
       if (event.shiftKey || atGap) engine.insertLineBreakInBlock();
       else commit(true);
       return;
@@ -633,22 +646,18 @@ function createCommitEditController(io) {
     clearGapCaret();
     if (!session) return;
     const block = session.block;
-    const text = block.textContent;
-    if (!/\s/.test(text[offset] || '') && /\S/.test(text.slice(offset))) return;
+    if (!engine.isBetweenWords(block, offset)) return;
     setCaret(block, offset);
     block.classList.add('md-gap-caret');
     session.gapCaret = { offset };
   }
 
-  // The caret rests between words. Right after a word, with a space or the
-  // block's end next, it is a gap caret, so a word typed there gets its own
-  // space.
+  // A caret at rest sits between words and is the block caret: typing there
+  // makes a new word with its own spaces. Only while you type is it the bar,
+  // extending your word.
   function restBetweenWords(offset) {
     if (!session || offset == null) return;
-    const text = session.block.textContent;
-    if (offset > 0 && /\S/.test(text[offset - 1]) && (offset >= text.length || /\s/.test(text[offset]))) {
-      showGapCaret(offset);
-    }
+    showGapCaret(offset);
   }
 
   function caretOffsetIn(el) {

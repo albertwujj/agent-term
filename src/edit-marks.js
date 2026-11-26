@@ -264,19 +264,25 @@ function createMarkEngine({ beforeMutate } = {}) {
       }
     }
     joinStrikes(block); // the strikes either side of a removed insertion meet
-    // A space is struck only along with a word, so a strike left holding
-    // only spaces beside a word taken back is that word's leftover: strike
-    // "the file", take back "file" then "the", and the space between them
-    // comes back too.
-    for (const del of Array.from(block.querySelectorAll('del.md-pending-del'))) {
-      if (del.textContent.trim()) continue;
-      const first = textNodesOf(del)[0];
+    // Spaces are struck or typed only along with a word, so a mark left
+    // holding only spaces beside a word taken back is that word's leftover:
+    // strike "the file", take back "file" then "the", and the space between
+    // comes back too; take back a word typed into a gap, and the space it
+    // came with leaves.
+    for (const mark of Array.from(block.querySelectorAll('del.md-pending-del, ins.md-pending-ins'))) {
+      if (mark.textContent.trim() || mark.classList.contains('md-pending-break')) continue;
+      const first = textNodesOf(mark)[0];
       if (!first) continue;
       const start = screenOffset(block, first, 0);
-      const end = start + del.textContent.length;
+      const end = start + mark.textContent.length;
       if (end !== from && start !== to) continue;
-      while (del.firstChild) del.parentNode.insertBefore(del.firstChild, del);
-      del.remove();
+      if (mark.nodeName === 'INS') {
+        if (end <= land) land -= mark.textContent.length;
+        mark.remove();
+      } else {
+        while (mark.firstChild) mark.parentNode.insertBefore(mark.firstChild, mark);
+        mark.remove();
+      }
     }
     caretAtScreenOffset(block, land);
     return true;
@@ -375,10 +381,10 @@ function createMarkEngine({ beforeMutate } = {}) {
   // caret is inside. A word you typed leaves, an original word strikes, a
   // struck word comes back; a run of presses keeps the job its first found
   // (eraseInBlock). Backward, the spaces between the word and the caret go
-  // with it, so striking on through a sentence makes one strike; a word you
-  // typed into a gap takes the gap's opening space along once nothing typed
-  // is left before it. Held, the key takes a word every HOLD_WORD_MS: key
-  // repeat at letter speed would strike a sentence before the key is up.
+  // with it, so striking on through a sentence makes one strike; the space
+  // a typed word came with leaves with it (takeBackInBlock). Held, the key
+  // takes a word every HOLD_WORD_MS: key repeat at letter speed would strike
+  // a sentence before the key is up.
   const HOLD_WORD_MS = 150;
   let lastWordErase = 0;
   function eraseWord(block, { backward = true, repeat = keyRepeat } = {}) {
@@ -386,28 +392,25 @@ function createMarkEngine({ beforeMutate } = {}) {
     if (caret == null) return false;
     const now = Date.now();
     if (repeat && now - lastWordErase < HOLD_WORD_MS) return false;
-    const { text, words } = editWords(block);
+    const { words } = editWords(block);
     const word = backward
       ? words.slice().reverse().find((w) => w.start < caret)
       : words.find((w) => w.end > caret);
     if (!word) return false;
     lastWordErase = now;
-    let from = backward ? word.start : Math.min(caret, word.start);
+    const from = backward ? word.start : Math.min(caret, word.start);
     const to = backward ? Math.max(caret, word.end) : word.end;
-    if (word.typed && from > 0 && /\s/.test(text[from - 1])) {
-      const [node, offset] = (() => { const r = rangeAtScreen(block, from - 1, from); return [r.startContainer, r.startOffset]; })();
-      const gapIns = markWrapping(node, 'ins.md-pending-ins[data-md-gap]');
-      if (gapIns) {
-        const before = document.createRange();
-        before.selectNodeContents(gapIns);
-        before.setEnd(node, offset + 1);
-        const lead = before.toString();
-        if (!lead.trim()) from -= lead.length;
-      }
-    }
     const mode = word.typed || word.struck ? 'takeBack' : 'strike';
     eraseInBlock(block, rangeAtScreen(block, from, to), { backward, repeat, mode });
     return true;
+  }
+
+  // Whether `offset` sits between words (a resting caret's place: anywhere
+  // but strictly inside a word) in a block with text.
+  function isBetweenWords(block, offset) {
+    const { text, words } = editWords(block);
+    if (offset == null || !text.trim()) return false;
+    return !words.some((w) => w.start < offset && offset < w.end);
   }
 
   // The caret's resting spots: after each word, and the block's start.
@@ -415,8 +418,8 @@ function createMarkEngine({ beforeMutate } = {}) {
     return [0, ...editWords(block).words.map((w) => w.end)];
   }
 
-  // ←/→: the caret moves to the end of the word before or after it.
-  // Returns the new offset, or null at the block's edge.
+  // ←/→: the caret moves to the end of the word before or after it (at the
+  // block's edge it stays). Returns where it rests.
   function moveByWord(block, backward) {
     const caret = caretScreenOffset(block);
     if (caret == null) return null;
@@ -426,9 +429,9 @@ function createMarkEngine({ beforeMutate } = {}) {
       : screenOffset(block, backward ? r.startContainer : r.endContainer, backward ? r.startOffset : r.endOffset);
     const ends = wordEnds(block);
     const to = backward ? ends.filter((e) => e < from).pop() : ends.find((e) => e > from);
-    if (to == null) { if (!s.isCollapsed) caretAtScreenOffset(block, from); return s.isCollapsed ? null : from; }
-    caretAtScreenOffset(block, to);
-    return to;
+    const rest = to == null ? from : to;
+    caretAtScreenOffset(block, rest);
+    return rest;
   }
 
   // A caret that landed inside a word (a click, a line move) rests after
@@ -469,17 +472,42 @@ function createMarkEngine({ beforeMutate } = {}) {
     return ins;
   }
 
-  // The first text typed at a gap (the caret just before the space between two
-  // words) makes a word of its own: it enters with a space before it, so
-  // `foo bar` + `baz` reads `foo baz bar`, and erasing the word takes that
-  // space with it. Closing punctuation attaches to the word before instead:
-  // `foo, bar`. The insertion is flagged so commit can tidy a typed trailing
-  // space against the gap's own (settleGapInsertions).
-  function insertAtGap(text) {
+  // The first text typed at a resting caret (between words: the block
+  // caret) makes a word of its own, with a space on whichever side lacks
+  // one: before it after a word (`foo bar` + `baz` at the space reads
+  // `foo baz bar`), after it before a word (at the start of `bar`, the same
+  // result). The caret stays inside the insertion, before any space added
+  // after it, so the next keys extend the word. Erasing the word takes the
+  // added space with it. Closing punctuation right after a word attaches to
+  // it instead: `foo, bar`. The insertion is flagged so commit can tidy
+  // typed spaces against the added ones (settleGapInsertions).
+  function insertAtGap(text, block) {
     if (!text) return null;
-    if (/^\s/.test(text) || GAP_CLOSERS.test(text)) return insertMarkedInBlock(text);
-    const ins = insertMarkedInBlock(` ${text}`);
-    if (ins) ins.setAttribute('data-md-gap', '');
+    if (/^\s/.test(text)) return insertMarkedInBlock(text);
+    const caret = block ? caretScreenOffset(block) : null;
+    const all = caret == null ? '' : textNodesOf(block).map((n) => n.data).join('');
+    const at = (k) => (caret == null ? '' : (all[k] || ''));
+    // A word ends before the caret unless it is a space, the block's start,
+    // or an opening bracket or quote; one starts after it on a letter or
+    // digit, or an opening bracket or quote leading into one.
+    const OPENERS = /[(\[{“‘«]/;
+    const QUOTES = /["']/;
+    const before = caret == null ? 'x' : at(caret - 1);
+    const afterWord = /\S/.test(before) && !OPENERS.test(before)
+      && !(QUOTES.test(before) && !/\S/.test(at(caret - 2)));
+    const after = at(caret);
+    const wordNext = /[\p{L}\p{N}]/u.test(after)
+      || ((OPENERS.test(after) || QUOTES.test(after)) && /[\p{L}\p{N}]/u.test(at(caret + 1)));
+    if (afterWord && GAP_CLOSERS.test(text)) return insertMarkedInBlock(text);
+    const trail = wordNext ? ' ' : '';
+    const ins = insertMarkedInBlock(`${afterWord ? ' ' : ''}${text}${trail}`);
+    if (!ins) return null;
+    ins.setAttribute('data-md-gap', '');
+    if (trail) {
+      const s = editSel();
+      const r = s && s.rangeCount ? s.getRangeAt(0) : null;
+      if (r && r.startContainer.nodeType === 3 && r.startOffset > 0) collapseCaret(r.startContainer, r.startOffset - 1);
+    }
     return ins;
   }
 
@@ -510,7 +538,7 @@ function createMarkEngine({ beforeMutate } = {}) {
 
   return {
     strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock,
-    eraseWord, moveByWord, settleCaretAfterWord, extendByWord,
+    eraseWord, moveByWord, settleCaretAfterWord, extendByWord, isBetweenWords,
   };
 }
 
@@ -611,16 +639,25 @@ function blockEndAtPoint(block, x, y) {
 }
 
 // Commit-time tidy for words typed into gaps: a gap insertion left holding only
-// whitespace goes, and one ending in a typed space keeps none of it where the
+// whitespace goes, and one ending in typed spaces keeps none of them where the
 // gap's own space follows (`foo baz  bar` reads `foo baz bar`) or the block
-// ends.
+// ends, and one before a word (`baz  bar`, a space typed before the added
+// one).
 function settleGapInsertions(block) {
   for (const ins of Array.from(block.querySelectorAll('ins.md-pending-ins[data-md-gap]'))) {
     if (!ins.textContent.trim()) { ins.remove(); continue; }
     if (!/\s$/.test(ins.textContent)) continue;
     const tail = textNodesOf(ins).pop();
     const next = screenCharBeside(textNodesOf(block), tail, tail.data.length - 1, 1);
-    if (next && !/\s/.test(next)) continue;
+    if (next && !/\s/.test(next)) {
+      // Before a word: one space between, however many were typed.
+      while (/\s\s$/.test(ins.textContent)) {
+        const last = textNodesOf(ins).filter((n) => n.data.length).pop();
+        last.data = last.data.slice(0, -1);
+        if (!last.data.length) last.remove();
+      }
+      continue;
+    }
     // Each keystroke is its own text node, so the typed spaces can span several.
     while (/\s$/.test(ins.textContent)) {
       const last = textNodesOf(ins).pop();
