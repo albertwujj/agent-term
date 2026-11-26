@@ -6,16 +6,15 @@
 // store with a region anchor. The agent amends the commit message; the regen
 // shows the result. Nothing here writes anything — the host's io does.
 //
-// First-key dispatch, scoped to the commit blocks (.commit-subject and the
-// .commit-body paragraphs): a click on a word arms the block (a faint wash and
-// a steady caret); letters and digits keep the comment path
-// (io.openBlockComment); every other unmodified key opens the block editor at
-// the caret with the keystroke applied. A click on the space between two words
-// puts a block caret on that space, and one on a reopenable edit's own marks
-// reopens it at the click (the md viewer's click rules, md-editing-design.md
-// "Click, caret and highlight"). A selection inside one commit block routes
-// edit keys the same way (⌫ strikes the selection; punctuation or Space types
-// over it). While editing: Esc reverts, Enter commits + sends, Shift+Enter
+// Clicks on the commit blocks (.commit-subject and the .commit-body
+// paragraphs) follow the md viewer's rules (md-editing-design.md "Click,
+// caret and highlight"): a click on a word arms the block for a comment (the
+// comment yellow, no caret), and any character typed then opens a comment on
+// the whole block (io.openBlockComment). A click on the space between two
+// words, or after the last one, opens the editor with a block caret there,
+// and one on a reopenable edit's own marks reopens it at the click. Over a
+// selection inside one commit block, ⌫ strikes the selection and punctuation
+// or Space types over it; letters are the page's quote comment. While editing: Esc reverts, Enter commits + sends, Shift+Enter
 // breaks the line, ⌘Z steps back, ⌘E or To comment hands the typed words to a
 // comment, and clicking away commits without sending (the review surface's
 // composer rule).
@@ -25,10 +24,11 @@
 const { createComposer, normWS, toPromptAction, modKeyLabel, isModKey } = require('./comment-ui');
 const { threadHasBeenResolved } = require('./agent-journal');
 const {
-  isCommentEntryKey,
+  isPlainCommentKey,
   isEditEntryKey,
   createMarkEngine,
   gapCharAtPoint,
+  blockEndAtPoint,
   settleGapInsertions,
   serializeMarkedBlock,
   overlayToEnvelope,
@@ -82,26 +82,6 @@ function caretAt(root, offset) {
   return lastNode ? { node: lastNode, offset: lastNode.data.length } : null;
 }
 
-// The text node holding the character at `offset` (caretAt answers the
-// boundary, which at a node edge is the end of the node before).
-function charAt(root, offset) {
-  const SHOW_TEXT = (window.NodeFilter && window.NodeFilter.SHOW_TEXT) || 4;
-  const walker = document.createTreeWalker(root, SHOW_TEXT, null);
-  let remaining = Math.max(0, offset); let n;
-  while ((n = walker.nextNode())) {
-    if (remaining < n.data.length) return { node: n, offset: remaining };
-    remaining -= n.data.length;
-  }
-  return null;
-}
-
-// Whether an offset sits at a gap: just before one space between two
-// non-space characters.
-function caretAtGap(root, offset) {
-  const text = root.textContent;
-  return offset != null && /\s/.test(text[offset] || '') && /\S/.test(text[offset - 1] || '') && /\S/.test(text[offset + 1] || '');
-}
-
 function setCaret(root, offset) {
   const at = caretAt(root, offset);
   const sel = window.getSelection && window.getSelection();
@@ -150,47 +130,46 @@ function createCommitEditController(io) {
     return Array.from(document.querySelectorAll(COMMIT_BLOCK_SEL));
   }
 
-  function caretSpan() { return document.querySelector('span.rv-edit-caret'); }
-  function clearCaretSpan() {
-    const s = caretSpan();
-    if (s && s.parentNode) { const p = s.parentNode; s.remove(); p.normalize(); }
-  }
-
   function disarm() {
-    clearCaretSpan();
     if (armed && armed.block) armed.block.classList.remove('rv-edit-armed');
     armed = null;
   }
 
-  // A letter on an armed block opens a whole-block comment; remembered so the
-  // comment's To edit puts its words back at the caret rather than over the
-  // block. Any click forgets it.
-  let blockCommentFrom = null;
+  // A key typed on an armed block opens a comment on the whole block; noted
+  // so that comment offers no To edit (a whole block has no spot to edit at).
+  // Any click forgets it.
+  let blockComment = null;
 
-  // ——— arming: a click in a commit block holds the caret ———
+  // The gap under (x, y) as a text offset: just before the space between two
+  // words, or after the block's last word. Null elsewhere.
+  function gapOffsetIn(block, x, y) {
+    const gap = gapCharAtPoint(block, x, y);
+    if (gap) return textOffsetIn(block, gap.node, gap.index);
+    const end = blockEndAtPoint(block, x, y);
+    return end ? textOffsetIn(block, end.node, end.offset) : null;
+  }
+
+  // ——— arming: a click on a commit block's words arms it for a comment ———
   function onDocClick(event) {
     if (session) return; // session has its own click-away handling
     const t = event.target;
     if (!t || !t.closest) { disarm(); return; }
     if (t.closest(OVERLAY_SEL)) return; // clicks in overlay UI never disarm-toggle
-    blockCommentFrom = null;
+    blockComment = null;
     const block = t.closest(COMMIT_BLOCK_SEL);
     // A decorated block arms only while its edit is revisitable (pending and
     // wholly the user's); sent or agent-touched edits stay sealed.
     if (!block || (block.classList.contains('rv-edit-decorated') && !revisitInfo.has(block))) { disarm(); return; }
     const sel = window.getSelection && window.getSelection();
-    if (sel && !sel.isCollapsed && String(sel)) { disarm(); armed = { block }; return; } // selection path: no caret span
-    // Read the click on the layout it was aimed at, as text offsets: the
-    // disarm below takes the old caret out and rejoins the text nodes.
+    if (sel && !sel.isCollapsed && String(sel)) { disarm(); armed = { block }; return; } // the selection is the target
+    // What's under the pointer picks the state: the user's own mark reopens
+    // the edit at the click; a gap between two words (or after the last one)
+    // opens the editor there; a word arms the block for a comment.
     let range = null;
     if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(event.clientX, event.clientY);
     const at = range && block.contains(range.startContainer) ? textOffsetIn(block, range.startContainer, range.startOffset) : null;
-    // What's under the pointer picks the state: the user's own mark reopens
-    // the edit at the click; a gap between two words opens the editor there;
-    // a word arms the block for a comment.
     const onMark = !!t.closest('del.md-pending-del, ins.md-pending-ins');
-    const gap = !onMark && event.detail <= 1 ? gapCharAtPoint(block, event.clientX, event.clientY) : null;
-    const gapAt = gap ? textOffsetIn(block, gap.node, gap.index) : null;
+    const gapAt = !onMark && event.detail <= 1 ? gapOffsetIn(block, event.clientX, event.clientY) : null;
     disarm();
     if (onMark || gapAt != null) {
       openSession(block, null, gapAt != null ? gapAt : at, null);
@@ -204,17 +183,6 @@ function createCommitEditController(io) {
     }
     armed = { block };
     block.classList.add('rv-edit-armed');
-    const span = document.createElement('span');
-    span.className = 'rv-edit-caret';
-    const spot = at != null ? caretAt(block, at) : null;
-    if (spot) {
-      const r = document.createRange();
-      r.setStart(spot.node, spot.offset);
-      r.collapse(true);
-      r.insertNode(span);
-    } else {
-      block.appendChild(span);
-    }
   }
 
   // ——— dispatch + session keys ———
@@ -226,11 +194,12 @@ function createCommitEditController(io) {
     if (tag === 'TEXTAREA' || tag === 'INPUT' || (t && t.isContentEditable)) return;
 
     // Selection inside ONE commit block: ⌫ strikes it as an edit; punctuation
-    // or Space types over it. Letters and digits keep the quote-comment path.
+    // or Space types over it. Letters and digits are the page's: its quote
+    // comment takes the selection.
     const sel = window.getSelection && window.getSelection();
-    if (sel && !sel.isCollapsed && String(sel) && isEditEntryKey(event)) {
+    if (sel && !sel.isCollapsed && String(sel)) {
       const k = event.key;
-      if (k === 'Backspace' || k === 'Delete' || (typeof k === 'string' && [...k].length === 1)) {
+      if (isEditEntryKey(event) && (k === 'Backspace' || k === 'Delete' || (typeof k === 'string' && [...k].length === 1))) {
         const range = sel.rangeCount ? sel.getRangeAt(0) : null;
         const block = range && enclosingCommitBlock(range.commonAncestorContainer);
         if (block && block.contains(range.startContainer) && block.contains(range.endContainer)) {
@@ -243,33 +212,22 @@ function createCommitEditController(io) {
       return;
     }
 
+    // An armed block holds no caret: every typed character opens a comment on
+    // the whole block.
     if (!armed || !armed.block || !document.body.contains(armed.block)) return;
-    if (isCommentEntryKey(event)) {
+    if (isPlainCommentKey(event) && event.key !== ' ') {
       event.preventDefault();
       event.stopPropagation();
       const block = armed.block;
-      const at = armedCaretOffset();
       disarm();
-      blockCommentFrom = { block, caret: at };
+      blockComment = block;
       if (io.openBlockComment) io.openBlockComment(block, event.key);
-      return;
-    }
-    if (isEditEntryKey(event)) {
-      event.preventDefault();
-      event.stopPropagation();
-      openSession(armed.block, event, armedCaretOffset(), null);
     }
   }
 
   function enclosingCommitBlock(node) {
     const el = node && (node.nodeType === 1 ? node : node.parentElement);
     return el && el.closest ? el.closest(COMMIT_BLOCK_SEL) : null;
-  }
-
-  function armedCaretOffset() {
-    const span = caretSpan();
-    if (!span || !armed || !armed.block) return null;
-    return textOffsetInPrefix(armed.block, span);
   }
 
   // ——— the edit session ———
@@ -327,8 +285,7 @@ function createCommitEditController(io) {
       }
       return;
     }
-    clearCaretSpan();
-    armed = null;
+    disarm();
     if (io.onEditStart) io.onEditStart(); // host hides its quote chip/highlight
     block.normalize();
     session = {
@@ -342,9 +299,8 @@ function createCommitEditController(io) {
       redoStack: [],
       undoLatch: false,
       // What To comment needs: the selection the editor opened on (its text
-      // and offsets), and the caret it opened at.
+      // and offsets).
       entrySelection: null,
-      openCaret: null,
       gapCaret: null,
     };
     if (revisit) {
@@ -391,12 +347,9 @@ function createCommitEditController(io) {
     }
     const max = block.textContent.length; // current content: marks included on a revisit
     const caret = Math.max(0, Math.min(caretOffset != null ? caretOffset : max, max));
-    sess.openCaret = caret;
     if (typed) {
       setCaret(block, caret);
-      // At a gap the words make their own word, as typing there would.
-      if (caretAtGap(block, caret)) engine.insertAtGap(entryText.trim());
-      else engine.insertMarkedInBlock(entryText);
+      engine.insertMarkedInBlock(entryText);
       return;
     }
     if (!entryEvent || k.startsWith('Arrow')) { setCaret(block, caret); return; }
@@ -645,8 +598,8 @@ function createCommitEditController(io) {
     clearGapCaret();
     if (!session) return;
     const block = session.block;
-    const at = charAt(block, offset);
-    if (!at || !/\s/.test(at.node.data[at.offset] || '')) return;
+    const text = block.textContent;
+    if (!/\s/.test(text[offset] || '') && /\S/.test(text.slice(offset))) return;
     setCaret(block, offset);
     block.classList.add('md-gap-caret');
     session.gapCaret = { offset };
@@ -706,7 +659,7 @@ function createCommitEditController(io) {
     const inss = outerInsertions(sess.block);
     const text = inss.length ? inss[0].textContent.trim() : '';
     const struck = !!sess.block.querySelector('del.md-pending-del');
-    const { block, entrySelection, openCaret } = sess;
+    const { block, entrySelection } = sess;
     revert();
     let range = null;
     if (struck && entrySelection) {
@@ -718,35 +671,29 @@ function createCommitEditController(io) {
         range.setEnd(b.node, b.offset);
       }
     } else {
-      blockCommentFrom = { block, caret: openCaret };
+      blockComment = block;
     }
     if (io.openBlockComment) io.openBlockComment(block, text, range);
   }
 
-  // The commit block a quote lies in, when it lies in exactly one: only there
-  // can a comment's words become an edit.
+  // The commit block a quote can become an edit in: a selection inside one
+  // block. A comment on a whole armed block has nowhere to edit at.
   function blockForRange(range) {
     if (!range) return null;
     const a = enclosingCommitBlock(range.startContainer);
-    return a && a === enclosingCommitBlock(range.endContainer) ? a : null;
+    if (!a || a !== enclosingCommitBlock(range.endContainer) || a === blockComment) return null;
+    return a;
   }
 
-  // To edit from the quote composer: the words type over the quoted text, or
-  // go in at the caret when the comment came from a letter on an armed block.
+  // To edit from the quote composer: the words type over the quoted text.
   function editFromComment(range, text) {
     const block = blockForRange(range);
     if (!block || session) return false;
-    const from = blockCommentFrom && blockCommentFrom.block === block ? blockCommentFrom : null;
-    blockCommentFrom = null;
     disarm();
-    if (from) {
-      openSession(block, null, from.caret, null, text);
-    } else {
-      const r = range.cloneRange();
-      if (!block.contains(r.startContainer)) r.setStart(block, 0);
-      if (!block.contains(r.endContainer)) r.setEnd(block, block.childNodes.length);
-      openSession(block, null, null, r, text);
-    }
+    const r = range.cloneRange();
+    if (!block.contains(r.startContainer)) r.setStart(block, 0);
+    if (!block.contains(r.endContainer)) r.setEnd(block, block.childNodes.length);
+    openSession(block, null, null, r, text);
     return !!session;
   }
 
@@ -761,7 +708,7 @@ function createCommitEditController(io) {
       const p = gapHoverAt;
       const block = p && p.el && p.el.closest ? p.el.closest(COMMIT_BLOCK_SEL) : null;
       const editable = block && (!block.classList.contains('rv-edit-decorated') || revisitInfo.has(block));
-      document.body.classList.toggle('rv-gap-hover', !!(editable && gapCharAtPoint(block, p.x, p.y)));
+      document.body.classList.toggle('rv-gap-hover', !!(editable && gapOffsetIn(block, p.x, p.y) != null));
     });
   }
 

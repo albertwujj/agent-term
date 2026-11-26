@@ -23,6 +23,7 @@ const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', 
 });
 global.window = dom.window;
 global.document = dom.window.document;
+global.Node = dom.window.Node;
 global.requestAnimationFrame = dom.window.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 global.cancelAnimationFrame = dom.window.cancelAnimationFrame = (id) => clearTimeout(id);
 dom.window.matchMedia = dom.window.matchMedia || (() => ({
@@ -156,12 +157,45 @@ function editing() {
   return primary().querySelector('.md-rendered-editing');
 }
 
+// Opens the editor after the block's last word, the way a click on the near
+// half of its last character does. jsdom has no layout, so the hit-test and the
+// character boxes are stubbed for this one click.
+const BOX = { width: 10, height: 10, left: 0, right: 10, top: 0, bottom: 10 };
+function openAtEnd(matchText) {
+  const el = Array.from(primary().querySelectorAll('[data-md-anchor-id]'))
+    .find((b) => b.textContent.includes(matchText));
+  const nodes = [];
+  const walker = document.createTreeWalker(el, 4, null);
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+  const last = nodes.reverse().find((t) => /\S/.test(t.data));
+  const offset = last.data.search(/\S\s*$/) + 1;
+  const savedHit = document.caretRangeFromPoint;
+  const savedRects = dom.window.Range.prototype.getClientRects;
+  document.caretRangeFromPoint = () => { const r = document.createRange(); r.setStart(last, offset); r.collapse(true); return r; };
+  dom.window.Range.prototype.getClientRects = () => [BOX];
+  try {
+    el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }));
+  } finally {
+    document.caretRangeFromPoint = savedHit;
+    dom.window.Range.prototype.getClientRects = savedRects;
+  }
+  return el;
+}
+
+// ⌫ inside the open editor, as Chromium hands it over: a beforeinput delete
+// whose target range is the char before the caret.
+function erase(el) {
+  const r = dom.window.getSelection().getRangeAt(0);
+  const ev = new dom.window.InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true });
+  ev.getTargetRanges = () => [{ startContainer: r.startContainer, startOffset: r.startOffset - 1, endContainer: r.startContainer, endOffset: r.startOffset }];
+  el.dispatchEvent(ev);
+}
+
 // Simulates the outcome of native typing in the contenteditable block, then
 // ends the edit via blur, Enter, or Escape.
 async function renderedEdit(matchText, newText, endKey = 'blur') {
-  clickBlock(matchText);
-  await sleep(5);
-  key({ key: 'Backspace' });
+  openAtEnd(matchText);
   await sleep(5);
   const el = editing();
   if (!el) throw new Error(`no rendered editor on ${matchText}`);
@@ -241,24 +275,21 @@ async function run() {
   await sleep(10);
   clickBlock('Second paragraph');
   await sleep(5);
-  key({ key: ' ' }); // space edits: it types a marked space at the caret
+  key({ key: ' ' }); // an armed block holds no caret: Space turns the page
+  key({ key: 'Backspace' }); // and ⌫ has nothing to act on
   await sleep(10);
-  {
-    const spaceEd = editing();
-    const ins = spaceEd && spaceEd.querySelector('ins.md-pending-ins');
-    check('entry space opens the editor and inserts a marked space',
-      !!ins && ins.textContent === ' ', ins && JSON.stringify(ins.textContent));
-  }
+  check('Space and ⌫ on an armed block open no edit and no comment',
+    !editing() && !document.querySelector('.md-comment-card'));
   key({ key: 'Escape' });
   await sleep(10);
 
   // --- wrapped paragraph: edits directly on the rendered text ---
-  clickBlock('A scratch document');
-  await sleep(5);
-  key({ key: 'Backspace' });
+  openAtEnd('A scratch document');
   await sleep(5);
   const para = editing();
-  check('backspace enters editing on the rendered block', !!para && para.contentEditable === 'true');
+  check('a click after the last word opens editing on the rendered block', !!para && para.contentEditable === 'true');
+  erase(para);
+  await sleep(5);
   check('no textarea for a mappable block', !document.querySelector('.md-block-editor'));
   const editStripBtns = Array.from(document.querySelectorAll('.md-editing-strip button'));
   check('a labeled send rides the live edit', editStripBtns.some((b) => b.textContent.startsWith('Send')), editStripBtns.map((b) => b.textContent));
@@ -281,11 +312,11 @@ async function run() {
       && !document.querySelector('.md-editing-strip-spacer').closest('.md-viewer-body').contains(document.querySelector('.md-editing-strip')));
   }
   {
-    // Strike-in-place: the entry Backspace strikes the last char rather than
-    // removing it — the text stays whole, one char now sits in a <del>.
+    // Strike-in-place: ⌫ strikes the last char rather than removing it — the
+    // text stays whole, one char now sits in a <del>.
     const original = FIXTURE.split('\n').slice(2, 4).join('\n');
     const struck = para && para.querySelector('del.md-pending-del');
-    check('entry backspace strikes the last character in place',
+    check('⌫ strikes the last character in place',
       !!struck && struck.textContent === original.slice(-1) && para.textContent === original,
       { struck: struck && struck.textContent, text: para && para.textContent.slice(-8) });
   }
@@ -436,9 +467,7 @@ async function run() {
   // this into a duplicated "one onesource"; the minimal diff strikes just the
   // removed space.
   {
-    clickBlock('Second paragraph');
-    await sleep(5);
-    key({ key: 'Backspace' });
+    openAtEnd('Second paragraph');
     await sleep(5);
     const ed = editing();
     ed.textContent = 'Second paragraph on onesource line only.';
@@ -465,9 +494,7 @@ async function run() {
     && Array.from(primary().querySelectorAll('p')).some((el) => el.textContent.includes('A scratch document')));
 
   // --- heading edits on its rendered text, marker invisible ---
-  clickBlock('Heading');
-  await sleep(5);
-  key({ key: 'Backspace' });
+  openAtEnd('Heading');
   await sleep(5);
   const h1edit = editing();
   check('heading edits on the rendered text without its marker',
@@ -511,6 +538,8 @@ async function run() {
     const sel = dom.window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
+    markupP.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true })); // the selection arms
+    await sleep(10);
     key({ key: 'Backspace' });
     await sleep(5);
     const ed = editing();
@@ -838,15 +867,16 @@ async function run() {
     preflightResult = { runbook: '/fake/agent-threads/md/user-intent.md' };
     const sentBefore = sentBatches.length;
     const fcBefore = focusTerminalCalls;
-    clickBlock('A spare paragraph');
+    const opened = openAtEnd('A spare paragraph');
     await sleep(5);
-    key({ key: 'Enter' }); // entry Enter: opens the editor AND breaks the line
+    // Enter at the fresh gap caret breaks the line there instead of sending.
+    opened.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter' }));
     await sleep(10);
     const el = editing();
-    check('entry enter opens the editor', !!el);
-    check('entry enter does not send', sentBatches.length === sentBefore, sentBatches.length - sentBefore);
+    check('a click after the last word opens the editor', !!el);
+    check('Enter at the fresh gap does not send', sentBatches.length === sentBefore, sentBatches.length - sentBefore);
     const atom = el && el.querySelector('ins.md-pending-break');
-    check('entry enter inserts a break atom carrying a real newline', !!atom && atom.textContent === '\n');
+    check('Enter at the fresh gap inserts a break atom carrying a real newline', !!atom && atom.textContent === '\n');
     // Shift+Enter breaks again mid-edit — prose included, no longer code-only.
     el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Enter', shiftKey: true }));
     await sleep(10);
@@ -960,20 +990,15 @@ async function run() {
     await sleep(10);
     check('Esc reverts the converted edit', !editing() && !primary().querySelector('del.md-pending-del'));
 
-    // 2. block click + letter → switch: the letter inserts at the click caret.
+    // 2. block click + letter: a comment on the whole block, which has no spot
+    //    to edit at, so no To edit.
     clickBlock('This line has');
     await sleep(5);
     key({ key: 'K' });
     await sleep(10);
     ta = composerEl();
-    check('block-comment card also offers To edit', !!ta && !!editInsteadBtn());
-    editInsteadBtn().dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    await sleep(10);
-    el = editing();
-    check('the button converts a block comment: text inserts at the caret, nothing struck',
-      !composerEl() && !!el && !el.querySelector('del.md-pending-del')
-        && el.querySelector('ins.md-pending-ins') && el.querySelector('ins.md-pending-ins').textContent === 'K',
-      el && el.innerHTML);
+    check('a block-comment card offers no To edit', !!ta && !editInsteadBtn());
+    ta.value = '';
     key({ key: 'Escape' });
     await sleep(10);
 

@@ -71,8 +71,21 @@ try {
   }, ANCHOR);
 
   const edit = page.locator('.secondary p').filter({ hasText: TARGET });
-  await edit.click();
-  await page.keyboard.press('ArrowRight');
+  // Open the editor after the paragraph's last character (a click on the near
+  // half of it), in the right page's copy.
+  const end = await page.evaluate((target) => {
+    const p = [...document.querySelectorAll('.secondary p')].find((el) => el.textContent.includes(target));
+    const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+    let last = null;
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (/\S/.test(n.data)) last = n;
+    const at = last.data.search(/\S\s*$/);
+    const r = document.createRange();
+    r.setStart(last, at);
+    r.setEnd(last, at + 1);
+    const b = r.getBoundingClientRect();
+    return { x: b.right - 1, y: b.top + b.height / 2 };
+  }, TARGET);
+  await page.mouse.click(end.x, end.y);
   await page.waitForSelector('.secondary .md-rendered-editing');
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End');
   const settle = () => page.evaluate(() => new Promise((resolve) =>

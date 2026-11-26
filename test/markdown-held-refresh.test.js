@@ -291,8 +291,17 @@ async function run() {
   // A sent edit seals its block against editing, but the block still takes a
   // comment. The agent applying the edit rewrites that block, so the mark
   // carries over to the edit as applied.
-  clickBlock('Delta paragraph');
-  await sleep(5);
+  // The editor opens from a selection and ⌫ (a clicked block holds no caret).
+  {
+    const delta = block('Delta paragraph');
+    const pick = document.createRange();
+    pick.setStart(delta.firstChild, 0);
+    pick.setEnd(delta.firstChild, 'Delta'.length);
+    dom.window.getSelection().removeAllRanges();
+    dom.window.getSelection().addRange(pick);
+    delta.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    await sleep(10);
+  }
   key('Backspace');
   await sleep(5);
   const editor = find('.md-rendered-editing');

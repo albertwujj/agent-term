@@ -80,19 +80,81 @@ function typeChar(el, ch) {
   }));
 }
 const strip = () => document.querySelector('.rv-edit-compose');
-const caret = () => document.querySelector('span.rv-edit-caret');
+const armedWash = (el) => el.classList.contains('rv-edit-armed');
+
+// jsdom has no layout: `aim` names the text spot the hit-test returns, and
+// every range box holds the click point.
+const BOX = { width: 10, height: 10, left: 0, right: 10, top: 0, bottom: 10 };
+dom.window.Range.prototype.getClientRects = () => [BOX];
+let aimed = null;
+document.caretRangeFromPoint = () => {
+  if (!aimed || !aimed.node.isConnected) return null;
+  const r = document.createRange();
+  r.setStart(aimed.node, aimed.offset);
+  r.collapse(true);
+  return r;
+};
+function aim(el, needle, delta = 0) {
+  const w = document.createTreeWalker(el, 4, null);
+  let n;
+  while ((n = w.nextNode())) {
+    const i = n.data.indexOf(needle);
+    if (i >= 0) { aimed = { node: n, offset: i + delta }; return; }
+  }
+  throw new Error(`no ${needle}`);
+}
+// After the block's last character: where a click adds a word at the end.
+function aimEnd(el) {
+  const nodes = [];
+  const w = document.createTreeWalker(el, 4, null);
+  let n;
+  while ((n = w.nextNode())) nodes.push(n);
+  const last = nodes.reverse().find((t) => /\S/.test(t.data));
+  aimed = { node: last, offset: last.data.search(/\S\s*$/) + 1 };
+}
+const clickAt = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }));
+// A beforeinput delete of the char before the caret, as Chromium hands it over.
+function erase(el) {
+  const r = window.getSelection().getRangeAt(0);
+  const ev = new dom.window.InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true });
+  ev.getTargetRanges = () => [{ startContainer: r.startContainer, startOffset: r.startOffset - 1, endContainer: r.startContainer, endOffset: r.startOffset }];
+  el.dispatchEvent(ev);
+}
+function select(el, needle, len = needle.length) {
+  const w = document.createTreeWalker(el, 4, null);
+  let n;
+  while ((n = w.nextNode())) {
+    const i = n.data.indexOf(needle);
+    if (i < 0) continue;
+    const r = document.createRange();
+    r.setStart(n, i);
+    r.setEnd(n, i + len);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(r);
+    return r;
+  }
+  throw new Error(`no ${needle}`);
+}
 
 async function run() {
-  // — arm + entry ⌫ at the (fallback end-of-block) caret —
+  // — a click on a word arms the block for a comment: the wash, no caret, and
+  //   ⌫ there has nothing to act on —
   click(subject);
-  check('a click arms the block with a blinking caret', !!caret() && subject.contains(caret()));
+  check('a click on a word arms the block with the wash and no caret',
+    armedWash(subject) && !subject.querySelector('span'));
   key(subject, { key: 'Backspace' });
-  check('an edit key opens the session', ctl.isEditing());
+  check('⌫ on an armed block opens no edit', !ctl.isEditing());
+  click(document.body);
+
+  // — a selection + ⌫ opens the session, striking the selection —
+  select(subject, SUBJECT.slice(-1));
+  key(subject, { key: 'Backspace' });
+  check('selection + ⌫ opens the session', ctl.isEditing());
   check('the session block is contenteditable', subject.getAttribute('contenteditable') === 'true');
-  check('the caret span is gone once editing starts', !caret());
+  check('the editor has no wash', !armedWash(subject));
   check('the composer strip sits under the block', !!strip());
   const del1 = subject.querySelector('del.md-pending-del');
-  check('entry ⌫ strikes the char before the caret', !!del1 && del1.textContent === SUBJECT.slice(-1), del1 && del1.textContent);
+  check('the entry ⌫ strikes the selected char', !!del1 && del1.textContent === SUBJECT.slice(-1), del1 && del1.textContent);
 
   // — typing inserts marked; Enter commits + sends —
   typeChar(subject, 'x');
@@ -111,23 +173,42 @@ async function run() {
     && sent.anchor.heading === 'Commit message' && sent.anchor.snippet === SUBJECT, sent.anchor);
 
   // — Esc reverts, nothing written —
-  click(p1);
+  select(p1, 'timer');
   key(p1, { key: '.' });
-  check('a punctuation entry opens the session with the char marked',
-    ctl.isEditing() && !!p1.querySelector('ins.md-pending-ins'));
+  check('punctuation over a selection opens the session typing over it',
+    ctl.isEditing() && !!p1.querySelector('ins.md-pending-ins') && !!p1.querySelector('del.md-pending-del'));
   key(p1, { key: 'Escape' });
   check('esc reverts the block verbatim', !ctl.isEditing() && p1.innerHTML === P1, p1.innerHTML);
   check('esc adds no thread', addCalls.length === 1);
+  window.getSelection().removeAllRanges();
 
-  // — a letter or digit routes to the comment path —
+  // — on an armed block every typed character opens a comment on it —
   click(p2);
   key(p2, { key: 'a' });
-  check('a letter on an armed block opens the block comment instead',
+  check('a letter on an armed block opens the block comment',
     !ctl.isEditing() && blockComments.length === 1 && blockComments[0].block === p2 && blockComments[0].seed === 'a');
   click(p2);
   key(p2, { key: '3' });
   check('a digit on an armed block opens the block comment too',
     !ctl.isEditing() && blockComments.length === 2 && blockComments[1].block === p2 && blockComments[1].seed === '3');
+  click(p2);
+  key(p2, { key: '(' });
+  check('so does punctuation: an armed block has no caret to edit at',
+    !ctl.isEditing() && blockComments.length === 3 && blockComments[2].seed === '(');
+  check('a whole-block comment offers no To edit', (() => {
+    const r = document.createRange(); r.selectNodeContents(p2); return ctl.blockForRange(r) === null;
+  })());
+  click(document.body);
+
+  // — a letter over a selection is the page's quote comment, not a block comment —
+  click(p2);
+  select(p2, 'rationale');
+  const letterOnSel = new dom.window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'q' });
+  p2.dispatchEvent(letterOnSel);
+  check('a letter over a selection is left to the page (it quotes the selection)',
+    blockComments.length === 3 && !letterOnSel.defaultPrevented);
+  window.getSelection().removeAllRanges();
+  click(document.body);
 
   // — selection + ⌫ strikes the selection; click-away commits without send —
   const sel = window.getSelection();
@@ -197,9 +278,12 @@ async function run() {
   ctl.decorateEditThreads([editThread]);
   check('a pending user-only edit marks its block revisitable', p1.classList.contains('rv-edit-revisitable'));
   click(p1);
-  check('clicking a revisitable block arms it', !!caret());
-  key(p1, { key: 'Backspace' }); // caret fallback = end → strikes the final "."
-  check('an edit key re-enters the session with the marks kept',
+  check('a click on a revisitable block\'s words arms it', armedWash(p1));
+  click(document.body);
+  aimEnd(p1);
+  clickAt(p1); // after the last word: the edit reopens there
+  erase(p1); // strikes the final "."
+  check('a click after the last word reopens the edit with the marks kept',
     ctl.isEditing() && p1.getAttribute('contenteditable') === 'true'
     && !!p1.querySelector('ins.md-pending-ins'));
   await sleep(5);
@@ -220,8 +304,11 @@ async function run() {
                { author: 'user', body: 'trim it', ts: 6 }],
   };
   ctl.decorateEditThreads([e1v2]);
-  click(p1);
-  key(p1, { key: '.' });
+  // The final "." is struck, so the block's end is the user's own mark:
+  // a click on it reopens the edit there.
+  const struckEnd = Array.from(p1.querySelectorAll('del.md-pending-del')).pop();
+  aimed = { node: struckEnd.firstChild, offset: 1 };
+  struckEnd.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }));
   const noteTa = document.querySelector('.rv-edit-compose textarea');
   check('revisit seeds the note from the stored second message',
     ctl.isEditing() && noteTa && noteTa.value === 'trim it', noteTa && noteTa.value);
@@ -260,10 +347,17 @@ async function run() {
 
   // — Send on a mark-less session still keeps its "Send all" promise: nothing
   //   is written for THIS edit, but the host is asked to flush what's pending —
-  click(p2);
-  key(p2, { key: 'ArrowLeft' }); // arrows enter the editor without inserting
-  check('arrow entry opens a mark-less session',
-    ctl.isEditing() && !p2.querySelector('del.md-pending-del, ins.md-pending-ins'));
+  aimEnd(p2);
+  clickAt(p2); // the editor opens after the last word, nothing typed
+  check('a click after the last word opens a mark-less session with the gap caret',
+    ctl.isEditing() && p2.classList.contains('md-gap-caret') && !p2.querySelector('del.md-pending-del, ins.md-pending-ins'));
+  const moved = document.createRange();
+  moved.setStart(p2.firstChild, 3);
+  moved.collapse(true);
+  window.getSelection().removeAllRanges();
+  window.getSelection().addRange(moved);
+  document.dispatchEvent(new dom.window.Event('selectionchange'));
+  check('moving the caret off the gap ends the gap caret', !p2.classList.contains('md-gap-caret'));
   key(p2, { key: 'Enter' });
   await sleep(5);
   check('send on a mark-less fresh session adds nothing and flushes pending',
@@ -321,35 +415,13 @@ async function run() {
     !p2.querySelector('del.md-pending-del') && rawCaretOffset(p2) === at, rawCaretOffset(p2));
   key(p2, { key: 'Escape' });
 
-  // — the md viewer's click rules on the commit blocks. jsdom has no layout:
-  // `aim` names the text spot the hit-test returns, and every range box holds
-  // the click point —
+  // — the md viewer's click rules on the commit blocks —
   {
-    const BOX = { width: 10, height: 10, left: 0, right: 10, top: 0, bottom: 10 };
-    dom.window.Range.prototype.getClientRects = () => [BOX];
-    let aimed = null;
-    document.caretRangeFromPoint = () => {
-      if (!aimed) return null;
-      const r = document.createRange();
-      r.setStart(aimed.node, aimed.offset);
-      r.collapse(true);
-      return r;
-    };
-    const aim = (el, needle, delta = 0) => {
-      const w = document.createTreeWalker(el, 4, null);
-      let n;
-      while ((n = w.nextNode())) {
-        const i = n.data.indexOf(needle);
-        if (i >= 0) { aimed = { node: n, offset: i + delta }; return; }
-      }
-      throw new Error(`no ${needle}`);
-    };
-    const clickAt = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }));
     const stripBtn = (label) => strip() && Array.from(strip().querySelectorAll('button')).find((b) => b.textContent.startsWith(label));
 
     aim(p1, 'polling', 2);
     clickAt(p1);
-    check('a click on a word arms the block with the wash', !ctl.isEditing() && p1.classList.contains('rv-edit-armed') && !!caret());
+    check('a click on a word arms the block with the wash, no caret', !ctl.isEditing() && armedWash(p1) && !p1.querySelector('span'));
     key(p1, { key: 'Escape' });
     click(document.body);
     check('disarming takes the wash away', !p1.classList.contains('rv-edit-armed'));
@@ -371,10 +443,15 @@ async function run() {
       !ctl.isEditing() && p1.innerHTML === P1 && !!handed && handed.block === p1 && handed.seed === 'quietly' && !handed.range, handed);
     const whole = document.createRange();
     whole.selectNodeContents(p1);
-    check('the commit block takes the quote back as an edit', ctl.blockForRange(whole) === p1);
-    ctl.editFromComment(whole, 'quietly');
-    check('To edit puts the words back at the gap as their own word',
-      ctl.isEditing() && p1.textContent === 'The polling quietly utilizes a timer to refill tokens.', p1.textContent);
+    check('that whole-block comment offers no To edit', ctl.blockForRange(whole) === null);
+    click(document.body);
+
+    aimEnd(p1);
+    clickAt(p1);
+    check('a click after the last word opens the editor there with the gap caret',
+      ctl.isEditing() && p1.classList.contains('md-gap-caret'));
+    for (const ch of 'Daily') typeChar(p1, ch);
+    check('a word typed at the end gets its own space', p1.textContent === `${P1} Daily`, p1.textContent);
     key(p1, { key: 'Escape' });
 
     aim(p1, 'utilizes', 0); // the near half of the word after the space
@@ -408,9 +485,10 @@ async function run() {
       back && back.range && back.range.toString());
 
     // An edit with more than a comment holds offers no To comment.
-    aim(p2, 'Second', 3);
+    aim(p2, ' paragraph');
     clickAt(p2);
-    key(p2, { key: 'Backspace' });
+    erase(p2); // strikes the "d" of "Second"
+    await sleep(5); // the button follows the edit a microtask later
     check('an edit that struck text offers no To comment', ctl.isEditing() && stripBtn('To comment').hidden);
     key(p2, { key: 'Escape' });
 

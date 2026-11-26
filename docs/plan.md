@@ -15,7 +15,7 @@ Ask your agent to write a plan or draft to a markdown file, then click its name,
 Click anywhere, and the bottom bar hints at the actions available there.
 
 <p align="center">
-<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/md-bar-guide.png"><img src="assets/md-bar-guide.png" width="487" alt="the viewer's bottom bar after a click on a link: letters and digits comment · other keys edit · ⌘click follows, and the copy button reading ⧉ paragraph"></a>
+<a href="https://raw.githubusercontent.com/albertwujj/agent-term/main/docs/assets/md-bar-guide.png"><img src="assets/md-bar-guide.png" width="340" alt="the viewer's bottom bar after a click on a link: type to comment · ⌘click follows, and the copy button reading ⧉ paragraph"></a>
 </p>
 
 It reads as a book: two pages side by side, short lines. Pages turn rather than scroll.

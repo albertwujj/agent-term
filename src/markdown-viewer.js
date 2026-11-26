@@ -30,6 +30,7 @@ const {
   isMutatingEntryKey,
   createMarkEngine,
   gapCharAtPoint,
+  blockEndAtPoint,
   settleGapInsertions,
   serializeMarkedBlock,
   overlayToEnvelope,
@@ -420,10 +421,11 @@ function ensureStyles() {
       background-color: var(--md-landing);
       box-shadow: inset 2px 0 #64748b;
     }
-    /* The block a letter comments on: the wash alone. Left bars belong to the
-       change and landing markers, which an armed block keeps showing. */
+    /* The block a comment is about wears the comment yellow, paler than a
+       selection's: yellow marks what a comment quotes, a few words or a whole
+       block. Left bars stay the change and landing markers' own. */
     .md-viewer-body .md-comment-target-active {
-      background-color: var(--md-block);
+      background-color: rgba(250, 204, 21, 0.2);
     }
     .md-viewer-body img.md-copy-image {
       outline: 2px solid #64748b;
@@ -932,19 +934,9 @@ function ensureStyles() {
     /* Editing core: amber pending-edit bars (same gutter idiom as change bars,
        declared after them so pending wins on a block carrying both), and the
        batch pill. */
-    /* The caret says what typing does. Armed for a comment, a steady slate
-       hairline: it marks where ⌫, punctuation and arrows would edit, and holds
-       still because a letter goes to the comment card. Editing, the caret
-       blinks in amber, the colour typed text takes. */
-    .md-viewer-body .md-edit-caret {
-      display: inline-block;
-      width: 0;
-      height: 1.05em;
-      margin: 0 -0.5px;
-      vertical-align: text-bottom;
-      border-left: 1px solid #64748b;
-      pointer-events: none;
-    }
+    /* A caret means typing edits there, so only the editor shows one: it
+       blinks in amber, the colour typed text takes. A block armed for a
+       comment has none; anything typed goes to the comment. */
     /* Direct editing on the rendered block: the document itself is the
        editing surface. No wash (nothing is being commented on); the amber
        caret and the strip below say this is an edit. */
@@ -1243,14 +1235,12 @@ function createMarkdownViewer({
     expandedThreads: new Set(), // thread ids opened from a resolved/waiting line into a full card
     remindingThreads: new Set(), // open-token + thread id; shared by both article copies
     editing: null, // open block-editor session
-    editCaret: null, // held caret span at the click position (armed block)
     // A user edit is a comment: strike-in-place marks (<del>/<ins>) over the
     // FROZEN rendered block. The document source is never mutated by an edit. The
     // marked overlay is the single source of truth for both the on-screen
     // decoration and the [Edit] envelope, keyed by the block's stable anchorId
     // (stable because the source is frozen). Value: { html, note }.
     blockOverlays: new Map(), // anchorId → { html, note }
-    pendingClickCaret: null, // on-screen text offset (struck text counts) captured at the last block click
     hint: null,
     doc: null,
     spreadLayout: null,
@@ -2369,7 +2359,6 @@ function createMarkdownViewer({
       start: intact.get(start.id),
       end: intact.get(end.id),
       selection,
-      caret: state.pendingClickCaret,
       link: state.activeLink,
       imageIndex: imageIndexInBlock(state.activeTarget, state.activeImage),
     };
@@ -2379,7 +2368,7 @@ function createMarkdownViewer({
     return !!state.activeTarget && !!state.shell && state.shell.contains(document.activeElement);
   }
 
-  function rearmAfterRefresh({ pane, start, end, selection, caret, link, imageIndex }) {
+  function rearmAfterRefresh({ pane, start, end, selection, link, imageIndex }) {
     const article = pane === 'right' ? state.secondaryArticle : state.article;
     const target = article && getArticleAnchorById(article, start.id);
     if (!target) return;
@@ -2389,7 +2378,7 @@ function createMarkdownViewer({
       });
     } else {
       const image = imageIndex >= 0 ? target.querySelectorAll('img')[imageIndex] : null;
-      armBlockAt(target, caret, { link, image });
+      armBlock(target, { link, image });
     }
   }
 
@@ -3814,10 +3803,6 @@ function createMarkdownViewer({
       }
     }
 
-    // A selection supersedes any earlier click point: if the selection has
-    // collapsed by the time an edit key lands, the entry must not inherit a
-    // stale caret from a previous click.
-    state.pendingClickCaret = null;
     setActiveTarget(selection.target, { selection });
     return true;
   }
@@ -4142,7 +4127,7 @@ function createMarkdownViewer({
     // A mark or a gap edits on; anything else arms the block for a comment.
     if ((mark || gap != null) && openEditorAt(target, gap != null ? gap : caret, { gap: gap != null })) return false;
     const image = imageIndex >= 0 ? target.querySelectorAll('img')[imageIndex] : null;
-    armBlockAt(target, caret, { link, image });
+    armBlock(target, { link, image });
     return !!point;
   }
 
@@ -4505,7 +4490,6 @@ function createMarkdownViewer({
   }
 
   function clearActiveTarget() {
-    clearEditCaret();
     if (state.activeTarget) {
       state.activeTarget.classList.remove('md-comment-target-active');
     }
@@ -4575,7 +4559,6 @@ function createMarkdownViewer({
     state.resolvedExpanded = new Set();
     state.editing = null;
     state.blockOverlays = new Map();
-    state.pendingClickCaret = null;
   }
 
   function close() {
@@ -5539,7 +5522,6 @@ function createMarkdownViewer({
       // a selection struck at entry converts back to a comment on it.
       fresh: !existing,
       entrySelection: null,
-      openCaret: null,
       gapCaret: null,
     };
     state.editing = session;
@@ -5599,14 +5581,10 @@ function createMarkdownViewer({
     // just past a strike reaches the strike, as it would inside the editor.
     const screenLength = getSearchableTextNodes(target, ON_SCREEN).text.length;
     const caret = Math.max(0, Math.min(clickCaret != null ? clickCaret : screenLength, screenLength));
-    session.openCaret = caret;
     setCaretWithin(target, caret, ON_SCREEN);
     if (!mutating) return;
     if (typed) {
-      // A comment's text moved in at a gap makes its own word, as typing into
-      // the gap would: To comment and To edit undo each other there too.
-      if (caretAtGap(target, caret)) insertAtGap(entryText.trim());
-      else insertMarkedInBlock(entryText);
+      insertMarkedInBlock(entryText);
       return;
     }
     if (k === 'Backspace' || k === 'Delete') {
@@ -5762,8 +5740,7 @@ function createMarkdownViewer({
   }
 
   // To comment: what was typed leaves the page and opens as a comment, on the
-  // selection the editor struck or else on the block, with the armed caret
-  // back where the editor opened.
+  // selection the editor struck or else on the block.
   function convertEditToComment() {
     const session = state.editing;
     if (!editConvertsToComment(session)) return false;
@@ -5772,7 +5749,7 @@ function createMarkdownViewer({
     const struck = !!session.el.querySelector('del.md-pending-del');
     const record = struck ? session.entrySelection.record : null;
     const pane = isInSecondaryPane(session.el) ? 'right' : 'left';
-    const { anchorId, openCaret } = session;
+    const { anchorId } = session;
     revertBlockEditor();
     const article = pane === 'right' ? state.secondaryArticle : state.article;
     const target = article && getArticleAnchorById(article, anchorId);
@@ -5782,7 +5759,7 @@ function createMarkdownViewer({
       const recordTarget = (recordArticle && getArticleAnchorById(recordArticle, record.anchorId)) || target;
       if (!activateSelectionFromRecord({ ...record, target: recordTarget })) return false;
     } else {
-      armBlockAt(target, openCaret);
+      armBlock(target);
     }
     return openCommentCard(text);
   }
@@ -5802,7 +5779,7 @@ function createMarkdownViewer({
   // entryText: a comment card switching to an edit hands its typed text in
   // here; it enters the block exactly as those keystrokes would have, had the
   // first one been an editing key (see openRenderedEditor).
-  function openBlockEditor(target, entryEvent, { entryText = null } = {}) {
+  function openBlockEditor(target, entryEvent, { entryText = null, caret = null } = {}) {
     if (state.editing || !target) return;
     const blocked = blockEditBlockedReason(target);
     if (blocked) {
@@ -5811,7 +5788,6 @@ function createMarkdownViewer({
     }
     const range = getBlockSourceRange(target);
     if (!range) return;
-    const clickCaret = state.pendingClickCaret;
     // A virtual-drag selection has no live DOM range — it exists only in the
     // armed record, which the target clear below wipes. Carry it in by hand.
     const entrySelection = state.activeSelection;
@@ -5821,7 +5797,7 @@ function createMarkdownViewer({
     // (bold, links, lists) strike like prose. There is no source-textarea
     // fallback; the source is never touched.
     const blockSource = blockSourceForRange(range);
-    openRenderedEditor(target, range, blockSource, entryEvent, clickCaret, entrySelection, entryText);
+    openRenderedEditor(target, range, blockSource, entryEvent, caret, entrySelection, entryText);
   }
 
   function commitBlockEditor() {
@@ -7438,7 +7414,6 @@ function createMarkdownViewer({
     state.resolvedExpanded = new Set();
     state.editing = null;
     state.blockOverlays = new Map();
-    state.pendingClickCaret = null;
     state.imageVersions = new Map();
     state.imageRefreshPending = false;
     return token;
@@ -7480,7 +7455,7 @@ function createMarkdownViewer({
       if (!target) return;
       event.preventDefault();
       if (image !== state.activeImage && !state.activeCard && !state.threadReply) {
-        armBlockAt(target, null, { image, link: image.closest('a[href]') });
+        armBlock(target, { image, link: image.closest('a[href]') });
       }
       openImageInspector(fullscreenViewer, image, restoreSpreadOnClose());
       return;
@@ -7491,9 +7466,7 @@ function createMarkdownViewer({
     event.preventDefault();
     window.getSelection()?.removeAllRanges();
     if (table !== state.activeTarget || state.activeSelection || state.activeImage) {
-      armBlockAt(table, clickCaretOffset(table, event.clientX, event.clientY), {
-        link: event.target.closest('a[href]'),
-      });
+      armBlock(table, { link: event.target.closest('a[href]') });
     }
     openRenderedTable(table);
   }
@@ -7582,7 +7555,7 @@ function createMarkdownViewer({
       : null;
     settleActiveCardForClick();
     if ((ownMark || gap != null) && openEditorAt(target, gap != null ? gap : caret, { gap: gap != null })) return;
-    armBlockAt(target, caret, { link, image });
+    armBlock(target, { link, image });
   }
 
   // A click elsewhere settles an open comment card: text queues, empty
@@ -7599,12 +7572,14 @@ function createMarkdownViewer({
   }
 
   // On-screen offset of the gap under (x, y) — the caret spot just before the
-  // space between two words — or null. A sealed block takes no edits, so a
-  // click there stays a block click.
+  // space between two words, or after a block's last word — or null. A sealed
+  // block takes no edits, so a click there stays a block click.
   function gapOffsetAt(target, x, y) {
     if (!target || (target.closest && target.closest('.md-sealed'))) return null;
     const gap = gapCharAtPoint(target, x, y);
-    return gap ? getTextOffsetWithin(target, gap.node, gap.index, ON_SCREEN) : null;
+    if (gap) return getTextOffsetWithin(target, gap.node, gap.index, ON_SCREEN);
+    const end = blockEndAtPoint(target, x, y);
+    return end ? getTextOffsetWithin(target, end.node, end.offset, ON_SCREEN) : null;
   }
 
   // A click that edits goes straight to the editor: at a gap the block caret
@@ -7612,9 +7587,8 @@ function createMarkdownViewer({
   // block refuses the editor, so the caller arms it for a comment instead.
   function openEditorAt(target, caret, { gap = false, focusNote = false } = {}) {
     if (state.editing || !target || blockEditBlockedReason(target)) return false;
-    state.pendingClickCaret = caret;
     state.activeSelection = null; // the click supersedes any armed selection
-    openBlockEditor(target, null);
+    openBlockEditor(target, null, { caret });
     const session = state.editing;
     if (!session) return false;
     if (gap && caret != null) {
@@ -7627,21 +7601,15 @@ function createMarkdownViewer({
     return true;
   }
 
-  // Whether an on-screen offset sits at a gap: just before one space that
-  // stands between two non-space characters.
-  function caretAtGap(target, offset) {
-    if (offset == null || !target || (target.closest && target.closest('pre'))) return false;
-    const text = getSearchableTextNodes(target, ON_SCREEN).text;
-    return /\s/.test(text[offset] || '') && /\S/.test(text[offset - 1] || '') && /\S/.test(text[offset + 1] || '');
-  }
-
   // The gap caret: the native caret just before the space, drawn as a block
-  // (caret-shape), so it covers exactly the space it will type into.
+  // (caret-shape), so it covers exactly the space it will type into; at a
+  // block's end, after its last word.
   function showGapCaret(session, offset) {
     clearGapCaret(session);
     const el = session && session.el;
-    const at = el && getTextPositionWithin(el, offset, ON_SCREEN);
-    if (!at || !at.node || at.node.nodeType !== 3 || !/\s/.test(at.node.data[at.offset] || '')) return;
+    if (!el) return;
+    const text = getSearchableTextNodes(el, ON_SCREEN).text;
+    if (!/\s/.test(text[offset] || '') && /\S/.test(text.slice(offset))) return;
     setCaretWithin(el, offset, ON_SCREEN);
     el.classList.add('md-gap-caret');
     session.gapCaret = { offset };
@@ -7705,43 +7673,11 @@ function createMarkdownViewer({
     return image ? Array.from(target.querySelectorAll('img')).indexOf(image) : -1;
   }
 
-  // The first editing key uses the held click position. Text clicks show a
-  // steady caret and image clicks show an outline. A hit-test miss uses the
-  // end of the block as the edit position.
-  function armBlockAt(target, offset, { link = null, image = null } = {}) {
-    state.pendingClickCaret = offset != null ? offset : getSearchableTextNodes(target, ON_SCREEN).text.length;
+  // A click on a block's words arms it for a comment: it takes the comment
+  // yellow, and anything typed opens the comment (an image click outlines the
+  // image). No caret: an edit starts at a gap, a mark, or a selection.
+  function armBlock(target, { link = null, image = null } = {}) {
     setActiveTarget(target, { link, image });
-    if (!image) showEditCaret(target, state.pendingClickCaret);
-  }
-
-  // The held caret at the click position — an empty span (no text, so
-  // it never perturbs offsets or search), inserted between text nodes. It
-  // lives only while the block is the active target (layoutSpread is guarded
-  // on activeTarget, so no re-render wipes it); clears when the target does.
-  function showEditCaret(target, offset) {
-    clearEditCaret();
-    try {
-      const at = getTextPositionWithin(target, Math.max(0, offset), ON_SCREEN);
-      if (!at || !at.node || at.node.nodeType !== 3) return;
-      const caret = document.createElement('span');
-      caret.className = 'md-edit-caret';
-      caret.setAttribute('contenteditable', 'false');
-      caret.setAttribute('aria-hidden', 'true');
-      const r = document.createRange();
-      r.setStart(at.node, at.offset);
-      r.collapse(true);
-      r.insertNode(caret);
-      state.editCaret = caret;
-    } catch {}
-  }
-
-  function clearEditCaret() {
-    const caret = state.editCaret;
-    state.editCaret = null;
-    if (!caret) return;
-    const host = caret.parentNode;
-    try { caret.remove(); } catch {}
-    if (host && host.normalize) host.normalize(); // rejoin the split text nodes
   }
 
   function handlePaneWheelIntent(event) {
@@ -7790,7 +7726,7 @@ function createMarkdownViewer({
   function showHint(target, { selection = null, link = null } = {}) {
     hideHint();
     if (!state.barHint) return;
-    state.barHint.textContent = 'letters and digits comment · other keys edit'
+    state.barHint.textContent = (selection ? 'letters and digits comment · other keys edit' : 'type to comment')
       + (state.activeImage ? ' · double-click to expand' : '') + (link ? FOLLOW_HINT : '');
     state.barHint.classList.add('on');
     state.hint = state.barHint;
@@ -7865,13 +7801,14 @@ function createMarkdownViewer({
         { label: 'Discard', onClick: discard },
         { label: primaryLabel, primary: true, title: 'Enter', onClick: () => submitComment() },
         toPromptAction(() => submitComment({ toPrompt: true })),
-        // Fresh cards only: a revisited queued comment is a comment, not a
-        // mistyped replacement.
-        ...(queueMode ? [] : [{
+        // Fresh cards on a selection only: selecting and typing is the reflex
+        // that means "replace this". A block comment has no spot to edit at,
+        // and a revisited queued comment is a comment.
+        ...(queueMode || !state.activeSelection ? [] : [{
           label: 'To edit',
           key: 'e',
           shortcut: modKeyLabel('e'),
-          title: 'Put what you typed into the page as an edit: it replaces the selection, or goes in at the click point',
+          title: 'Put what you typed into the page as an edit, in place of the selection',
           onClick: () => toEdit(),
         }]),
       ],
@@ -8164,7 +8101,10 @@ function createMarkdownViewer({
     const inBandField = !!flipTarget && (flipTarget.isContentEditable
       || /^(INPUT|TEXTAREA|SELECT)$/.test(flipTarget.tagName || ''));
     const pageOnlyKey = event.key === 'PageDown' || event.key === 'PageUp';
-    if ((!state.activeTarget || pageOnlyKey) && state.shell.contains(flipTarget) && !inBandField) {
+    // A block armed for a comment holds no caret, so Space and the arrows turn
+    // pages there as they do with nothing armed; over a selection they edit.
+    const blockArmed = !!state.activeTarget && !state.activeSelection;
+    if ((!state.activeTarget || pageOnlyKey || blockArmed) && state.shell.contains(flipTarget) && !inBandField) {
       const forward = event.key === 'PageDown' || event.key === 'ArrowDown'
         || (event.key === ' ' && !event.shiftKey);
       const backward = event.key === 'PageUp' || event.key === 'ArrowUp'
@@ -8182,7 +8122,11 @@ function createMarkdownViewer({
     if (!state.activeTarget || !state.hint) return;
     if (!isTypingTarget(event.target)) return;
     const paste = isPasteCommentShortcut(event);
-    if (paste || isCommentEntryKey(event)) {
+    // On an armed block every typed character opens the comment: there is no
+    // caret for it to edit at. Over a selection, letters and digits comment
+    // and the other keys edit it (⌫ strikes it, punctuation types over it).
+    const commentKey = blockArmed ? isPlainCommentKey(event) && event.key !== ' ' : isCommentEntryKey(event);
+    if (paste || commentKey) {
       event.preventDefault();
       event.stopPropagation();
       if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
@@ -8197,7 +8141,7 @@ function createMarkdownViewer({
       openCommentCard(event.key);
       return;
     }
-    if (isEditEntryKey(event)) {
+    if (!blockArmed && isEditEntryKey(event)) {
       event.preventDefault();
       event.stopPropagation();
       if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();

@@ -9,8 +9,9 @@
 //    mark reopens the edit at the click
 //  - a word typed into a gap gets its own space; closing punctuation joins
 //    the word before; Enter at a fresh gap caret breaks the line
-//  - To comment / To edit move typed words between an edit and a comment, and
-//    undo each other; To comment shows only while nothing would be dropped
+//  - a clicked block holds no caret: every typed character comments on it
+//  - To edit (selections only) and To comment move typed words between an
+//    edit and a comment; To comment shows only while nothing would be dropped
 //  - the strip's Revert drops a reopened edit whole
 // jsdom has no layout, so the hit-test is stubbed: `aim` names the text spot
 // caretRangeFromPoint returns, and every range box contains the click point.
@@ -162,14 +163,21 @@ async function run() {
   await viewer.open({ filePath: '/fake/modes.md' });
   await sleep(30);
 
-  // --- a word arms the block: the wash, a held caret, the comment hint ---
+  // --- a word arms the block for a comment: the yellow, no caret ---
   {
     const el = aim('The poller', 'reads', 2);
     await clickAimed(el);
     check('a click on a word arms the block, not the editor', !editing() && el.classList.contains('md-comment-target-active'));
-    check('the armed caret holds the click spot', !!el.querySelector('.md-edit-caret')
-      && el.querySelector('.md-edit-caret').nextSibling.textContent.startsWith('ads'));
-    check('the bar says letters comment', hint().startsWith('letters and digits comment'), hint());
+    check('an armed block holds no caret', !el.querySelector('span'), el.innerHTML);
+    check('the bar says typing comments', hint() === 'type to comment', hint());
+    key(document, { key: 'Backspace' });
+    await sleep(10);
+    check('⌫ on an armed block opens no edit', !editing() && !card());
+    key(document, { key: '(' });
+    await sleep(10);
+    check('punctuation opens the comment too: there is no caret to edit at', !!card() && card().value === '(');
+    check('a whole-block comment offers no To edit', !button(document.querySelector('.md-comment-card'), 'To edit'));
+    card().value = '';
     await reset();
   }
 
@@ -331,7 +339,7 @@ async function run() {
     await reset();
   }
 
-  // --- To comment from a gap, and To edit back: they undo each other ---
+  // --- To comment from a gap: the words become a comment on the block ---
   {
     const el = aim('The poller', ' once');
     await clickAimed(el);
@@ -343,15 +351,9 @@ async function run() {
     const back = block('The poller');
     check('To comment takes the words out of the page into a comment',
       !editing() && !!card() && card().value === 'make this configurable' && !back.querySelector('ins'), card() && card().value);
-    check('the comment is on the block: washed, caret back at the gap',
-      back.classList.contains('md-comment-target-active') && !!back.querySelector('.md-edit-caret')
-      && back.querySelector('.md-edit-caret').nextSibling.textContent.startsWith(' once'));
-    button(document.querySelector('.md-comment-card'), 'To edit').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    await sleep(10);
-    check('To edit puts the words back as their own word',
-      !!editing() && editing().textContent === 'The poller reads the file make this configurable once a second and redraws.',
-      editing() && editing().textContent);
-    check('and the round trip still offers To comment', !stripButton('To comment').hidden);
+    check('the comment is on the block, which wears the comment yellow',
+      back.classList.contains('md-comment-target-active') && !back.querySelector('span'));
+    card().value = '';
     await reset();
   }
 
@@ -387,9 +389,9 @@ async function run() {
 
   // --- To comment leaves when converting would drop something ---
   {
-    const el = aim('Third paragraph', 'strikes', 3);
+    const el = aim('Third paragraph', ' kept');
     await clickAimed(el);
-    key(document, { key: 'Backspace' });
+    erase(editing(), true); // strikes the "h" of "paragraph"
     await sleep(10);
     check('an edit that struck text offers no To comment', !!editing() && stripButton('To comment').hidden);
     await reset();
@@ -420,6 +422,17 @@ async function run() {
       editing() === block('Fifth paragraph') && document.activeElement === document.querySelector('.md-editing-strip textarea'));
     stripButton('Revert').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await sleep(10);
+  }
+
+  // --- the end of a block is a gap too: a word typed there gets its space ---
+  {
+    const el = aim('Fifth paragraph', 'check.', 6); // just after the final "."
+    await clickAimed(el);
+    check('a click after a block\'s last word opens the editor there', editing() === el && el.classList.contains('md-gap-caret'));
+    type(editing(), 'Done');
+    check('a word typed at the end gets its own space',
+      editing().textContent === 'Fifth paragraph for the revert check. Done', editing().textContent);
+    await reset();
   }
 
   // --- the pointer turns amber over a gap only ---

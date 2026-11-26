@@ -861,18 +861,26 @@ trade-offs taken, and the road to updates while typing are in
 
 Each state now has one look, so the screen says what the next key does
 (discussion record: `.git/discussion/md-click-modes.md`). Supersedes the hover
-wash, the blinking armed caret, and the mark-click strip of "Pending actions",
-and renames "Edit instead".
+wash, the armed caret and its first-key edits ("Mode dispatch" and "Pending
+actions"), and the mark-click strip, and renames "Edit instead".
 
-- **The wash marks what a letter comments on.** No hover wash: reading paints
+- **Yellow marks what a comment is about.** No hover wash: reading paints
   nothing, so the click is what changes the page. A clicked block wears the
-  wash alone (the edge bar went; left bars mean change and landing, and the
-  armed one used to paint over a green change bar). A selection target shows
-  only its yellow. The open editor carries no wash.
-- **The caret says what typing does.** Armed, a steady slate hairline: it
-  marks where ⌫, punctuation and arrows act, and holds still because a letter
-  goes to the card. Editing, the native caret in amber (`caret-color`), the
-  colour typed text takes. The bar says `typing edits · Esc reverts`.
+  comment yellow, paler than a selection's, a few words or a whole block
+  alike (a grey wash first, too faint on the grey page; no edge bar, since
+  left bars mean change and landing). A selection target shows only its own
+  yellow. The open editor carries none.
+- **A caret means typing edits there.** A clicked block holds no caret:
+  clicking mid-word to edit is not a gesture anyone makes, so every
+  character typed there opens a comment on the block, punctuation, digits
+  and non-Latin letters included (Space and the arrows turn pages, ⌫ does
+  nothing). The bar says `type to comment`. Over a selection the split
+  stays: letters and digits comment, ⌫ strikes it, punctuation types over
+  it. Editing, the native caret is amber (`caret-color`), the colour typed
+  text takes, and the bar says `typing edits · Esc reverts`. (A first cut
+  held a steady slate caret on the clicked block for ⌫ and punctuation to
+  act at; with gaps, marks and selections as the ways into an edit, it only
+  cluttered the comment state.)
 - **What's under the pointer picks the state.** A word arms the block for a
   comment. A gap (one space between two non-space characters, in prose,
   outside the user's marks) opens the editor there; so does a click on the
@@ -880,9 +888,10 @@ and renames "Edit instead".
   when the caret would land beside the space, the nearest letter boundary:
   on the space, or on the near half of the letter either side (about 12px a
   gap where the space alone is about 4px; a click past a line's end never
-  counts). The cost is the comment caret at a word's edge, and more clicks
-  meant as comments open the editor; nothing moves, so that costs an Esc or
-  To comment. A double-click in an untouched gap editor still selects the
+  counts). The end of a block is a gap too: a click on the near half of its
+  last character opens the editor after it, the way to add a word at the
+  end. The cost is that more clicks meant as comments open the editor;
+  nothing moves, so that costs an Esc or To comment. A double-click in an untouched gap editor still selects the
   word for a comment (the review's selects its paragraph). Over a gap the
   pointer is an amber I-beam. A sealed block's gap arms it for a comment.
   (A first cut took only clicks whose whole pixel column lay inside the
@@ -902,20 +911,21 @@ and renames "Edit instead".
 - **Clicking your own marks reopens the edit** with its strip, which replaces
   the separate expanded strip (`expandedHunkKey`, `buildStripHolder` and its
   scroll-into-view `ensureVisibleInPane` are gone; the live strip pins itself
-  to the page edge instead). The resting note row opens the same editor with the note focused,
-  and steps aside while it is open. The strip's Revert now drops the block's
+  to the page edge instead). The resting note row opens the same editor with
+  the note focused, and steps aside while it is open. The strip's Revert now drops the block's
   whole edit, a reopened earlier one included; Esc still backs out of the
   session only.
 - **To edit / To comment.** "Edit instead" is now "To edit", named for where
-  the words go like To prompt beside it. The edit strip carries the mirror,
-  "To comment" (both on ⌘E): it takes the typed text out of the page into a
-  comment on the block, or on the selection the editor struck at entry. It
-  shows only while the edit is one a comment could have made (one insertion,
-  over at most the opening selection, on a block with no earlier edit, empty
-  note), so the two always undo each other. To edit at a gap enters the text
-  as its own word for the same reason. A `Comment | Edit` switch was mocked
-  and dropped: it made the user read both labels to learn what the page
-  already shows.
+  the words go like To prompt beside it, and offered on a comment over a
+  selection only: select-and-type is the reflex that means "replace this",
+  and a whole-block comment has no spot to edit at. The edit strip carries
+  the mirror, "To comment" (both on ⌘E): it takes the typed text out of the
+  page into a comment on the block, or on the selection the editor struck at
+  entry. It shows only while the edit is one a comment could have made (one
+  insertion, over at most the opening selection, on a block with no earlier
+  edit, empty note), so over a selection the two undo each other. A
+  `Comment | Edit` switch was mocked and dropped: it made the user read both
+  labels to learn what the page already shows.
 - The review's commit message follows the same rules
   (`review-comments-design.md`, 2026-11-25).
 

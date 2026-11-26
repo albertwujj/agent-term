@@ -1,9 +1,9 @@
-// A click in a markdown doc arms the block under it, with the caret where the
-// click landed, even when the click also closes something open. Two closers
+// A click on a markdown block's words arms that block for a comment, even when
+// the click also closes something open. Two closers
 // re-lay the page under the pointer: committing an open edit rebuilds the
 // article (the pressed node detaches, so the click used to vanish, focus
 // falling to the prompt) and folds its strip; closing a comment composer
-// lifts the text below it (the caret used to fall back to the block's end).
+// lifts the text below it, so the click is read on the layout it was aimed at.
 import assert from 'node:assert/strict';
 import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
@@ -71,28 +71,48 @@ try {
     await page.waitForTimeout(250);
   }
 
-  async function assertArmedAt(n, word, why) {
+  // Press the middle of the space before `word` in paragraph n: an edit there.
+  async function clickSpaceBefore(n, word) {
+    const point = await page.evaluate(([n, word]) => {
+      for (const p of document.querySelectorAll('.md-viewer-body p')) {
+        if (!p.textContent.startsWith(`Paragraph ${n} `)) continue;
+        const text = p.firstChild;
+        const at = text.data.indexOf(word) - 1;
+        const range = document.createRange();
+        range.setStart(text, at);
+        range.setEnd(text, at + 1);
+        const rect = range.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const hit = document.elementFromPoint(x, y);
+        if (hit && p.contains(hit)) return { x, y };
+      }
+      return null;
+    }, [n, word]);
+    assert.ok(point, `paragraph ${n} is on a page`);
+    await page.mouse.click(point.x, point.y);
+    await page.waitForTimeout(250);
+  }
+
+  async function assertArmedAt(n, why) {
     const state = await page.evaluate(() => {
-      const caret = document.querySelector('.md-edit-caret');
-      const block = caret && caret.closest('p');
+      const armed = document.querySelector('.md-comment-target-active');
       return {
-        block: block ? block.textContent.split(' has')[0] : null,
-        after: caret && caret.nextSibling ? caret.nextSibling.textContent : '',
+        block: armed ? armed.textContent.split(' has')[0] : null,
         focusInBand: !!(document.activeElement && document.activeElement.closest('.vb-shell')),
         editing: !!document.querySelector('.md-rendered-editing'),
       };
     });
-    assert.equal(state.block, `Paragraph ${n}`, `${why}: the clicked block holds the caret ${JSON.stringify(state)}`);
-    assert.ok(state.after.startsWith(word.slice(1)), `${why}: the caret sits in the clicked word ${JSON.stringify(state)}`);
+    assert.equal(state.block, `Paragraph ${n}`, `${why}: the clicked block is armed for a comment ${JSON.stringify(state)}`);
     assert.equal(state.focusInBand, true, `${why}: keys go to the doc, not the prompt`);
     assert.equal(state.editing, false, `${why}: the edit committed`);
   }
 
-  await clickWord(4, 'enough');
+  await clickSpaceBefore(4, 'enough');
+  assert.equal(await page.locator('.md-rendered-editing').count(), 1, 'a click on a space opens the editor');
   await page.keyboard.press('Backspace');
-  assert.equal(await page.locator('.md-rendered-editing').count(), 1, 'Backspace opens the editor');
   await clickWord(6, 'following');
-  await assertArmedAt(6, 'following', 'click past an open edit');
+  await assertArmedAt(6, 'click past an open edit');
   assert.equal(await page.locator('.md-pending-del').count() >= 2, true, 'the strike survives the commit in both copies');
   console.log('PASS a click past an open edit commits it and arms the clicked word');
 
@@ -100,7 +120,7 @@ try {
   await page.keyboard.type('h');
   assert.equal(await page.locator('.md-comment-card textarea').count(), 1, 'a letter opens the composer');
   await clickWord(10, 'following');
-  await assertArmedAt(10, 'following', 'click past an open composer');
+  await assertArmedAt(10, 'click past an open composer');
   console.log('PASS a click past an open composer queues it and arms the clicked word');
 
   assert.deepEqual(errors, [], 'no renderer errors');

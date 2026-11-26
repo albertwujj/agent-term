@@ -45,9 +45,11 @@ try {
   await page.waitForTimeout(400);
 
   // Click at an on-screen text offset of paragraph n (struck text counts),
-  // on whichever copy shows it.
-  async function clickAt(n, offset) {
-    const point = await page.evaluate(([n, offset]) => {
+  // on whichever copy shows it: on the char's left edge, or with side
+  // 'right' on its right edge (the near half after it: a paragraph's last
+  // char puts the edit caret after it).
+  async function clickAt(n, offset, { side = 'left' } = {}) {
+    const point = await page.evaluate(([n, offset, side]) => {
       for (const p of document.querySelectorAll('.md-viewer-body p')) {
         if (!p.textContent.startsWith(`Paragraph ${n} `)) continue;
         const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
@@ -57,13 +59,13 @@ try {
         if (node) { range.setStart(node, left); range.setEnd(node, left + 1); }
         else { range.selectNodeContents(p); }
         const rect = node ? range.getBoundingClientRect() : [...range.getClientRects()].pop();
-        const x = node ? rect.left + 1 : rect.right + 2;
+        const x = node ? (side === 'right' ? rect.right - 1 : rect.left + 1) : rect.right + 2;
         const y = rect.top + rect.height / 2;
         const hit = document.elementFromPoint(x, y);
         if (hit && p.contains(hit)) return { x, y };
       }
       return null;
-    }, [n, offset]);
+    }, [n, offset, side]);
     assert.ok(point, `paragraph ${n} is on a page`);
     await page.mouse.click(point.x, point.y);
     await page.waitForTimeout(200);
@@ -109,7 +111,7 @@ try {
   console.log('PASS erasing a strike takes it back, stopping at its start while held');
 
   await clickAt(5, 3); // commit, then revisit and take the last strike back
-  await clickAt(2, text.indexOf('words'));
+  await clickAt(2, text.indexOf('words') - 1, { side: 'right' }); // on the struck space: the edit reopens after it
   await backspaces(1);
   await clickAt(5, 3);
   assert.equal(await marks(2), text, 'every mark taken back');
@@ -124,7 +126,7 @@ try {
   await clickAt(4, text.indexOf(' the document'));
   await backspaces(4); // strike "keep" (an older strike, mid-line)
   await clickAt(5, 3);
-  await clickAt(4, end); // the paragraph's end
+  await clickAt(4, end - 1, { side: 'right' }); // after the paragraph's last char
   // Erase back through " the document flowing across lines.", hop "keep" (one
   // strike, though erased char by char) in one press, then strike two more.
   await holdBackspace(' the document flowing across lines.'.length + 1 + 2);
@@ -133,10 +135,10 @@ try {
   console.log('PASS a striking run hops an older strike instead of bringing it back');
 
   await clickAt(5, 3);
-  await clickAt(6, end);
+  await clickAt(6, end - 1, { side: 'right' });
   await backspaces(6); // strike "lines." at the paragraph's end
   await clickAt(5, 3);
-  await clickAt(6, end); // past the trailing strike
+  await clickAt(6, end - 1, { side: 'right' }); // on the struck "." itself: the edit reopens after it
   await backspaces(1);
   assert.match(await marks(6), /\[lines\]\.$/, `a click past a trailing strike erases it back: ${await marks(6)}`);
   console.log('PASS a click just past a trailing strike holds the caret there');

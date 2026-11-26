@@ -425,15 +425,43 @@ function gapCharAtPoint(block, x, y) {
   return null;
 }
 
+// The end of a block is a gap too, the place to add a word after the last
+// one: a click on the near (right) half of its last character puts the caret
+// after it. Returns { node, offset } of that spot, or null.
+function blockEndAtPoint(block, x, y) {
+  if (!block || typeof document.caretRangeFromPoint !== 'function') return null;
+  let hit = null;
+  try { hit = document.caretRangeFromPoint(x, y); } catch { return null; }
+  if (!hit || !block.contains(hit.startContainer) || hit.startContainer.nodeType !== 3) return null;
+  const nodes = textNodesOf(block).filter((n) => n.data.length);
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const node = nodes[i];
+    const last = node.data.search(/\S\s*$/);
+    if (last < 0) continue; // whitespace only: look further back
+    if (hit.startContainer !== node || hit.startOffset !== last + 1) return null;
+    const parent = node.parentElement;
+    if (!parent || parent.closest('pre') || parent.closest(GAP_MARKS)) return null;
+    const box = document.createRange();
+    box.setStart(node, last);
+    box.setEnd(node, last + 1);
+    const onIt = Array.from(box.getClientRects()).some((r) => r.width > 0
+      && x >= r.left && x < r.right && y >= r.top && y <= r.bottom);
+    return onIt ? { node, offset: last + 1 } : null;
+  }
+  return null;
+}
+
 // Commit-time tidy for words typed into gaps: a gap insertion left holding only
 // whitespace goes, and one ending in a typed space keeps none of it where the
-// gap's own space follows (`foo baz  bar` reads `foo baz bar`).
+// gap's own space follows (`foo baz  bar` reads `foo baz bar`) or the block
+// ends.
 function settleGapInsertions(block) {
   for (const ins of Array.from(block.querySelectorAll('ins.md-pending-ins[data-md-gap]'))) {
     if (!ins.textContent.trim()) { ins.remove(); continue; }
     if (!/\s$/.test(ins.textContent)) continue;
     const tail = textNodesOf(ins).pop();
-    if (!/\s/.test(screenCharBeside(textNodesOf(block), tail, tail.data.length - 1, 1))) continue;
+    const next = screenCharBeside(textNodesOf(block), tail, tail.data.length - 1, 1);
+    if (next && !/\s/.test(next)) continue;
     // Each keystroke is its own text node, so the typed spaces can span several.
     while (/\s$/.test(ins.textContent)) {
       const last = textNodesOf(ins).pop();
@@ -544,6 +572,7 @@ module.exports = {
   markWrapping,
   createMarkEngine,
   gapCharAtPoint,
+  blockEndAtPoint,
   settleGapInsertions,
   serializeMarkedBlock,
   overlayToEnvelope,

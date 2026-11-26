@@ -156,7 +156,7 @@ async function sendSelection() {
   check('code block keeps native line selection', click(point('first()', { selector: 'pre' })).defaultPrevented, false);
   await reset();
   el = point('Second');
-  click(el, { detail: 1 }); key('Backspace');
+  click(el); key('Backspace'); // ⌫ over the sentence opens the editor (a clicked block holds no caret)
   check('editor is open', !!document.querySelector('.md-rendered-editing'), true);
   check('editing keeps native selection', click(el).defaultPrevented, false);
 

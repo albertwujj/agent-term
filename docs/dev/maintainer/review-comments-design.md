@@ -219,19 +219,21 @@ ship as a thread, the agent amends the commit and the regen shows the result.
 
 The commit blocks follow the md viewer's "Click, caret and highlight" rules
 (`md-editing-design.md`), sharing the gap test and gap words from
-`edit-marks.js`: a click on a word arms the block with a faint wash and a
-steady slate caret; a click on the space between two words opens the editor
-with a block caret on the space, and a word typed there gets its own space; a
-click on a reopenable edit's marks reopens it at the click; the editor has no
-wash and an amber caret. Revert on the strip discards a reopened edit's thread (Esc still
-backs out of the session). The quote composer carries To edit when its quote
-lies in one commit block (a quote from a letter on an armed block goes back
-in at the caret), and the edit strip carries To comment, which hands its
-words to the quote composer.
+`edit-marks.js`: a click on a word arms the block for a comment (the comment
+yellow, no caret), and any character typed then opens a comment on the whole
+block; a click on the space between two words, or after the last one, opens
+the editor with a block caret there, and a word typed there gets its own
+space; a click on a reopenable edit's marks reopens it at the click; the
+editor has no wash and an amber caret. Revert on the strip discards a
+reopened edit's thread (Esc still backs out of the session). The quote
+composer carries To edit when its quote is a selection inside one commit
+block, and the edit strip carries To comment, which hands its words to the
+quote composer.
 
-The armed caret now takes no width: it used to push the text after it 1px,
-and the click that disarms it then hit-tested a layout 1px off the one it was
-aimed at. A click is read as text offsets before the disarm.
+A letter typed over a selection inside a commit block now reaches the page's
+quote comment, which quotes the selection. The controller's capture-phase
+dispatch used to take it first and open a comment on the whole block,
+dropping the selection.
 
 ## Context blocks: `:::code` (2026-08-20)
 

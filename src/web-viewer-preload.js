@@ -1483,19 +1483,14 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       '#commit ins.md-pending-break{white-space:pre-wrap}',
       '#commit ins.md-pending-break::before{content:"¶";color:rgba(217,119,6,.55)}',
       // The md viewer's click rules (md-editing-design.md, "Click, caret and
-      // highlight"): a faint wash marks the block a letter would comment on;
-      // the open editor has none, its caret blinking amber, the colour typed
-      // text takes.
-      '#commit .rv-edit-armed{background:rgba(31,35,40,.06);border-radius:4px}',
+      // highlight"): the block a comment is about wears the comment yellow,
+      // paler than a selection's; the open editor has no wash, its caret
+      // blinking amber, the colour typed text takes.
+      '#commit .rv-edit-armed{background:rgba(250,204,21,.2);border-radius:4px}',
       // The floating quote composer grows to its row (To edit makes four
       // buttons) rather than wrapping a label onto two lines.
       '.rv-quote-compose .cu-btn{white-space:nowrap}',
       '#commit .md-rendered-editing{outline:none;border-radius:4px;cursor:text;caret-color:#b45309}',
-      // The armed caret: a steady slate hairline where ⌫, punctuation and
-      // arrows would edit; still, because a letter goes to the comment.
-      // Zero-width so it never perturbs the text or anchors.
-      // Net zero width (the md caret's margins), so arming never moves the text.
-      '.rv-edit-caret{display:inline-block;width:0;margin:0 -.5px;border-left:1px solid #64748b;height:1em;vertical-align:text-bottom}',
       // A click between two words puts a block caret on the space: nothing is
       // inserted and nothing moves; the first key or caret move returns the bar.
       '#commit .md-rendered-editing.md-gap-caret{caret-shape:block}',

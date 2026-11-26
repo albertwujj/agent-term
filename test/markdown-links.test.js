@@ -140,7 +140,7 @@ async function run() {
   clickBlock('no links at all');
   await sleep(5);
   check('the hint stays quiet on prose with no link',
-    hintText() === 'letters and digits comment · other keys edit', hintText());
+    hintText() === 'type to comment', hintText());
   key({ key: 'Escape' });
   await sleep(5);
 
@@ -178,9 +178,19 @@ async function run() {
 
   // --- inside an open editor, a link is text ---
   reset();
-  clickBlock('the web');
-  await sleep(5);
-  key({ key: 'Backspace' }); // first key opens the rendered editor
+  {
+    // ⌫ over a selection opens the rendered editor (a clicked block holds no caret).
+    const p = Array.from(primary().querySelectorAll('[data-md-anchor-id]')).find((b) => b.textContent.includes('the web'));
+    const first = document.createTreeWalker(p, 4, null).nextNode();
+    const pick = document.createRange();
+    pick.setStart(first, 0);
+    pick.setEnd(first, 1);
+    dom.window.getSelection().removeAllRanges();
+    dom.window.getSelection().addRange(pick);
+    p.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    await sleep(10);
+  }
+  key({ key: 'Backspace' });
   await sleep(10);
   check('the block is being edited', !!primary().querySelector('.md-rendered-editing'));
   const editEvents = [clickLink('example.com', { follow: true }), clickLink('sibling.md', { follow: true })];
