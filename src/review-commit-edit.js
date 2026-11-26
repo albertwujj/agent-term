@@ -32,6 +32,8 @@ const {
   gapCharAtPoint,
   blockEndAtPoint,
   settleGapInsertions,
+  markGapCaret,
+  unmarkGapCaret,
   serializeMarkedBlock,
   overlayToEnvelope,
   wrapEditEnvelope,
@@ -648,7 +650,7 @@ function createCommitEditController(io) {
     const block = session.block;
     if (!engine.isBetweenWords(block, offset)) return;
     setCaret(block, offset);
-    block.classList.add('md-gap-caret');
+    markGapCaret(block, !/\S/.test(block.textContent.slice(offset)));
     session.gapCaret = { offset };
   }
 
@@ -671,7 +673,7 @@ function createCommitEditController(io) {
   function clearGapCaret() {
     const open = !!(session && session.gapCaret);
     if (session) session.gapCaret = null;
-    for (const el of document.querySelectorAll('#commit .md-gap-caret')) el.classList.remove('md-gap-caret');
+    for (const el of document.querySelectorAll('#commit .md-gap-caret')) unmarkGapCaret(el);
     return open;
   }
 

@@ -1516,6 +1516,13 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       // A click between two words puts a block caret on the space: nothing is
       // inserted and nothing moves; the first key or caret move returns the bar.
       '#commit .md-rendered-editing.md-gap-caret{caret-shape:block}',
+      // At a block's end the native block is a digit wide; draw one a space
+      // wide instead (markGapCaret in edit-marks.js).
+      '#commit .md-rendered-editing.md-gap-caret-end{caret-color:transparent}',
+      '#commit .md-rendered-editing.md-gap-caret-end:focus::after{content:"";display:inline-block;vertical-align:text-bottom;'
+        + 'width:var(--md-space-w,.28em);height:var(--md-caret-h,1.2em);margin-right:calc(-1 * var(--md-space-w,.28em));'
+        + 'background:#b45309;animation:md-gap-end-blink 1s steps(1,end) infinite}',
+      '@keyframes md-gap-end-blink{0%{opacity:1}50%{opacity:0}}',
       // Over a gap the pointer turns amber: a click there inserts.
       'body.rv-gap-hover #commit,body.rv-gap-hover #commit *{cursor:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'24\' viewBox=\'0 0 16 24\'%3E%3Cpath d=\'M5 3h6M8 3v18M5 21h6\' stroke=\'white\' stroke-width=\'4\' stroke-linecap=\'round\'/%3E%3Cpath d=\'M5 3h6M8 3v18M5 21h6\' stroke=\'%23b45309\' stroke-width=\'2\' stroke-linecap=\'round\'/%3E%3C/svg%3E") 8 12,text}',
       // The edit's one control: note + Revert + Send under the block. Spans the

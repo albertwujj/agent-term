@@ -681,6 +681,43 @@ function blockEndAtPoint(block, x, y) {
   return null;
 }
 
+// The block caret on a block: `caret-shape: block` (CSS .md-gap-caret)
+// covers the character after the caret, a space at a gap. At the block's end
+// there is none, and Chromium draws the block a digit wide, twice a space.
+// There the native caret hides and the block's ::after draws one a space
+// wide (a space in this block's own font) and as tall as the text, blinking
+// in the caret's place (CSS .md-gap-caret-end). The custom properties live
+// on the block element itself, outside the content the marks serialize.
+function markGapCaret(block, atEnd) {
+  block.classList.add('md-gap-caret');
+  block.classList.toggle('md-gap-caret-end', !!atEnd);
+  if (!atEnd) return;
+  const nodes = textNodesOf(block).filter((n) => n.data.length);
+  const glyph = (node, k) => {
+    const r = document.createRange();
+    r.setStart(node, k);
+    r.setEnd(node, k + 1);
+    return typeof r.getBoundingClientRect === 'function' ? r.getBoundingClientRect() : { width: 0, height: 0 }; // no layout: the CSS fallbacks
+  };
+  let spaceW = 0;
+  for (let i = nodes.length - 1; i >= 0 && !spaceW; i--) {
+    const k = nodes[i].data.lastIndexOf(' ');
+    if (k >= 0) spaceW = glyph(nodes[i], k).width;
+  }
+  const last = nodes.filter((n) => /\S/.test(n.data)).pop();
+  const caretH = last ? glyph(last, last.data.search(/\S\s*$/)).height : 0;
+  block.style.setProperty('--md-space-w', spaceW > 0 ? `${spaceW}px` : '0.28em');
+  if (caretH > 0) block.style.setProperty('--md-caret-h', `${caretH}px`);
+  else block.style.removeProperty('--md-caret-h');
+}
+
+function unmarkGapCaret(block) {
+  block.classList.remove('md-gap-caret', 'md-gap-caret-end');
+  block.style.removeProperty('--md-space-w');
+  block.style.removeProperty('--md-caret-h');
+  if (!block.getAttribute('style')) block.removeAttribute('style');
+}
+
 // Commit-time tidy for words typed into gaps: a gap insertion left holding only
 // whitespace goes, and one ending in typed spaces keeps none of them where the
 // gap's own space follows (`foo baz  bar` reads `foo baz bar`) or the block
@@ -813,6 +850,8 @@ module.exports = {
   gapCharAtPoint,
   blockEndAtPoint,
   settleGapInsertions,
+  markGapCaret,
+  unmarkGapCaret,
   serializeMarkedBlock,
   overlayToEnvelope,
   wrapEditEnvelope,

@@ -33,6 +33,8 @@ const {
   gapCharAtPoint,
   blockEndAtPoint,
   settleGapInsertions,
+  markGapCaret,
+  unmarkGapCaret,
   serializeMarkedBlock,
   overlayToEnvelope,
   wrapEditEnvelope,
@@ -951,6 +953,16 @@ function ensureStyles() {
        terminal's cursor on the cell where the next character goes. Nothing is
        inserted and nothing moves; the first key or caret move returns the bar. */
     .md-viewer-body .md-rendered-editing.md-gap-caret { caret-shape: block; }
+    /* At a block's end the native block is a digit wide; draw one a space
+       wide instead (markGapCaret in edit-marks.js). */
+    .md-viewer-body .md-rendered-editing.md-gap-caret-end { caret-color: transparent; }
+    .md-viewer-body .md-rendered-editing.md-gap-caret-end:focus::after {
+      content: ''; display: inline-block; vertical-align: text-bottom;
+      width: var(--md-space-w, 0.28em); height: var(--md-caret-h, 1.2em);
+      margin-right: calc(-1 * var(--md-space-w, 0.28em));
+      background: #b45309; animation: md-gap-end-blink 1s steps(1, end) infinite;
+    }
+    @keyframes md-gap-end-blink { 0% { opacity: 1; } 50% { opacity: 0; } }
     /* Over a gap the pointer turns amber: a click there inserts. */
     .md-spread-layout.md-gap-hover .md-viewer-body,
     .md-spread-layout.md-gap-hover .md-viewer-body * {
@@ -7699,7 +7711,7 @@ function createMarkdownViewer({
     const el = session && session.el;
     if (!el || !isBetweenWords(el, offset)) return;
     setCaretWithin(el, offset, ON_SCREEN);
-    el.classList.add('md-gap-caret');
+    markGapCaret(el, !/\S/.test(getSearchableTextNodes(el, ON_SCREEN).text.slice(offset)));
     session.gapCaret = { offset };
   }
 
@@ -7708,7 +7720,7 @@ function createMarkdownViewer({
   function clearGapCaret(session = state.editing) {
     const open = !!(session && session.gapCaret);
     if (session) session.gapCaret = null;
-    for (const el of document.querySelectorAll('.md-viewer-body .md-gap-caret')) el.classList.remove('md-gap-caret');
+    for (const el of document.querySelectorAll('.md-viewer-body .md-gap-caret')) unmarkGapCaret(el);
     return open;
   }
 

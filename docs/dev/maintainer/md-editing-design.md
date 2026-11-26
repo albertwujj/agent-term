@@ -901,7 +901,10 @@ actions"), and the mark-click strip, and renames "Edit instead".
   drawn as an amber block (`caret-shape: block`) that covers exactly the space:
   the terminal's cursor on the cell where the next character goes. Nothing is
   inserted and nothing moves. The first input or any caret move returns the
-  bar. Text typed there enters with a space before it (`foo baz bar`);
+  bar. At a block's end there is no character to cover and Chromium draws
+  the block a digit wide, twice a space, so there the native caret hides
+  and the block's `::after` draws one a space wide in the block's own font,
+  as tall as the text, blinking while the block has focus (`markGapCaret`). Text typed there enters with a space before it (`foo baz bar`);
   closing punctuation joins the word before (`foo, bar`); ⌫ erases into the
   word before, Delete strikes the space. Enter at a fresh gap caret breaks
   the line rather than sending. Commit drops a typed trailing space against
