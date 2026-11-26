@@ -926,6 +926,15 @@ actions"), and the mark-click strip, and renames "Edit instead".
   edit, empty note), so over a selection the two undo each other. A
   `Comment | Edit` switch was mocked and dropped: it made the user read both
   labels to learn what the page already shows.
+- **A selection takes whole words** (`src/word-snap.js`). An edit is an
+  intent and a comment quotes words, so part of a word, or the space beside
+  one, is never what is meant: an end inside a word grows to the word's edge
+  (Unicode word segmentation, CJK included) and spaces at either end fall
+  away. The drag record snaps live, so the highlight shows what will be
+  quoted or replaced; a double- or triple-click selection snaps too, and the
+  live selection is replaced by the snapped one so ⌫ and the quote agree.
+  Code blocks keep exact ends (copying part of a line of code is real); a
+  prose selection's copy takes whole words like everything else.
 - The review's commit message follows the same rules
   (`review-comments-design.md`, 2026-11-25).
 

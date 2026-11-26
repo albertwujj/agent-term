@@ -14,6 +14,7 @@ const {
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { findSentenceRange } = require('./sentence-selection');
+const { snapStart, snapEnd } = require('./word-snap');
 const { copyImageToClipboard } = require('./image-clipboard');
 const { createFullscreenViewer } = require('./fullscreen-viewer');
 const { openImageInspector } = require('./image-inspector');
@@ -3614,9 +3615,7 @@ function createMarkdownViewer({
       return { context: null, reason: 'empty' };
     }
 
-    const rawSelectedText = String(selection.toString() || '');
-    const selectedText = rawSelectedText.trim();
-    if (!selectedText) return { context: null, reason: 'empty' };
+    if (!String(selection.toString() || '').trim()) return { context: null, reason: 'empty' };
 
     const range = selection.getRangeAt(0);
     if (!isNodeInsideMarkdown(range.startContainer) || !isNodeInsideMarkdown(range.endContainer)) {
@@ -3630,10 +3629,13 @@ function createMarkdownViewer({
       return { context: null, reason: 'multiPane' };
     }
 
-    const leadingTrimmedChars = rawSelectedText.length - rawSelectedText.replace(/^\s+/, '').length;
-    const trailingTrimmedChars = rawSelectedText.length - rawSelectedText.replace(/\s+$/, '').length;
-    const selectionStart = getTextOffsetWithin(startAnchor, range.startContainer, range.startOffset) + leadingTrimmedChars;
-    const selectionEnd = getTextOffsetWithin(endAnchor, range.endContainer, range.endOffset) - trailingTrimmedChars;
+    // Whole words, without the spaces beside them (word-snap.js).
+    const { start: selectionStart, end: selectionEnd } = snapSpan(startAnchor,
+      getTextOffsetWithin(startAnchor, range.startContainer, range.startOffset),
+      endAnchor, getTextOffsetWithin(endAnchor, range.endContainer, range.endOffset));
+    const snapped = spanRange(startAnchor, selectionStart, endAnchor, selectionEnd);
+    const selectedText = snapped ? snapped.toString().trim() : '';
+    if (!selectedText) return { context: null, reason: 'empty' };
     const multiBlock = startAnchor !== endAnchor;
     const targetKind = isBroadMarkdownSelection({ selectedText, multiBlock }) ? 'passage' : 'selection';
     return {
@@ -3647,10 +3649,33 @@ function createMarkdownViewer({
         targetKind,
         sourceStartLine: getTargetSourceStartLine(startAnchor),
         pane: isInSecondaryPane(startAnchor) ? 'right' : 'left',
-        rect: getRangeEndRect(range),
+        rect: getRangeEndRect(snapped),
       },
       reason: null,
+      range: snapped,
     };
+  }
+
+  // A live range over a span given as text offsets in two blocks (the
+  // struck-free offset space selections use), or null.
+  function spanRange(startAnchor, start, endAnchor, end) {
+    if (startAnchor === endAnchor && end <= start) return null;
+    const from = getTextPositionWithin(startAnchor, start);
+    // The end stays at the close of its word's text node: placed at the start
+    // of the next node instead, a range can cross a table cell's boundary,
+    // and the selection's text then gains the cell's line break.
+    const segments = getSearchableTextNodes(endAnchor).nodes;
+    const close = segments.find((part) => end > part.start && end <= part.end);
+    const to = close ? { node: close.node, offset: end - close.start } : getTextPositionWithin(endAnchor, end);
+    if (!from || !to) return null;
+    try {
+      const range = document.createRange();
+      range.setStart(from.node, from.offset);
+      range.setEnd(to.node, to.offset);
+      return range;
+    } catch {
+      return null;
+    }
   }
 
   function getCurrentSelectionContext() {
@@ -3781,6 +3806,13 @@ function createMarkdownViewer({
       if (result.reason === 'multiPane') showMultiPaneSelectionError();
       return false;
     }
+    // The live selection becomes the snapped one, so the highlight, the
+    // quote, and a ⌫ over it all take the same whole words.
+    const sel = window.getSelection && window.getSelection();
+    if (sel && result.range) {
+      sel.removeAllRanges();
+      sel.addRange(result.range);
+    }
     return activateSelectionFromRecord(result.context);
   }
 
@@ -3894,20 +3926,16 @@ function createMarkdownViewer({
     const end = backward ? a : b;
     const startIdx = backward ? bi : ai;
     const endIdx = backward ? ai : bi;
+    // Whole words, without the spaces beside them (word-snap.js); live, so
+    // the highlight shows what the comment or edit will take.
+    const { start: selectionStart, end: selectionEnd } = snapSpan(anchors[startIdx], start.offset, anchors[endIdx], end.offset);
     const parts = [];
     for (let i = startIdx; i <= endIdx; i++) {
       const text = getSearchableTextNodes(anchors[i]).text;
-      parts.push(text.slice(i === startIdx ? start.offset : 0, i === endIdx ? end.offset : text.length));
+      parts.push(text.slice(i === startIdx ? selectionStart : 0, i === endIdx ? selectionEnd : text.length));
     }
     const selectedText = parts.join('\n').trim();
     if (!selectedText) return null;
-    let selectionStart = start.offset;
-    let selectionEnd = end.offset;
-    if (startIdx === endIdx) {
-      const raw = parts[0];
-      selectionStart += raw.length - raw.replace(/^\s+/, '').length;
-      selectionEnd -= raw.length - raw.replace(/\s+$/, '').length;
-    }
     const multiBlock = startIdx !== endIdx;
     return {
       target: anchors[startIdx],
@@ -3923,6 +3951,16 @@ function createMarkdownViewer({
       pane: b.pane,
       rect: null,
     };
+  }
+
+  // A selection's ends snapped to whole words, each within its own block's
+  // text (the struck-free offset space selections use). A code block keeps
+  // its exact ends: copying part of a line of code is a real need.
+  function snapSpan(startAnchor, startOffset, endAnchor, endOffset) {
+    const exact = (anchor) => !!(anchor.closest && anchor.closest('pre')) || anchor.tagName === 'PRE';
+    const start = exact(startAnchor) ? startOffset : snapStart(getSearchableTextNodes(startAnchor).text, startOffset);
+    const end = exact(endAnchor) ? endOffset : snapEnd(getSearchableTextNodes(endAnchor).text, endOffset);
+    return { start, end };
   }
 
   function spreadEdges() {

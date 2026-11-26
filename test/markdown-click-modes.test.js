@@ -181,6 +181,35 @@ async function run() {
     await reset();
   }
 
+  // --- a selection covers whole words: mid-word ends grow, spaces fall away.
+  //     (jsdom drops the live selection when the band takes focus, so this
+  //     reads what the comment quotes.) ---
+  {
+    const quoteOf = async (needleFrom, fromDelta, needleTo, toDelta) => {
+      const el = block('Second paragraph');
+      const node = el.firstChild;
+      const r = document.createRange();
+      r.setStart(node, node.data.indexOf(needleFrom) + fromDelta);
+      r.setEnd(node, node.data.indexOf(needleTo) + toDelta);
+      dom.window.getSelection().removeAllRanges();
+      dom.window.getSelection().addRange(r);
+      el.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+      await sleep(10);
+      key(document, { key: 'q' });
+      await sleep(10);
+      const before = sentBatches.length;
+      card().dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter' }));
+      await sleep(30);
+      const sent = sentBatches.length > before ? sentBatches[sentBatches.length - 1] : [];
+      await reset();
+      return sent.length ? sent[sent.length - 1].anchor.snippet : null;
+    };
+    const midWords = await quoteOf('round trip', 1, 'trip.', 3); // r|ound ... tri|p
+    check('a selection from mid-word to mid-word quotes the whole words', midWords === 'round trip', midWords);
+    const spaced = await quoteOf(' selection', 0, ' round', 0); // " selection" with its leading space
+    check('spaces at a selection\'s ends fall away', spaced === 'selection', spaced);
+  }
+
   // --- a selection arms without washing its block ---
   {
     const el = block('Second paragraph');
@@ -322,10 +351,11 @@ async function run() {
   {
     const el = aim('The poller', ' once');
     await clickAimed(el);
+    const sentBefore = sentBatches.length;
     key(editing(), { key: 'Enter' });
     await sleep(10);
     check('Enter at the gap breaks the line, editor still open',
-      !!editing() && !!editing().querySelector('ins.md-pending-break') && sentBatches.length === 0);
+      !!editing() && !!editing().querySelector('ins.md-pending-break') && sentBatches.length === sentBefore);
     await reset();
   }
 

@@ -230,6 +230,10 @@ composer carries To edit when its quote is a selection inside one commit
 block, and the edit strip carries To comment, which hands its words to the
 quote composer.
 
+A selection in the review's prose or commit message snaps to whole words on
+mouseup (`word-snap.js`, the md viewer's rule), before the quote reads it;
+code and diffs keep exact ends.
+
 A letter typed over a selection inside a commit block now reaches the page's
 quote comment, which quotes the selection. The controller's capture-phase
 dispatch used to take it first and open a comment on the whole block,

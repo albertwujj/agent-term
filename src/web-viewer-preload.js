@@ -31,6 +31,7 @@
 const { ipcRenderer } = require('electron');
 const { normWS, nearestHeading, toast, createComposer, toPromptAction, modKeyLabel, highlightRange, clearHighlight, highlightRanges, rangeOfText, isPasteCommentShortcut } = require('./comment-ui'); // bundled in by esbuild
 const { createCommitEditController } = require('./review-commit-edit');
+const { snapRangeToWords } = require('./word-snap');
 const { createSymbolScan } = require('./review-symbol-scan');
 const { parseEditEnvelope, buildEnvelopeDiffNode } = require('./edit-marks');
 const { confirmBody, isConfirmMessage, pendingConfirm } = require('./decision-confirm');
@@ -314,8 +315,29 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     });
   }
 
+  // A selection made to comment on or edit covers whole words, without the
+  // spaces beside them (word-snap.js): it is an intent for the agent. Code
+  // blocks keep their exact ends; copying part of a line of code is real.
+  function snapSelectionToWords() {
+    const sel = window.getSelection && window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const prose = function (node) {
+      const el = node && (node.nodeType === 1 ? node : node.parentElement);
+      return !!(el && el.closest && el.closest('.md-render, #commit') && !el.closest('pre')
+        && !el.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox, .md-rendered-editing'));
+    };
+    if (!prose(range.startContainer) || !prose(range.endContainer)) return;
+    const snapped = snapRangeToWords(range, enclosingBlock);
+    if (!snapped) return;
+    sel.removeAllRanges();
+    sel.addRange(snapped);
+  }
+
   function bindSelection() {
-    document.addEventListener('mouseup', function () { setTimeout(refreshQuoteButton, 0); });
+    document.addEventListener('mouseup', function () {
+      setTimeout(function () { snapSelectionToWords(); refreshQuoteButton(); }, 0);
+    });
     document.addEventListener('mousedown', function (e) {
       if (e.target.closest && e.target.closest('#rv-quote-btn, .rv-quote-compose')) return;
       hideQuoteButton();

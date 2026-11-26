@@ -414,6 +414,7 @@ async function run() {
     const lead = primary().querySelector('p');
     const wide = document.createRange();
     wide.setStart(lead.firstChild, 'Lead '.length);
+    // Ends mid-word in "Steps": a prose selection covers whole words.
     wide.setEnd(primary().querySelector('h2').firstChild, 'Step'.length);
     window.getSelection().removeAllRanges();
     window.getSelection().addRange(wide);
@@ -425,7 +426,7 @@ async function run() {
     check('a selection across blocks keeps each block and its formatting',
       html.querySelector('p').textContent === 'with bold, italic, code and a site.'
       && html.querySelector('p a').getAttribute('href') === 'https://example.test/a'
-      && html.querySelector('h2').textContent === 'Step' && !html.querySelector('[class], [data-md-anchor-id]'), copiedHtml);
+      && html.querySelector('h2').textContent === 'Steps' && !html.querySelector('[class], [data-md-anchor-id]'), copiedHtml);
     window.getSelection().removeAllRanges();
     key({ key: 'Escape' });
     await sleep(10);
