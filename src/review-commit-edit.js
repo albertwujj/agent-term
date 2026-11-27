@@ -106,7 +106,7 @@ function createCommitEditController(io) {
   //   updateEditThread({threadId, body, note, alsoSend}) -> Promise<{success,...}>,
   //   discardThread(threadId) -> Promise (or undefined),
   //   sendPending({toPrompt}),   // flush pending threads; no-op when none
-  //   openBlockComment(block, seedKey),
+  //   openBlockComment(block, seed, quoteRange, seedFrom),  // seedFrom 'key': the key that opened it
   //   composerBlocked() -> bool,
   //   sendLabel(revisitThreadId|null) -> string,   // null = this edit is new
   //   threadNeedsSend(thread) -> bool,   // pending (amber) vs sent (slate) marks
@@ -228,7 +228,7 @@ function createCommitEditController(io) {
       const block = armed.block;
       disarm();
       blockComment = block;
-      if (io.openBlockComment) io.openBlockComment(block, event.key);
+      if (io.openBlockComment) io.openBlockComment(block, event.key, null, 'key');
     }
   }
 

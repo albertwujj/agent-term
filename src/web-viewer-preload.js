@@ -401,14 +401,14 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
         // own. quoteSel is a captured object, so it survives the async hop.
         e.preventDefault();
         ipcRenderer.invoke('rv-clipboard-text').then(function (text) {
-          openQuoteComposer(String(text || ''));
+          openQuoteComposer(String(text || ''), 'paste');
         });
         return;
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return;     // leave Cmd+C / shortcuts alone
       if (!e.key || e.key.length !== 1) return;            // printable chars only
       e.preventDefault();
-      openQuoteComposer(e.key);
+      openQuoteComposer(e.key, 'key');
     });
   }
 
@@ -438,7 +438,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       // quote path, exactly what a double-click would have set up. To comment
       // hands its words over the same way, with the range it struck when the
       // edit was typed over a selection.
-      openBlockComment: function (block, seedKey, quoteRange) {
+      openBlockComment: function (block, seed, quoteRange, seedFrom) {
         let range = quoteRange;
         if (!range) {
           range = document.createRange();
@@ -448,7 +448,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
         sel.removeAllRanges();
         sel.addRange(range);
         refreshQuoteButton();
-        if (quoteSel) openQuoteComposer(seedKey);
+        if (quoteSel) openQuoteComposer(seed, seedFrom);
       },
       addEditThread: function (item) {
         return ipcRenderer.invoke('rv-add-thread', {
@@ -563,7 +563,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     return maxUserTurn(t) === 0;
   }
 
-  function openQuoteComposer(initialText) {
+  function openQuoteComposer(initialText, seedFrom) {
     if (!quoteSel) return;
     // Remove any prior composer + hide the chip, but KEEP the in-place highlight so
     // the user can see what they're commenting on while typing. It's cleared on
@@ -588,6 +588,7 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
       anchorLabel: quoteSel.heading || '',
       placeholder: 'Comment on this selection…',
       seed: initialText || '',
+      seedFrom: seedFrom,
       onCancel: closeQuoteComposer,
       actions: [
         { label: sendLabel(1), primary: true, title: 'Enter', onClick: function (ctx) { activeComposer = null; submitNew(anchor, ctx.textarea, ctx.root, true, closeQuoteComposer); } },

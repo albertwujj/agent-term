@@ -1003,8 +1003,13 @@ actions"), and the mark-click strip, and renames "Edit instead".
   over a selection and the key that opened the edit with what follows it.
   The edits keep their own snapshot stacks (`pushEditingUndo` /
   `joinUndoStep`; the review's `pushUndo`). The comment box keeps its own
-  too (`word-typing.js`), with the text it opened with as the first step so
-  undo reaches empty: the page's native undo history is shared by every
+  too (`word-typing.js`). Undo goes back to how the box opened, and what you
+  opened it with counts as yours (`seedFrom`, 2026-11-27): the key that
+  opened it starts your first typing run (undo of "keep these" goes straight
+  to empty, never to a lone "k"), and a paste that opened it is a step of its
+  own; text the box was handed (To comment's words, a reopened queued
+  comment, a saved draft) is where undo stops. The page's native undo
+  history cannot serve: it is shared by every
   field in the document, the terminal's hidden input included, so an undo
   past the box's first change reached into the terminal's field (and with
   no Edit menu macOS gave the box no redo). Its word edits write with

@@ -16,9 +16,12 @@
 //
 // ⌘Z undoes and ⇧⌘Z (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y elsewhere) redoes
 // through the box's own history, as the edit's do: a run of typing is one
-// step, a word erase, paste or cut is one, and the text the box opens with
-// (the key that opened it, words handed over) is the first, so undo reaches
-// an empty box. The page's native undo history cannot serve: it is shared by
+// step, a word erase, paste or cut is one, and undo goes back to how the box
+// opened. What you opened it with is yours (`seedFrom`): the key that opened
+// it starts your first typing run, a paste that opened it is a step, and
+// undo reaches the empty box; text the box was handed (To comment's words, a
+// reopened comment, a saved draft) is where undo stops. The page's native
+// undo history cannot serve: it is shared by
 // every field in the document, the terminal's hidden input included, so an
 // undo past this box's first change would reach into another field (and with
 // no Edit menu, main.js, macOS gives a text box no redo). The box's own
@@ -65,7 +68,9 @@ function eraseSpan(value, caret, backward) {
   return { from, to };
 }
 
-function wireWordTyping(ta) {
+// seedFrom: 'key' or 'paste' when the box opened with what the user typed or
+// pasted; omitted when its opening text was handed to it.
+function wireWordTyping(ta, { seedFrom } = {}) {
   let rest = false; // the caret rests between words: typed text is a new word
   let lastErase = 0;
 
@@ -76,7 +81,8 @@ function wireWordTyping(ta) {
   let composing = false;
   let known = ta.value; // the text as the history last saw it
   const snap = () => ({ value: ta.value, start: ta.selectionStart, end: ta.selectionEnd });
-  if (ta.value) undoStack.push({ value: '', start: 0, end: 0 }); // the opening text is the first step
+  if (ta.value && seedFrom) undoStack.push({ value: '', start: 0, end: 0 }); // what opened the box undoes to empty
+  if (ta.value && seedFrom === 'key') typedTo = ta.value.length; // the keys after it join its run
   // A change is about to happen: the text before it is a step. Text a host
   // wrote meanwhile starts the history over from there.
   function record() {

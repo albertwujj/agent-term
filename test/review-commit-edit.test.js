@@ -53,7 +53,7 @@ const io = {
   updateEditThread: (item) => { updateCalls.push(item); return Promise.resolve({ success: true }); },
   discardThread: (id) => { discardCalls.push(id); return Promise.resolve({ success: true }); },
   sendPending: (opts) => { sendPendingCalls.push(opts); },
-  openBlockComment: (block, seed, range) => { blockComments.push({ block, seed, range }); },
+  openBlockComment: (block, seed, range, seedFrom) => { blockComments.push({ block, seed, range, seedFrom }); },
   composerBlocked: () => false,
   sendLabel: () => 'Send',
   threadNeedsSend: () => needsSendFlag,
@@ -187,6 +187,7 @@ async function run() {
   key(p2, { key: 'a' });
   check('a letter on an armed block opens the block comment',
     !ctl.isEditing() && blockComments.length === 1 && blockComments[0].block === p2 && blockComments[0].seed === 'a');
+  check('the comment opens with that key as typed, so undo takes it back', blockComments[0].seedFrom === 'key', blockComments[0].seedFrom);
   click(p2);
   key(p2, { key: '3' });
   check('a digit on an armed block opens the block comment too',
@@ -441,6 +442,7 @@ async function run() {
     const handed = blockComments[commentsBefore];
     check('To comment takes the words out of the message into a block comment',
       !ctl.isEditing() && p1.innerHTML === P1 && !!handed && handed.block === p1 && handed.seed === 'quietly' && !handed.range, handed);
+    check('the words are handed over: the comment\'s undo stops at them', !!handed && handed.seedFrom === undefined, handed && handed.seedFrom);
     const whole = document.createRange();
     whole.selectNodeContents(p1);
     check('that whole-block comment offers no To edit', ctl.blockForRange(whole) === null);

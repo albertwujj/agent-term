@@ -7855,6 +7855,7 @@ function createMarkdownViewer({
   }
 
   function openCommentCard(initialComment = '', {
+    seedFrom,
     queueMode = false,
     queueIndex = null,
     originalQueuedComment = null,
@@ -7907,6 +7908,7 @@ function createMarkdownViewer({
     const composer = createComposer({
       placeholder: 'Comment...',
       seed: initialComment,
+      seedFrom,
       rows: 2,
       onCancel: cancel,
       onInput: () => {
@@ -8273,11 +8275,11 @@ function createMarkdownViewer({
         // Seed the card with the clipboard; activeTarget is viewer state, so it
         // survives the async read.
         navigator.clipboard.readText().catch(() => '').then((text) => {
-          openCommentCard(text || '');
+          openCommentCard(text || '', { seedFrom: 'paste' });
         });
         return;
       }
-      openCommentCard(event.key);
+      openCommentCard(event.key, { seedFrom: 'key' });
       return;
     }
     if (!blockArmed && isEditEntryKey(event)) {

@@ -133,31 +133,34 @@ async function run() {
   type('s');
   check('and typing just goes on', ta.value === 'first lines\nsecond', ta.value);
 
-  // undo and redo: the box's own history, all the way back to empty
+  // undo and redo: the box's own history, back to how the box opened
   {
-    const seeded = createComposer({ actions: [], seed: 'k' });
-    document.body.appendChild(seeded.root);
-    const box = seeded.textarea;
-    box.focus();
-    box.setSelectionRange(1, 1);
-    const press = (k, init = {}) => box.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }));
+    // The platform's own keys: ⌘ on macOS (the module reads navigator.platform), Ctrl elsewhere.
+    const mac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform || '');
+    const mod = mac ? { metaKey: true } : { ctrlKey: true };
+    const open = (seed, seedFrom) => {
+      const c = createComposer({ actions: [], seed, seedFrom });
+      document.body.appendChild(c.root);
+      c.focus();
+      const b = c.textarea;
+      const press = (k, init = {}) => b.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }));
+      return { box: b, press, undo: () => press('z', mod) };
+    };
+
+    const { box, press, undo } = open('k', 'key');
     type('eep these', box);
     press('Backspace');
     type('those', box);
     check('the box reads as typed', box.value === 'keep those', box.value);
-    // The platform's own keys: ⌘ on macOS (the module reads navigator.platform), Ctrl elsewhere.
-    const mac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform || '');
-    const mod = mac ? { metaKey: true } : { ctrlKey: true };
-    const undo = () => press('z', mod);
     const redo = (i) => (!mac && i % 2 ? press('y', mod) : press('Z', { ...mod, shiftKey: true }));
     const undos = [];
     for (let i = 0; i < 5; i++) { undo(); undos.push(box.value); }
-    check('undo steps back a typing run, a word erase, the next run, then the opening letter, and stops at empty',
-      JSON.stringify(undos) === JSON.stringify(['keep ', 'keep these', 'k', '', '']), undos);
+    check('undo steps back a typing run, a word erase, then the first run with the key that opened the box, and stops at empty',
+      JSON.stringify(undos) === JSON.stringify(['keep ', 'keep these', '', '', '']), undos);
     const redos = [];
     for (let i = 0; i < 5; i++) { redo(i); redos.push(box.value); }
     check(`redo (${mac ? '⇧⌘Z' : 'Ctrl+Shift+Z and Ctrl+Y'}) steps forward again, and stops at the last change`,
-      JSON.stringify(redos) === JSON.stringify(['k', 'keep these', 'keep ', 'keep those', 'keep those']), redos);
+      JSON.stringify(redos) === JSON.stringify(['keep these', 'keep ', 'keep those', 'keep those', 'keep those']), redos);
     undo();
     type('x', box);
     redo(0);
@@ -168,6 +171,20 @@ async function run() {
     box.value = 'written by the host';
     undo();
     check('text a host writes starts the history over: undo leaves it', box.value === 'written by the host', box.value);
+
+    const pasted = open('the clipboard', 'paste');
+    type(' and more', pasted.box);
+    pasted.undo();
+    check('a paste that opened the box is its own step', pasted.box.value === 'the clipboard', pasted.box.value);
+    pasted.undo();
+    check('and undo takes it back to empty', pasted.box.value === '', pasted.box.value);
+
+    const handed = open('words handed over');
+    type(' and mine', handed.box);
+    handed.undo();
+    check('undo takes back what was typed into a box opened with handed-over text', handed.box.value === 'words handed over', handed.box.value);
+    handed.undo();
+    check('and stops at the text it opened with', handed.box.value === 'words handed over', handed.box.value);
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

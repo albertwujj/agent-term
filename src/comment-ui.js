@@ -149,7 +149,10 @@ function toPromptAction(onClick) {
 // fit / footer for the queue surfaces). Returns { root, textarea, primaryButton,
 // focus }; the caller mounts root (inline node or floating panel) — placement
 // stays per-surface.
-function createComposer({ quote = '', anchorLabel = '', placeholder = '', seed = '', rows = 3, actions = [], onCancel, onInput, theme = 'light' } = {}) {
+// seedFrom ('key' | 'paste') says the seed is what the user typed or pasted to
+// open the composer, so undo takes it back (word-typing.js); omitted, the seed
+// is text the composer was handed and undo stops at it.
+function createComposer({ quote = '', anchorLabel = '', placeholder = '', seed = '', seedFrom, rows = 3, actions = [], onCancel, onInput, theme = 'light' } = {}) {
   ensureComposerStyle();
   const root = document.createElement('div');
   root.className = 'cu-composer' + (theme === 'dark' ? ' cu-dark' : '');
@@ -168,7 +171,7 @@ function createComposer({ quote = '', anchorLabel = '', placeholder = '', seed =
   const ta = root.querySelector('textarea');
   ta.placeholder = placeholder;
   if (seed) ta.value = seed;
-  wireWordTyping(ta); // a word at a time, as in the edit
+  wireWordTyping(ta, { seedFrom }); // a word at a time, as in the edit
   const ctx = { root: root, textarea: ta };
   const primary = actions.find(function (a) { return a.primary; });
   const modEnter = actions.find(function (a) { return a.modEnter; });

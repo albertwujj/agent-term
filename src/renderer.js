@@ -2347,11 +2347,11 @@ function handleSelectionCommentHintKeydown(event) {
     // output is frozen while a selection exists, and the paste never reaches the
     // terminal (prevented above).
     navigator.clipboard.readText().catch(() => '').then((text) => {
-      openTerminalSelectionComment({ initialComment: text || '' });
+      openTerminalSelectionComment({ initialComment: text || '', seedFrom: 'paste' });
     });
     return;
   }
-  openTerminalSelectionComment({ initialComment: event.key });
+  openTerminalSelectionComment({ initialComment: event.key, seedFrom: 'key' });
 }
 
 function getActiveTerminalCommentText() {
@@ -2658,6 +2658,7 @@ function openTerminalCommentEditor({
   anchorX,
   anchorY,
   initialComment = '',
+  seedFrom,
   queueMode = false,
   queueIndex = null,
   originalQueuedComment = null,
@@ -2691,6 +2692,7 @@ function openTerminalCommentEditor({
     theme: 'dark',
     placeholder: 'Comment...',
     seed: initialComment,
+    seedFrom,
     rows: 3,
     onCancel: cancel,
     onInput: () => updateTerminalCommentFooter(),
@@ -2821,7 +2823,7 @@ function openQueuedTerminalCommentForEdit(comment) {
   });
 }
 
-function openTerminalSelectionComment({ initialComment = '' } = {}) {
+function openTerminalSelectionComment({ initialComment = '', seedFrom } = {}) {
   const context = collectTerminalSelectionCommentContext() || armedTerminalSelectionContext;
   if (!context) return false;
   clearTerminalSelection();
@@ -2850,6 +2852,7 @@ function openTerminalSelectionComment({ initialComment = '' } = {}) {
     anchorX: Math.max(14, rect.left + 16),
     anchorY: top == null ? rect.top + 20 : top,
     initialComment,
+    seedFrom,
     queueMode: queuedTerminalComments.length > 0,
   });
 }
