@@ -155,12 +155,12 @@ async function run() {
     const redo = (i) => (!mac && i % 2 ? press('y', mod) : press('Z', { ...mod, shiftKey: true }));
     const undos = [];
     for (let i = 0; i < 5; i++) { undo(); undos.push(box.value); }
-    check('undo steps back a typing run, a word erase, then the first run with the key that opened the box, and stops at empty',
-      JSON.stringify(undos) === JSON.stringify(['keep ', 'keep these', '', '', '']), undos);
+    check('undo steps back a word at a time, the erase included, to the first word with the key that opened the box, and stops at empty',
+      JSON.stringify(undos) === JSON.stringify(['keep ', 'keep these', 'keep ', '', '']), undos);
     const redos = [];
     for (let i = 0; i < 5; i++) { redo(i); redos.push(box.value); }
     check(`redo (${mac ? '⇧⌘Z' : 'Ctrl+Shift+Z and Ctrl+Y'}) steps forward again, and stops at the last change`,
-      JSON.stringify(redos) === JSON.stringify(['keep these', 'keep ', 'keep those', 'keep those', 'keep those']), redos);
+      JSON.stringify(redos) === JSON.stringify(['keep ', 'keep these', 'keep ', 'keep those', 'keep those']), redos);
     undo();
     type('x', box);
     redo(0);
@@ -175,6 +175,8 @@ async function run() {
     const pasted = open('the clipboard', 'paste');
     type(' and more', pasted.box);
     pasted.undo();
+    check('a space typed ahead of a word rides with it', pasted.box.value === 'the clipboard and ', pasted.box.value);
+    pasted.undo();
     check('a paste that opened the box is its own step', pasted.box.value === 'the clipboard', pasted.box.value);
     pasted.undo();
     check('and undo takes it back to empty', pasted.box.value === '', pasted.box.value);
@@ -182,9 +184,19 @@ async function run() {
     const handed = open('words handed over');
     type(' and mine', handed.box);
     handed.undo();
-    check('undo takes back what was typed into a box opened with handed-over text', handed.box.value === 'words handed over', handed.box.value);
+    handed.undo();
+    check('undo takes back the words typed into a box opened with handed-over text', handed.box.value === 'words handed over', handed.box.value);
     handed.undo();
     check('and stops at the text it opened with', handed.box.value === 'words handed over', handed.box.value);
+
+    const held = open('', undefined);
+    type('one two three four', held.box);
+    held.undo();
+    held.press('z', { ...mod, repeat: true });
+    check('held, repeats within the hold interval undo nothing more', held.box.value === 'one two three ', held.box.value);
+    await sleep(170);
+    held.press('z', { ...mod, repeat: true });
+    check('the next repeat after the interval undoes the next word', held.box.value === 'one two ', held.box.value);
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

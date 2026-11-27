@@ -998,19 +998,29 @@ actions"), and the mark-click strip, and renames "Edit instead".
 - **Undo and redo stay within the current edit or comment** (2026-11-26).
   ⌘Z / ⇧⌘Z (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y elsewhere) step through it, all
   the way back to where it opened and forward to its last change, and stop
-  there. A run of typing is one step (a key typed where the last one left
-  the caret joins it, `typedTo`), as are a word erase, a paste, a strike
-  over a selection and the key that opened the edit with what follows it.
+  there. A typed word is one step, as ⌫ erases one (2026-11-27): a key
+  typed where the last one left the caret (`typedTo`) joins the step unless
+  it starts the next word, a non-space after a word and its space
+  (`startsTypedWord` in `word-snap.js`, over the text typed in the step so
+  far, so spaces typed ahead of a word ride with it). An IME composition is
+  a step of its own; in a script written without spaces it is the word. A
+  word erase, a paste and a strike over a selection are a step each, and
+  the key that opened the edit starts its first word. Held, ⌘Z steps every
+  `HOLD_WORD_MS`, the pace a held ⌫ erases. The word, over the typing run
+  (a key typed where the last one left the caret, as in a text box): every
+  other unit here is the word, and a run's size rests on history the screen
+  never shows (whether you clicked mid-sentence), so one ⌘Z could take a
+  whole comment; a word step takes back what one ⌫ would. Esc and Discard
+  are the all-at-once exit.
   The edits keep their own snapshot stacks (`pushEditingUndo` /
   `joinUndoStep`; the review's `pushUndo`). The comment box keeps its own
   too (`word-typing.js`). Undo goes back to how the box opened, and what you
   opened it with counts as yours (`seedFrom`, 2026-11-27): the key that
-  opened it starts your first typing run (undo of "keep these" goes straight
-  to empty, never to a lone "k"), and a paste that opened it is a step of its
-  own; text the box was handed (To comment's words, a reopened queued
-  comment, a saved draft) is where undo stops. The page's native undo
-  history cannot serve: it is shared by every
-  field in the document, the terminal's hidden input included, so an undo
+  opened it starts your first word (undo of "keep" goes straight to empty,
+  never to a lone "k"), and a paste that opened it is a step of its own;
+  text the box was handed (To comment's words, a reopened queued comment, a
+  saved draft) is where undo stops. The page's native undo history cannot
+  serve: it is shared by every field in the document, the terminal's hidden input included, so an undo
   past the box's first change reached into the terminal's field (and with
   no Edit menu macOS gave the box no redo). Its word edits write with
   `setRangeText`, outside that native history; the context menu's

@@ -48,7 +48,7 @@ function isMutatingEntryKey(event) {
   return [...k].length === 1;
 }
 
-const { wordSpans, newWordSpacing } = require('./word-snap');
+const { wordSpans, newWordSpacing, HOLD_WORD_MS } = require('./word-snap');
 
 function markWrapping(node, sel) {
   const el = node && node.nodeType === 3 ? node.parentElement : node;
@@ -389,9 +389,7 @@ function createMarkEngine({ beforeMutate } = {}) {
   // (eraseInBlock). Backward, the spaces between the word and the caret go
   // with it, so striking on through a sentence makes one strike; the space
   // a typed word came with leaves with it (takeBackInBlock). Held, the key
-  // takes a word every HOLD_WORD_MS: key repeat at letter speed would strike
-  // a sentence before the key is up.
-  const HOLD_WORD_MS = 150;
+  // takes a word every HOLD_WORD_MS (word-snap.js).
   let lastWordErase = 0;
   function eraseWord(block, { backward = true, repeat = keyRepeat } = {}) {
     const caret = caretScreenOffset(block);

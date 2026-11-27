@@ -39,7 +39,7 @@ const {
   wrapEditEnvelope,
   parseEditEnvelope,
 } = require('./edit-marks');
-const { snapRangeToWords } = require('./word-snap');
+const { snapRangeToWords, startsTypedWord, HOLD_WORD_MS } = require('./word-snap');
 
 const COMMIT_BLOCK_SEL = '#commit .commit-subject, #commit .commit-body p';
 const OVERLAY_SEL = '.rv-thread, .rv-quote-thread, .rv-filehdr-thread, .rv-row, '
@@ -121,6 +121,7 @@ function createCommitEditController(io) {
   // clean text the anchor quotes. `revisit` carries the stored thread being
   // re-entered.
   let session = null;
+  let lastUndoAt = 0; // a held ⌘Z steps at the pace a held ⌫ erases
   // Blocks currently decorated from stored edit threads: el -> original innerHTML.
   const decorated = new Map();
   let decoratedState = new Map(); // threadId -> block (this render pass)
@@ -348,6 +349,7 @@ function createCommitEditController(io) {
           engine.strikeInBlock(block, entrySelection, 'after');
           engine.insertAtGap(entryText, block);
           sess.typedTo = caretOffsetIn(block);
+          sess.typedWord = entryText;
         } else {
           // The bare switch: the selection comes back live, ready to type over.
           const s = window.getSelection && window.getSelection();
@@ -364,7 +366,8 @@ function createCommitEditController(io) {
       // own word after it.
       engine.strikeInBlock(block, entrySelection, 'after');
       engine.insertAtGap(k, block);
-      sess.typedTo = caretOffsetIn(block); // the keys after it join its step
+      sess.typedTo = caretOffsetIn(block); // the keys after it join its step, to the end of its word
+      sess.typedWord = k;
       return;
     }
     const max = block.textContent.length; // current content: marks included on a revisit
@@ -406,7 +409,7 @@ function createCommitEditController(io) {
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
       const typing = t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromComposition';
-      if (!typing && session) session.typedTo = null; // any other input ends a typing run
+      if (!typing && session) session.typedTo = null; // any other input ends the typed word's step
       // Any input ends the gap caret; text typed there makes its own word.
       onSelectionChange(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
@@ -437,12 +440,16 @@ function createCommitEditController(io) {
         // at the bar (you are typing) it extends your word.
         const s = window.getSelection();
         const over = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
-        // A run of typing is one undo step, as in a text box: a key typed
-        // where the last one left the caret joins that step.
-        if (session && !atGap && !over && session.typedTo != null && session.typedTo === caretOffsetIn(el)) joinUndoStep();
+        // A typed word is one undo step: a key typed where the last one left
+        // the caret joins that step unless it starts the next word
+        // (startsTypedWord). A composition is a step of its own.
+        const data = event.data || '';
+        const joins = !!session && !atGap && !over && t !== 'insertFromComposition' && session.typedTo != null
+          && session.typedTo === caretOffsetIn(el) && !startsTypedWord(session.typedWord, data);
+        if (joins) joinUndoStep();
         if (over) engine.strikeInBlock(el, s.getRangeAt(0), 'after');
-        if (atGap || over) engine.insertAtGap(event.data || '', el); else engine.insertMarkedInBlock(event.data || '');
-        if (session) session.typedTo = caretOffsetIn(el);
+        if (atGap || over) engine.insertAtGap(data, el); else engine.insertMarkedInBlock(data);
+        if (session) { session.typedTo = caretOffsetIn(el); session.typedWord = joins ? session.typedWord + data : data; }
         return;
       }
       // no new blocks, no formatting, no native undo (it can't see our marks)
@@ -605,6 +612,9 @@ function createCommitEditController(io) {
     if (mod && !event.altKey && (k === 'z' || (!mac && k === 'y'))) {
       event.preventDefault();
       event.stopPropagation();
+      // Held, a step every HOLD_WORD_MS, as ⌫ takes words.
+      if (event.repeat && Date.now() - lastUndoAt < HOLD_WORD_MS) return;
+      lastUndoAt = Date.now();
       undoStep(event.shiftKey || k === 'y');
     }
   }

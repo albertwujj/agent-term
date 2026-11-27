@@ -482,16 +482,20 @@ async function run() {
       p1.textContent === 'The polling utilizes now a timer to refill tokens.', p1.textContent);
     key(p1, { key: 'Escape' });
 
-    // Undo and redo: a run of typing is one step.
+    // Undo and redo: a typed word is one step.
     aim(p1, ' utilizes');
     clickAt(p1);
-    for (const ch of 'quietly') { typeChar(p1, ch); await sleep(0); }
+    for (const ch of 'quietly now') { typeChar(p1, ch); await sleep(0); }
     key(p1, { key: 'z', metaKey: true });
     await sleep(0);
-    check('⌘Z takes back a run of typing in one step', p1.textContent === P1, p1.textContent);
+    check('⌘Z takes back the last word typed', p1.textContent === 'The polling quietly  utilizes a timer to refill tokens.', p1.textContent);
+    key(p1, { key: 'z', metaKey: true });
+    await sleep(0);
+    check('the next takes back the word before it', p1.textContent === P1, p1.textContent);
+    key(p1, { key: 'Z', metaKey: true, shiftKey: true });
     key(p1, { key: 'Z', metaKey: true, shiftKey: true });
     await sleep(0);
-    check('⇧⌘Z brings it back', p1.textContent === 'The polling quietly utilizes a timer to refill tokens.', p1.textContent);
+    check('⇧⌘Z brings them back a word a step', p1.textContent === 'The polling quietly now utilizes a timer to refill tokens.', p1.textContent);
     key(p1, { key: 'Escape' });
 
     aim(p2, ' paragraph');

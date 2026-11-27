@@ -14,7 +14,7 @@ const {
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { findSentenceRange } = require('./sentence-selection');
-const { snapStart, snapEnd, snapRangeToWords } = require('./word-snap');
+const { snapStart, snapEnd, snapRangeToWords, startsTypedWord, HOLD_WORD_MS } = require('./word-snap');
 const { copyImageToClipboard } = require('./image-clipboard');
 const { createFullscreenViewer } = require('./fullscreen-viewer');
 const { openImageInspector } = require('./image-inspector');
@@ -5449,7 +5449,7 @@ function createMarkdownViewer({
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
       const typing = t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromComposition';
-      if (!typing && state.editing) state.editing.typedTo = null; // any other input ends a typing run
+      if (!typing && state.editing) state.editing.typedTo = null; // any other input ends the typed word's step
       // Any input ends the gap caret; text typed there makes its own word.
       syncGapCaretToSelection(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
@@ -5480,13 +5480,18 @@ function createMarkdownViewer({
         // at the bar (you are typing) it extends your word.
         const s = window.getSelection();
         const over = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
-        // A run of typing is one undo step, as in a text box: a key typed
-        // where the last one left the caret joins that step.
+        // A typed word is one undo step: a key typed where the last one left
+        // the caret joins that step unless it starts the next word
+        // (startsTypedWord). A composition is a step of its own: in a script
+        // written without spaces it is the word.
         const session = state.editing;
-        if (session && !atGap && !over && session.typedTo != null && session.typedTo === caretOffsetIn(el)) joinUndoStep(session);
+        const data = event.data || '';
+        const joins = !!session && !atGap && !over && t !== 'insertFromComposition' && session.typedTo != null
+          && session.typedTo === caretOffsetIn(el) && !startsTypedWord(session.typedWord, data);
+        if (joins) joinUndoStep(session);
         if (over) strikeInBlock(el, s.getRangeAt(0), 'after');
-        if (atGap || over) insertAtGap(event.data || '', el); else insertMarkedInBlock(event.data || '');
-        if (session) session.typedTo = caretOffsetIn(el);
+        if (atGap || over) insertAtGap(data, el); else insertMarkedInBlock(data);
+        if (session) { session.typedTo = caretOffsetIn(el); session.typedWord = joins ? session.typedWord + data : data; }
         return;
       }
       // no new blocks, no formatting, no native undo (it can't see our marks)
@@ -5693,7 +5698,10 @@ function createMarkdownViewer({
         if (typed) insertAtGap(entryText, target);
         else if (k === 'Enter') insertLineBreakInBlock();
         else insertAtGap(k, target);
-        if (k !== 'Enter') session.typedTo = caretOffsetIn(target); // the keys after it join its step
+        if (k !== 'Enter') { // the keys after it join its step, to the end of its word
+          session.typedTo = caretOffsetIn(target);
+          session.typedWord = typed ? entryText : k;
+        }
         return;
       }
     }
@@ -8221,9 +8229,12 @@ function createMarkdownViewer({
         } else if (inSurface && (event.metaKey || event.ctrlKey) && !event.altKey
           && /^[zy]$/i.test(String(event.key))) {
           // ⌘/Ctrl+Z steps the session history back one action; Shift (or
-          // Ctrl+Y) steps forward. The note composer keeps native undo —
-          // this rung only fires with the caret on the surface.
+          // Ctrl+Y) steps forward. The note composer has its own history
+          // (word-typing.js) — this rung only fires with the caret on the
+          // surface. Held, a step every HOLD_WORD_MS, as ⌫ takes words.
           event.preventDefault();
+          if (event.repeat && Date.now() - (state.lastUndoAt || 0) < HOLD_WORD_MS) return;
+          state.lastUndoAt = Date.now();
           undoEditingStep(event.shiftKey || String(event.key).toLowerCase() === 'y');
         } else if (inSurface && (event.metaKey || event.ctrlKey) && /^[biu]$/i.test(event.key)) {
           event.preventDefault();

@@ -126,4 +126,18 @@ function newWordSpacing(text, caret, value) {
   return { lead: afterWord ? ' ' : '', trail: wordNext ? ' ' : '' };
 }
 
-module.exports = { snapStart, snapEnd, snapRangeToWords, wordSpans, newWordSpacing };
+// Undo and redo step a word at a time, as ⌫ erases one: a typed key joins the
+// step of the keys before it unless it starts the next word, a non-space
+// typed after a word and its space. `typed` is the text typed in the step so
+// far, so spaces typed ahead of a word ride with it. Shared by the edit
+// (markdown-viewer.js, review-commit-edit.js) and the comment box
+// (word-typing.js).
+function startsTypedWord(typed, text) {
+  return /\S\s+$/.test(typed || '') && /^\S/.test(text || '');
+}
+
+// Held, ⌫ takes and ⌘Z undoes a word every HOLD_WORD_MS: key repeat at
+// letter speed would run past where you meant to stop.
+const HOLD_WORD_MS = 150;
+
+module.exports = { snapStart, snapEnd, snapRangeToWords, wordSpans, newWordSpacing, startsTypedWord, HOLD_WORD_MS };

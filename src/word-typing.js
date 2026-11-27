@@ -15,10 +15,11 @@
 //   compose: there the caret is the bar and typing just goes on.
 //
 // ⌘Z undoes and ⇧⌘Z (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y elsewhere) redoes
-// through the box's own history, as the edit's do: a run of typing is one
-// step, a word erase, paste or cut is one, and undo goes back to how the box
+// through the box's own history, as the edit's do: a typed word is one step
+// (startsTypedWord), as are a word erase, a paste and a cut; held, a step
+// every HOLD_WORD_MS, the pace a held ⌫ erases. Undo goes back to how the box
 // opened. What you opened it with is yours (`seedFrom`): the key that opened
-// it starts your first typing run, a paste that opened it is a step, and
+// it starts your first word, a paste that opened it is a step, and
 // undo reaches the empty box; text the box was handed (To comment's words, a
 // reopened comment, a saved draft) is where undo stops. The page's native
 // undo history cannot serve: it is shared by
@@ -30,9 +31,7 @@
 //
 // Electron-free: bundled into the review preload with comment-ui.js.
 
-const { wordSpans, snapStart, snapEnd, newWordSpacing } = require('./word-snap');
-
-const HOLD_WORD_MS = 150;
+const { wordSpans, snapStart, snapEnd, newWordSpacing, startsTypedWord, HOLD_WORD_MS } = require('./word-snap');
 const SPACE = /[ \t ]/;
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform || '');
@@ -77,12 +76,15 @@ function wireWordTyping(ta, { seedFrom } = {}) {
   // ——— the box's own history ———
   const undoStack = [];
   const redoStack = [];
-  let typedTo = null; // where the last typed text left the caret: a typing run goes on there
+  let typedTo = null; // where the last typed text left the caret: its word goes on there
+  let typedWord = ''; // the text typed in this step so far: whether the next key starts a word
+  let pendingWord = ''; // typedWord once the key on its way lands
+  let lastStep = 0;
   let composing = false;
   let known = ta.value; // the text as the history last saw it
   const snap = () => ({ value: ta.value, start: ta.selectionStart, end: ta.selectionEnd });
   if (ta.value && seedFrom) undoStack.push({ value: '', start: 0, end: 0 }); // what opened the box undoes to empty
-  if (ta.value && seedFrom === 'key') typedTo = ta.value.length; // the keys after it join its run
+  if (ta.value && seedFrom === 'key') { typedTo = ta.value.length; typedWord = ta.value; } // the keys after it join its word
   // A change is about to happen: the text before it is a step. Text a host
   // wrote meanwhile starts the history over from there.
   function record() {
@@ -109,6 +111,7 @@ function wireWordTyping(ta, { seedFrom } = {}) {
   function seat(at) {
     const value = ta.value;
     ta.setSelectionRange(at, at);
+    typedTo = null; // the caret moved: what is typed next is a step of its own
     // The end of the comment, or of a line, is where you compose: the bar.
     rest = at < value.length && value[at] !== '\n';
     ta.classList.toggle('cu-word-rest', rest);
@@ -125,6 +128,8 @@ function wireWordTyping(ta, { seedFrom } = {}) {
       const redo = (k === 'z' && e.shiftKey) || (!IS_MAC && k === 'y' && !e.shiftKey);
       if (k === 'z' || redo) {
         e.preventDefault();
+        if (e.repeat && Date.now() - lastStep < HOLD_WORD_MS) return;
+        lastStep = Date.now();
         step(redo);
       }
       return;
@@ -180,9 +185,12 @@ function wireWordTyping(ta, { seedFrom } = {}) {
     const t = e.inputType || '';
     if (t === 'historyUndo' || t === 'historyRedo') { e.preventDefault(); step(t === 'historyRedo'); return; }
     if (composing) return; // the composition is one step, recorded at its start
-    // A key typed where the last one left the caret joins that step.
+    // A key typed where the last one left the caret joins that step, unless
+    // it starts the next word.
     const typing = t === 'insertText' && ta.selectionStart === ta.selectionEnd;
-    if (!(typing && typedTo === ta.selectionStart && ta.value === known)) record();
+    const joins = typing && typedTo === ta.selectionStart && ta.value === known && !startsTypedWord(typedWord, e.data);
+    if (!joins) record();
+    pendingWord = joins ? typedWord + (e.data || '') : (e.data || '');
     const wasRest = rest;
     unrest();
     if (!wasRest || !typing || !e.data) return;
@@ -195,6 +203,7 @@ function wireWordTyping(ta, { seedFrom } = {}) {
     ta.setSelectionRange(at, at);
     known = ta.value;
     typedTo = at;
+    typedWord = e.data;
   }
 
   function onInput(e) {
@@ -202,12 +211,15 @@ function wireWordTyping(ta, { seedFrom } = {}) {
     if (t === 'historyUndo' || t === 'historyRedo' || composing) return;
     known = ta.value;
     typedTo = t === 'insertText' && ta.selectionStart === ta.selectionEnd ? ta.selectionStart : null;
+    typedWord = pendingWord;
+    pendingWord = '';
   }
   function onCompositionStart() { record(); composing = true; }
-  function onCompositionEnd() {
+  function onCompositionEnd(e) {
     composing = false;
     known = ta.value;
     typedTo = ta.selectionStart;
+    typedWord = e.data || '';
   }
 
   function onMouseup() {

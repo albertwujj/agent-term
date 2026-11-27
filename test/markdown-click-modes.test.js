@@ -498,7 +498,7 @@ async function run() {
     await reset();
   }
 
-  // --- undo and redo: a run of typing is one step, a word erase is one,
+  // --- undo and redo: a typed word is one step, a word erase is one,
   //     and undo walks all the way back to where the edit opened ---
   {
     const el = aim('The poller', ' once');
@@ -512,12 +512,15 @@ async function run() {
     check('the edit reads as typed', /file\{ only then\} once/.test(marks(editing())), marks(editing()));
     const undo = async (shiftKey = false) => { key(editing(), { key: shiftKey ? 'Z' : 'z', metaKey: true, shiftKey }); await sleep(0); };
     await undo();
-    check('⌘Z takes back the last run of typing in one step', /file\{ only \} once/.test(marks(editing())), marks(editing()));
+    check('⌘Z takes back the last word typed', /file\{ only \} once/.test(marks(editing())), marks(editing()));
     await undo();
     check('the next ⌘Z brings back the erased word', /file\{ only now\} once/.test(marks(editing())), marks(editing()));
     await undo();
-    check('and the next takes back the first run, back to where the edit opened',
+    check('the next takes back the word before it, a word a step', /file\{ only \} once/.test(marks(editing())), marks(editing()));
+    await undo();
+    check('and the next takes back the first word, back to where the edit opened',
       !editing().querySelector('ins, del') && editing().textContent.includes('the file once'), marks(editing()));
+    await undo(true);
     await undo(true);
     await undo(true);
     await undo(true);
