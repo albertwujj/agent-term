@@ -1,8 +1,9 @@
 // Re-work through the real keyboard: ⌫ strikes a page word, a struck word
 // comes back whole, your own text goes a letter at a time, a held ⌫ goes at
 // a reading pace over the page's words and stops where your own changes
-// end, the arrows move a word at a time across the page's text, and the
-// caret stops before a page word's full stop. The rules themselves are
+// end, the arrows move a word at a time across the page's text, and a
+// punctuation mark is a unit of its own, so the caret stops before a full
+// stop and ⌫ strikes the stop alone. The rules themselves are
 // unit-tested in test/markdown-click-modes.test.js and
 // test/edit-marks.test.js.
 import assert from 'node:assert/strict';
@@ -183,6 +184,15 @@ try {
   await page.keyboard.type('fast');
   assert.match(await marks(10), /lines\{ fast\}\.$/, `a click in a word before a full stop puts the caret before the stop: ${await marks(10)}`);
   console.log('PASS the caret stops before a page word\'s full stop');
+
+  await commit();
+  const text11 = text.replace('Paragraph 2', 'Paragraph 11');
+  await clickAt(11, text11.length - 1, { side: 'right' }); // after the full stop
+  await backspaces(1);
+  assert.match(await marks(11), /lines\[\.\]$/, `⌫ after a full stop strikes the stop alone: ${await marks(11)}`);
+  await backspaces(1);
+  assert.match(await marks(11), /across \[lines\.\]$/, `the next ⌫ strikes the word, one strike with the stop: ${await marks(11)}`);
+  console.log('PASS punctuation is a unit of its own');
 
   assert.deepEqual(errors, [], 'no renderer errors');
 } finally {

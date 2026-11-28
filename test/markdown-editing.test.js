@@ -312,12 +312,13 @@ async function run() {
       && !document.querySelector('.md-editing-strip-spacer').closest('.md-viewer-body').contains(document.querySelector('.md-editing-strip')));
   }
   {
-    // Strike-in-place, a word at a time: ⌫ strikes the last word rather
-    // than removing it — the text stays whole, the word now sits in a <del>.
+    // Strike-in-place, a unit at a time: ⌫ strikes the last unit (here the
+    // full stop) rather than removing it — the text stays whole, the unit
+    // now sits in a <del>.
     const original = FIXTURE.split('\n').slice(2, 4).join('\n');
     const struck = para && para.querySelector('del.md-pending-del');
-    check('⌫ strikes the last word in place',
-      !!struck && struck.textContent === original.split(/\s+/).pop() && para.textContent === original,
+    check('⌫ strikes the last unit in place, the full stop a unit of its own',
+      !!struck && struck.textContent === '.' && para.textContent === original,
       { struck: struck && struck.textContent, text: para && para.textContent.slice(-8) });
   }
 

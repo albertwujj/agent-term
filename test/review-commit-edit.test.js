@@ -297,7 +297,7 @@ async function run() {
   click(document.body);
   aimEnd(p1);
   clickAt(p1); // after the last word: the edit reopens there
-  erase(p1); // strikes the last word, "tokens."
+  erase(p1); // strikes the last unit, the full stop
   check('a click after the last word reopens the edit with the marks kept',
     ctl.isEditing() && p1.getAttribute('contenteditable') === 'true'
     && !!p1.querySelector('ins.md-pending-ins'));
@@ -308,7 +308,7 @@ async function run() {
     !ctl.isEditing() && addCalls.length === 2 && updateCalls.length === 1
     && updateCalls[0].threadId === 'e1' && updateCalls[0].alsoSend === false);
   check('the updated envelope keeps the old marks and adds the new strike',
-    /<del>utilizes <\/del>/.test(updateCalls[0].body) && /<del>tokens\.<\/del>/.test(updateCalls[0].body),
+    /<del>utilizes <\/del>/.test(updateCalls[0].body) && /tokens<del>\.<\/del>/.test(updateCalls[0].body),
     updateCalls[0].body);
   check('the block returns clean until the store re-decorates', p1.innerHTML === P1, p1.innerHTML);
 

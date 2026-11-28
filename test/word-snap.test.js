@@ -9,7 +9,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>');
 global.window = dom.window;
 global.document = dom.window.document;
 
-const { snapStart, snapEnd, snapRangeToWords, wordSpans, newWordSpacing, wordEraseSpan, startsNewWord } = require('../src/word-snap');
+const { snapStart, snapEnd, snapRangeToWords, wordSpans, pageUnits, newWordSpacing, wordEraseSpan, startsNewWord } = require('../src/word-snap');
 
 let passed = 0;
 let failed = 0;
@@ -58,14 +58,13 @@ const blockOf = (node) => (node.nodeType === 1 ? node : node.parentElement).clos
   check('a range of only a space snaps to nothing', snapRangeToWords(r, blockOf) === null);
 }
 
-// The page's words: Unicode word boundaries, punctuation riding with its word.
+// Words with their punctuation (the unit of undo steps and of a new word's
+// spacing): Unicode word boundaries, punctuation riding with its word.
 const words = (t) => wordSpans(t).map((w) => t.slice(w.start, w.end));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 check('punctuation touching a word rides with it', same(words('The timer, then (maybe) waits.'), ['The', 'timer,', 'then', '(maybe)', 'waits.']), words('The timer, then (maybe) waits.'));
 check('punctuation between two words splits them, going with the one before',
   same(words('book/books well-known a+b'), ['book/', 'books', 'well-', 'known', 'a+', 'b']), words('book/books well-known a+b'));
-check('a word knows where its letters end, before the punctuation after them',
-  same(wordSpans('the timer, waits.').map((w) => w.wordEnd), [3, 9, 16]), wordSpans('the timer, waits.'));
 check('a word Unicode keeps whole stays whole', same(words("don't 3.14 1,000 e.g. node.js foo_bar"), ["don't", '3.14', '1,000', 'e.g.', 'node.js', 'foo_bar']),
   words("don't 3.14 1,000 e.g. node.js foo_bar"));
 const zh = words('我们今天开会。');
@@ -79,21 +78,28 @@ check('a new word between spaced words gets a space', same(newWordSpacing('x', 3
 check('between two words joined without a space it goes in as typed', newWordSpacing('x', 5, 'book/books') === null, newWordSpacing('x', 5, 'book/books'));
 check('replacing a struck word before its comma still spaces it', same(newWordSpacing('clock', 5, 'timer,'), { lead: ' ', trail: '' }), newWordSpacing('clock', 5, 'timer,'));
 
-// The span a page word's erase takes: the spaces up to the caret go with
-// the word unless that would join the text either side; from a word's
-// wordEnd, only the side pressed toward.
+// The page's units, as an edit strikes them: each word, and each run of
+// punctuation between words.
+const units = (t) => pageUnits(t).map((u) => t.slice(u.start, u.end));
+check('a word and the punctuation beside it are units of their own',
+  same(units('the timer, then (maybe) waits.'), ['the', 'timer', ',', 'then', '(', 'maybe', ')', 'waits', '.']), units('the timer, then (maybe) waits.'));
+check('a run of punctuation is one unit, and a word Unicode keeps whole stays whole',
+  same(units("wait... book/books don't 3.14 node.js"), ['wait', '...', 'book', '/', 'books', "don't", '3.14', 'node.js']), units("wait... book/books don't 3.14 node.js"));
+
+// The span a page unit's erase takes: the spaces up to the caret go with
+// the unit unless that would join the text either side.
 const erase = (t, caret, backward) => {
-  const ws = wordSpans(t);
+  const ws = pageUnits(t);
   const w = backward ? ws.filter((x) => x.start < caret).pop() : ws.find((x) => x.end > caret);
   const { from, to } = wordEraseSpan(t, w, caret, backward);
   return t.slice(0, from) + t.slice(to);
 };
 check('Delete takes the spaces before the word', erase('the poller reads', 3, false) === 'the reads', erase('the poller reads', 3, false));
-check('but not when the word is joined to the next', erase('the book/books', 3, false) === 'the books', erase('the book/books', 3, false));
+check('but not when the unit is joined to the next', erase('the (maybe)', 3, false) === 'the maybe)', erase('the (maybe)', 3, false));
 check('⌫ takes the word after the slash alone', erase('the book/books', 14, true) === 'the book/', erase('the book/books', 14, true));
-check('⌫ before a full stop takes the letters and keeps the stop', erase('it waits.', 8, true) === 'it .', erase('it waits.', 8, true));
-check('Delete there takes the stop alone', erase('it waits.', 8, false) === 'it waits', erase('it waits.', 8, false));
-check('⌫ after the stop takes the word with it', erase('it waits.', 9, true) === 'it ', erase('it waits.', 9, true));
+check('⌫ after a full stop takes the stop alone', erase('it waits.', 9, true) === 'it waits', erase('it waits.', 9, true));
+check('⌫ before it takes the word and keeps the stop', erase('it waits.', 8, true) === 'it .', erase('it waits.', 8, true));
+check('Delete there takes the stop', erase('it waits.', 8, false) === 'it waits', erase('it waits.', 8, false));
 
 // An undo step is a word: a typed key, or a letter ⌫ erases, starts a step
 // when it starts another word.

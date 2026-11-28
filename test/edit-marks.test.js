@@ -205,9 +205,9 @@ const marks = (el) => el.innerHTML
   check('insertions made elsewhere keep their typed spaces', el.textContent === 'foo x  bar', el.innerHTML);
 }
 
-// The page's words split at Unicode word boundaries, so `book/books` is
-// two: ⌫ and Delete strike one at a time, and text typed between them goes
-// in as typed.
+// The page's units are its words (Unicode word boundaries) and the
+// punctuation between them: ⌫ and Delete strike one at a time, and text
+// typed between two words joined without a space goes in as typed.
 {
   const el = block('the book/books here');
   caretTo(el, 'the book/books'.length);
@@ -218,7 +218,7 @@ const marks = (el) => el.innerHTML
   const el = block('the book/books here');
   caretTo(el, 3);
   engine.eraseAtCaret(el, { backward: false, repeat: false });
-  check('Delete strikes the word before the slash, the space before it kept', marks(el) === 'the [book/]books here', marks(el));
+  check('Delete strikes the word before the slash, the space before it kept', marks(el) === 'the [book]/books here', marks(el));
 }
 {
   const el = block('it waits. Then');
@@ -226,6 +226,14 @@ const marks = (el) => el.innerHTML
   check('the caret before a page word\'s full stop is between words', engine.isBetweenWords(el, 'it waits'.length));
   engine.eraseAtCaret(el, { backward: true, repeat: false });
   check('⌫ there strikes the word and keeps the stop', marks(el) === 'it [waits]. Then', marks(el));
+}
+{
+  const el = block('it waits. Then');
+  caretTo(el, 'it waits.'.length);
+  engine.eraseAtCaret(el, { backward: true, repeat: false });
+  check('⌫ after a full stop strikes the stop alone', marks(el) === 'it waits[.] Then', marks(el));
+  engine.eraseAtCaret(el, { backward: true, repeat: false });
+  check('the next ⌫ strikes the word, one strike with the stop', marks(el) === 'it [waits.] Then', marks(el));
 }
 
 // Your own text is ordinary text: ⌫ takes a letter, Option+⌫ the browser's

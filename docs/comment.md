@@ -15,7 +15,7 @@ The best way to get familiar is to try it. In the terminal, a double-click selec
 
 ## Edit the text
 
-You can edit a [rendered plan](plan.md) or a [review's commit message](review.md) directly. The page's own text changes a word at a time: erasing strikes a whole word, and erasing struck-through text brings it back. A click between two words, or after a paragraph's last word, inserts a new word there, and a click on your own unsent change picks it up again. The agent takes the edit as your intent; a note, if you attach one, makes the intent clearer.
+You can edit a [rendered plan](plan.md) or a [review's commit message](review.md) directly. The page's own text changes a word or punctuation mark at a time: erasing strikes it whole, and erasing struck-through text brings it back. A click between two words, or after a paragraph's last word, inserts a new word there, and a click on your own unsent change picks it up again. The agent takes the edit as your intent; a note, if you attach one, makes the intent clearer.
 
 ## Send now, or collect and send
 

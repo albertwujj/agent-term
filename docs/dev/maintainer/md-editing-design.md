@@ -941,32 +941,38 @@ actions"), and the mark-click strip, and renames "Edit instead".
 - **The page's words go whole; your own text is ordinary text**
   (`edit-marks.js` `eraseTarget` / `eraseAtCaret` / `moveByWord` /
   `settleCaretAfterWord`). The text that was on the page is made of whole
-  words: you strike or restore a word and insert between words, never edit
-  inside one (part of a page word is never what an intent means, so there
-  is no partial-word editing to support). The text you typed is ordinary
-  text, a letter at a time. History: from 2026-11-25 everything worked a
+  units, its words and its punctuation marks: you strike or restore a unit
+  and insert between units, never edit inside one (part of a page word is
+  never what an intent means, so there is no partial-word editing to
+  support). The text you typed is ordinary text, a letter at a time. History: from 2026-11-25 everything worked a
   word at a time (user: the agent reads intent and handles typos, so the
   unit of re-work is the word), your own typing and the comment box
   included, ⌫ taking a whole typed word; on 2026-11-28 the user found that
   too hard to learn and not worth it, and the word unit stayed only on the
   page's text, where it is what a strike shows.
   A word is what Unicode word segmentation finds, as a selection snaps to,
-  with the punctuation touching it (`word-snap.js` `wordSpans`; user,
-  2026-11-27: `book/books` is two words; before, a word was a run between
-  spaces, so ⌫ took a whole `book/books`, `well-known` or URL).
-  Punctuation between two words goes with the one before (`book/`,
-  `books`), punctuation opening a run with the one after (`(maybe)`);
-  `don't`, `3.14` and `node.js` stay whole. A word's letters end before the
-  punctuation after them (`wordEnd`), and the caret stops there too
-  (2026-11-28): with the punctuation riding along there was no way to put a
-  word before a full stop. So a click on `waits` rests at `waits|.`,
-  typing there gives `waits forever.`, ⌫ there strikes `waits` and keeps
-  the stop, and Delete there takes the stop alone.
-  ⌫/Delete (and Option/Ctrl+⌫) on a page word strike it, or bring a struck
-  word back, whole. Backward, the spaces between the word and the caret go
+  and each run of punctuation between words is a unit of its own
+  (`word-snap.js` `pageUnits`; user, 2026-11-28): `the timer, then
+  (maybe) waits.` is `the`, `timer`, `,`, `then`, `(`, `maybe`, `)`,
+  `waits`, `.`; `don't`, `3.14` and `node.js` stay whole. So ⌫ after a
+  full stop strikes the stop, the next ⌫ the word (one strike, the two
+  adjoining), a comma goes on its own from where you would click, a click
+  on `waits` rests at `waits|.`, and typing there gives `waits forever.`.
+  It costs a press per punctuation mark when striking on through a
+  sentence, few in practice. How it got here: before 2026-11-27 a word was
+  a run between spaces, so ⌫ took a whole `book/books`, `well-known` or
+  URL; then Unicode words with the punctuation riding along (`book/`,
+  `books`; user: `book/books` is two words), which left no way to put a
+  word before a full stop, patched for a day by a caret stop between a
+  word and the punctuation after it; then punctuation as its own unit,
+  which makes that stop an ordinary unit end and each thing on screen one
+  unit. Undo steps and a new word's spacing still count words with their
+  punctuation (`wordSpans`), so typing `book/` is one step.
+  ⌫/Delete (and Option/Ctrl+⌫) on a page unit strike it, or bring a struck
+  unit back, whole. Backward, the spaces between the unit and the caret go
   too, so striking on through a sentence makes one strike, unless taking
-  them would join the text either side (Delete at `the |book/books` leaves
-  `the books`; `wordEraseSpan`). Your own text goes as the browser's span
+  them would join the text either side (Delete at `the |(maybe)` leaves
+  `the maybe)`; `wordEraseSpan`). Your own text goes as the browser's span
   says (a letter; with Option a word), kept to your text; your typed part
   of a word goes first, and taking back your last letter at a gap takes
   the gap's opening space with it. Since a space is struck only with a
@@ -978,11 +984,10 @@ actions"), and the mark-click strip, and renames "Edit instead".
   marks elsewhere stay. The press-run rule stands (striking runs hop older
   strikes, a held take-back stops at the page's text), tracked by
   on-screen caret offset since the gap caret re-seats the caret. A held key
-  strikes or restores a page word every 150 ms instead of one per key
+  strikes or restores a page unit every 150 ms instead of one per key
   repeat; your letters go at key-repeat speed. Across the page's text ←/→
-  move to the next word end (or `wordEnd`), Shift grows a selection by
-  words, and ↑/↓ and a click inside the open edit settle after the page
-  word they land in. Through your own text the browser moves the caret a
+  move to the next unit end, Shift grows a selection by words, and ↑/↓ and
+  a click inside the open edit settle after the page unit they land in. Through your own text the browser moves the caret a
   letter (`yoursBeside`), and a click in it lands where it is.
 - **One caret at rest: the block means a new word** (user, 2026-11-25: a
   caret left at a word's start glued typing onto the word, and two caret
@@ -995,9 +1000,10 @@ actions"), and the mark-click strip, and renames "Edit instead".
   that lands at a word's start after a space rests on that space instead
   (`restingOffset`: the block covers a space, never a letter it seems to
   replace; a struck space, a line break, the block's start and an opening
-  bracket keep it on the letter; at a `wordEnd` it covers the
-  punctuation), and the word erase records that spot so a run goes on.
-  A bar at a `wordEnd` (`waits|.`) was weighed and dropped (2026-11-28):
+  bracket keep it on the letter; between a word and the punctuation after
+  it, it covers the punctuation), and the word erase records that spot so
+  a run goes on. A bar before punctuation (`waits|.`) was weighed and
+  dropped (2026-11-28):
   it would not hide the stop, but typing there still makes a new word with
   its space, so the shape would stop saying which caret adds spaces; the
   stop under the block is never replaced. The first text typed at a

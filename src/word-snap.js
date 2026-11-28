@@ -6,9 +6,9 @@
 // segmentation finds the words, CJK included.
 //
 // Electron-free: the md viewer uses the offset form; the review preload
-// bundles the DOM form. The words here are the page's: an edit strikes and
-// restores them whole (edit-marks.js), while text you typed is ordinary
-// text, a letter at a time.
+// bundles the DOM form. An edit strikes and restores the page's words and
+// punctuation marks whole (pageUnits, edit-marks.js), while text you typed
+// is ordinary text, a letter at a time.
 
 let segmenter;
 
@@ -74,13 +74,12 @@ function snapRangeToWords(range, blockOf, { exact = () => false } = {}) {
   return snapped;
 }
 
-// The words of a text as editing counts them: Unicode word boundaries, as
-// a selection snaps to (`book/books` is two words, `don't` and `3.14` one),
-// the punctuation touching a word riding with it. Punctuation between two
-// words goes with the one before (`book/`, `books`), punctuation that opens
-// a run with the one after (`(maybe)`). Returns [{ start, end, wordEnd }] in
-// order; wordEnd is where the word's letters end, before the punctuation
-// after them (`waits|.`), the one place inside a word the caret may stop.
+// The words of a text with the punctuation touching them: Unicode word
+// boundaries, as a selection snaps to (`book/books` is two words, `don't`
+// and `3.14` one), punctuation between two words going with the one before
+// (`book/`, `books`) and punctuation that opens a run with the one after
+// (`(maybe)`). The unit of undo steps (startsNewWord) and of the spacing a
+// new word gets (newWordSpacing). Returns [{ start, end }] in order.
 function wordSpans(text) {
   const spans = [];
   segmenter ||= new Intl.Segmenter(undefined, { granularity: 'word' });
@@ -93,7 +92,7 @@ function wordSpans(text) {
       const e = s + part.segment.length;
       if (part.isWordLike) {
         if (open) spans.push(open);
-        open = { start: lead != null ? lead : s, end: e, wordEnd: e };
+        open = { start: lead != null ? lead : s, end: e };
         lead = null;
       } else if (open) {
         open.end = e;
@@ -102,9 +101,35 @@ function wordSpans(text) {
       }
     }
     if (open) spans.push(open);
-    else if (lead != null) spans.push({ start: lead, end: start + run[0].length, wordEnd: start + run[0].length });
+    else if (lead != null) spans.push({ start: lead, end: start + run[0].length });
   }
   return spans;
+}
+
+// The page's units, as an edit strikes and restores them: each word
+// (Unicode word boundaries, so `don't`, `3.14` and `node.js` stay whole) and
+// each run of punctuation between them (`(`, `maybe`, `)`; `waits`, `.`;
+// `book`, `/`, `books`). Returns [{ start, end }] in order.
+function pageUnits(text) {
+  const units = [];
+  segmenter ||= new Intl.Segmenter(undefined, { granularity: 'word' });
+  for (const run of String(text || '').matchAll(/\S+/g)) {
+    let punct = null; // the punctuation run being built
+    for (const part of segmenter.segment(run[0])) {
+      const s = run.index + part.index;
+      const e = s + part.segment.length;
+      if (part.isWordLike) {
+        if (punct) { units.push(punct); punct = null; }
+        units.push({ start: s, end: e });
+      } else if (punct) {
+        punct.end = e;
+      } else {
+        punct = { start: s, end: e };
+      }
+    }
+    if (punct) units.push(punct);
+  }
+  return units;
 }
 
 // The spaces text typed at a resting caret (between words) needs to stand as
@@ -136,25 +161,15 @@ function newWordSpacing(text, caret, value) {
   return { lead: afterWord ? ' ' : '', trail: wordNext ? ' ' : '' };
 }
 
-// The span ⌫ (backward) or Delete takes for a page `word` (a wordSpans
-// span) from a caret: the word, and the spaces between it and the caret,
-// unless taking them would join the text either side (Delete at
-// `the |book/books` leaves `the books`). From the caret at a word's
-// wordEnd it takes the side pressed toward: ⌫ at `waits|.` takes `waits`,
-// Delete there the `.`. Used by the edit's erase (edit-marks.js).
-function wordEraseSpan(text, word, caret, backward) {
-  const atStop = caret > word.start && caret < word.end && caret === word.wordEnd;
-  const inside = caret > word.start && caret < word.end;
-  let from; let to;
-  if (backward) {
-    from = word.start;
-    to = atStop ? caret : Math.max(caret, word.end);
-  } else {
-    from = atStop ? caret : (inside ? word.start : Math.min(caret, word.start));
-    to = word.end;
-  }
+// The span ⌫ (backward) or Delete takes for a page `unit` (pageUnits) from a
+// caret: the unit, and the spaces between it and the caret, unless taking
+// them would join the text either side (Delete at `the |(maybe)` leaves
+// `the maybe)`). Used by the edit's erase (edit-marks.js).
+function wordEraseSpan(text, unit, caret, backward) {
+  const from = backward ? unit.start : Math.min(caret, unit.start);
+  const to = backward ? Math.max(caret, unit.end) : unit.end;
   const joins = /\S/.test(text[from - 1] || '') && /\S/.test(text[to] || '') && /\s/.test(text.slice(from, to));
-  return joins ? { from: Math.max(from, word.start), to: Math.min(to, word.end) } : { from, to };
+  return joins ? { from: unit.start, to: unit.end } : { from, to };
 }
 
 // Undo and redo step a word at a time, for typing and for erasing your own
@@ -175,4 +190,4 @@ function startsNewWord(run, text, before = false) {
 // to stop.
 const HOLD_WORD_MS = 150;
 
-module.exports = { snapStart, snapEnd, snapRangeToWords, wordSpans, newWordSpacing, wordEraseSpan, startsNewWord, HOLD_WORD_MS };
+module.exports = { snapStart, snapEnd, snapRangeToWords, wordSpans, pageUnits, newWordSpacing, wordEraseSpan, startsNewWord, HOLD_WORD_MS };
