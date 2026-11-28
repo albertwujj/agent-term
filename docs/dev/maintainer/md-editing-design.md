@@ -989,13 +989,19 @@ actions"), and the mark-click strip, and renames "Edit instead".
   kinds asked the reader to know which adds spaces). Wherever the caret
   rests between the page's words (after a click, an arrow, ⌫, an undo, at
   the block's start or end) it is the block (`isBetweenWords`). Touching
-  your own text it is the bar, and typing goes on with your text. A caret
+  your own text it is the bar, and typing goes on with your text. The
+  shape is the whole signal: the block says a new word goes here, the bar
+  says your text continues here. A caret
   that lands at a word's start after a space rests on that space instead
   (`restingOffset`: the block covers a space, never a letter it seems to
   replace; a struck space, a line break, the block's start and an opening
   bracket keep it on the letter; at a `wordEnd` it covers the
-  punctuation), and the word erase records that spot so a run goes on;
-  and the first text typed there is a new word (`insertAtGap`): a space
+  punctuation), and the word erase records that spot so a run goes on.
+  A bar at a `wordEnd` (`waits|.`) was weighed and dropped (2026-11-28):
+  it would not hide the stop, but typing there still makes a new word with
+  its space, so the shape would stop saying which caret adds spaces; the
+  stop under the block is never replaced. The first text typed at a
+  resting caret is a new word (`insertAtGap`): a space
   before it after a word, a space after it before a word (a letter or
   digit, or an opening bracket or quote leading into one), the caret kept
   inside before any space added after. Between two words with no space
