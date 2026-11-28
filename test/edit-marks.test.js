@@ -205,5 +205,27 @@ const marks = (el) => el.innerHTML
   check('insertions made elsewhere keep their typed spaces', el.textContent === 'foo x  bar', el.innerHTML);
 }
 
+// Words split at Unicode word boundaries, so `book/books` is two: ⌫ and
+// Delete strike one at a time, and text typed between them goes in as typed.
+{
+  const el = block('the book/books here');
+  caretTo(el, 'the book/books'.length);
+  engine.eraseWord(el, { backward: true, repeat: false });
+  check('⌫ strikes the word after the slash alone', marks(el) === 'the book/[books] here', marks(el));
+}
+{
+  const el = block('the book/books here');
+  caretTo(el, 3);
+  engine.eraseWord(el, { backward: false, repeat: false });
+  check('Delete strikes the word before the slash, the space before it kept', marks(el) === 'the [book/]books here', marks(el));
+}
+{
+  const el = block('book/books');
+  caretTo(el, 5);
+  check('the caret between them rests between words', engine.isBetweenWords(el, 5));
+  engine.insertAtGap('pages/', el);
+  check('text typed between words with no space goes in as typed', el.textContent === 'book/pages/books', el.textContent);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

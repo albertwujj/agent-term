@@ -31,7 +31,7 @@
 //
 // Electron-free: bundled into the review preload with comment-ui.js.
 
-const { wordSpans, snapStart, snapEnd, newWordSpacing, startsTypedWord, HOLD_WORD_MS } = require('./word-snap');
+const { wordSpans, snapStart, snapEnd, newWordSpacing, wordEraseSpan, startsTypedWord, HOLD_WORD_MS } = require('./word-snap');
 const SPACE = /[ \t ]/;
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform || '');
@@ -60,11 +60,10 @@ function eraseSpan(value, caret, backward) {
   const words = wordSpans(value);
   const word = backward ? words.filter((w) => w.start < caret).pop() : words.find((w) => w.end > caret);
   if (!word) return null;
-  const from = backward ? word.start : Math.min(caret, word.start);
-  let to = backward ? Math.max(caret, word.end) : word.end;
+  const { from, to } = wordEraseSpan(value, word, caret, backward);
   // A word gone from between two others leaves one space between them.
-  if ((from === 0 || SPACE.test(value[from - 1])) && SPACE.test(value[to] || '')) to += 1;
-  return { from, to };
+  const space = (from === 0 || SPACE.test(value[from - 1])) && SPACE.test(value[to] || '') ? 1 : 0;
+  return { from, to: to + space };
 }
 
 // seedFrom: 'key' or 'paste' when the box opened with what the user typed or

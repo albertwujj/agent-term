@@ -48,7 +48,7 @@ function isMutatingEntryKey(event) {
   return [...k].length === 1;
 }
 
-const { wordSpans, newWordSpacing, HOLD_WORD_MS } = require('./word-snap');
+const { wordSpans, newWordSpacing, wordEraseSpan, HOLD_WORD_MS } = require('./word-snap');
 
 function markWrapping(node, sel) {
   const el = node && node.nodeType === 3 ? node.parentElement : node;
@@ -396,14 +396,13 @@ function createMarkEngine({ beforeMutate } = {}) {
     if (caret == null) return false;
     const now = Date.now();
     if (repeat && now - lastWordErase < HOLD_WORD_MS) return false;
-    const { words } = editWords(block);
+    const { text, words } = editWords(block);
     const word = backward
       ? words.slice().reverse().find((w) => w.start < caret)
       : words.find((w) => w.end > caret);
     if (!word) return false;
     lastWordErase = now;
-    const from = backward ? word.start : Math.min(caret, word.start);
-    const to = backward ? Math.max(caret, word.end) : word.end;
+    const { from, to } = wordEraseSpan(text, word, caret, backward);
     const mode = word.typed || word.struck ? 'takeBack' : 'strike';
     eraseInBlock(block, rangeAtScreen(block, from, to), { backward, repeat, mode });
     // The caret rests on the space before the word it landed at; the run

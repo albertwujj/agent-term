@@ -941,13 +941,20 @@ actions"), and the mark-click strip, and renames "Edit instead".
 - **Editing works a word at a time** (`edit-marks.js` `eraseWord` /
   `moveByWord` / `settleCaretAfterWord`; user, 2026-11-25: the agent reads
   intent and handles typos, so the unit of re-work is the word). A word is
-  a run between spaces with its punctuation (`word-snap.js` `wordSpans`;
-  Chinese and Japanese split at Unicode word boundaries), split where your
-  typing meets the page's text. ⌫/Delete (and Option/Ctrl+⌫) act on the
+  what Unicode word segmentation finds, as a selection snaps to, with the
+  punctuation touching it (`word-snap.js` `wordSpans`; user, 2026-11-27:
+  `book/books` is two words). Punctuation between two words goes with the
+  one before (`book/`, `books`), punctuation opening a run with the one
+  after (`(maybe)`); `don't`, `3.14` and `node.js` stay whole. Words split
+  where your typing meets the page's text. Before, a word was a run between
+  spaces (only Chinese and Japanese segmented), so ⌫ took a whole
+  `book/books`, `well-known` or URL. ⌫/Delete (and Option/Ctrl+⌫) act on the
   word beside the caret: a word you typed leaves, an original word strikes,
   a struck word comes back, and your typed part of a word goes first.
   Backward, the spaces between the word and the caret go too, so striking
-  on through a sentence makes one strike; a typed word takes its gap's
+  on through a sentence makes one strike, unless taking them would join
+  the text either side (Delete at `the |book/books` leaves `the books`;
+  `wordEraseSpan`, shared with the comment box); a typed word takes its gap's
   opening space once nothing typed is left before it. Since a space is
   struck only with a word, a take-back also brings back a strike left
   holding only spaces beside it, and two strikes with only spaces between
@@ -973,7 +980,9 @@ actions"), and the mark-click strip, and renames "Edit instead".
   and the first text typed there is a new word (`insertAtGap`): a space
   before it after a word, a space after it before a word (a letter or
   digit, or an opening bracket or quote leading into one), the caret kept
-  inside before any space added after. Typing over a selection, To edit
+  inside before any space added after. Between two words with no space
+  between them (`book/|books`) it goes in as typed: you type what joins
+  them (`pages/`), since spaces there would break up the run. Typing over a selection, To edit
   and paste over a selection do the same after the strike (`~~utilizes~~
   uses`). The bar shows only while you type, and extends your word. Enter
   breaks the line only at a gap nothing has been done at yet; elsewhere it
@@ -1000,9 +1009,10 @@ actions"), and the mark-click strip, and renames "Edit instead".
   the way back to where it opened and forward to its last change, and stop
   there. A typed word is one step, as ⌫ erases one (2026-11-27): a key
   typed where the last one left the caret (`typedTo`) joins the step unless
-  it starts the next word, a non-space after a word and its space
-  (`startsTypedWord` in `word-snap.js`, over the text typed in the step so
-  far, so spaces typed ahead of a word ride with it). An IME composition is
+  it starts the next word after a word typed in the step (`startsTypedWord`
+  in `word-snap.js`, by `wordSpans` over the text typed in the step so far,
+  so spaces typed ahead of a word ride with it and `book/books` is two
+  steps). An IME composition is
   a step of its own; in a script written without spaces it is the word. A
   word erase, a paste and a strike over a selection are a step each, and
   the key that opened the edit starts its first word. Held, ⌘Z steps every

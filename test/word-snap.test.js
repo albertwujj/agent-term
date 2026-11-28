@@ -9,7 +9,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>');
 global.window = dom.window;
 global.document = dom.window.document;
 
-const { snapStart, snapEnd, snapRangeToWords, wordSpans } = require('../src/word-snap');
+const { snapStart, snapEnd, snapRangeToWords, wordSpans, newWordSpacing, wordEraseSpan, startsTypedWord } = require('../src/word-snap');
 
 let passed = 0;
 let failed = 0;
@@ -58,14 +58,43 @@ const blockOf = (node) => (node.nodeType === 1 ? node : node.parentElement).clos
   check('a range of only a space snaps to nothing', snapRangeToWords(r, blockOf) === null);
 }
 
-// Editing's words: runs between spaces, punctuation riding with its word;
-// unspaced scripts split at Unicode word boundaries.
+// Editing's words: Unicode word boundaries, punctuation riding with its word.
 const words = (t) => wordSpans(t).map((w) => t.slice(w.start, w.end));
-check('editing words are the runs between spaces', JSON.stringify(words('The timer, then (maybe) waits.')) === JSON.stringify(['The', 'timer,', 'then', '(maybe)', 'waits.']), words('The timer, then (maybe) waits.'));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+check('punctuation touching a word rides with it', same(words('The timer, then (maybe) waits.'), ['The', 'timer,', 'then', '(maybe)', 'waits.']), words('The timer, then (maybe) waits.'));
+check('punctuation between two words splits them, going with the one before',
+  same(words('book/books well-known a+b'), ['book/', 'books', 'well-', 'known', 'a+', 'b']), words('book/books well-known a+b'));
+check('a word Unicode keeps whole stays whole', same(words("don't 3.14 1,000 e.g. node.js foo_bar"), ["don't", '3.14', '1,000', 'e.g.', 'node.js', 'foo_bar']),
+  words("don't 3.14 1,000 e.g. node.js foo_bar"));
 const zh = words('我们今天开会。');
 check('Chinese splits into words, the full stop riding with the last', zh.length >= 2 && zh.join('') === '我们今天开会。' && zh[zh.length - 1].endsWith('。'), zh);
 const jaLead = words('「計画」です');
 check('leading punctuation joins the word after it', jaLead[0].startsWith('「') && jaLead.join('') === '「計画」です', jaLead);
+
+// Text typed at a resting caret: a new word gets its spaces, except between
+// two words with no space between them, where you type what joins them.
+check('a new word between spaced words gets a space', same(newWordSpacing('x', 3, 'foo bar'), { lead: ' ', trail: '' }), newWordSpacing('x', 3, 'foo bar'));
+check('between two words joined without a space it goes in as typed', newWordSpacing('x', 5, 'book/books') === null, newWordSpacing('x', 5, 'book/books'));
+check('replacing a struck word before its comma still spaces it', same(newWordSpacing('clock', 5, 'timer,'), { lead: ' ', trail: '' }), newWordSpacing('clock', 5, 'timer,'));
+
+// The span a word erase takes: the spaces up to the caret go with the word
+// unless that would join the text either side.
+const erase = (t, caret, backward) => {
+  const ws = wordSpans(t);
+  const w = backward ? ws.filter((x) => x.start < caret).pop() : ws.find((x) => x.end > caret);
+  const { from, to } = wordEraseSpan(t, w, caret, backward);
+  return t.slice(0, from) + t.slice(to);
+};
+check('Delete takes the spaces before the word', erase('the poller reads', 3, false) === 'the reads', erase('the poller reads', 3, false));
+check('but not when the word is joined to the next', erase('the book/books', 3, false) === 'the books', erase('the book/books', 3, false));
+check('⌫ takes the word after the slash alone', erase('the book/books', 14, true) === 'the book/', erase('the book/books', 14, true));
+
+// An undo step is a word: a typed key starts a step when it starts a word.
+check('a letter after a word and its space starts a word', startsTypedWord('the ', 'f'));
+check('a letter after a slash starts a word', startsTypedWord('book/', 'b'));
+check('the slash itself rides with the word before', !startsTypedWord('book', '/'));
+check('an apostrophe inside a word does not split it', !startsTypedWord("don'", 't'));
+check('spaces typed ahead of a word ride with it', !startsTypedWord('  ', 'w'));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

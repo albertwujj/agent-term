@@ -69,18 +69,16 @@ function snapRangeToWords(range, blockOf) {
   return snapped;
 }
 
-// The words of a text as editing counts them: runs between spaces, the
-// punctuation touching a word riding with it. A run in a script written
-// without spaces (Chinese, Japanese) splits at Unicode word boundaries
-// instead, its punctuation joining the word beside it. Returns
-// [{ start, end }] in order.
-const UNSPACED = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}]/u;
+// The words of a text as editing counts them: Unicode word boundaries, as
+// a selection snaps to (`book/books` is two words, `don't` and `3.14` one),
+// the punctuation touching a word riding with it. Punctuation between two
+// words goes with the one before (`book/`, `books`), punctuation that opens
+// a run with the one after (`(maybe)`). Returns [{ start, end }] in order.
 function wordSpans(text) {
   const spans = [];
+  segmenter ||= new Intl.Segmenter(undefined, { granularity: 'word' });
   for (const run of String(text || '').matchAll(/\S+/g)) {
     const start = run.index;
-    if (!UNSPACED.test(run[0])) { spans.push({ start, end: start + run[0].length }); continue; }
-    segmenter ||= new Intl.Segmenter(undefined, { granularity: 'word' });
     let open = null; // the span being built
     let lead = null; // punctuation waiting for the word after it
     for (const part of segmenter.segment(run[0])) {
@@ -107,9 +105,10 @@ function wordSpans(text) {
 // before a word. A word ends before the caret unless that is a space, the
 // start, or an opening bracket or quote; one starts after it on a letter or
 // digit, or an opening bracket or quote leading into one. Null when the text
-// goes in as typed: it starts with a space, or it is closing punctuation
-// right after a word (`foo,`). Shared by the edit (edit-marks.js) and the
-// comment box (word-typing.js).
+// goes in as typed: it starts with a space, it is closing punctuation right
+// after a word (`foo,`), or the caret is between two words with no space
+// between them (`book/|books`), where you type what joins them. Shared by the
+// edit (edit-marks.js) and the comment box (word-typing.js).
 const OPENERS = /[(\[{“‘«]/;
 const QUOTES = /["']/;
 const CLOSERS = /^[,.;:!?)\]]/;
@@ -121,23 +120,40 @@ function newWordSpacing(text, caret, value) {
     && !(QUOTES.test(before) && !/\S/.test(at(caret - 2)));
   if (afterWord && CLOSERS.test(text)) return null;
   const after = at(caret);
+  if (/\S/.test(before) && /\S/.test(after)) {
+    const words = wordSpans(value);
+    if (words.some((w) => w.end === caret) && words.some((w) => w.start === caret)) return null;
+  }
   const wordNext = /[\p{L}\p{N}]/u.test(after)
     || ((OPENERS.test(after) || QUOTES.test(after)) && /[\p{L}\p{N}]/u.test(at(caret + 1)));
   return { lead: afterWord ? ' ' : '', trail: wordNext ? ' ' : '' };
 }
 
+// The span ⌫ (backward) or Delete takes for `word` from a caret: the word,
+// and the spaces between it and the caret, unless taking them would join
+// the text either side (Delete at `the |book/books` leaves `the books`).
+// Shared by the edit (edit-marks.js) and the comment box (word-typing.js).
+function wordEraseSpan(text, word, caret, backward) {
+  const from = backward ? word.start : Math.min(caret, word.start);
+  const to = backward ? Math.max(caret, word.end) : word.end;
+  const joins = /\S/.test(text[from - 1] || '') && /\S/.test(text[to] || '') && /\s/.test(text.slice(from, to));
+  return joins ? { from: word.start, to: word.end } : { from, to };
+}
+
 // Undo and redo step a word at a time, as ⌫ erases one: a typed key joins the
-// step of the keys before it unless it starts the next word, a non-space
-// typed after a word and its space. `typed` is the text typed in the step so
-// far, so spaces typed ahead of a word ride with it. Shared by the edit
+// step of the keys before it unless it starts the next word (wordSpans) after
+// a word typed in the step. `typed` is the text typed in the step so far, so
+// spaces typed ahead of a word ride with it. Shared by the edit
 // (markdown-viewer.js, review-commit-edit.js) and the comment box
 // (word-typing.js).
 function startsTypedWord(typed, text) {
-  return /\S\s+$/.test(typed || '') && /^\S/.test(text || '');
+  typed = typed || '';
+  if (!text || !wordSpans(typed).length) return false;
+  return wordSpans(typed + text).some((w) => w.start === typed.length);
 }
 
 // Held, ⌫ takes and ⌘Z undoes a word every HOLD_WORD_MS: key repeat at
 // letter speed would run past where you meant to stop.
 const HOLD_WORD_MS = 150;
 
-module.exports = { snapStart, snapEnd, snapRangeToWords, wordSpans, newWordSpacing, startsTypedWord, HOLD_WORD_MS };
+module.exports = { snapStart, snapEnd, snapRangeToWords, wordSpans, newWordSpacing, wordEraseSpan, startsTypedWord, HOLD_WORD_MS };

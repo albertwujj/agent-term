@@ -76,6 +76,13 @@ async function run() {
   key('Delete');
   check('Delete takes the word after with its space', ta.value === 'the poller the file', ta.value);
 
+  set('the book/books here', 'the book/books'.length);
+  key('Backspace');
+  check('⌫ takes the word after a slash alone', ta.value === 'the book/ here', ta.value);
+  set('the book/books here', 3);
+  key('Delete');
+  check('Delete takes the word before a slash and keeps the space before it', ta.value === 'the books here', ta.value);
+
   set('the poller reads', 3, 10);
   check('over a selection ⌫ is the browser\'s', !key('Backspace').defaultPrevented);
 
