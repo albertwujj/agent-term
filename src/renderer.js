@@ -17,6 +17,7 @@ const { NOTICE_DWELL_MS, shouldNoticeAltScreen, altScreenNotice } = require('./a
 let currentCli = null;
 const { navigationNeedsDelay, opensImmediately, matchForPress, CONTEXT_PATH_PATTERNS } = require('./terminal-nav-destination');
 const { getBorderedContentSpan, parseDiffLineText, diffLineContinuedAt, diffBodyTop, diffMinusTarget } = require('./diff-rows');
+const { snapTerminalSelection } = require('./terminal-word-snap');
 const {
   DEFAULT_SELECTION_CONTEXT_LINES,
   buildTerminalCommentBatchMessage,
@@ -2857,6 +2858,13 @@ function openTerminalSelectionComment({ initialComment = '', seedFrom } = {}) {
   });
 }
 
+function snapTerminalSelectionToWords() {
+  if (!terminal.hasSelection()) return;
+  const snapped = snapTerminalSelection(terminal.buffer.active, terminal.cols,
+    normalizeTerminalSelectionRange(terminal.getSelectionPosition()));
+  if (snapped) selectTerminalRange(snapped.start, snapped.end);
+}
+
 function selectTerminalRange(start, end) {
   if (!start || !end) return;
   let rangeStart = start;
@@ -3032,10 +3040,15 @@ screenElement.addEventListener('contextmenu', (event) => {
 // is a no-op, so a drag that never reports its mouseup (focus lost mid-drag)
 // leaves one dormant pair behind rather than one per press.
 const onTerminalDragMove = () => scheduleLiveTerminalMarkSync();
+let terminalPressClicks = 0; // the press's click count: a drag is a single press
 const onTerminalDragEnd = (event) => {
   document.removeEventListener('mousemove', onTerminalDragMove, true);
   document.removeEventListener('mouseup', onTerminalDragEnd, true);
   scheduleLiveTerminalMarkSync();
+  // A drag covers whole words (terminal-word-snap.js), once xterm's own
+  // mouseup has finished the selection. A double- or triple-click keeps
+  // xterm's word (a whole path or URL) and line.
+  if (event && event.button === 0 && terminalPressClicks === 1) setTimeout(snapTerminalSelectionToWords, 0);
   // The pill cannot rely on onSelectionChange alone. xterm's mouse path fires
   // it only when the released selection differs from the last one it FIRED,
   // and clearSelection() fires without updating that memory (5.5.0,
@@ -3050,6 +3063,7 @@ const onTerminalDragEnd = (event) => {
 };
 
 screenElement.addEventListener('mousedown', (event) => {
+  terminalPressClicks = event.detail;
   handleShiftSelectionMouseDown(event);
   document.addEventListener('mousemove', onTerminalDragMove, true);
   document.addEventListener('mouseup', onTerminalDragEnd, true);

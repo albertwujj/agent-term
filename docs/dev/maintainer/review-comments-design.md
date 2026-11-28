@@ -241,9 +241,11 @@ collapsed is extended from the press point again; Chromium's own drag and
 autoscroll otherwise run untouched. `test/e2e/review-drag-select.mjs`
 drags from fractional positions through the host window.
 
-A selection in the review's prose or commit message snaps to whole words on
-mouseup (`word-snap.js`, the md viewer's rule), before the quote reads it;
-code and diffs keep exact ends. Editing the commit message follows the md
+A selection in the review snaps to whole words on mouseup (`word-snap.js`,
+the md viewer's rule), before the quote reads it: in prose and the commit
+message the spaces at its ends fall away, and on a code or diff line, each
+line snapped on its own, they stay (2026-11-28; before, code and diffs kept
+exact ends). Editing the commit message follows the md
 viewer (`md-editing-design.md`, "The page's words go whole; your own text
 is ordinary text"): the same engine calls, wired in
 `review-commit-edit.js`.

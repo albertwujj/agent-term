@@ -1,6 +1,6 @@
-// A selection for a comment or an edit covers whole words (src/word-snap.js):
-// an end inside a word grows to the word's edge, spaces at either end fall
-// away, punctuation the drag covered stays, and the DOM form maps a range
+// A selection covers whole words (src/word-snap.js): an end inside a word
+// grows to the word's edge, spaces at either end fall away in prose and stay
+// in code, punctuation the drag covered stays, and the DOM form maps a range
 // through the blocks its ends sit in.
 
 const { JSDOM } = require('jsdom');
@@ -27,6 +27,10 @@ check('spaces at either end fall away', span(3, 12) === 'polling', span(3, 12));
 check('punctuation the drag covered stays', span(text.indexOf('timer'), text.indexOf(',') + 1) === 'timer,');
 check('punctuation it stopped short of is left out', span(text.indexOf('mer'), text.indexOf(',')) === 'timer');
 check('a span of only spaces collapses', snapEnd(text, 12) <= snapStart(text, 11));
+const code = '    total = add(first, second)';
+const codeSpan = (a, b) => code.slice(snapStart(code, a, { trim: false }), snapEnd(code, b, { trim: false }));
+check('in code an end inside a word grows too', codeSpan(code.indexOf('tal'), code.indexOf('st,')) === 'total = add(first', codeSpan(code.indexOf('tal'), code.indexOf('st,')));
+check('but the spaces at its ends stay, indentation included', codeSpan(0, 6) === '    total', JSON.stringify(codeSpan(0, 6)));
 
 const cjk = '我们今天开会讨论计划';
 const cjkStart = snapStart(cjk, 1);

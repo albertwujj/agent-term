@@ -349,20 +349,28 @@ installWebViewerPreloadCommon({ ipcRenderer, platform: process.platform });
     document.addEventListener('mouseup', function () { drag = null; }, true);
   }
 
-  // A selection made to comment on or edit covers whole words, without the
-  // spaces beside them (word-snap.js): it is an intent for the agent. Code
-  // blocks keep their exact ends; copying part of a line of code is real.
+  // A selection made to comment on or edit covers whole words (word-snap.js):
+  // it is an intent for the agent. In prose the spaces beside it fall away;
+  // in code (a code block, a diff or file line) they stay, since a line's
+  // indentation is part of what a copy pastes. Each end snaps within its own
+  // block, a code line being one.
   function snapSelectionToWords() {
     const sel = window.getSelection && window.getSelection();
     if (!sel || sel.isCollapsed || !sel.rangeCount) return;
     const range = sel.getRangeAt(0);
-    const prose = function (node) {
-      const el = node && (node.nodeType === 1 ? node : node.parentElement);
-      return !!(el && el.closest && el.closest('.md-render, #commit') && !el.closest('pre')
+    const elementOf = function (node) { return node && (node.nodeType === 1 ? node : node.parentElement); };
+    const codeOf = function (node) {
+      const el = elementOf(node);
+      return el && el.closest ? el.closest('td.code, pre') : null;
+    };
+    const snappable = function (node) {
+      const el = elementOf(node);
+      return !!(el && el.closest && (el.closest('.md-render, #commit') || el.closest('td.code'))
         && !el.closest('.rv-thread, .rv-quote-compose, .cu-composer, .rv-replybox, .md-rendered-editing'));
     };
-    if (!prose(range.startContainer) || !prose(range.endContainer)) return;
-    const snapped = snapRangeToWords(range, enclosingBlock);
+    if (!snappable(range.startContainer) || !snappable(range.endContainer)) return;
+    const snapped = snapRangeToWords(range, function (node) { return codeOf(node) || enclosingBlock(node); },
+      { keepSpaces: function (node) { return !!codeOf(node); } });
     if (!snapped) return;
     sel.removeAllRanges();
     sel.addRange(snapped);

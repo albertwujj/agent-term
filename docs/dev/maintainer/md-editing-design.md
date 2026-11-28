@@ -936,8 +936,16 @@ actions"), and the mark-click strip, and renames "Edit instead".
   away. The drag record snaps live, so the highlight shows what will be
   quoted or replaced; a double- or triple-click selection snaps too, and the
   live selection is replaced by the snapped one so ⌫ and the quote agree.
-  Code blocks keep exact ends (copying part of a line of code is real); a
-  prose selection's copy takes whole words like everything else.
+  Code and terminal output snap too (user, 2026-11-28: copying part of a
+  word is a minor need, and one rule everywhere is easier to learn; before,
+  code blocks, review code and terminal output kept exact ends for copying),
+  but keep the spaces at a selection's ends, since a line's indentation is
+  part of what a copy pastes (`trim: false`). The cost: no selecting part
+  of a token Unicode keeps whole (`42ms`, a hash, `obj.method`). In the
+  terminal a drag snaps on mouseup within each end's logical line
+  (`terminal-word-snap.js`, mapping xterm's cells, a wide character two, to
+  text); a double- or triple-click keeps xterm's own word (a whole path or
+  URL) and line.
 - **The page's words go whole; your own text is ordinary text**
   (`edit-marks.js` `eraseTarget` / `eraseAtCaret` / `moveByWord` /
   `settleCaretAfterWord`). The text that was on the page is made of whole

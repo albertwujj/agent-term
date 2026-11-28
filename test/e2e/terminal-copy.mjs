@@ -13,6 +13,7 @@ import { launchElectron } from './electron.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(import.meta.url);
 const quotedCopy = require('../fixtures/quoted-copy.json');
+const { snapStart } = require('../../src/word-snap.js');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-term-copy-'));
 const preload = fs.readFileSync(path.join(repo, 'src/preload.js'), 'utf8');
 fs.writeFileSync(path.join(tmp, 'preload.js'), preload.replace('platform: process.platform', "platform: 'win32'"));
@@ -88,7 +89,10 @@ try {
     let first = '⏺ selected prose';
     while (first.length + 5 <= size.cols - 2) first += ' more';
     const lines = quoted ? quotedCopy.lines : [first, '  wraps here', '• next item'];
-    const expected = quoted ? quotedCopy.paragraphs.join('\n\n').slice(Math.max(0, startColumn - 4))
+    // A drag that starts inside a word takes the whole word
+    // (terminal-word-snap.js): column 45 starts inside "channel".
+    const quotedText = quotedCopy.paragraphs.join('\n\n');
+    const expected = quoted ? quotedText.slice(snapStart(quotedText, Math.max(0, startColumn - 4), { trim: false }))
       : `${first.slice(2)} wraps here\nnext item`;
     await app.evaluate(({ BrowserWindow, clipboard }, { captured, lines }) => {
       clipboard.writeText('');

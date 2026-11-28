@@ -3973,12 +3973,13 @@ function createMarkdownViewer({
   }
 
   // A selection's ends snapped to whole words, each within its own block's
-  // text (the struck-free offset space selections use). A code block keeps
-  // its exact ends: copying part of a line of code is a real need.
+  // text (the struck-free offset space selections use). In a code block the
+  // spaces at an end stay: a line's indentation is part of what a copy
+  // pastes.
   function snapSpan(startAnchor, startOffset, endAnchor, endOffset) {
-    const exact = (anchor) => !!(anchor.closest && anchor.closest('pre')) || anchor.tagName === 'PRE';
-    const start = exact(startAnchor) ? startOffset : snapStart(getSearchableTextNodes(startAnchor).text, startOffset);
-    const end = exact(endAnchor) ? endOffset : snapEnd(getSearchableTextNodes(endAnchor).text, endOffset);
+    const code = (anchor) => !!(anchor.closest && anchor.closest('pre')) || anchor.tagName === 'PRE';
+    const start = snapStart(getSearchableTextNodes(startAnchor).text, startOffset, { trim: !code(startAnchor) });
+    const end = snapEnd(getSearchableTextNodes(endAnchor).text, endOffset, { trim: !code(endAnchor) });
     return { start, end };
   }
 

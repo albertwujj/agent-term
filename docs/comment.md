@@ -11,7 +11,7 @@ Select the passage, then write your note: precise feedback, with the exact text 
 
 ## Choose what to comment on
 
-The best way to get familiar is to try it. In the terminal, a double-click selects a word and a triple-click a line; in a document, a click on a word sets the comment on its block. Drag-select when you need exactly the words you mean; in a document or a review it takes whole words, so a loose drag is enough. Then type your note. For a passage farther back, [search earlier output](terminal.md).
+The best way to get familiar is to try it. In the terminal, a double-click selects a word and a triple-click a line; in a document, a click on a word sets the comment on its block. Drag-select when you need exactly the words you mean; a drag takes whole words, so a loose one is enough. Then type your note. For a passage farther back, [search earlier output](terminal.md).
 
 ## Edit the text
 

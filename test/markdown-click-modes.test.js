@@ -59,6 +59,10 @@ const FIXTURE = [
   'Fourth paragraph for the sealed check.',
   '',
   'Fifth paragraph for the revert check.',
+  '',
+  '```',
+  'total = add(first, second)',
+  '```',
 ].join('\n');
 
 const sentBatches = [];
@@ -205,9 +209,11 @@ async function run() {
   //     (jsdom drops the live selection when the band takes focus, so this
   //     reads what the comment quotes.) ---
   {
-    const quoteOf = async (needleFrom, fromDelta, needleTo, toDelta) => {
-      const el = block('Second paragraph');
-      const node = el.firstChild;
+    const quoteOf = async (needleFrom, fromDelta, needleTo, toDelta, inBlock = 'Second paragraph') => {
+      const el = block(inBlock);
+      const w = document.createTreeWalker(el, 4, null);
+      let node = w.nextNode();
+      while (node && !node.data.includes(needleFrom)) node = w.nextNode();
       const r = document.createRange();
       r.setStart(node, node.data.indexOf(needleFrom) + fromDelta);
       r.setEnd(node, node.data.indexOf(needleTo) + toDelta);
@@ -228,6 +234,8 @@ async function run() {
     check('a selection from mid-word to mid-word quotes the whole words', midWords === 'round trip', midWords);
     const spaced = await quoteOf(' selection', 0, ' round', 0); // " selection" with its leading space
     check('spaces at a selection\'s ends fall away', spaced === 'selection', spaced);
+    const code = await quoteOf('total', 2, 'second', 3, 'total = add');
+    check('in a code block a selection covers whole words too', code === 'total = add(first, second', code);
   }
 
   // --- a selection arms without washing its block ---

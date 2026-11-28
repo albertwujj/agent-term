@@ -1,12 +1,15 @@
-// A selection made to comment on or edit covers whole words. What the user
-// marks is an intent for the agent, so part of a word, or the space beside
-// one, is never what they mean: an end that falls inside a word grows to the
-// word's edge, and spaces at either end fall away. Offsets are UTF-16,
-// matching DOM Range and the viewers' text-offset helpers. Unicode word
-// segmentation finds the words, CJK included.
+// A selection covers whole words, everywhere: in prose, in code, in terminal
+// output. What the user marks is an intent for the agent, so part of a word
+// is never what they mean (and copying part of one is a rare need): an end
+// that falls inside a word grows to the word's edge. In prose the spaces at
+// either end fall away too; code and terminal output keep them (`trim:
+// false`), since a line's indentation is part of what a copy pastes. Offsets
+// are UTF-16, matching DOM Range and the viewers' text-offset helpers.
+// Unicode word segmentation finds the words, CJK included.
 //
 // Electron-free: the md viewer uses the offset form; the review preload
-// bundles the DOM form. An edit strikes and restores the page's words and
+// bundles the DOM form; the terminal maps its cells to the offset form
+// (terminal-word-snap.js). An edit strikes and restores the page's words and
 // punctuation marks whole (pageUnits, edit-marks.js), while text you typed
 // is ordinary text, a letter at a time.
 
@@ -24,25 +27,26 @@ function wordAround(text, offset) {
   return null;
 }
 
-function snapStart(text, offset) {
+function snapStart(text, offset, { trim = true } = {}) {
   const word = wordAround(text, offset);
   let at = word ? word.start : offset;
-  while (at < text.length && /\s/.test(text[at])) at++;
+  while (trim && at < text.length && /\s/.test(text[at])) at++;
   return at;
 }
 
-function snapEnd(text, offset) {
+function snapEnd(text, offset, { trim = true } = {}) {
   const word = wordAround(text, offset);
   let at = word ? word.end : offset;
-  while (at > 0 && /\s/.test(text[at - 1])) at--;
+  while (trim && at > 0 && /\s/.test(text[at - 1])) at--;
   return at;
 }
 
 // The DOM form: a range snapped within the blocks its ends sit in (blockOf
 // maps a node to its block element). An end in a node `exact` accepts (your
-// own text in an edit) stays where it is. Null when the snap leaves nothing
-// (a selection of only spaces) or an end has no block.
-function snapRangeToWords(range, blockOf, { exact = () => false } = {}) {
+// own text in an edit) stays where it is; one in a node `keepSpaces` accepts
+// (code) grows to whole words but keeps the spaces at its end. Null when the
+// snap leaves nothing (a selection of only spaces) or an end has no block.
+function snapRangeToWords(range, blockOf, { exact = () => false, keepSpaces = () => false } = {}) {
   const startBlock = blockOf(range.startContainer);
   const endBlock = blockOf(range.endContainer);
   if (!startBlock || !endBlock) return null;
@@ -54,8 +58,10 @@ function snapRangeToWords(range, blockOf, { exact = () => false } = {}) {
   };
   const startAt = flatOffset(startBlock, range.startContainer, range.startOffset);
   const endAt = flatOffset(endBlock, range.endContainer, range.endOffset);
-  const start = exact(range.startContainer) ? startAt : snapStart(startBlock.textContent, startAt);
-  const end = exact(range.endContainer) ? endAt : snapEnd(endBlock.textContent, endAt);
+  const start = exact(range.startContainer) ? startAt
+    : snapStart(startBlock.textContent, startAt, { trim: !keepSpaces(range.startContainer) });
+  const end = exact(range.endContainer) ? endAt
+    : snapEnd(endBlock.textContent, endAt, { trim: !keepSpaces(range.endContainer) });
   if (startBlock === endBlock && end <= start) return null;
   const pointAt = (block, offset, isEnd) => {
     const SHOW_TEXT = (window.NodeFilter && window.NodeFilter.SHOW_TEXT) || 4;

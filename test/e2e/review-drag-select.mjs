@@ -1,5 +1,6 @@
 // End-to-end: in a review, a drag across prose selects, wherever in a letter
-// the press lands.
+// the press lands; a drag on a diff's code line covers whole words, as one in
+// prose does.
 //
 // In the review's <webview>, Chromium could lose a drag's starting point when
 // the press landed at a sub-pixel position under half a pixel (Windows
@@ -29,10 +30,10 @@ function makeReviewRepo() {
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'e2e@example.com');
   git('config', 'user.name', 'e2e');
-  fs.writeFileSync(path.join(repo, 'a.py'), 'a = 1\n');
+  fs.writeFileSync(path.join(repo, 'a.py'), 'total = add(first)\n');
   git('add', '.');
   git('commit', '-qm', 'one');
-  fs.writeFileSync(path.join(repo, 'a.py'), 'a = 2\n');
+  fs.writeFileSync(path.join(repo, 'a.py'), 'total = add(first, second)\n');
   git('add', '.');
   git('commit', '-qm', 'Fix limiter rounding');
   const range = `${git('rev-parse', 'HEAD~1')}..${git('rev-parse', 'HEAD')}`;
@@ -107,6 +108,31 @@ try {
   }
   assert.deepEqual(failures, [], 'every drag from inside "rounds" to inside "tokens" selects "rounds tokens"');
   console.log('PASS a drag selects wherever in a letter the press lands, sub-pixel positions included');
+
+  // A drag on a code line, from inside "total" to inside "second".
+  const codeLetter = async (word, i) => {
+    const at = await inReview(`(() => {
+      const cell = [...document.querySelectorAll('td.code')].reverse().find((c) => c.textContent.includes('second'));
+      const w = document.createTreeWalker(cell, 4, null);
+      let node; let k = -1;
+      while ((node = w.nextNode())) { k = node.data.indexOf(${JSON.stringify(word)}); if (k >= 0) break; }
+      const r = document.createRange(); r.setStart(node, k + ${i}); r.setEnd(node, k + ${i} + 1);
+      const b = r.getBoundingClientRect();
+      return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+    })()`);
+    return { x: webview.x + at.x, y: webview.y + at.y };
+  };
+  await inReview('getSelection().removeAllRanges(); 1');
+  const codeFrom = await codeLetter('total', 2);
+  const codeTo = await codeLetter('second', 3);
+  await page.mouse.move(codeFrom.x, codeFrom.y);
+  await page.mouse.down();
+  await page.mouse.move(codeTo.x, codeTo.y, { steps: 6 });
+  await page.mouse.up();
+  await sleep(300);
+  const codeSelected = await inReview('String(getSelection())');
+  assert.equal(codeSelected, 'total = add(first, second', 'a drag on a code line covers whole words');
+  console.log('PASS a drag on a code line covers whole words');
 } finally {
   await app.close();
 }
