@@ -327,15 +327,18 @@ function createMarkEngine({ beforeMutate } = {}) {
       : null;
   }
 
-  // ——— Word-level editing (docs/dev/maintainer/md-editing-design.md) ———
-  // An edit is an intent for the agent, and a typo costs it nothing, so the
-  // unit of re-work is the word: ⌫/Delete take one word, arrows move one
-  // word, and the caret rests only between words.
+  // ——— The page's words (docs/dev/maintainer/md-editing-design.md) ———
+  // The page's text is made of whole words: you strike or restore a word and
+  // insert between words, never inside one (an edit is an intent for the
+  // agent, so part of a word is never what is meant). The text you typed is
+  // ordinary text: ⌫ takes a letter, arrows move a letter, a click lands
+  // where it is.
 
   // The block's on-screen words (struck text included: it is on the page),
-  // split where your typing meets the page's text, so the part of a word
-  // you typed is a word of its own (`foo` + a typed `,`). Each carries
-  // whether you typed it and whether it is all struck.
+  // split where your typing meets the page's text. Each carries whether you
+  // typed it, whether it is all struck, and its wordEnd (wordSpans: where
+  // its letters end, before the punctuation after them). Also returns the
+  // per-character typed and struck flags.
   function editWords(block) {
     let text = '';
     const typed = [];
@@ -347,17 +350,18 @@ function createMarkEngine({ beforeMutate } = {}) {
       for (let i = 0; i < n.data.length; i++) { typed.push(ins); struck.push(del); }
     }
     const words = [];
-    const push = (start, end) => words.push({
-      start, end, typed: typed[start], struck: struck.slice(start, end).every(Boolean),
-    });
     for (const w of wordSpans(text)) {
+      const push = (start, end) => words.push({
+        start, end, typed: typed[start], struck: struck.slice(start, end).every(Boolean),
+        wordEnd: w.wordEnd > start && w.wordEnd < end ? w.wordEnd : end,
+      });
       let start = w.start;
       for (let i = w.start + 1; i < w.end; i++) {
         if (typed[i] !== typed[i - 1]) { push(start, i); start = i; }
       }
       push(start, w.end);
     }
-    return { text, words };
+    return { text, words, typed, struck };
   }
 
   function rangeAtScreen(block, from, to) {
@@ -383,28 +387,68 @@ function createMarkEngine({ beforeMutate } = {}) {
     return screenOffset(block, s.focusNode, s.focusOffset);
   }
 
-  // ⌫ (backward) or Delete on the word beside the caret, or the word the
-  // caret is inside. A word you typed leaves, an original word strikes, a
-  // struck word comes back; a run of presses keeps the job its first found
-  // (eraseInBlock). Backward, the spaces between the word and the caret go
-  // with it, so striking on through a sentence makes one strike; the space
-  // a typed word came with leaves with it (takeBackInBlock). Held, the key
-  // takes a word every HOLD_WORD_MS (word-snap.js).
-  let lastWordErase = 0;
-  function eraseWord(block, { backward = true, repeat = keyRepeat } = {}) {
+  // Whether the character the caret meets going back (or forward) is your
+  // own text: there the keys act a letter at a time, as in any text box.
+  function yoursBeside(block, backward) {
     const caret = caretScreenOffset(block);
     if (caret == null) return false;
+    return !!editWords(block).typed[backward ? caret - 1 : caret];
+  }
+
+  // What ⌫ (backward) or Delete at the caret takes, on the first text it
+  // reaches: { from, to, text, yours, restores } in screen offsets, or null.
+  // Your own text (yours) goes as the browser's span says (a letter; with
+  // Option/Ctrl, a word), as far as your text goes. A page word goes whole:
+  // from a word's wordEnd only the side pressed toward (⌫ at `waits|.` takes
+  // `waits`), and backward the spaces between the word and the caret go with
+  // it, so striking on through a sentence makes one strike (wordEraseSpan).
+  // restores: the page text there is all struck, so it comes back. `range`
+  // is the browser's target range, when there is one.
+  function eraseTarget(block, { backward = true, range = null } = {}) {
+    const caret = caretScreenOffset(block);
+    if (caret == null) return null;
+    const { text, words, typed, struck } = editWords(block);
+    const step = backward ? -1 : 1;
+    let k = backward ? caret - 1 : caret; // the first of your text, or of the page's non-space, the press reaches
+    while (k >= 0 && k < text.length && !typed[k] && /\s/.test(text[k])) k += step;
+    if (k < 0 || k >= text.length) return null;
+    if (typed[k]) {
+      let from = k;
+      let to = k + 1;
+      if (range && k === (backward ? caret - 1 : caret)) {
+        let edge = caret; // the far edge of your text beside the caret
+        while (typed[backward ? edge - 1 : edge]) edge += step;
+        const far = screenOffset(block, backward ? range.startContainer : range.endContainer,
+          backward ? range.startOffset : range.endOffset);
+        if (backward) { from = Math.max(far, edge); to = caret; } else { from = caret; to = Math.min(far, edge); }
+        if (to <= from) { from = k; to = k + 1; }
+      }
+      return { from, to, text: text.slice(from, to), yours: true, restores: false };
+    }
+    const word = words.find((w) => w.start <= k && k < w.end);
+    if (!word) return null;
+    const { from, to } = wordEraseSpan(text, word, caret, backward);
+    const restores = [...text.slice(from, to)].every((ch, i) => /\s/.test(ch) || struck[from + i]);
+    return { from, to, text: text.slice(from, to), yours: false, restores };
+  }
+
+  // ⌫ (backward) or Delete at the caret (eraseTarget): your own text leaves,
+  // an original word strikes, a struck word comes back. A run of presses
+  // keeps the job its first found (eraseInBlock); held, a page word goes
+  // every HOLD_WORD_MS. Returns whether anything was erased.
+  let lastWordErase = 0;
+  function eraseAtCaret(block, { backward = true, range = null, repeat = keyRepeat } = {}) {
+    const target = eraseTarget(block, { backward, range });
+    if (!target) return false;
+    if (target.yours) {
+      eraseInBlock(block, rangeAtScreen(block, target.from, target.to), { backward, repeat, mode: 'takeBack' });
+      return true;
+    }
     const now = Date.now();
     if (repeat && now - lastWordErase < HOLD_WORD_MS) return false;
-    const { text, words } = editWords(block);
-    const word = backward
-      ? words.slice().reverse().find((w) => w.start < caret)
-      : words.find((w) => w.end > caret);
-    if (!word) return false;
     lastWordErase = now;
-    const { from, to } = wordEraseSpan(text, word, caret, backward);
-    const mode = word.typed || word.struck ? 'takeBack' : 'strike';
-    eraseInBlock(block, rangeAtScreen(block, from, to), { backward, repeat, mode });
+    eraseInBlock(block, rangeAtScreen(block, target.from, target.to),
+      { backward, repeat, mode: target.restores ? 'takeBack' : 'strike' });
     // The caret rests on the space before the word it landed at; the run
     // goes on from there.
     const rest = restCaret(block);
@@ -412,12 +456,15 @@ function createMarkEngine({ beforeMutate } = {}) {
     return true;
   }
 
-  // Whether `offset` sits between words (a resting caret's place: anywhere
-  // but strictly inside a word) in a block with text.
+  // Whether `offset` is a resting spot between the page's words, where the
+  // caret is the block and typing starts a new word: not inside a page word
+  // (its wordEnd aside), and not touching your own text (there the caret is
+  // the bar and typing goes on with your text), in a block with text.
   function isBetweenWords(block, offset) {
-    const { text, words } = editWords(block);
+    const { text, words, typed } = editWords(block);
     if (offset == null || !text.trim()) return false;
-    return !words.some((w) => w.start < offset && offset < w.end);
+    if (typed[offset - 1] || typed[offset]) return false;
+    return !words.some((w) => w.start < offset && offset < w.end && offset !== w.wordEnd);
   }
 
   // A caret resting at a word's start, after spaces that follow a word,
@@ -453,13 +500,10 @@ function createMarkEngine({ beforeMutate } = {}) {
     return rest;
   }
 
-  // The caret's resting spots: after each word, and the block's start.
-  function wordEnds(block) {
-    return [0, ...editWords(block).words.map((w) => w.end)];
-  }
-
-  // ←/→: the caret moves to the end of the word before or after it (at the
-  // block's edge it stays). Returns where it rests.
+  // ←/→ across the page's text (the host lets the browser move a letter
+  // through yours, yoursBeside): the caret moves to the next stop, the end
+  // of a word or a page word's wordEnd (at the block's edge it stays).
+  // Returns where it rests.
   function moveByWord(block, backward) {
     const caret = caretScreenOffset(block);
     if (caret == null) return null;
@@ -467,27 +511,35 @@ function createMarkEngine({ beforeMutate } = {}) {
     const r = s.getRangeAt(0);
     const from = s.isCollapsed ? caret
       : screenOffset(block, backward ? r.startContainer : r.endContainer, backward ? r.startOffset : r.endOffset);
-    const ends = wordEnds(block);
-    const to = backward ? ends.filter((e) => e < from).pop() : ends.find((e) => e > from);
+    const stops = [0];
+    for (const w of editWords(block).words) {
+      if (!w.typed && w.wordEnd < w.end) stops.push(w.wordEnd);
+      stops.push(w.end);
+    }
+    const to = backward ? stops.filter((e) => e < from).pop() : stops.find((e) => e > from);
     const rest = to == null ? from : to;
     caretAtScreenOffset(block, rest);
     return rest;
   }
 
-  // A caret that landed inside a word (a click, a line move) rests after
-  // it. Returns the offset it rests at.
+  // A caret that landed inside a page word (a click, a line move) rests
+  // after its letters, or after the punctuation if it landed there. In your
+  // own text it stays. Returns the offset it rests at.
   function settleCaretAfterWord(block) {
     const s = editSel();
     if (!s || !s.rangeCount || !s.isCollapsed) return null;
     const caret = caretScreenOffset(block);
     if (caret == null) return null;
-    const word = editWords(block).words.find((w) => w.start < caret && caret < w.end);
+    const word = editWords(block).words
+      .find((w) => !w.typed && w.start < caret && caret < w.end && caret !== w.wordEnd);
     if (!word) return caret;
-    caretAtScreenOffset(block, word.end);
-    return word.end;
+    const rest = caret < word.wordEnd ? word.wordEnd : word.end;
+    caretAtScreenOffset(block, rest);
+    return rest;
   }
 
-  // Shift+←/→: the selection's moving end goes a word at a time.
+  // Shift+←/→ across the page's text: the selection's moving end goes a word
+  // at a time.
   function extendByWord(block, backward) {
     const s = editSel();
     if (!s || !s.rangeCount || typeof s.modify !== 'function') return;
@@ -576,7 +628,7 @@ function createMarkEngine({ beforeMutate } = {}) {
 
   return {
     strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock,
-    eraseWord, moveByWord, settleCaretAfterWord, extendByWord, isBetweenWords, restingOffset,
+    eraseTarget, eraseAtCaret, yoursBeside, moveByWord, settleCaretAfterWord, extendByWord, isBetweenWords, restingOffset,
   };
 }
 

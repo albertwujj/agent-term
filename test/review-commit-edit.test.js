@@ -113,11 +113,25 @@ function aimEnd(el) {
   aimed = { node: last, offset: last.data.search(/\S\s*$/) + 1 };
 }
 const clickAt = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5, detail: 1 }));
-// A beforeinput delete of the char before the caret, as Chromium hands it over.
+// A beforeinput delete of the char before the caret, as Chromium hands it
+// over: across text nodes, since each typed key is a node of its own.
 function erase(el) {
   const r = window.getSelection().getRangeAt(0);
+  const nodes = [];
+  const w = document.createTreeWalker(el, 4, null);
+  let n;
+  while ((n = w.nextNode())) nodes.push(n);
+  const pre = document.createRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(r.startContainer, r.startOffset);
+  let left = Math.max(0, pre.toString().length - 1);
+  let start = [nodes[0], 0];
+  for (const t of nodes) {
+    if (left < t.data.length) { start = [t, left]; break; }
+    left -= t.data.length;
+  }
   const ev = new dom.window.InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true });
-  ev.getTargetRanges = () => [{ startContainer: r.startContainer, startOffset: r.startOffset - 1, endContainer: r.startContainer, endOffset: r.startOffset }];
+  ev.getTargetRanges = () => [{ startContainer: start[0], startOffset: start[1], endContainer: r.startContainer, endOffset: r.startOffset }];
   el.dispatchEvent(ev);
 }
 function select(el, needle, len = needle.length) {
@@ -464,7 +478,7 @@ async function run() {
     check('the second press of a double-click ends an untouched gap edit, for the page\'s paragraph select',
       !ctl.isEditing() && p1.innerHTML === P1);
 
-    // Word-level re-work: ⌫ takes a word, arrows move a word.
+    // The page's words go whole; your own text a letter at a time.
     aim(p1, ' utilizes');
     clickAt(p1);
     erase(p1);
@@ -474,7 +488,9 @@ async function run() {
     clickAt(p1);
     for (const ch of 'quietly') typeChar(p1, ch);
     erase(p1);
-    check('⌫ takes back the word you typed with its space, leaving a gap caret',
+    check('⌫ takes back the last letter you typed', p1.textContent === 'The polling quietl utilizes a timer to refill tokens.', p1.textContent);
+    for (let i = 0; i < 6; i++) erase(p1);
+    check('your first letter goes with its space, leaving a gap caret',
       p1.innerHTML === P1 && p1.classList.contains('md-gap-caret'), p1.innerHTML);
     key(p1, { key: 'ArrowRight' });
     for (const ch of 'now') typeChar(p1, ch);

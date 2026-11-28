@@ -28,6 +28,7 @@ const { threadHasBeenResolved } = require('./agent-journal');
 const {
   isPlainCommentKey,
   isEditEntryKey,
+  markWrapping,
   createMarkEngine,
   gapCharAtPoint,
   blockEndAtPoint,
@@ -39,7 +40,7 @@ const {
   wrapEditEnvelope,
   parseEditEnvelope,
 } = require('./edit-marks');
-const { snapRangeToWords, startsTypedWord, HOLD_WORD_MS } = require('./word-snap');
+const { snapRangeToWords, startsNewWord, HOLD_WORD_MS } = require('./word-snap');
 
 const COMMIT_BLOCK_SEL = '#commit .commit-subject, #commit .commit-body p';
 const OVERLAY_SEL = '.rv-thread, .rv-quote-thread, .rv-filehdr-thread, .rv-row, '
@@ -276,6 +277,7 @@ function createCommitEditController(io) {
     const snap = from.pop();
     clearGapCaret();
     session.typedTo = null;
+    session.erasedTo = null;
     session.block.innerHTML = snap.html;
     try { session.block.focus({ preventScroll: true }); } catch {}
     setCaret(session.block, snap.caret);
@@ -380,7 +382,7 @@ function createCommitEditController(io) {
     if (!entryEvent || k.startsWith('Arrow')) { setCaret(block, caret); return; }
     if (k === 'Backspace' || k === 'Delete') {
       setCaret(block, caret);
-      engine.eraseWord(block, { backward: k === 'Backspace', repeat: !!entryEvent.repeat });
+      engine.eraseAtCaret(block, { backward: k === 'Backspace', repeat: !!entryEvent.repeat });
       restBetweenWords(caretOffsetIn(block));
     } else if (k === 'Enter') {
       setCaret(block, caret);
@@ -396,7 +398,7 @@ function createCommitEditController(io) {
   function wireSurface(el) {
     const onPaste = (event) => {
       event.preventDefault();
-      if (session) session.typedTo = null;
+      if (session) { session.typedTo = null; session.erasedTo = null; }
       onSelectionChange(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
       const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
@@ -409,7 +411,9 @@ function createCommitEditController(io) {
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
       const typing = t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromComposition';
-      if (!typing && session) session.typedTo = null; // any other input ends the typed word's step
+      // Any other input ends the typed (or erased) word's step.
+      if (!typing && session) session.typedTo = null;
+      if (!/^delete(Content|Word)(Backward|Forward)$/.test(t) && session) session.erasedTo = null;
       // Any input ends the gap caret; text typed there makes its own word.
       onSelectionChange(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
@@ -417,14 +421,29 @@ function createCommitEditController(io) {
         event.preventDefault();
         const s = window.getSelection();
         const wasSelection = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
-        // ⌫/Delete take a word (Option/Ctrl+⌫ too); a selection, and the
-        // line deletes, keep the browser's span.
-        if (!wasSelection && /^delete(Content|Word)(Backward|Forward)$/.test(t)) {
-          if (engine.eraseWord(el, { backward: t.endsWith('Backward') })) restBetweenWords(caretOffsetIn(el));
-          return;
-        }
         const ranges = event.getTargetRanges ? event.getTargetRanges() : [];
         const sr = ranges && ranges[0];
+        // ⌫/Delete (Option/Ctrl+⌫ too) strike or restore a page word whole,
+        // and take your own text as the browser would; a selection, and the
+        // line deletes, keep the browser's span.
+        if (!wasSelection && /^delete(Content|Word)(Backward|Forward)$/.test(t)) {
+          const backward = t.endsWith('Backward');
+          // Erasing your own text is a step a word at a time, as typing it
+          // is: a press that goes on from where the last left the caret
+          // joins its step unless it reaches another word (startsNewWord).
+          const target = engine.eraseTarget(el, { backward, range: sr || null });
+          const erasing = target && target.yours ? target.text : null;
+          const joins = !!session && erasing != null && session.erasedTo != null && session.erasedBack === backward
+            && session.erasedTo === caretOffsetIn(el) && !startsNewWord(session.erased, erasing, backward);
+          if (joins) joinUndoStep();
+          if (engine.eraseAtCaret(el, { backward, range: sr || null })) restBetweenWords(caretOffsetIn(el));
+          if (session) {
+            session.erasedTo = erasing != null ? caretOffsetIn(el) : null;
+            session.erasedBack = backward;
+            session.erased = !joins ? erasing : backward ? erasing + session.erased : session.erased + erasing;
+          }
+          return;
+        }
         if (sr) {
           const r = document.createRange();
           r.setStart(sr.startContainer, sr.startOffset);
@@ -442,10 +461,10 @@ function createCommitEditController(io) {
         const over = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
         // A typed word is one undo step: a key typed where the last one left
         // the caret joins that step unless it starts the next word
-        // (startsTypedWord). A composition is a step of its own.
+        // (startsNewWord). A composition is a step of its own.
         const data = event.data || '';
         const joins = !!session && !atGap && !over && t !== 'insertFromComposition' && session.typedTo != null
-          && session.typedTo === caretOffsetIn(el) && !startsTypedWord(session.typedWord, data);
+          && session.typedTo === caretOffsetIn(el) && !startsNewWord(session.typedWord, data);
         if (joins) joinUndoStep();
         if (over) engine.strikeInBlock(el, s.getRangeAt(0), 'after');
         if (atGap || over) engine.insertAtGap(data, el); else engine.insertMarkedInBlock(data);
@@ -471,13 +490,14 @@ function createCommitEditController(io) {
       clearGapCaret();
       restBetweenWords(engine.settleCaretAfterWord(el));
     };
-    // A selection made inside the open edit covers whole words too.
+    // A selection made inside the open edit covers the page's words whole;
+    // an end in your own text stays where it is.
     const onMouseup = () => setTimeout(() => {
       const s = window.getSelection && window.getSelection();
       if (!s || !s.rangeCount || s.isCollapsed) return;
       const range = s.getRangeAt(0);
       if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return;
-      const snapped = snapRangeToWords(range, () => el);
+      const snapped = snapRangeToWords(range, () => el, { exact: (n) => !!markWrapping(n, 'ins.md-pending-ins') });
       if (!snapped) return;
       s.removeAllRanges();
       s.addRange(snapped);
@@ -575,8 +595,11 @@ function createCommitEditController(io) {
       else commit(true);
       return;
     }
-    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !event.metaKey && !event.ctrlKey) {
-      // The caret moves a word at a time (Shift: the selection grows by words).
+    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !event.metaKey && !event.ctrlKey
+      && !engine.yoursBeside(session.block, event.key === 'ArrowLeft')) {
+      // Across the page's text the caret moves a word at a time (Shift: the
+      // selection grows by words); through your own text the browser moves
+      // it a letter.
       event.preventDefault();
       event.stopPropagation();
       const backward = event.key === 'ArrowLeft';
@@ -589,8 +612,8 @@ function createCommitEditController(io) {
     }
     if ((event.key === 'ArrowUp' || event.key === 'ArrowDown')
       && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
-      // The line move is the browser's; the caret then rests after the word
-      // it landed in.
+      // The line move is the browser's; a caret that lands inside a page
+      // word then rests after it.
       const sess = session;
       setTimeout(() => {
         if (session !== sess) return;
@@ -612,7 +635,7 @@ function createCommitEditController(io) {
     if (mod && !event.altKey && (k === 'z' || (!mac && k === 'y'))) {
       event.preventDefault();
       event.stopPropagation();
-      // Held, a step every HOLD_WORD_MS, as ⌫ takes words.
+      // Held, a step every HOLD_WORD_MS.
       if (event.repeat && Date.now() - lastUndoAt < HOLD_WORD_MS) return;
       lastUndoAt = Date.now();
       undoStep(event.shiftKey || k === 'y');
@@ -685,9 +708,9 @@ function createCommitEditController(io) {
     session.gapCaret = { offset };
   }
 
-  // A caret at rest sits between words and is the block caret: typing there
-  // makes a new word with its own spaces. Only while you type is it the bar,
-  // extending your word.
+  // A caret at rest between the page's words is the block caret: typing
+  // there makes a new word with its own spaces. Touching your own text it is
+  // the bar, and typing goes on with your text.
   function restBetweenWords(offset) {
     if (!session || offset == null) return;
     showGapCaret(engine.restingOffset(session.block, offset)); // on the space before a word

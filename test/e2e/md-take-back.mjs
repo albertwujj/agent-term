@@ -1,8 +1,10 @@
-// Word-level re-work through the real keyboard: ⌫ strikes a word, a struck
-// word comes back whole, your typed words leave whole, a held ⌫ goes at a
-// reading pace and stops where your own changes end, and the arrows move a
-// word at a time. The rules themselves are unit-tested in
-// test/markdown-click-modes.test.js and test/edit-marks.test.js.
+// Re-work through the real keyboard: ⌫ strikes a page word, a struck word
+// comes back whole, your own text goes a letter at a time, a held ⌫ goes at
+// a reading pace over the page's words and stops where your own changes
+// end, the arrows move a word at a time across the page's text, and the
+// caret stops before a page word's full stop. The rules themselves are
+// unit-tested in test/markdown-click-modes.test.js and
+// test/edit-marks.test.js.
 import assert from 'node:assert/strict';
 import { launchElectron } from './electron.mjs';
 import * as path from 'node:path';
@@ -123,10 +125,12 @@ try {
   await clickAt(3, text.indexOf(' and'));
   await page.keyboard.type('very old');
   assert.match(await marks(3), /words\{ very old\} and/, await marks(3));
+  await backspaces(1);
+  assert.match(await marks(3), /words\{ very ol\} and/, `one ⌫ takes back a letter of your text: ${await marks(3)}`);
   await holdBackspace(900);
-  assert.equal(await marks(3), text.replace('Paragraph 2', 'Paragraph 3'), `held, ⌫ takes back your words and stops at the page's text: ${await marks(3)}`);
+  assert.equal(await marks(3), text.replace('Paragraph 2', 'Paragraph 3'), `held, ⌫ takes back your text and stops at the page's text: ${await marks(3)}`);
   await commit();
-  console.log('PASS held ⌫ takes back your words and stops where they end');
+  console.log('PASS your text goes a letter at a time, and a held ⌫ stops where it ends');
 
   await clickAt(4, text.length - 1, { side: 'right' }); // after the paragraph's last word
   await holdBackspace(600);
@@ -171,6 +175,14 @@ try {
   await page.keyboard.type('terms');
   assert.match(await marks(8), /some\{ terms\} \[words\] and/, `typing where a strike left the caret makes a new word: ${await marks(8)}`);
   console.log('PASS typing at a resting caret makes a new word');
+
+  await commit();
+  const text10 = text.replace('Paragraph 2', 'Paragraph 10');
+  await clickAt(10, text10.indexOf(' and')); // open the edit, then click inside the paragraph's last word
+  await clickAt(10, text10.indexOf('lines.') + 2);
+  await page.keyboard.type('fast');
+  assert.match(await marks(10), /lines\{ fast\}\.$/, `a click in a word before a full stop puts the caret before the stop: ${await marks(10)}`);
+  console.log('PASS the caret stops before a page word\'s full stop');
 
   assert.deepEqual(errors, [], 'no renderer errors');
 } finally {

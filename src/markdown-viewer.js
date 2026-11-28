@@ -14,7 +14,7 @@ const {
 const { isFindShortcut } = require('./search-shortcut');
 const { classifyMarkdownLink } = require('./md-link-target');
 const { findSentenceRange } = require('./sentence-selection');
-const { snapStart, snapEnd, snapRangeToWords, startsTypedWord, HOLD_WORD_MS } = require('./word-snap');
+const { snapStart, snapEnd, snapRangeToWords, startsNewWord, HOLD_WORD_MS } = require('./word-snap');
 const { copyImageToClipboard } = require('./image-clipboard');
 const { createFullscreenViewer } = require('./fullscreen-viewer');
 const { openImageInspector } = require('./image-inspector');
@@ -29,6 +29,7 @@ const {
   isCommentEntryKey,
   isEditEntryKey,
   isMutatingEntryKey,
+  markWrapping,
   createMarkEngine,
   gapCharAtPoint,
   blockEndAtPoint,
@@ -5357,12 +5358,12 @@ function createMarkdownViewer({
   // commit-message editor); this host binds them to its per-action undo.
   const {
     strikeInBlock, eraseInBlock, escapeDelAtCaret, insertMarkedInBlock, insertAtGap, insertLineBreakInBlock,
-    eraseWord, moveByWord, settleCaretAfterWord, extendByWord, isBetweenWords, restingOffset,
+    eraseTarget, eraseAtCaret, yoursBeside, moveByWord, settleCaretAfterWord, extendByWord, isBetweenWords, restingOffset,
   } = createMarkEngine({ beforeMutate: () => pushEditingUndo() });
 
-  // A caret at rest sits between words (edit-marks.js, word-level editing)
-  // and is the block caret: typing there makes a new word with its own
-  // spaces. Only while you type is it the bar, extending your word.
+  // A caret at rest between the page's words (edit-marks.js) is the block
+  // caret: typing there makes a new word with its own spaces. Touching your
+  // own text it is the bar, and typing goes on with your text.
   function restCaretBetweenWords(session, offset) {
     if (!session || !session.el || offset == null) return;
     showGapCaret(session, restingOffset(session.el, offset)); // on the space before a word
@@ -5416,6 +5417,7 @@ function createMarkdownViewer({
     const snap = from.pop();
     clearGapCaret(session);
     session.typedTo = null;
+    session.erasedTo = null;
     session.el.innerHTML = snap.html;
     try { session.el.focus({ preventScroll: true }); } catch {}
     setCaretWithin(session.el, snap.caret);
@@ -5436,7 +5438,7 @@ function createMarkdownViewer({
   function wireEditingSurface(el) {
     const onPaste = (event) => {
       event.preventDefault();
-      if (state.editing) state.editing.typedTo = null;
+      if (state.editing) { state.editing.typedTo = null; state.editing.erasedTo = null; }
       syncGapCaretToSelection();
       const atGap = clearGapCaret();
       const text = event.clipboardData ? String(event.clipboardData.getData('text/plain') || '') : '';
@@ -5449,7 +5451,9 @@ function createMarkdownViewer({
     const onBeforeInput = (event) => {
       const t = event.inputType || '';
       const typing = t === 'insertText' || t === 'insertReplacementText' || t === 'insertFromComposition';
-      if (!typing && state.editing) state.editing.typedTo = null; // any other input ends the typed word's step
+      // Any other input ends the typed (or erased) word's step.
+      if (!typing && state.editing) state.editing.typedTo = null;
+      if (!/^delete(Content|Word)(Backward|Forward)$/.test(t) && state.editing) state.editing.erasedTo = null;
       // Any input ends the gap caret; text typed there makes its own word.
       syncGapCaretToSelection(); // the block caret holds only where it was put
       const atGap = clearGapCaret();
@@ -5457,14 +5461,30 @@ function createMarkdownViewer({
         event.preventDefault();
         const s = window.getSelection();
         const wasSelection = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
-        // ⌫/Delete take a word (Option/Ctrl+⌫ too); a selection, and the
-        // line deletes, keep the browser's span.
-        if (!wasSelection && /^delete(Content|Word)(Backward|Forward)$/.test(t)) {
-          if (eraseWord(el, { backward: t.endsWith('Backward') })) restCaretBetweenWords(state.editing, caretOffsetIn(el));
-          return;
-        }
         const ranges = event.getTargetRanges ? event.getTargetRanges() : [];
         const sr = ranges && ranges[0];
+        // ⌫/Delete (Option/Ctrl+⌫ too) strike or restore a page word whole,
+        // and take your own text as the browser would; a selection, and the
+        // line deletes, keep the browser's span.
+        if (!wasSelection && /^delete(Content|Word)(Backward|Forward)$/.test(t)) {
+          const backward = t.endsWith('Backward');
+          const session = state.editing;
+          // Erasing your own text is a step a word at a time, as typing it
+          // is: a press that goes on from where the last left the caret
+          // joins its step unless it reaches another word (startsNewWord).
+          const target = eraseTarget(el, { backward, range: sr || null });
+          const erasing = target && target.yours ? target.text : null;
+          const joins = !!session && erasing != null && session.erasedTo != null && session.erasedBack === backward
+            && session.erasedTo === caretOffsetIn(el) && !startsNewWord(session.erased, erasing, backward);
+          if (joins) joinUndoStep(session);
+          if (eraseAtCaret(el, { backward, range: sr || null })) restCaretBetweenWords(session, caretOffsetIn(el));
+          if (session) {
+            session.erasedTo = erasing != null ? caretOffsetIn(el) : null;
+            session.erasedBack = backward;
+            session.erased = !joins ? erasing : backward ? erasing + session.erased : session.erased + erasing;
+          }
+          return;
+        }
         if (sr) {
           const r = document.createRange();
           r.setStart(sr.startContainer, sr.startOffset);
@@ -5482,12 +5502,12 @@ function createMarkdownViewer({
         const over = !!(s && s.rangeCount && !s.getRangeAt(0).collapsed);
         // A typed word is one undo step: a key typed where the last one left
         // the caret joins that step unless it starts the next word
-        // (startsTypedWord). A composition is a step of its own: in a script
+        // (startsNewWord). A composition is a step of its own: in a script
         // written without spaces it is the word.
         const session = state.editing;
         const data = event.data || '';
         const joins = !!session && !atGap && !over && t !== 'insertFromComposition' && session.typedTo != null
-          && session.typedTo === caretOffsetIn(el) && !startsTypedWord(session.typedWord, data);
+          && session.typedTo === caretOffsetIn(el) && !startsNewWord(session.typedWord, data);
         if (joins) joinUndoStep(session);
         if (over) strikeInBlock(el, s.getRangeAt(0), 'after');
         if (atGap || over) insertAtGap(data, el); else insertMarkedInBlock(data);
@@ -5514,13 +5534,14 @@ function createMarkdownViewer({
       clearGapCaret();
       restCaretBetweenWords(state.editing, settleCaretAfterWord(el));
     };
-    // A selection made inside the open edit covers whole words too.
+    // A selection made inside the open edit covers the page's words whole;
+    // an end in your own text stays where it is.
     const onMouseup = () => setTimeout(() => {
       const sel = window.getSelection && window.getSelection();
       if (!sel || !sel.rangeCount || sel.isCollapsed) return;
       const range = sel.getRangeAt(0);
       if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return;
-      const snapped = snapRangeToWords(range, () => el);
+      const snapped = snapRangeToWords(range, () => el, { exact: (n) => !!markWrapping(n, 'ins.md-pending-ins') });
       if (!snapped) return;
       sel.removeAllRanges();
       sel.addRange(snapped);
@@ -5716,7 +5737,7 @@ function createMarkdownViewer({
       return;
     }
     if (k === 'Backspace' || k === 'Delete') {
-      eraseWord(target, { backward: k === 'Backspace', repeat: !!entryEvent.repeat });
+      eraseAtCaret(target, { backward: k === 'Backspace', repeat: !!entryEvent.repeat });
       restCaretBetweenWords(session, caretOffsetIn(target));
     } else if (k === 'Enter') {
       insertLineBreakInBlock();
@@ -8204,8 +8225,10 @@ function createMarkdownViewer({
             insertLineBreakInBlock();
           }
         } else if (inSurface && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
-          && !event.metaKey && !event.ctrlKey) {
-          // The caret moves a word at a time (Shift: the selection grows by words).
+          && !event.metaKey && !event.ctrlKey && !yoursBeside(surface, event.key === 'ArrowLeft')) {
+          // Across the page's text the caret moves a word at a time (Shift:
+          // the selection grows by words); through your own text the
+          // browser moves it a letter.
           event.preventDefault();
           const backward = event.key === 'ArrowLeft';
           if (event.shiftKey) extendByWord(surface, backward);
@@ -8215,8 +8238,8 @@ function createMarkdownViewer({
           }
         } else if (inSurface && (event.key === 'ArrowUp' || event.key === 'ArrowDown')
           && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
-          // The line move is the browser's; the caret then rests after the
-          // word it landed in.
+          // The line move is the browser's; a caret that lands inside a page
+          // word then rests after it.
           const session = state.editing;
           setTimeout(() => {
             if (state.editing !== session || !surface.isConnected) return;
@@ -8230,8 +8253,8 @@ function createMarkdownViewer({
           && /^[zy]$/i.test(String(event.key))) {
           // ⌘/Ctrl+Z steps the session history back one action; Shift (or
           // Ctrl+Y) steps forward. The note composer has its own history
-          // (word-typing.js) — this rung only fires with the caret on the
-          // surface. Held, a step every HOLD_WORD_MS, as ⌫ takes words.
+          // (comment-undo.js) — this rung only fires with the caret on the
+          // surface. Held, a step every HOLD_WORD_MS.
           event.preventDefault();
           if (event.repeat && Date.now() - (state.lastUndoAt || 0) < HOLD_WORD_MS) return;
           state.lastUndoAt = Date.now();

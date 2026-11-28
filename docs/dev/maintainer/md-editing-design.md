@@ -938,93 +938,104 @@ actions"), and the mark-click strip, and renames "Edit instead".
   live selection is replaced by the snapped one so ⌫ and the quote agree.
   Code blocks keep exact ends (copying part of a line of code is real); a
   prose selection's copy takes whole words like everything else.
-- **Editing works a word at a time** (`edit-marks.js` `eraseWord` /
-  `moveByWord` / `settleCaretAfterWord`; user, 2026-11-25: the agent reads
-  intent and handles typos, so the unit of re-work is the word). A word is
-  what Unicode word segmentation finds, as a selection snaps to, with the
-  punctuation touching it (`word-snap.js` `wordSpans`; user, 2026-11-27:
-  `book/books` is two words). Punctuation between two words goes with the
-  one before (`book/`, `books`), punctuation opening a run with the one
-  after (`(maybe)`); `don't`, `3.14` and `node.js` stay whole. Words split
-  where your typing meets the page's text. Before, a word was a run between
-  spaces (only Chinese and Japanese segmented), so ⌫ took a whole
-  `book/books`, `well-known` or URL. ⌫/Delete (and Option/Ctrl+⌫) act on the
-  word beside the caret: a word you typed leaves, an original word strikes,
-  a struck word comes back, and your typed part of a word goes first.
-  Backward, the spaces between the word and the caret go too, so striking
-  on through a sentence makes one strike, unless taking them would join
-  the text either side (Delete at `the |book/books` leaves `the books`;
-  `wordEraseSpan`, shared with the comment box); a typed word takes its gap's
-  opening space once nothing typed is left before it. Since a space is
-  struck only with a word, a take-back also brings back a strike left
-  holding only spaces beside it, and two strikes with only spaces between
-  join into one, the spaces struck (both words gone, the space between
-  goes; strike "the file", take back each word:
-  no struck space remains), and an insertion left holding only spaces goes
-  (the space a typed word came with); such marks elsewhere stay. The press-run rule
-  stands (striking runs hop older strikes, a held take-back stops at the
-  page's text), tracked by on-screen caret offset since the gap caret
-  re-seats the caret. A held key takes a word every 150 ms instead of one
-  per key repeat. ←/→ move to the end of the word before or after, Shift
-  grows a selection by words, ↑/↓ settle after the word they land in, and
-  a click inside the open edit rests after the clicked word.
+- **The page's words go whole; your own text is ordinary text**
+  (`edit-marks.js` `eraseTarget` / `eraseAtCaret` / `moveByWord` /
+  `settleCaretAfterWord`). The text that was on the page is made of whole
+  words: you strike or restore a word and insert between words, never edit
+  inside one (part of a page word is never what an intent means, so there
+  is no partial-word editing to support). The text you typed is ordinary
+  text, a letter at a time. History: from 2026-11-25 everything worked a
+  word at a time (user: the agent reads intent and handles typos, so the
+  unit of re-work is the word), your own typing and the comment box
+  included, ⌫ taking a whole typed word; on 2026-11-28 the user found that
+  too hard to learn and not worth it, and the word unit stayed only on the
+  page's text, where it is what a strike shows.
+  A word is what Unicode word segmentation finds, as a selection snaps to,
+  with the punctuation touching it (`word-snap.js` `wordSpans`; user,
+  2026-11-27: `book/books` is two words; before, a word was a run between
+  spaces, so ⌫ took a whole `book/books`, `well-known` or URL).
+  Punctuation between two words goes with the one before (`book/`,
+  `books`), punctuation opening a run with the one after (`(maybe)`);
+  `don't`, `3.14` and `node.js` stay whole. A word's letters end before the
+  punctuation after them (`wordEnd`), and the caret stops there too
+  (2026-11-28): with the punctuation riding along there was no way to put a
+  word before a full stop. So a click on `waits` rests at `waits|.`,
+  typing there gives `waits forever.`, ⌫ there strikes `waits` and keeps
+  the stop, and Delete there takes the stop alone.
+  ⌫/Delete (and Option/Ctrl+⌫) on a page word strike it, or bring a struck
+  word back, whole. Backward, the spaces between the word and the caret go
+  too, so striking on through a sentence makes one strike, unless taking
+  them would join the text either side (Delete at `the |book/books` leaves
+  `the books`; `wordEraseSpan`). Your own text goes as the browser's span
+  says (a letter; with Option a word), kept to your text; your typed part
+  of a word goes first, and taking back your last letter at a gap takes
+  the gap's opening space with it. Since a space is struck only with a
+  word, a take-back also brings back a strike left holding only spaces
+  beside it, and two strikes with only spaces between join into one, the
+  spaces struck (both words gone, the space between goes; strike "the
+  file", take back each word: no struck space remains), and an insertion
+  left holding only spaces goes (the space a typed word came with); such
+  marks elsewhere stay. The press-run rule stands (striking runs hop older
+  strikes, a held take-back stops at the page's text), tracked by
+  on-screen caret offset since the gap caret re-seats the caret. A held key
+  strikes or restores a page word every 150 ms instead of one per key
+  repeat; your letters go at key-repeat speed. Across the page's text ←/→
+  move to the next word end (or `wordEnd`), Shift grows a selection by
+  words, and ↑/↓ and a click inside the open edit settle after the page
+  word they land in. Through your own text the browser moves the caret a
+  letter (`yoursBeside`), and a click in it lands where it is.
 - **One caret at rest: the block means a new word** (user, 2026-11-25: a
   caret left at a word's start glued typing onto the word, and two caret
   kinds asked the reader to know which adds spaces). Wherever the caret
-  rests between words (after a click, an arrow, ⌫, an undo, at the block's
-  start or end) it is the block (`isBetweenWords`). A caret that lands at a
-  word's start after a space rests on that space instead (`restingOffset`:
-  the block covers a space, never a letter it seems to replace; a struck
-  space, a line break, the block's start and an opening bracket keep it on
-  the letter), and the word erase records that spot so a run goes on;
+  rests between the page's words (after a click, an arrow, ⌫, an undo, at
+  the block's start or end) it is the block (`isBetweenWords`). Touching
+  your own text it is the bar, and typing goes on with your text. A caret
+  that lands at a word's start after a space rests on that space instead
+  (`restingOffset`: the block covers a space, never a letter it seems to
+  replace; a struck space, a line break, the block's start and an opening
+  bracket keep it on the letter; at a `wordEnd` it covers the
+  punctuation), and the word erase records that spot so a run goes on;
   and the first text typed there is a new word (`insertAtGap`): a space
   before it after a word, a space after it before a word (a letter or
   digit, or an opening bracket or quote leading into one), the caret kept
   inside before any space added after. Between two words with no space
   between them (`book/|books`) it goes in as typed: you type what joins
-  them (`pages/`), since spaces there would break up the run. Typing over a selection, To edit
-  and paste over a selection do the same after the strike (`~~utilizes~~
-  uses`). The bar shows only while you type, and extends your word. Enter
-  breaks the line only at a gap nothing has been done at yet; elsewhere it
-  sends. Before any input the block flag is checked against the live
-  caret, so a caret moved without a selectionchange never pads. Commit
-  collapses spaces typed before an added one. A selection made inside the open edit snaps to whole
-  words and stays the edit's own (the mouseup no longer arms it as a
-  comment selection). Selection ⌫ and the line deletes (⌘⌫) keep the
-  browser's span.
-- **The comment box types a word at a time too** (`src/word-typing.js`,
-  wired once in `comment-ui.js` `createComposer`, so the terminal, md and
-  review composers all have it; user, 2026-11-25). The edit's rules on a
-  plain textarea: ⌫/Delete take a word (a word gone from between two
-  others leaves one space; held, one per 150 ms; a selection deletes as
-  is), ←/→ move to word ends, Shift grows by words, ↑/↓, Home/End and
-  clicks settle after the word, a selection snaps to whole words, and text
-  typed at a resting caret is a new word (`newWordSpacing`, shared with the
-  edit's `insertAtGap`) under the block caret. The end of the comment and
-  of each line is where you compose: the bar, typing just goes on (a block
-  there would be the digit-wide one, and a textarea cannot draw its own).
-  ⌘/Ctrl chords and IME stay native.
+  them (`pages/`), since spaces there would break up the run. Typing over
+  a selection, To edit and paste over a selection do the same after the
+  strike (`~~utilizes~~ uses`). Enter breaks the line only at a gap
+  nothing has been done at yet; elsewhere it sends. Before any input the
+  block flag is checked against the live caret, so a caret moved without a
+  selectionchange never pads. Commit collapses spaces typed before an
+  added one. A selection made inside the open edit snaps to the page's
+  whole words (an end in your own text stays where it is) and stays the
+  edit's own (the mouseup no longer arms it as a comment selection).
+  Selection ⌫ and the line deletes (⌘⌫) keep the browser's span.
+- **The comment box is a plain text box** (user, 2026-11-28). From
+  2026-11-25 it typed a word at a time like the edit (⌫ took a word, the
+  arrows moved by words, a resting caret was the block and spaced a new
+  word, a selection snapped to words); that went with the word unit on
+  your own text: what you type in it is yours, and a text box's habits are
+  what fingers expect. Only its undo history is its own (below).
 - **Undo and redo stay within the current edit or comment** (2026-11-26).
   ⌘Z / ⇧⌘Z (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y elsewhere) step through it, all
   the way back to where it opened and forward to its last change, and stop
-  there. A typed word is one step, as ⌫ erases one (2026-11-27): a key
-  typed where the last one left the caret (`typedTo`) joins the step unless
-  it starts the next word after a word typed in the step (`startsTypedWord`
-  in `word-snap.js`, by `wordSpans` over the text typed in the step so far,
-  so spaces typed ahead of a word ride with it and `book/books` is two
-  steps). An IME composition is
-  a step of its own; in a script written without spaces it is the word. A
-  word erase, a paste and a strike over a selection are a step each, and
-  the key that opened the edit starts its first word. Held, ⌘Z steps every
-  `HOLD_WORD_MS`, the pace a held ⌫ erases. The word, over the typing run
-  (a key typed where the last one left the caret, as in a text box): every
-  other unit here is the word, and a run's size rests on history the screen
-  never shows (whether you clicked mid-sentence), so one ⌘Z could take a
-  whole comment; a word step takes back what one ⌫ would. Esc and Discard
-  are the all-at-once exit.
+  there. A typed word is one step (2026-11-27), and so is a word of your
+  own text erased (2026-11-28): a key typed, or a ⌫ pressed, where the last
+  one left the caret (`typedTo`, `erasedTo`) joins the step unless it starts
+  or reaches another word (`startsNewWord` in `word-snap.js`, by `wordSpans`
+  over the text typed or erased in the step so far, so spaces typed ahead
+  of a word ride with it and `book/books` is two steps). An IME
+  composition is a step of its own; in a script written without spaces it
+  is the word. A page word struck or restored, a paste and a strike over a
+  selection are a step each, and the key that opened the edit starts its
+  first word. Held, ⌘Z steps every `HOLD_WORD_MS`. The word, over the
+  typing run (a key typed where the last one left the caret, as in a text
+  box): a run's size rests on history the screen never shows (whether you
+  clicked mid-sentence), so one ⌘Z could take a whole comment, while a
+  word is a unit you can see. Esc and Discard are the all-at-once exit.
   The edits keep their own snapshot stacks (`pushEditingUndo` /
   `joinUndoStep`; the review's `pushUndo`). The comment box keeps its own
-  too (`word-typing.js`). Undo goes back to how the box opened, and what you
+  too (`comment-undo.js`). Undo goes back to how the box opened, and what you
   opened it with counts as yours (`seedFrom`, 2026-11-27): the key that
   opened it starts your first word (undo of "keep" goes straight to empty,
   never to a lone "k"), and a paste that opened it is a step of its own;
@@ -1032,9 +1043,9 @@ actions"), and the mark-click strip, and renames "Edit instead".
   saved draft) is where undo stops. The page's native undo history cannot
   serve: it is shared by every field in the document, the terminal's hidden input included, so an undo
   past the box's first change reached into the terminal's field (and with
-  no Edit menu macOS gave the box no redo). Its word edits write with
-  `setRangeText`, outside that native history; the context menu's
-  Undo/Redo arrive as `historyUndo`/`historyRedo` and step the same history.
+  no Edit menu macOS gave the box no redo). Undo and redo write the value
+  directly, outside that native history; the context menu's Undo/Redo
+  arrive as `historyUndo`/`historyRedo` and step the same history.
   Text typed right against your own insertion joins it, so the agent reads
   one insertion.
 - The review's commit message follows the same rules

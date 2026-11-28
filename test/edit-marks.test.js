@@ -205,19 +205,46 @@ const marks = (el) => el.innerHTML
   check('insertions made elsewhere keep their typed spaces', el.textContent === 'foo x  bar', el.innerHTML);
 }
 
-// Words split at Unicode word boundaries, so `book/books` is two: ⌫ and
-// Delete strike one at a time, and text typed between them goes in as typed.
+// The page's words split at Unicode word boundaries, so `book/books` is
+// two: ⌫ and Delete strike one at a time, and text typed between them goes
+// in as typed.
 {
   const el = block('the book/books here');
   caretTo(el, 'the book/books'.length);
-  engine.eraseWord(el, { backward: true, repeat: false });
+  engine.eraseAtCaret(el, { backward: true, repeat: false });
   check('⌫ strikes the word after the slash alone', marks(el) === 'the book/[books] here', marks(el));
 }
 {
   const el = block('the book/books here');
   caretTo(el, 3);
-  engine.eraseWord(el, { backward: false, repeat: false });
+  engine.eraseAtCaret(el, { backward: false, repeat: false });
   check('Delete strikes the word before the slash, the space before it kept', marks(el) === 'the [book/]books here', marks(el));
+}
+{
+  const el = block('it waits. Then');
+  caretTo(el, 'it waits'.length);
+  check('the caret before a page word\'s full stop is between words', engine.isBetweenWords(el, 'it waits'.length));
+  engine.eraseAtCaret(el, { backward: true, repeat: false });
+  check('⌫ there strikes the word and keeps the stop', marks(el) === 'it [waits]. Then', marks(el));
+}
+
+// Your own text is ordinary text: ⌫ takes a letter, Option+⌫ the browser's
+// word, kept to your text; the caret beside it is not a resting spot.
+{
+  const el = block('foo<ins class="md-pending-ins"> bar baz</ins> qux');
+  caretTo(el, 'foo bar baz'.length);
+  check('beside your text the caret is not between words', !engine.isBetweenWords(el, 'foo bar baz'.length));
+  check('and the keys there are your text\'s', engine.yoursBeside(el, true) && !engine.yoursBeside(el, false));
+  engine.eraseAtCaret(el, { backward: true, repeat: false });
+  check('⌫ takes back one letter of your text', marks(el) === 'foo{ bar ba} qux', marks(el));
+  engine.eraseAtCaret(el, { backward: true, range: span(el, 'foo bar '.length, 'foo bar ba'.length), repeat: false });
+  check('Option+⌫ takes the browser\'s word span', marks(el) === 'foo{ bar } qux', marks(el));
+}
+{
+  const el = block('foo<ins class="md-pending-ins">,</ins> qux');
+  caretTo(el, 4);
+  engine.eraseAtCaret(el, { backward: true, range: span(el, 0, 4), repeat: false });
+  check('a span running into the page\'s text takes only your part of it', marks(el) === 'foo qux', marks(el));
 }
 {
   const el = block('book/books');

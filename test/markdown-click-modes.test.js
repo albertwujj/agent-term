@@ -118,15 +118,35 @@ function type(el, data) {
   }
 }
 // A beforeinput delete whose target range is the char beside the caret (or
-// the selection), as Chromium hands it over.
+// the selection), as Chromium hands it over: across text nodes, since each
+// typed key is a node of its own.
 function erase(el, backward = true) {
   const s = dom.window.getSelection();
   const r = s.getRangeAt(0).cloneRange();
-  const node = r.startContainer;
-  const at = r.startOffset;
-  const target = !r.collapsed ? r : backward
-    ? { startContainer: node, startOffset: at - 1, endContainer: node, endOffset: at }
-    : { startContainer: node, startOffset: at, endContainer: node, endOffset: at + 1 };
+  let target = r;
+  if (r.collapsed) {
+    const nodes = [];
+    const w = document.createTreeWalker(el, 4, null);
+    let n;
+    while ((n = w.nextNode())) nodes.push(n);
+    const pre = document.createRange();
+    pre.selectNodeContents(el);
+    pre.setEnd(r.startContainer, r.startOffset);
+    const at = pre.toString().length;
+    const point = (k, isEnd) => {
+      let left = k;
+      for (const t of nodes) {
+        if (left < t.data.length || (isEnd && left === t.data.length)) return [t, left];
+        left -= t.data.length;
+      }
+      const last = nodes[nodes.length - 1];
+      return [last, last.data.length];
+    };
+    const [from, to] = backward ? [Math.max(0, at - 1), at] : [at, at + 1];
+    const [sc, so] = point(from, false);
+    const [ec, eo] = point(to, true);
+    target = { startContainer: sc, startOffset: so, endContainer: ec, endOffset: eo };
+  }
   const ev = new dom.window.InputEvent('beforeinput', {
     inputType: backward ? 'deleteContentBackward' : 'deleteContentForward', bubbles: true, cancelable: true,
   });
@@ -313,7 +333,7 @@ async function run() {
     const ed = editing();
     check('a click on your insertion reopens the edit there', ed === el && !!el.querySelector('ins.md-pending-ins'));
     type(ed, 'X');
-    check('the caret rests after the word you clicked: typing adds a word, one insertion with it', /\{ only X\} once/.test(marks(ed)), marks(ed));
+    check('a click in your own text puts the caret where you clicked: typing goes on there', /\{ onXly\} once/.test(marks(ed)), marks(ed));
     check('a reopened edit offers no To comment', !!stripButton('To comment') && stripButton('To comment').hidden);
     stripButton('Revert').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     await sleep(10);
@@ -350,16 +370,16 @@ async function run() {
     await reset();
   }
 
-  // --- word-level re-work: your typed word leaves whole, a struck word
-  //     comes back whole, your part of a word goes first ---
+  // --- your own text goes a letter at a time, a struck word comes back
+  //     whole, your part of a word goes first ---
   {
     let el = aim('The poller', ' once');
     await clickAimed(el);
     type(editing(), 'only now');
     erase(editing(), true);
-    check('⌫ takes back the last word you typed, the space you typed stays', /file\{ only \} once/.test(marks(editing())), marks(editing()));
-    erase(editing(), true);
-    check('the next ⌫ takes the first word and the gap\'s space with it',
+    check('⌫ takes back the last letter you typed', /file\{ only no\} once/.test(marks(editing())), marks(editing()));
+    for (let i = 0; i < 7; i++) erase(editing(), true);
+    check('taking back your first letter takes the gap\'s space with it',
       !editing().querySelector('ins') && editing().textContent.includes('the file once'), marks(editing()));
     check('the caret is a gap caret again, so a new word gets its own space', editing().classList.contains('md-gap-caret'));
     type(editing(), 'twice');
@@ -445,11 +465,11 @@ async function run() {
       erase(editing(), true);
     };
     press(false);
+    for (let i = 0; i < 7; i++) press(true); // your letters go at key-repeat speed
+    check('held, ⌫ takes back your text a letter per repeat', !editing().querySelector('ins'), marks(editing()));
     await sleep(170);
     press(true);
-    await sleep(170);
-    press(true);
-    check('held, ⌫ takes back your words and stops at the page\'s text',
+    check('held, ⌫ takes back your text and stops at the page\'s text',
       !editing().querySelector('ins, del') && editing().textContent.includes('the file once'), marks(editing()));
     await sleep(170);
     press(false);
@@ -477,7 +497,9 @@ async function run() {
     type(editing(), 'y');
     check('and the next key extends your word', /the\{ xy\} \[file\] once/.test(marks(editing())), marks(editing()));
     erase(editing(), true);
-    check('⌫ takes your word back with the space it brought, and the block returns',
+    check('⌫ takes back your last letter, the caret the bar', /the\{ x\} \[file\] once/.test(marks(editing())) && !editing().classList.contains('md-gap-caret'), marks(editing()));
+    erase(editing(), true);
+    check('your first letter goes with the space it brought, and the block returns',
       /the \[file\] once/.test(marks(editing())) && !editing().querySelector('ins') && editing().classList.contains('md-gap-caret'), marks(editing()));
     await reset();
 
@@ -498,15 +520,14 @@ async function run() {
     await reset();
   }
 
-  // --- undo and redo: a typed word is one step, a word erase is one,
-  //     and undo walks all the way back to where the edit opened ---
+  // --- undo and redo: a typed word is one step, and so is a word of your
+  //     text erased; undo walks all the way back to where the edit opened ---
   {
     const el = aim('The poller', ' once');
     await clickAimed(el);
     const typeKeys = async (text) => { for (const ch of text) { type(editing(), ch); await sleep(0); } };
     await typeKeys('only now');
-    erase(editing(), true); // takes back "now"
-    await sleep(0);
+    for (let i = 0; i < 3; i++) { erase(editing(), true); await sleep(0); } // takes back "now", a letter a press
     await typeKeys('then');
     await sleep(0);
     check('the edit reads as typed', /file\{ only then\} once/.test(marks(editing())), marks(editing()));
@@ -514,7 +535,7 @@ async function run() {
     await undo();
     check('⌘Z takes back the last word typed', /file\{ only \} once/.test(marks(editing())), marks(editing()));
     await undo();
-    check('the next ⌘Z brings back the erased word', /file\{ only now\} once/.test(marks(editing())), marks(editing()));
+    check('the next ⌘Z brings back the erased word, its letters one step', /file\{ only now\} once/.test(marks(editing())), marks(editing()));
     await undo();
     check('the next takes back the word before it, a word a step', /file\{ only \} once/.test(marks(editing())), marks(editing()));
     await undo();
@@ -555,6 +576,41 @@ async function run() {
     await clickAimed(editing());
     type(editing(), 'z');
     check('a mid-word click puts the caret after the word', /poller\{ z\} reads/.test(marks(editing())), marks(editing()));
+    await reset();
+  }
+
+  // --- a page word's letters end before its punctuation: the caret stops
+  //     there, so a word goes in before a full stop, and ⌫ there strikes the
+  //     letters alone ---
+  {
+    const clickIn = async (needle, delta) => {
+      aim('The poller', needle, delta);
+      const at = document.createRange();
+      at.setStart(aimed.node, aimed.offset);
+      dom.window.getSelection().removeAllRanges();
+      dom.window.getSelection().addRange(at);
+      await clickAimed(editing());
+    };
+    let el = aim('The poller', ' once');
+    await clickAimed(el);
+    await clickIn('redraws', 3);
+    type(editing(), 'fast');
+    check('a click on a word before a full stop puts the caret before the stop', /redraws\{ fast\}\./.test(marks(editing())), marks(editing()));
+    await reset();
+    el = aim('The poller', ' once');
+    await clickAimed(el);
+    await clickIn('redraws', 3);
+    erase(editing(), true);
+    check('⌫ there strikes the word and keeps the stop', /and \[redraws\]\./.test(marks(editing())), marks(editing()));
+    await reset();
+  }
+
+  // --- through your own text the arrows are the browser's, a letter at a time ---
+  {
+    const el = aim('The poller', ' once');
+    await clickAimed(el);
+    type(editing(), 'xy');
+    check('← beside your text is the browser\'s', key(editing(), { key: 'ArrowLeft' }));
     await reset();
   }
 
